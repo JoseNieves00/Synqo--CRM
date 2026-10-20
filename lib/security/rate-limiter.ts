@@ -1,0 +1,54 @@
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
+let ratelimit: Ratelimit | null = null;
+
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  try {
+    const redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+
+    // Límite: Máximo 15 mensajes por minuto por remitente
+    ratelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(15, '60 s'),
+      analytics: true,
+      prefix: 'synqo_ratelimit',
+    });
+  } catch (error) {
+    console.warn('[RATE LIMITER] No se pudo inicializar Upstash Redis. Usando almacenamiento en memoria local.', error);
+  }
+}
+
+// In-memory fallback para entornos de desarrollo local sin Redis configurado
+const memoryStore = new Map<string, { count: number; resetTime: number }>();
+
+export async function checkRateLimit(identifier: string): Promise<{ success: boolean; remaining: number }> {
+  if (ratelimit) {
+    try {
+      const result = await ratelimit.limit(identifier);
+      return { success: result.success, remaining: result.remaining };
+    } catch (e) {
+      console.warn('[RATE LIMITER WARNING] Error consultando Redis, aplicando fallback en memoria:', e);
+    }
+  }
+
+  // Fallback de memoria
+  const now = Date.now();
+  const record = memoryStore.get(identifier);
+
+  if (!record || now > record.resetTime) {
+    memoryStore.set(identifier, { count: 1, resetTime: now + 60000 });
+    return { success: true, remaining: 14 };
+  }
+
+  if (record.count >= 15) {
+    return { success: false, remaining: 0 };
+  }
+
+  record.count += 1;
+  return { success: true, remaining: 15 - record.count };
+}
+
