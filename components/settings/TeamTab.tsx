@@ -10,8 +10,11 @@ import {
   Shield,
   Key,
   Info,
+  RotateCcw,
+  Copy,
+  Check,
 } from 'lucide-react';
-import { addTeamMember, removeTeamMember } from '@/app/actions/team';
+import { addTeamMember, removeTeamMember, regenerateTeamMemberPassword } from '@/app/actions/team';
 
 interface TeamMember {
   id: string;
@@ -43,6 +46,13 @@ export function TeamTab({ initialData }: TeamTabProps) {
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [tempPassResult, setTempPassResult] = useState<{
+    email: string;
+    fullName: string;
+    tempPassword: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Formulario de nuevo miembro
   const [fullName, setFullName] = useState('');
@@ -115,6 +125,45 @@ export function TeamTab({ initialData }: TeamTabProps) {
     }
   };
 
+  const handleRegeneratePassword = async (memberId: string, memberName: string) => {
+    if (
+      !confirm(
+        `¿Deseas generar una nueva contraseña temporal para ${memberName}? El usuario deberá cambiarla obligatoriamente al ingresar.`
+      )
+    ) {
+      return;
+    }
+
+    setRegeneratingId(memberId);
+    setFeedback(null);
+    setTempPassResult(null);
+
+    try {
+      const res = await regenerateTeamMemberPassword(memberId);
+      if (res.success && res.tempPassword) {
+        setTempPassResult({
+          email: res.email,
+          fullName: res.fullName,
+          tempPassword: res.tempPassword,
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Error regenerando contraseña temporal.',
+      });
+    } finally {
+      setRegeneratingId(null);
+    }
+  };
+
+  const handleCopyPassword = () => {
+    if (!tempPassResult) return;
+    navigator.clipboard.writeText(tempPassResult.tempPassword);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
   return (
     <div className="space-y-6">
       {/* Feedback banner */}
@@ -140,6 +189,41 @@ export function TeamTab({ initialData }: TeamTabProps) {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Alerta de Contraseña Temporal Generada */}
+      {tempPassResult && (
+        <div className="p-4 rounded-xl bg-slate-900 text-white border border-slate-800 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+              <Key className="w-4 h-4" />
+              Nueva Contraseña Temporal Generada para {tempPassResult.fullName}
+            </div>
+            <p className="text-[11px] text-slate-300 mt-1">
+              Usuario: <span className="font-mono text-white">{tempPassResult.email}</span> • Al ingresar al CRM, el sistema le exigirá cambiarla inmediatamente.
+            </p>
+            <div className="mt-2 inline-flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+              <span className="text-xs font-mono text-emerald-400 font-bold select-all tracking-wider">
+                {tempPassResult.tempPassword}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={handleCopyPassword}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg transition"
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? '¡Copiada!' : 'Copiar'}
+            </button>
+            <button
+              onClick={() => setTempPassResult(null)}
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition text-xs"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       )}
 
@@ -203,7 +287,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
             <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center gap-2 text-xs text-amber-800">
               <Info className="w-4 h-4 text-amber-600 flex-shrink-0" />
               <span>
-                Has completado la cuota de asientos autorizados para tu empresa. Para habilitar más cupos, solicita una ampliación al Super Administrador.
+                Has completado la cuota de usuarios autorizados para tu plan actual. Para habilitar más cupos, solicita una ampliación de tu suscripción.
               </span>
             </div>
           )}
@@ -262,7 +346,16 @@ export function TeamTab({ initialData }: TeamTabProps) {
                       })}
                     </td>
 
-                    <td className="py-3.5 px-6 text-right">
+                    <td className="py-3.5 px-6 text-right space-x-1">
+                      <button
+                        onClick={() => handleRegeneratePassword(member.id, member.full_name)}
+                        disabled={regeneratingId === member.id}
+                        className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition cursor-pointer disabled:opacity-50"
+                        title="Regenerar contraseña temporal"
+                      >
+                        <RotateCcw className={`w-4 h-4 ${regeneratingId === member.id ? 'animate-spin text-emerald-600' : ''}`} />
+                      </button>
+
                       {!isAdmin && (
                         <button
                           onClick={() => handleRemoveMember(member.id, member.full_name)}

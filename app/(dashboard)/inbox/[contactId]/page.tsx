@@ -19,33 +19,40 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
     redirect('/login');
   }
 
-  // 1. Consultar todos los contactos de la organización para la lista lateral
-  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
-    .eq('organization_id', current.organization.id)
-    .order('last_interaction_at', { ascending: false })
-    .limit(50);
+  // Consultar contactos y mensajes en paralelo para máxima velocidad
+  const [contactsRes, messagesRes] = await Promise.all([
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+      .eq('organization_id', current.organization.id)
+      .order('last_interaction_at', { ascending: false })
+      .limit(50),
+    (supabaseAdmin.from('messages') as any)
+      .select('id, sender_type, content, created_at')
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: true })
+      .limit(100),
+  ]);
 
-  const contactList = contacts || [];
+  const contactList = contactsRes.data || [];
 
-  // 2. Consultar el contacto seleccionado específicamente asegurando tenant isolation
-  const activeContact = contactList.find((c: any) => c.id === contactId) || (
-    await (supabaseAdmin.from('contacts') as any)
+  // Obtener el contacto activo de la lista precargada o consulta puntual si no estuviera en los 50 recientes
+  let activeContact = contactList.find((c: any) => c.id === contactId);
+
+  if (!activeContact) {
+    const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
       .eq('id', contactId)
       .eq('organization_id', current.organization.id)
-      .single()
-  ).data;
+      .single();
+
+    activeContact = singleContact;
+  }
 
   if (!activeContact) {
     notFound();
   }
 
-  // 3. Consultar mensajes del contacto
-  const { data: messages } = await (supabaseAdmin.from('messages') as any)
-    .select('id, sender_type, content, created_at')
-    .eq('contact_id', contactId)
-    .order('created_at', { ascending: true });
+  const messages = messagesRes.data || [];
 
   return (
     <InboxView

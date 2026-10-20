@@ -2,7 +2,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { encryptSecret } from '@/lib/security/encryption';
+import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
 import { Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 
@@ -72,4 +72,154 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 
   revalidatePath('/settings');
   return { success: true };
+}
+
+/**
+ * Prueba en tiempo real la conexión con la API de WhatsApp Cloud de Meta.
+ * Valida que el Phone Number ID exista y que el Access Token tenga permisos válidos.
+ */
+export async function testWhatsAppConnection(input: {
+  phoneNumberId?: string;
+  accessToken?: string;
+}) {
+  let phoneId = input.phoneNumberId?.trim();
+  let token = input.accessToken?.trim();
+
+  if (!phoneId || !token) {
+    try {
+      const supabase = createServerSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+          .select('organization_id')
+          .eq('id', user.id)
+          .single();
+
+        if (profile) {
+          const { data: org } = await (supabaseAdmin.from('organizations') as any)
+            .select('whatsapp_phone_number_id, whatsapp_access_token')
+            .eq('id', profile.organization_id)
+            .single();
+
+          phoneId = phoneId || org?.whatsapp_phone_number_id;
+          if (!token && org?.whatsapp_access_token) {
+            token = decryptSecret(org.whatsapp_access_token);
+          }
+        }
+      }
+    } catch {
+      // Contexto de prueba o fuera de petición HTTP
+    }
+  }
+
+  if (!phoneId || !token) {
+    return {
+      success: false,
+      error: 'Debes ingresar tanto el Phone Number ID como el Access Token para probar la conexión.',
+    };
+  }
+
+  try {
+    const metaUrl = `https://graph.facebook.com/v20.0/${phoneId}?fields=verified_name,display_phone_number,code_verification_status,quality_rating`;
+    const res = await fetch(metaUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.error?.message || 'Meta Cloud API rechazó las credenciales ingresadas.',
+      };
+    }
+
+    const name = data.verified_name || data.display_phone_number || phoneId;
+    const quality = data.quality_rating || 'UNKNOWN';
+    return {
+      success: true,
+      message: `¡Conexión Exitosa con Meta! Línea verificada: ${name} (Calidad: ${quality}).`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `Error de red al conectar con Meta Graph API: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Prueba en tiempo real la conexión con Cal.com.
+ * Valida que la API Key sea válida y enumera los tipos de evento disponibles.
+ */
+export async function testCalConnection(input: {
+  apiKey?: string;
+  eventTypeId?: string;
+}) {
+  let key = input.apiKey?.trim();
+
+  if (!key) {
+    try {
+      const supabase = createServerSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+          .select('organization_id')
+          .eq('id', user.id)
+          .single();
+
+        if (profile) {
+          const { data: org } = await (supabaseAdmin.from('organizations') as any)
+            .select('cal_api_key, cal_event_type_id')
+            .eq('id', profile.organization_id)
+            .single();
+
+          if (org?.cal_api_key) {
+            key = decryptSecret(org.cal_api_key);
+          }
+        }
+      }
+    } catch {
+      // Contexto de prueba o fuera de petición HTTP
+    }
+  }
+
+  if (!key) {
+    return {
+      success: false,
+      error: 'Debes ingresar tu API Key de Cal.com para realizar la prueba.',
+    };
+  }
+
+  try {
+    const res = await fetch(`https://api.cal.com/v1/event-types?apiKey=${key}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data.message || 'API Key de Cal.com inválida o no autorizada.',
+      };
+    }
+
+    const count = data.event_types?.length || 0;
+    return {
+      success: true,
+      message: `¡Conexión Exitosa con Cal.com! Se encontraron ${count} tipos de eventos configurados en tu cuenta.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `Error de red al consultar Cal.com: ${err.message}`,
+    };
+  }
 }

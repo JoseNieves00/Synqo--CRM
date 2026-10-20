@@ -14,11 +14,12 @@ export default async function PipelinePage() {
     redirect('/login');
   }
 
-  // Consultar contactos reales de la organización activa
+  // Consultar contactos de la organización activa con límite de rendimiento
   const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
     .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
     .eq('organization_id', current.organization.id)
-    .order('last_interaction_at', { ascending: false });
+    .order('last_interaction_at', { ascending: false })
+    .limit(150);
 
   const leadList = contacts || [];
 
@@ -30,7 +31,7 @@ export default async function PipelinePage() {
             Pipeline Comercial & Agendamiento
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Mueve las tarjetas entre fases o deja que OpenAI actualice las etapas al cumplir criterios de compra y agendamiento.
+            Gestiona visualmente el avance de tus prospectos o permite que el Asistente IA actualice las etapas al confirmar citas e interés de compra.
           </p>
         </div>
 

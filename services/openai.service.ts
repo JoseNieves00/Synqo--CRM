@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { CalService } from './cal.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { recordTokenUsage, checkTokenQuota } from '@/lib/monitoring/token-tracker';
 import {
   UpdateStageToolSchema,
   CheckAvailabilityToolSchema,
@@ -90,6 +91,24 @@ export class OpenAIService {
     calApiKey,
     calEventTypeId,
   }: ProcessLeadParams): Promise<string> {
+    // 0. Verificar cuota de tokens mensual de la empresa
+    const quota = await checkTokenQuota(organizationId);
+    if (!quota.allowed) {
+      console.warn(
+        `[OpenAI Quota Exceeded] Org ${organizationId} alcanzó ${quota.used}/${quota.limit} tokens.`
+      );
+      // Apagar IA para el prospecto y avisar a asesores
+      await supabaseAdmin
+        .from('contacts')
+        .update({
+          is_ai_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', contactId);
+
+      return 'Hola, en este momento nuestros canales de atención automática han alcanzado el límite mensual. Un asesor comercial humano se comunicará contigo directamente.';
+    }
+
     // 1. Obtener historial reciente de mensajes para contexto conversacional (últimos 10 mensajes)
     const { data: dbMessages } = await supabaseAdmin
       .from('messages')
@@ -134,6 +153,17 @@ ${systemPromptConfig || 'Eres el asesor comercial de Synqo.'}
       tool_choice: 'auto',
       temperature: 0.3, // Baja temperatura para consistencia comercial y seguridad
     });
+
+    if (response.usage) {
+      await recordTokenUsage({
+        organizationId,
+        contactId,
+        promptTokens: response.usage.prompt_tokens,
+        completionTokens: response.usage.completion_tokens,
+        totalTokens: response.usage.total_tokens,
+        model: 'gpt-4o',
+      });
+    }
 
     const choice = response.choices[0];
     const message = choice.message;
@@ -231,6 +261,17 @@ ${systemPromptConfig || 'Eres el asesor comercial de Synqo.'}
         messages: conversationHistory,
         temperature: 0.3,
       });
+
+      if (followUp.usage) {
+        await recordTokenUsage({
+          organizationId,
+          contactId,
+          promptTokens: followUp.usage.prompt_tokens,
+          completionTokens: followUp.usage.completion_tokens,
+          totalTokens: followUp.usage.total_tokens,
+          model: 'gpt-4o',
+        });
+      }
 
       return followUp.choices[0].message.content || 'Entendido. Un asesor se comunicará contigo a la brevedad.';
     }

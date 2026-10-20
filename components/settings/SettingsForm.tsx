@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { updateOrganizationSettings } from '@/app/actions/settings';
+import {
+  updateOrganizationSettings,
+  testWhatsAppConnection,
+  testCalConnection,
+} from '@/app/actions/settings';
 import {
   KeyRound,
   Bot,
@@ -12,6 +16,8 @@ import {
   Lock,
   Users,
   Sliders,
+  Check,
+  Zap,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
 
@@ -53,6 +59,45 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
     null
   );
 
+  // Estados para pruebas de conexión
+  const [testingWhatsApp, setTestingWhatsApp] = useState(false);
+  const [waTestResult, setWaTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
+
+  const [testingCal, setTestingCal] = useState(false);
+  const [calTestResult, setCalTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
+
+  const handleTestWhatsApp = async () => {
+    setTestingWhatsApp(true);
+    setWaTestResult(null);
+    try {
+      const res = await testWhatsAppConnection({
+        phoneNumberId: phoneNumberId || undefined,
+        accessToken: accessToken || undefined,
+      });
+      setWaTestResult(res);
+    } catch (err: any) {
+      setWaTestResult({ success: false, error: err.message || 'Error probando WhatsApp' });
+    } finally {
+      setTestingWhatsApp(false);
+    }
+  };
+
+  const handleTestCal = async () => {
+    setTestingCal(true);
+    setCalTestResult(null);
+    try {
+      const res = await testCalConnection({
+        apiKey: calApiKey || undefined,
+        eventTypeId: calEventTypeId || undefined,
+      });
+      setCalTestResult(res);
+    } catch (err: any) {
+      setCalTestResult({ success: false, error: err.message || 'Error probando Cal.com' });
+    } finally {
+      setTestingCal(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -69,7 +114,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
       setFeedback({
         type: 'success',
-        message: 'Configuración guardada y credenciales cifradas con AES-256-GCM exitosamente.',
+        message: 'Configuración y credenciales guardadas de forma segura.',
       });
       // Limpiar campos sensibles por seguridad
       setAccessToken('');
@@ -150,7 +195,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
             </div>
           )}
 
-          {/* Tarjeta de Facturación / Parche 1 */}
+          {/* Tarjeta de Licencia y Estado */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 pb-4">
               <div className="flex items-center gap-3">
@@ -158,8 +203,8 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-900">Estado de Facturación y Licencia</h2>
-                  <p className="text-xs text-gray-500">Blindaje de rentabilidad y consumo de IA</p>
+                  <h2 className="text-base font-semibold text-gray-900">Estado de Licencia y Servicio</h2>
+                  <p className="text-xs text-gray-500">Plan activo y disponibilidad de atención automatizada</p>
                 </div>
               </div>
               <span
@@ -173,7 +218,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
               </span>
             </div>
             <div className="text-xs text-gray-600 leading-relaxed">
-              Tu organización cuenta con acceso al Route Handler de WhatsApp y ejecución de OpenAI Tool Calling. Si el estado pasa a <code>past_due</code> o <code>canceled</code>, el consumo de IA se pausará automáticamente para evitar deudas imprevistas.
+              Tu empresa cuenta con acceso activo a la atención automática de WhatsApp, calificación de prospectos y agendamiento comercial con Inteligencia Artificial.
             </div>
           </div>
 
@@ -181,15 +226,44 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           <form onSubmit={handleSave} className="space-y-6">
         {/* Meta WhatsApp Cloud API */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
-            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
-              <Bot className="w-5 h-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                <Bot className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Meta WhatsApp Cloud API (v20+)</h2>
+                <p className="text-xs text-gray-500">Credenciales del número comercial de WhatsApp Business</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Meta WhatsApp Cloud API (v20+)</h2>
-              <p className="text-xs text-gray-500">Credenciales del número comercial de WhatsApp Business</p>
-            </div>
+
+            <button
+              type="button"
+              onClick={handleTestWhatsApp}
+              disabled={testingWhatsApp}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer disabled:opacity-50"
+            >
+              <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
+              {testingWhatsApp ? 'Probando...' : 'Probar Conexión WhatsApp'}
+            </button>
           </div>
+
+          {waTestResult && (
+            <div
+              className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                waTestResult.success
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}
+            >
+              {waTestResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              )}
+              <span>{waTestResult.success ? waTestResult.message : waTestResult.error}</span>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -209,7 +283,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
               <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
                 <span>WhatsApp Permanent Access Token</span>
                 <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Cifrado AES-256-GCM
+                  <Lock className="w-3 h-3" /> Almacenamiento Seguro
                 </span>
               </label>
               <input
@@ -225,22 +299,51 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
         {/* Cal.com Scheduling */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
-            <div className="p-2.5 bg-purple-50 text-purple-600 rounded-lg">
-              <Calendar className="w-5 h-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-purple-50 text-purple-600 rounded-lg">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Integración con Cal.com</h2>
+                <p className="text-xs text-gray-500">Permite a Synqo AI consultar disponibilidad y agendar citas</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Integración con Cal.com</h2>
-              <p className="text-xs text-gray-500">Permite a Synqo AI consultar disponibilidad y agendar citas</p>
-            </div>
+
+            <button
+              type="button"
+              onClick={handleTestCal}
+              disabled={testingCal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition cursor-pointer disabled:opacity-50"
+            >
+              <Zap className={`w-3.5 h-3.5 ${testingCal ? 'animate-spin' : ''}`} />
+              {testingCal ? 'Probando...' : 'Probar Conexión Cal.com'}
+            </button>
           </div>
+
+          {calTestResult && (
+            <div
+              className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                calTestResult.success
+                  ? 'bg-purple-50 text-purple-800 border border-purple-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}
+            >
+              {calTestResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              )}
+              <span>{calTestResult.success ? calTestResult.message : calTestResult.error}</span>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
                 <span>Cal.com API Key</span>
                 <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Cifrado AES-256-GCM
+                  <Lock className="w-3 h-3" /> Almacenamiento Seguro
                 </span>
               </label>
               <input
@@ -274,7 +377,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Instrucciones del Chatbot IA (System Prompt)</h2>
+              <h2 className="text-base font-semibold text-gray-900">Instrucciones y Objetivos del Asesor IA</h2>
               <p className="text-xs text-gray-500">Define el tono, servicios de la empresa y objetivos comerciales</p>
             </div>
           </div>
@@ -287,7 +390,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
               className="w-full text-sm border border-gray-300 rounded-md p-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black"
             />
             <p className="text-[11px] text-gray-500 mt-1">
-              Las directrices de frontera de seguridad y defensa contra jailbreak se inyectan automáticamente en el backend.
+              Las directrices de confidencialidad, cortesía y protección comercial se aplican automáticamente para garantizar un servicio profesional.
             </p>
           </div>
         </div>
@@ -298,7 +401,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
             disabled={saving}
             className="bg-black hover:bg-gray-800 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition shadow-sm disabled:opacity-50 cursor-pointer"
           >
-            {saving ? 'Guardando...' : 'Guardar Ajustes Cifrados'}
+            {saving ? 'Guardando...' : 'Guardar Configuración'}
           </button>
         </div>
       </form>

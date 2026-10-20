@@ -30,6 +30,8 @@ export interface Database {
           plan_type: PlanType;
           max_users: number;
           is_active: boolean;
+          ai_tokens_used?: number;
+          ai_tokens_limit?: number;
           created_at: string;
           updated_at: string;
         };

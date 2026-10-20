@@ -125,6 +125,7 @@ export async function addTeamMember(input: {
     email_confirm: true,
     user_metadata: {
       full_name: validated.fullName.trim(),
+      must_change_password: true,
     },
   });
 
@@ -195,5 +196,49 @@ export async function removeTeamMember(memberId: string) {
 
   revalidatePath('/settings');
   return { success: true };
+}
+
+/**
+ * Regenerar una contraseña temporal para un miembro del equipo.
+ * Marca al usuario con `must_change_password: true` para que al iniciar sesión deba cambiarla.
+ */
+export async function regenerateTeamMemberPassword(memberId: string) {
+  const { user, org } = await requireOrgAdmin();
+
+  // 1. Validar que el miembro pertenezca a la misma organización
+  const { data: targetProfile } = await (supabaseAdmin.from('profiles') as any)
+    .select('id, organization_id, email, full_name, role')
+    .eq('id', memberId)
+    .single();
+
+  if (!targetProfile || targetProfile.organization_id !== org.id) {
+    throw new Error('El usuario no pertenece a tu organización.');
+  }
+
+  // 2. Generar una contraseña temporal segura (ej. Synqo_x8a92!42)
+  const randomSuffix = Math.random().toString(36).slice(-6);
+  const randomPin = Math.floor(10 + Math.random() * 90);
+  const tempPassword = `Synqo_${randomSuffix}!${randomPin}`;
+
+  // 3. Actualizar contraseña y forzar cambio en Supabase Auth
+  const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(memberId, {
+    password: tempPassword,
+    user_metadata: {
+      full_name: targetProfile.full_name,
+      must_change_password: true,
+    },
+  });
+
+  if (authError) {
+    throw new Error(`Error regenerando contraseña: ${authError.message}`);
+  }
+
+  revalidatePath('/settings');
+  return {
+    success: true,
+    email: targetProfile.email,
+    fullName: targetProfile.full_name,
+    tempPassword,
+  };
 }
 

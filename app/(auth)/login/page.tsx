@@ -129,7 +129,7 @@ export default function LoginPage() {
           {/* Seguridad */}
           <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-slate-500">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>Aislamiento Multi-Tenant con Row Level Security</span>
+            <span>Conexión Cifrada & Seguridad Empresarial</span>
           </div>
         </div>
       </div>

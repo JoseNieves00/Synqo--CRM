@@ -92,6 +92,7 @@ export async function getCurrentUserAndOrg() {
         is_super_admin: isSuperAdmin,
       },
       organization: org,
+      mustChangePassword: Boolean(user?.user_metadata?.must_change_password),
     };
   } catch (err: any) {
     // Si Next.js necesita señalar Dynamic Server Usage, relanzar la excepción

@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
+import { getOrganizationTokenUsage } from '@/app/actions/usage';
 import { redirect } from 'next/navigation';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import {
@@ -14,6 +15,9 @@ import {
   Phone,
   Clock,
   Sparkles,
+  Zap,
+  AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +28,15 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // Consultar contactos reales de la base de datos para la organización activa
-  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at')
-    .eq('organization_id', current.organization.id)
-    .order('last_interaction_at', { ascending: false });
+  // Consultas optimizadas en paralelo
+  const [{ data: contacts }, tokenUsage] = await Promise.all([
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at')
+      .eq('organization_id', current.organization.id)
+      .order('last_interaction_at', { ascending: false })
+      .limit(100),
+    getOrganizationTokenUsage(),
+  ]);
 
   const leadList = contacts || [];
 
@@ -52,7 +60,7 @@ export default async function DashboardPage() {
             Panel de Control Comercial
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Empresa: <span className="font-semibold text-gray-800">{current?.organization?.name || 'Mi Organización'}</span> | Automatización autónoma con WhatsApp & Cal.com.
+            Gestión inteligente de prospectos, agendamiento de citas y atención por WhatsApp.
           </p>
         </div>
 
@@ -61,15 +69,60 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* Alerta de Consumo de Tokens IA */}
+      {tokenUsage && (tokenUsage.isWarning || tokenUsage.isExceeded) && (
+        <div
+          className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
+            tokenUsage.isExceeded
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                tokenUsage.isExceeded ? 'bg-rose-500 text-white' : 'bg-amber-500 text-slate-950'
+              }`}
+            >
+              {tokenUsage.isExceeded ? (
+                <ShieldAlert className="w-5 h-5" />
+              ) : (
+                <AlertTriangle className="w-5 h-5" />
+              )}
+            </div>
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider">
+                {tokenUsage.isExceeded
+                  ? '¡Límite de Tokens IA Mensual Alcanzado!'
+                  : 'Alerta de Consumo: Cuota de Tokens al 80%+'}
+              </h4>
+              <p className="text-xs mt-0.5">
+                {tokenUsage.isExceeded
+                  ? `Has consumido ${tokenUsage.tokensUsed.toLocaleString()} de ${tokenUsage.tokensLimit.toLocaleString()} tokens autorizados. La IA se ha pausado preventivamente. Solicita una ampliación a soporte.`
+                  : `Has utilizado el ${tokenUsage.percentage}% de tus tokens asignados (${tokenUsage.tokensUsed.toLocaleString()} / ${tokenUsage.tokensLimit.toLocaleString()}).`}
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/settings"
+            prefetch={true}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-300 shadow-sm hover:bg-gray-50 transition flex-shrink-0"
+          >
+            Ver Configuración
+          </Link>
+        </div>
+      )}
+
       {/* Tarjetas de Métricas Clave Reales */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between text-gray-500 mb-2">
             <span className="text-xs font-medium">Total de Prospectos</span>
             <Users className="w-4 h-4 text-gray-400" />
           </div>
           <div className="text-2xl font-bold text-gray-900">{totalLeads}</div>
-          <span className="text-xs text-gray-400">Registrados en la base de datos</span>
+          <span className="text-xs text-gray-400">Contactos comerciales activos</span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
@@ -98,7 +151,33 @@ export default async function DashboardPage() {
             <TrendingUp className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-2xl font-bold text-gray-900">{conversionRate}%</div>
-          <span className="text-xs text-purple-600 font-medium">Leads a Citas / Ganados</span>
+          <span className="text-xs text-purple-600 font-medium">Citas & Ventas cerradas</span>
+        </div>
+
+        {/* Métrica de Consumo de Tokens */}
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between text-gray-500 mb-2">
+            <span className="text-xs font-medium">Consumo de Tokens IA</span>
+            <Zap className={`w-4 h-4 ${tokenUsage && tokenUsage.isWarning ? 'text-amber-500' : 'text-emerald-500'}`} />
+          </div>
+          <div className="text-2xl font-bold text-gray-900">
+            {tokenUsage ? `${tokenUsage.percentage}%` : '0%'}
+          </div>
+          <div className="mt-1 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              className={`h-full rounded-full ${
+                tokenUsage?.isExceeded
+                  ? 'bg-rose-500'
+                  : tokenUsage?.isWarning
+                  ? 'bg-amber-500'
+                  : 'bg-emerald-500'
+              }`}
+              style={{ width: `${tokenUsage?.percentage || 0}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-gray-400 mt-1 block font-mono">
+            {tokenUsage ? `${(tokenUsage.tokensUsed).toLocaleString()} / ${(tokenUsage.tokensLimit).toLocaleString()} tokens` : '0 tokens'}
+          </span>
         </div>
       </div>
 
@@ -113,6 +192,7 @@ export default async function DashboardPage() {
             </div>
             <Link
               href="/pipeline"
+              prefetch={true}
               className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
             >
               Ver Pipeline Completo <ArrowRight className="w-3.5 h-3.5" />
@@ -162,6 +242,7 @@ export default async function DashboardPage() {
 
                     <Link
                       href={`/inbox/${lead.id}`}
+                      prefetch={true}
                       className="text-xs text-gray-400 hover:text-black p-1.5 hover:bg-gray-100 rounded-md transition"
                     >
                       <ArrowRight className="w-4 h-4" />
@@ -176,17 +257,18 @@ export default async function DashboardPage() {
         {/* Accesos y Estado de Integraciones */}
         <div className="lg:col-span-4 space-y-4">
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
-            <h3 className="font-semibold text-gray-900 text-sm">Estado del Motor de IA</h3>
+            <h3 className="font-semibold text-gray-900 text-sm">Estado del Asistente IA</h3>
             <p className="text-xs text-gray-500 leading-relaxed">
-              OpenAI Tool Calling está configurado para actualizar etapas automáticamente y agendar citas en Cal.com.
+              El motor inteligente califica el interés del prospecto y agenda citas automáticamente en tu calendario.
             </p>
             <div className="pt-2">
               <Link
                 href="/settings"
+                prefetch={true}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg border border-emerald-200 transition"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Configurar Prompt & Tokens
+                Configurar Instrucciones & IA
               </Link>
             </div>
           </div>
@@ -194,11 +276,12 @@ export default async function DashboardPage() {
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm">Atención en WhatsApp</h3>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Supervisa las conversaciones en tiempo real. Al responder como agente, el bot se silencia automáticamente.
+              Supervisa las conversaciones en tiempo real. Al responder como asesor, el asistente se pausa automáticamente.
             </p>
             <div className="pt-2">
               <Link
                 href="/inbox"
+                prefetch={true}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition"
               >
                 <MessageSquare className="w-3.5 h-3.5" />

@@ -15,6 +15,7 @@ import {
   PlayCircle,
   ExternalLink,
   Lock,
+  Zap,
 } from 'lucide-react';
 import {
   OrganizationRow,
@@ -30,6 +31,7 @@ interface Metrics {
   totalContacts: number;
   totalMessages: number;
   totalProfiles: number;
+  totalAiTokensUsed?: number;
 }
 
 interface AdminConsoleClientProps {
@@ -190,7 +192,7 @@ export default function AdminConsoleClient({
       )}
 
       {/* Tarjetas de Métricas de Plataforma */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
         <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
@@ -252,6 +254,23 @@ export default function AdminConsoleClient({
             <span className="text-xs text-amber-600 font-medium">IA & Agentes</span>
           </div>
         </div>
+
+        <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Tokens OpenAI
+            </span>
+            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+              <Zap className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-black text-gray-900">
+              {metrics.totalAiTokensUsed ? (metrics.totalAiTokensUsed > 1000000 ? `${(metrics.totalAiTokensUsed / 1000000).toFixed(1)}M` : `${Math.round(metrics.totalAiTokensUsed / 1000)}k`) : '0'}
+            </span>
+            <span className="text-xs text-emerald-600 font-medium">Consumo Total</span>
+          </div>
+        </div>
       </div>
 
       {/* Controles y Tabla de Empresas */}
@@ -297,6 +316,7 @@ export default function AdminConsoleClient({
                 <th className="py-3 px-5">Administrador</th>
                 <th className="py-3 px-5">Asientos (Usuarios)</th>
                 <th className="py-3 px-5">Plan</th>
+                <th className="py-3 px-5">Consumo Tokens IA</th>
                 <th className="py-3 px-5">Leads</th>
                 <th className="py-3 px-5">Estado</th>
                 <th className="py-3 px-5 text-right">Acciones</th>
@@ -305,7 +325,7 @@ export default function AdminConsoleClient({
             <tbody className="divide-y divide-gray-100">
               {filteredOrgs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-400 text-sm">
+                  <td colSpan={8} className="py-12 text-center text-gray-400 text-sm">
                     No se encontraron organizaciones registradas.
                   </td>
                 </tr>
@@ -356,6 +376,39 @@ export default function AdminConsoleClient({
                         <span className="capitalize px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
                           {org.plan_type}
                         </span>
+                      </td>
+
+                      <td className="py-3.5 px-5 min-w-[140px]">
+                        {(() => {
+                          const used = org.ai_tokens_used || 0;
+                          const limit = org.ai_tokens_limit || 100000;
+                          const pct = Math.min(100, Math.round((used / limit) * 100));
+                          const isWarn = pct >= 80 && pct < 100;
+                          const isOver = pct >= 100;
+
+                          return (
+                            <div>
+                              <div className="flex items-center justify-between mb-1 text-[11px]">
+                                <span className={`font-mono font-semibold ${isOver ? 'text-rose-600' : isWarn ? 'text-amber-600' : 'text-gray-700'}`}>
+                                  {used.toLocaleString()} / {(limit / 1000)}k
+                                </span>
+                                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                  isOver ? 'bg-rose-100 text-rose-700' : isWarn ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {pct}%
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    isOver ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : 'bg-emerald-500'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       <td className="py-3.5 px-5 font-semibold text-gray-700">

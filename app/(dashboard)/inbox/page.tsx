@@ -38,11 +38,12 @@ export default async function InboxPage() {
 
   const activeContact = contactList[0];
 
-  // Consultar mensajes del contacto seleccionado
+  // Consultar mensajes del contacto seleccionado con límite
   const { data: messages } = await (supabaseAdmin.from('messages') as any)
     .select('id, sender_type, content, created_at')
     .eq('contact_id', activeContact.id)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .limit(100);
 
   return (
     <InboxView

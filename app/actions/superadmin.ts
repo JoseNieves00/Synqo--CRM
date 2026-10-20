@@ -67,12 +67,16 @@ export async function getSuperAdminMetrics() {
   const { count: totalProfiles } = await (supabaseAdmin.from('profiles') as any)
     .select('id', { count: 'exact', head: true });
 
+  // Suma de consumo de tokens OpenAI en la plataforma
+  const totalTokens = orgs?.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_used) || 0), 0) || 0;
+
   return {
     totalOrganizations: totalOrgs || 0,
     activeOrganizations: activeOrgs,
     totalContacts: totalContacts || 0,
     totalMessages: totalMessages || 0,
     totalProfiles: totalProfiles || 0,
+    totalAiTokensUsed: totalTokens,
   };
 }
 
@@ -89,6 +93,8 @@ export interface OrganizationRow {
   contacts_count: number;
   admin_email?: string;
   admin_name?: string;
+  ai_tokens_used?: number;
+  ai_tokens_limit?: number;
 }
 
 /**
@@ -131,6 +137,8 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       contacts_count: orgContacts.length,
       admin_email: adminUser?.email,
       admin_name: adminUser?.full_name,
+      ai_tokens_used: Number(org.ai_tokens_used || 0),
+      ai_tokens_limit: Number(org.ai_tokens_limit || 100000),
     };
   });
 
