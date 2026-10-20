@@ -41,12 +41,12 @@ export default async function DashboardLayout({
             alt="Synqo"
             width={34}
             height={34}
-            className="w-8.5 h-8.5 object-contain"
+            className="w-9 h-9 object-contain"
           />
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-base tracking-tight text-white leading-tight">synqo</span>
-              <span className="text-[10px] px-1.5 py-0.2 bg-[#00D2FF]/10 text-[#00D2FF] font-mono rounded border border-[#00D2FF]/20 font-bold">.dev</span>
+              <span className="text-[10px] px-1.5 py-0.5 bg-[#00D2FF]/10 text-[#00D2FF] font-mono rounded border border-[#00D2FF]/20 font-bold">.dev</span>
             </div>
             <span className="text-[10px] text-slate-400 font-mono tracking-wider">CRM Comercial</span>
           </div>

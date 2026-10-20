@@ -29,7 +29,7 @@ export default async function SuperAdminLayout({
             alt="Synqo"
             width={34}
             height={34}
-            className="w-8.5 h-8.5 object-contain"
+            className="w-9 h-9 object-contain"
           />
           <div>
             <div className="flex items-center gap-2">
