@@ -47,35 +47,34 @@ export async function requireSuperAdmin() {
 export async function getSuperAdminMetrics() {
   await requireSuperAdmin();
 
-  // Conteo de organizaciones
-  const { data: orgs, count: totalOrgs } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, is_active, subscription_status', { count: 'exact' });
+  // Conteo y métricas en paralelo para máxima velocidad
+  const [orgsRes, contactsRes, messagesRes, profilesRes] = await Promise.all([
+    (supabaseAdmin.from('organizations') as any)
+      .select('id, is_active, subscription_status, ai_tokens_used', { count: 'exact' }),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true }),
+    (supabaseAdmin.from('messages') as any)
+      .select('id', { count: 'exact', head: true }),
+    (supabaseAdmin.from('profiles') as any)
+      .select('id', { count: 'exact', head: true }),
+  ]);
 
-  const activeOrgs = orgs?.filter(
+  const orgs = orgsRes.data || [];
+  const totalOrgs = orgsRes.count || orgs.length;
+
+  const activeOrgs = orgs.filter(
     (o: any) => o.is_active !== false && (o.subscription_status === 'active' || o.subscription_status === 'trialing')
-  ).length || 0;
-
-  // Conteo de contactos totales
-  const { count: totalContacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id', { count: 'exact', head: true });
-
-  // Conteo de mensajes totales
-  const { count: totalMessages } = await (supabaseAdmin.from('messages') as any)
-    .select('id', { count: 'exact', head: true });
-
-  // Conteo de usuarios/agentes en total
-  const { count: totalProfiles } = await (supabaseAdmin.from('profiles') as any)
-    .select('id', { count: 'exact', head: true });
+  ).length;
 
   // Suma de consumo de tokens OpenAI en la plataforma
-  const totalTokens = orgs?.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_used) || 0), 0) || 0;
+  const totalTokens = orgs.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_used) || 0), 0);
 
   return {
-    totalOrganizations: totalOrgs || 0,
+    totalOrganizations: totalOrgs,
     activeOrganizations: activeOrgs,
-    totalContacts: totalContacts || 0,
-    totalMessages: totalMessages || 0,
-    totalProfiles: totalProfiles || 0,
+    totalContacts: contactsRes.count || 0,
+    totalMessages: messagesRes.count || 0,
+    totalProfiles: profilesRes.count || 0,
     totalAiTokensUsed: totalTokens,
   };
 }
@@ -103,25 +102,28 @@ export interface OrganizationRow {
 export async function listAllOrganizations(): Promise<OrganizationRow[]> {
   await requireSuperAdmin();
 
-  const { data: orgs, error: orgsError } = await (supabaseAdmin.from('organizations') as any)
-    .select('*')
-    .order('created_at', { ascending: false });
+  // Consultar organizaciones, perfiles y contactos en paralelo
+  const [orgsRes, profilesRes, contactsRes] = await Promise.all([
+    (supabaseAdmin.from('organizations') as any)
+      .select('*')
+      .order('created_at', { ascending: false }),
+    (supabaseAdmin.from('profiles') as any)
+      .select('id, organization_id, email, full_name, role'),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, organization_id'),
+  ]);
 
-  if (orgsError || !orgs) {
-    throw new Error(`Error al listar organizaciones: ${orgsError?.message}`);
+  const orgs = orgsRes.data;
+  if (orgsRes.error || !orgs) {
+    throw new Error(`Error al listar organizaciones: ${orgsRes.error?.message}`);
   }
 
-  // Traer todos los perfiles para calcular asientos usados por empresa
-  const { data: profiles } = await (supabaseAdmin.from('profiles') as any)
-    .select('id, organization_id, email, full_name, role');
-
-  // Traer todos los contactos para conteo por empresa
-  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, organization_id');
+  const profiles = profilesRes.data || [];
+  const contacts = contactsRes.data || [];
 
   const rows: OrganizationRow[] = orgs.map((org: any) => {
-    const orgProfiles = profiles?.filter((p: any) => p.organization_id === org.id) || [];
-    const orgContacts = contacts?.filter((c: any) => c.organization_id === org.id) || [];
+    const orgProfiles = profiles.filter((p: any) => p.organization_id === org.id);
+    const orgContacts = contacts.filter((c: any) => c.organization_id === org.id);
     const adminUser = orgProfiles.find((p: any) => p.role === 'admin') || orgProfiles[0];
 
     return {
