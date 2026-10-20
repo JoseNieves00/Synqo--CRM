@@ -57,12 +57,21 @@ Dado que la facturación inicial es **manual (asistida)**:
 3. **Entrega de Credenciales:** Le entregas el correo y la contraseña temporal al dueño de la empresa.
 4. **Renovación Mensual:** Si el cliente renueva, mantiene su servicio activo. Si no paga tras el periodo de gracia, lo suspendes con 1 clic desde `/admin`.
 
-### Estructura de Planes Sugerida:
-| Plan | Mensualidad Sugerida | Asientos Incluidos | Límite Tokens IA / mes | Conversaciones Aprox. | Costo Estimado OpenAI | Tu Margen |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Starter (Core)** | **$49 USD / mes** | 2 asesores | 100,000 tokens | ~250 conversaciones | ~$0.30 - $0.80 USD | **~98%** |
-| **Pro Comercial** | **$99 USD / mes** | 5 asesores | 500,000 tokens | ~1,250 conversaciones | ~$1.50 - $4.00 USD | **~96%** |
-| **Enterprise** | **$249 USD / mes** | 12 asesores | 2,000,000 tokens | ~5,000 conversaciones | ~$6.00 - $15.00 USD | **~94%** |
+### Estructura de Planes y Márgenes Comerciales:
+
+| Característica | 🟢 Starter (Validación) | 🚀 Pro (Recomendado) | 🏢 Enterprise (Escala) |
+| :--- | :--- | :--- | :--- |
+| **Precio sugerido** | **$49 - $69 USD / mes** | **$99 - $129 USD / mes** | **$249 - $299 USD / mes** |
+| **Público objetivo** | Negocio unipersonal o 1-2 asesores validando canal. | Empresa con equipo de ventas activo (3-5 personas). | Operación consolidada con turnos o equipo comercial grande. |
+| **Usuarios / Asesores** | **Hasta 2 usuarios** | **Hasta 5 usuarios** | **Hasta 12 usuarios** |
+| **Volumen de Tokens IA** | **500,000 tokens/mes** *(~350 - 500 chats)* | **2,500,000 tokens/mes** *(~1,800 - 2,500 chats)* | **7,500,000 tokens/mes** *(~5,000 - 7,500 chats)* |
+| **Costo real de API para ti** | ~$0.85 USD | ~$4.20 USD | ~$12.50 USD |
+| **Margen bruto para ti** | **> 98%** | **> 95%** | **> 95%** |
+| **Prompt de IA** | 100% Editable y personalizable | 100% Editable y personalizable | 100% Editable y personalizable |
+| **Cal.com / Agendamiento** | Incluido | Incluido | Incluido |
+| **Kanban & Bandeja Realtime** | Incluido | Incluido | Incluido |
+| **Alertas Sonoras y Push** | Incluido | Incluido | Incluido |
+| **Diferenciadores Clave** | Soporte por ticket/email estándar | Soporte por email prioritario | • **Grupo VIP de WhatsApp con SLA < 2h**<br>• **Sesión de Capacitación en Vivo (45 min)** para asesores<br>• **Exportación Masiva de Leads & Historial** (CSV/Excel)<br>• Facturación corporativa anual/local |
 
 ---
 

@@ -6,7 +6,7 @@ import { PIPELINE_STAGES } from '@/services/contact.service';
 import { KanbanColumn } from './KanbanColumn';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { createClient } from '@/lib/supabase/client';
-import { Search, Bot, User, Filter } from 'lucide-react';
+import { Search, Bot, User, Filter, Download } from 'lucide-react';
 
 interface ContactItem {
   id: string;
@@ -91,6 +91,47 @@ export function KanbanBoard({ initialContacts }: KanbanBoardProps) {
     return true;
   });
 
+  const handleExportCsv = () => {
+    if (filteredContacts.length === 0) return;
+
+    const stageLabelMap: Record<string, string> = {
+      nuevo: 'Nuevo Lead',
+      calificado: 'Calificado',
+      cita_agendada: 'Cita Agendada',
+      ganado: 'Ganado / Cerrado',
+      perdido: 'Perdido / Descarte',
+    };
+
+    const headers = ['Nombre', 'WhatsApp / Teléfono', 'Etapa Pipeline', 'Control', 'Última Interacción'];
+
+    const escapeCsv = (val: string) => `"${val.replace(/"/g, '""')}"`;
+
+    const rows = filteredContacts.map((contact) => [
+      contact.name || 'Sin nombre',
+      contact.phone,
+      stageLabelMap[contact.pipeline_stage] || contact.pipeline_stage,
+      contact.is_ai_active ? 'IA Activa' : 'Asesor Humano',
+      contact.last_interaction_at ? new Date(contact.last_interaction_at).toLocaleString('es-ES') : 'N/A',
+    ]);
+
+    const csvContent = [
+      headers.map(escapeCsv).join(','),
+      ...rows.map((row) => row.map(escapeCsv).join(',')),
+    ].join('\r\n');
+
+    // \uFEFF BOM para compatibilidad total con Microsoft Excel en español (tildes y ñ)
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.download = `leads-synqo-${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4">
       {/* Barra de herramientas del Kanban */}
@@ -139,6 +180,18 @@ export function KanbanBoard({ initialContacts }: KanbanBoardProps) {
             }`}
           >
             <User className="w-3 h-3" /> Humano
+          </button>
+
+          <div className="h-4 w-px bg-gray-200 mx-1 hidden sm:block" />
+
+          <button
+            onClick={handleExportCsv}
+            disabled={filteredContacts.length === 0}
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+            title="Exportar prospectos visibles a archivo CSV compatible con Excel"
+          >
+            <Download className="w-3 h-3 text-emerald-600" />
+            Exportar CSV
           </button>
         </div>
       </div>

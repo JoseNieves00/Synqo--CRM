@@ -97,6 +97,8 @@ Visualiza la progresión de tus prospectos en un embudo comercial ágil:
    - Cuando un prospecto confirma una cita en Cal.com a través de WhatsApp, **el Asistente IA mueve la tarjeta automáticamente a la columna "Cita Agendada"**.
 4. **Buscador y Filtros:**
    - Filtra tarjetas por nombre, teléfono o estado de atención (leads atendidos por IA vs. atendidos por agentes humanos).
+5. **Exportación Masiva a Excel / CSV:**
+   - En la barra de filtros del Pipeline encontrarás el botón **"Exportar CSV"**. Con un solo clic puedes descargar la lista de tus prospectos con nombre, teléfono WhatsApp, etapa del embudo, estado del bot y fecha de última interacción, formateado con compatibilidad nativa para Microsoft Excel y herramientas de analítica.
 
 ---
 
