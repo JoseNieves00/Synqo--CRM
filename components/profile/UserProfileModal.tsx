@@ -89,7 +89,7 @@ export function UserProfileModal({
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200">
         <div className="p-5 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-lg bg-[#0052FF]/10 text-[#0052FF] flex items-center justify-center font-bold">
               <User className="w-4 h-4" />
             </div>
             <div>
@@ -190,7 +190,7 @@ export function UserProfileModal({
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 transition shadow-sm disabled:opacity-50"
+              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#0052FF] hover:bg-[#0047E0] transition shadow-md shadow-[#0052FF]/20 disabled:opacity-50 cursor-pointer"
             >
               {saving ? 'Guardando...' : 'Guardar Cambios'}
             </button>

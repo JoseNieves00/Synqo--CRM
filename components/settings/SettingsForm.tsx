@@ -399,7 +399,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           <button
             type="submit"
             disabled={saving}
-            className="bg-black hover:bg-gray-800 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition shadow-sm disabled:opacity-50 cursor-pointer"
+            className="bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-md shadow-[#0052FF]/20 disabled:opacity-50 cursor-pointer"
           >
             {saving ? 'Guardando...' : 'Guardar Configuración'}
           </button>

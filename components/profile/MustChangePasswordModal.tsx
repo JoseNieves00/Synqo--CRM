@@ -114,7 +114,7 @@ export function MustChangePasswordModal({ mustChange, userEmail }: MustChangePas
             <button
               type="submit"
               disabled={saving}
-              className="w-full py-2.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 transition shadow-md shadow-emerald-500/20 disabled:opacity-50"
+              className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-[#0052FF] hover:bg-[#0047E0] transition shadow-md shadow-[#0052FF]/20 disabled:opacity-50 cursor-pointer"
             >
               {saving ? 'Guardando nueva clave...' : 'Guardar y Continuar al CRM'}
             </button>

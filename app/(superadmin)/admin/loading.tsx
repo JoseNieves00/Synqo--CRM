@@ -5,8 +5,8 @@ export default function SuperAdminLoading() {
   return (
     <div className="space-y-8 animate-in fade-in duration-150">
       {/* Barra de progreso superior ultra sutil */}
-      <div className="fixed top-0 left-0 right-0 h-0.5 bg-emerald-500/20 overflow-hidden z-50">
-        <div className="h-full bg-emerald-500 w-1/3 animate-[shimmer_1.2s_infinite]" />
+      <div className="fixed top-0 left-0 right-0 h-0.5 bg-[#0052FF]/20 overflow-hidden z-50">
+        <div className="h-full bg-[#00D2FF] w-1/3 animate-[shimmer_1.2s_infinite]" />
       </div>
 
       {/* Cabecera del Panel */}
@@ -18,11 +18,11 @@ export default function SuperAdminLoading() {
       {/* Tarjetas de Métricas de Plataforma (5 Columnas) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
         {[
-          { icon: Building2, color: 'bg-blue-50 text-blue-400' },
-          { icon: Users, color: 'bg-purple-50 text-purple-400' },
-          { icon: ShieldCheck, color: 'bg-emerald-50 text-emerald-400' },
-          { icon: MessageSquare, color: 'bg-amber-50 text-amber-400' },
-          { icon: Zap, color: 'bg-emerald-50 text-emerald-400' },
+          { icon: Building2, color: 'bg-blue-50 text-[#0052FF]' },
+          { icon: Users, color: 'bg-indigo-50 text-indigo-500' },
+          { icon: ShieldCheck, color: 'bg-[#0052FF]/10 text-[#0052FF]' },
+          { icon: MessageSquare, color: 'bg-cyan-50 text-[#00D2FF]' },
+          { icon: Zap, color: 'bg-[#0052FF]/10 text-[#0052FF]' },
         ].map((item, i) => {
           const Icon = item.icon;
           return (
@@ -54,7 +54,7 @@ export default function SuperAdminLoading() {
 
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="h-9 w-60 bg-slate-100 rounded-xl animate-pulse" />
-            <div className="h-9 w-40 bg-emerald-100 rounded-xl animate-pulse" />
+            <div className="h-9 w-40 bg-[#0052FF]/20 rounded-xl animate-pulse" />
           </div>
         </div>
 

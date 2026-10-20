@@ -143,7 +143,7 @@ export function KanbanBoard({ initialContacts }: KanbanBoardProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar prospecto en el pipeline..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
           />
         </div>
 
@@ -165,7 +165,7 @@ export function KanbanBoard({ initialContacts }: KanbanBoardProps) {
             onClick={() => setAiFilter('ai')}
             className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
               aiFilter === 'ai'
-                ? 'bg-emerald-600 text-white shadow-sm'
+                ? 'bg-[#0052FF] text-white shadow-sm'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
@@ -187,10 +187,10 @@ export function KanbanBoard({ initialContacts }: KanbanBoardProps) {
           <button
             onClick={handleExportCsv}
             disabled={filteredContacts.length === 0}
-            className="px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 bg-[#0052FF]/10 text-[#0052FF] border border-[#0052FF]/20 hover:bg-[#0052FF]/20 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
             title="Exportar prospectos visibles a archivo CSV compatible con Excel"
           >
-            <Download className="w-3 h-3 text-emerald-600" />
+            <Download className="w-3 h-3 text-[#0052FF]" />
             Exportar CSV
           </button>
         </div>

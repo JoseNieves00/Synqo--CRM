@@ -191,7 +191,7 @@ export function LeadDetailsDrawer({
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-semibold shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+          className="w-full py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl font-semibold shadow-md shadow-[#0052FF]/20 transition flex items-center justify-center gap-1.5 cursor-pointer text-xs"
         >
           <Save className="w-3.5 h-3.5" />
           {isSaving ? 'Guardando...' : 'Guardar Ficha'}

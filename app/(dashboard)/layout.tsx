@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 import { getCurrentUserAndOrg, signOut } from '@/app/actions/auth';
 import {
   Bot,
@@ -32,15 +33,22 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-screen w-full overflow-hidden bg-slate-50">
       {/* Sidebar de Navegación Fija */}
-      <aside className="w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800 flex-shrink-0 h-full select-none">
+      <aside className="w-64 bg-[#090A0F] text-slate-100 flex flex-col border-r border-[#1E2433] flex-shrink-0 h-full select-none">
         {/* Brand Header */}
-        <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 font-black text-lg shadow-md shadow-emerald-500/20">
-            S
-          </div>
+        <div className="p-4 border-b border-[#1E2433] flex items-center gap-3">
+          <Image
+            src="/brand/isotipo-128w.png"
+            alt="Synqo"
+            width={34}
+            height={34}
+            className="w-8.5 h-8.5 object-contain"
+          />
           <div>
-            <h1 className="font-bold text-base tracking-tight text-white leading-tight">Synqo CRM</h1>
-            <span className="text-[11px] text-emerald-400 font-mono tracking-wider">synqo.dev</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-base tracking-tight text-white leading-tight">synqo</span>
+              <span className="text-[10px] px-1.5 py-0.2 bg-[#00D2FF]/10 text-[#00D2FF] font-mono rounded border border-[#00D2FF]/20 font-bold">.dev</span>
+            </div>
+            <span className="text-[10px] text-slate-400 font-mono tracking-wider">CRM Comercial</span>
           </div>
         </div>
 
@@ -48,13 +56,13 @@ export default async function DashboardLayout({
         <SidebarNav isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} />
 
         {/* Estado del Servicio & Facturación */}
-        <div className="p-3 mx-3 mb-2 rounded-xl bg-slate-800/70 border border-slate-700/60">
+        <div className="p-3 mx-3 mb-2 rounded-xl bg-[#131722] border border-[#232A3B]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-slate-300 capitalize">Plan {planType}</span>
             <span
               className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
                 subStatus === 'active' || subStatus === 'trialing'
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  ? 'bg-[#0052FF]/20 text-[#00D2FF] border-[#00D2FF]/30'
                   : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
               }`}
             >
@@ -62,7 +70,7 @@ export default async function DashboardLayout({
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+            <ShieldCheck className="w-3.5 h-3.5 text-[#00D2FF] flex-shrink-0" />
             <span className="truncate">Seguridad Empresarial Activa</span>
           </div>
         </div>
@@ -93,8 +101,8 @@ export default async function DashboardLayout({
             <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
             <span className="font-semibold text-gray-900 truncate max-w-[200px] sm:max-w-xs">{orgName}</span>
             <span className="text-gray-300">/</span>
-            <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full text-xs font-medium border border-emerald-200 flex items-center gap-1">
-              <Bot className="w-3 h-3 text-emerald-600" /> WhatsApp Cloud Activo
+            <span className="text-[#0052FF] bg-[#0052FF]/10 px-2.5 py-0.5 rounded-full text-xs font-medium border border-[#0052FF]/20 flex items-center gap-1.5 font-mono">
+              <Bot className="w-3.5 h-3.5 text-[#0052FF]" /> WhatsApp Cloud Activo
             </span>
           </div>
 

@@ -156,20 +156,20 @@ export function HandoffAlertNotifier({ organizationId }: HandoffAlertNotifierPro
           {activeAlerts.map((alert) => (
             <div
               key={`${alert.id}-${alert.timestamp}`}
-              className="bg-slate-900 text-white p-4 rounded-2xl border-2 border-emerald-500/80 shadow-2xl flex items-start gap-3.5 animate-in slide-in-from-bottom-5 duration-200"
+              className="bg-[#090A0F] text-white p-4 rounded-2xl border-2 border-[#0052FF] shadow-2xl flex items-start gap-3.5 animate-in slide-in-from-bottom-5 duration-200"
             >
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <div className="w-9 h-9 rounded-xl bg-[#0052FF]/20 text-[#00D2FF] flex items-center justify-center flex-shrink-0 mt-0.5">
                 <BellRing className="w-5 h-5 animate-bounce" />
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#00D2FF]">
                     ¡Relevo Humano Solicitado!
                   </span>
                   <button
                     onClick={() => dismissAlert(alert.id)}
-                    className="text-slate-400 hover:text-white p-0.5 rounded transition"
+                    className="text-slate-400 hover:text-white p-0.5 rounded transition cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -188,14 +188,14 @@ export function HandoffAlertNotifier({ organizationId }: HandoffAlertNotifierPro
                       dismissAlert(alert.id);
                       router.push(`/inbox/${alert.id}`);
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition shadow-sm"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0052FF] hover:bg-[#0047E0] text-white font-bold text-xs rounded-lg transition shadow-md shadow-[#0052FF]/20 cursor-pointer"
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
                     Atender en Inbox
                   </button>
                   <button
                     onClick={() => dismissAlert(alert.id)}
-                    className="px-2.5 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                    className="px-2.5 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-[#131722] rounded-lg transition cursor-pointer"
                   >
                     Descartar
                   </button>

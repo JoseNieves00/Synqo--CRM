@@ -21,17 +21,17 @@ export function SidebarUserCard({
 
   return (
     <>
-      <div className="p-3.5 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
+      <div className="p-3.5 border-t border-[#1E2433] bg-[#090A0F] flex items-center justify-between">
         <div
           onClick={() => setIsProfileModalOpen(true)}
           className="overflow-hidden mr-2 cursor-pointer group flex-1"
           title="Editar mi perfil"
         >
           <div className="flex items-center gap-1.5">
-            <p className="text-xs font-semibold text-white group-hover:text-emerald-400 transition truncate">
+            <p className="text-xs font-semibold text-white group-hover:text-[#00D2FF] transition truncate">
               {userFullName}
             </p>
-            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded font-bold bg-slate-800 text-slate-300 border border-slate-700">
+            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded font-bold bg-[#131722] text-slate-300 border border-[#232A3B]">
               {userRole}
             </span>
           </div>
@@ -45,7 +45,7 @@ export function SidebarUserCard({
           <button
             type="submit"
             title="Cerrar sesión"
-            className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer"
+            className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-[#131722] transition cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
           </button>

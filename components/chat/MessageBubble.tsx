@@ -36,7 +36,7 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
           isLead
             ? 'bg-white text-gray-900 border border-gray-200 rounded-tl-sm'
             : isAi
-            ? 'bg-emerald-50 text-emerald-950 border border-emerald-200 rounded-tr-sm'
+            ? 'bg-[#0052FF]/5 text-slate-950 border border-[#0052FF]/20 rounded-tr-sm'
             : 'bg-gray-900 text-white rounded-tr-sm'
         }`}
       >
@@ -50,8 +50,8 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
           )}
           {isAi && (
             <>
-              <Bot className="w-3 h-3 text-emerald-600" />
-              <span className="text-emerald-700">Synqo AI</span>
+              <Bot className="w-3 h-3 text-[#0052FF]" />
+              <span className="text-[#0052FF]">Synqo AI</span>
             </>
           )}
           {isAgent && (

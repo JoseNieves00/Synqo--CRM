@@ -92,12 +92,12 @@ export function ChatInput({
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         disabled={loading}
-        className="flex-1 border border-gray-300 rounded-md px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-black disabled:bg-gray-100"
+        className="flex-1 border border-gray-300 rounded-md px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0052FF] disabled:bg-gray-100"
       />
       <button
         type="submit"
         disabled={loading || !message.trim()}
-        className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-md transition shadow-sm disabled:opacity-50 flex items-center justify-center"
+        className="bg-[#0052FF] hover:bg-[#0047E0] text-white px-4 py-2 rounded-md transition shadow-sm disabled:opacity-50 flex items-center justify-center cursor-pointer"
       >
         <Send className="w-4 h-4" />
       </button>

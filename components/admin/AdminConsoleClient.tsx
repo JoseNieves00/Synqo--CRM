@@ -292,14 +292,14 @@ export default function AdminConsoleClient({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar empresa o admin..."
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
               />
             </div>
 
             {/* Botón Provisionar */}
             <button
               onClick={() => setIsProvisionOpen(true)}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+              className="px-4 py-2 bg-[#0052FF] hover:bg-[#0047E0] text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 flex-shrink-0 cursor-pointer shadow-[#0052FF]/20"
             >
               <Plus className="w-4 h-4" />
               Nueva Empresa
@@ -461,7 +461,7 @@ export default function AdminConsoleClient({
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-200">
             <div className="p-6 border-b border-gray-200 bg-gray-50/50">
               <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-emerald-600" />
+                <Building2 className="w-5 h-5 text-[#0052FF]" />
                 Aprovisionar Nueva Empresa (Tenant)
               </h3>
               <p className="text-xs text-gray-500 mt-1">
@@ -569,7 +569,7 @@ export default function AdminConsoleClient({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                  className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
                 >
                   {isSubmitting ? 'Aprovisionando...' : 'Crear y Habilitar Empresa'}
                 </button>
@@ -603,7 +603,7 @@ export default function AdminConsoleClient({
                   max={500}
                   value={newSeatLimit}
                   onChange={(e) => setNewSeatLimit(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-semibold"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
                 />
                 <span className="text-[11px] text-gray-400 mt-1 block">
                   Actualmente tiene {editingOrg.users_count} miembros activos.
@@ -622,7 +622,7 @@ export default function AdminConsoleClient({
                   type="button"
                   onClick={handleUpdateSeats}
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                  className="px-4 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
                 >
                   {isSubmitting ? 'Guardando...' : 'Guardar Asientos'}
                 </button>

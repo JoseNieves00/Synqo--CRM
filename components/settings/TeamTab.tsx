@@ -251,7 +251,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
               className={`px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer ${
                 isQuotaFull
                   ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-[#0052FF] hover:bg-[#0047E0] text-white shadow-md shadow-[#0052FF]/20'
               }`}
             >
               <UserPlus className="w-4 h-4" />
@@ -461,7 +461,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                  className="px-4 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-md shadow-[#0052FF]/20 transition cursor-pointer"
                 >
                   {isSubmitting ? 'Guardando...' : 'Crear Miembro'}
                 </button>

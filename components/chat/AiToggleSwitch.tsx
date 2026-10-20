@@ -38,7 +38,7 @@ export function AiToggleSwitch({
     <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm">
       <div className="flex items-center gap-1.5">
         {isActive ? (
-          <Bot className="w-4 h-4 text-emerald-600 animate-pulse" />
+          <Bot className="w-4 h-4 text-[#0052FF] animate-pulse" />
         ) : (
           <UserCheck className="w-4 h-4 text-amber-600" />
         )}
@@ -53,8 +53,8 @@ export function AiToggleSwitch({
         aria-checked={isActive}
         disabled={isUpdating}
         onClick={handleToggle}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-1 disabled:opacity-50 ${
-          isActive ? 'bg-emerald-500' : 'bg-gray-300'
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#0052FF] focus:ring-offset-1 disabled:opacity-50 ${
+          isActive ? 'bg-[#0052FF]' : 'bg-gray-300'
         }`}
       >
         <span

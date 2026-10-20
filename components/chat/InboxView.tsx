@@ -153,7 +153,7 @@ export function InboxView({
               onClick={() => setFilter('ai')}
               className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer flex items-center gap-1 ${
                 filter === 'ai'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-[#0052FF] text-white shadow-sm'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
@@ -192,7 +192,7 @@ export function InboxView({
                   href={`/inbox/${c.id}`}
                   className={`p-3.5 block transition cursor-pointer ${
                     isActive
-                      ? 'bg-emerald-50/70 border-l-4 border-l-emerald-600'
+                      ? 'bg-[#0052FF]/5 border-l-4 border-l-[#0052FF]'
                       : 'hover:bg-slate-50'
                   }`}
                 >

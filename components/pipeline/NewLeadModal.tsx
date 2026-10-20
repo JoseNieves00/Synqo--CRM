@@ -52,7 +52,7 @@ export function NewLeadModal({
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className={`inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition shadow-sm cursor-pointer ${className}`}
+        className={`inline-flex items-center gap-1.5 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition shadow-md shadow-[#0052FF]/20 cursor-pointer ${className}`}
       >
         <Plus className="w-3.5 h-3.5" />
         {buttonLabel}
@@ -90,7 +90,7 @@ export function NewLeadModal({
                     placeholder="Ej. Sofía Martínez"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
                   />
                 </div>
               </div>
@@ -107,7 +107,7 @@ export function NewLeadModal({
                     placeholder="+52 55 1234 5678"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 font-mono focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
                   />
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">
@@ -124,7 +124,7 @@ export function NewLeadModal({
                   <select
                     value={stage}
                     onChange={(e) => setStage(e.target.value as PipelineStage)}
-                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
                   >
                     {PIPELINE_STAGES.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -146,7 +146,7 @@ export function NewLeadModal({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  className="bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold text-xs px-4 py-2 rounded-xl transition shadow-md shadow-[#0052FF]/20 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                 >
                   {loading && <Loader2 className="w-3 h-3 animate-spin" />}
                   {loading ? 'Guardando...' : 'Crear Lead'}
