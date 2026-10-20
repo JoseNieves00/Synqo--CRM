@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PipelineStage, Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 
@@ -16,17 +17,16 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
     throw new Error('No autorizado');
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
     .select('organization_id')
     .eq('id', user.id)
     .single();
 
-  if (!profile) {
+  if (!profile?.organization_id) {
     throw new Error('Perfil no encontrado');
   }
 
-  const orgId = (profile as any).organization_id as string;
+  const orgId = profile.organization_id as string;
   const updatePayload: Database['public']['Tables']['contacts']['Update'] = {
     pipeline_stage: newStage,
     updated_at: new Date().toISOString(),
@@ -45,4 +45,3 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
   revalidatePath('/pipeline');
   revalidatePath('/inbox');
 }
-

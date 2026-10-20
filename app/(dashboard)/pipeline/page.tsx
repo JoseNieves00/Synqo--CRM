@@ -1,50 +1,20 @@
 import React from 'react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { KanbanBoard } from '@/components/pipeline/KanbanBoard';
+import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
+import { Users } from 'lucide-react';
+
+export const dynamic = 'force-dynamic';
 
 export default async function PipelinePage() {
   const supabase = createServerSupabaseClient();
 
-  const { data: contacts } = await supabase
-    .from('contacts')
+  // Consultar contactos reales de la organización activa
+  const { data: contacts } = await (supabase.from('contacts') as any)
     .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at')
     .order('last_interaction_at', { ascending: false });
 
-  // Fallback con datos de muestra para visualizar el embudo si la BD está recién creada
-  const initialContacts = contacts && contacts.length > 0 ? contacts : [
-    {
-      id: 'demo-lead-1',
-      name: 'Carlos Mendoza',
-      phone: '+52 55 1234 5678',
-      pipeline_stage: 'calificado' as const,
-      is_ai_active: true,
-      last_interaction_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    },
-    {
-      id: 'demo-lead-2',
-      name: 'Mariana Gómez',
-      phone: '+54 9 11 9876 5432',
-      pipeline_stage: 'cita_agendada' as const,
-      is_ai_active: false,
-      last_interaction_at: new Date(Date.now() - 26 * 3600 * 1000).toISOString(),
-    },
-    {
-      id: 'demo-lead-3',
-      name: 'Roberto Valdés',
-      phone: '+57 300 123 4567',
-      pipeline_stage: 'nuevo' as const,
-      is_ai_active: true,
-      last_interaction_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    },
-    {
-      id: 'demo-lead-4',
-      name: 'Dra. Elena Ruiz',
-      phone: '+52 81 8765 4321',
-      pipeline_stage: 'ganado' as const,
-      is_ai_active: false,
-      last_interaction_at: new Date(Date.now() - 72 * 3600 * 1000).toISOString(),
-    },
-  ];
+  const leadList = contacts || [];
 
   return (
     <div className="space-y-6">
@@ -54,13 +24,27 @@ export default async function PipelinePage() {
             Pipeline Comercial & Agendamiento
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Los estados se actualizan automáticamente cuando OpenAI ejecuta tool calls de calificación y reservas en Cal.com.
+            Mueve las tarjetas entre fases o deja que OpenAI actualice las etapas al cumplir criterios de compra y agendamiento.
           </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <NewLeadModal buttonLabel="Crear Nuevo Prospecto" />
         </div>
       </div>
 
-      <KanbanBoard initialContacts={initialContacts} />
+      {leadList.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center max-w-lg mx-auto shadow-sm">
+          <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-gray-900">El Pipeline está vacío</h3>
+          <p className="text-xs text-gray-500 mt-1 mb-6">
+            Aún no tienes prospectos registrados. Puedes crear tu primer lead manualmente ahora mismo o esperar mensajes entrantes por WhatsApp.
+          </p>
+          <NewLeadModal buttonLabel="Registrar Primer Lead" />
+        </div>
+      ) : (
+        <KanbanBoard initialContacts={leadList} />
+      )}
     </div>
   );
 }
-

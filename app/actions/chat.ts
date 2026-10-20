@@ -21,54 +21,49 @@ export async function sendAgentMessage(contactId: string, content: string) {
   }
 
   // 2. Obtener la organización del usuario
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
     .select('organization_id')
     .eq('id', user.id)
     .single();
 
-  const orgId = (profile as any)?.organization_id;
+  const orgId = profile?.organization_id;
   if (!orgId) {
     throw new Error('Perfil u organización no encontrada');
   }
 
   // 3. Validar que el contacto pertenece a la misma organización (Anti-IDOR)
-  const { data: contact, error: contactError } = await supabase
-    .from('contacts')
+  const { data: contact, error: contactError } = await (supabaseAdmin.from('contacts') as any)
     .select('id, phone, organization_id')
     .eq('id', contactId)
     .eq('organization_id', orgId)
     .single();
 
-  const targetContact = contact as any;
-  if (contactError || !targetContact) {
+  if (contactError || !contact) {
     throw new Error('Contacto no encontrado o acceso denegado');
   }
 
   // 4. Obtener credenciales WABA de la organización
-  const { data: org } = await supabaseAdmin
-    .from('organizations')
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
     .select('whatsapp_phone_number_id, whatsapp_access_token')
     .eq('id', orgId)
     .single();
 
-  const targetOrg = org as any;
-  if (!targetOrg?.whatsapp_phone_number_id || !targetOrg?.whatsapp_access_token) {
+  if (!org?.whatsapp_phone_number_id || !org?.whatsapp_access_token) {
     throw new Error('Credenciales de WhatsApp no configuradas en la organización');
   }
 
-  const decryptedToken = decryptSecret(targetOrg.whatsapp_access_token);
+  const decryptedToken = decryptSecret(org.whatsapp_access_token);
 
   // 5. Enviar mensaje mediante Meta Cloud API
   const metaMessageId = await WhatsAppService.sendTextMessage({
-    phoneNumberId: targetOrg.whatsapp_phone_number_id,
+    phoneNumberId: org.whatsapp_phone_number_id,
     accessToken: decryptedToken,
-    to: targetContact.phone,
+    to: contact.phone,
     body: content,
   });
 
   // 6. Silenciar la IA automáticamente y actualizar última interacción
-  await (supabase.from('contacts') as any)
+  await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: false,
       last_interaction_at: new Date().toISOString(),
@@ -76,7 +71,7 @@ export async function sendAgentMessage(contactId: string, content: string) {
     .eq('id', contactId);
 
   // 7. Persistir el mensaje en la base de datos con sender_type = 'agent_manual'
-  await (supabase.from('messages') as any).insert({
+  await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
     content,
@@ -98,56 +93,51 @@ export async function sendAgentTemplate(contactId: string, templateKey: MetaTemp
     throw new Error('No autorizado');
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
     .select('organization_id')
     .eq('id', user.id)
     .single();
 
-  const orgId = (profile as any)?.organization_id;
+  const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Perfil no encontrado');
 
-  const { data: contact } = await supabase
-    .from('contacts')
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
     .select('id, phone, organization_id')
     .eq('id', contactId)
     .eq('organization_id', orgId)
     .single();
 
-  const targetContact = contact as any;
-  if (!targetContact) throw new Error('Contacto no encontrado');
+  if (!contact) throw new Error('Contacto no encontrado');
 
-  const { data: org } = await supabaseAdmin
-    .from('organizations')
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
     .select('whatsapp_phone_number_id, whatsapp_access_token')
     .eq('id', orgId)
     .single();
 
-  const targetOrg = org as any;
-  if (!targetOrg?.whatsapp_phone_number_id || !targetOrg?.whatsapp_access_token) {
+  if (!org?.whatsapp_phone_number_id || !org?.whatsapp_access_token) {
     throw new Error('WhatsApp no configurado');
   }
 
   const templateDef = META_TEMPLATES[templateKey];
-  const decryptedToken = decryptSecret(targetOrg.whatsapp_access_token);
+  const decryptedToken = decryptSecret(org.whatsapp_access_token);
 
   const metaId = await WhatsAppService.sendTemplateMessage({
-    phoneNumberId: targetOrg.whatsapp_phone_number_id,
+    phoneNumberId: org.whatsapp_phone_number_id,
     accessToken: decryptedToken,
-    to: targetContact.phone,
+    to: contact.phone,
     templateName: templateDef.name,
     languageCode: 'es',
   });
 
   // Silenciar IA al enviar plantilla y actualizar interaction
-  await (supabase.from('contacts') as any)
+  await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: false,
       last_interaction_at: new Date().toISOString(),
     })
     .eq('id', contactId);
 
-  await (supabase.from('messages') as any).insert({
+  await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
     content: `[Plantilla enviada: ${templateDef.label}]`,
@@ -167,16 +157,15 @@ export async function toggleContactAi(contactId: string, newState: boolean) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
 
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
     .select('organization_id')
     .eq('id', user.id)
     .single();
 
-  const orgId = (profile as any)?.organization_id;
+  const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Perfil no encontrado');
 
-  await (supabase.from('contacts') as any)
+  await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: newState,
       updated_at: new Date().toISOString(),
@@ -187,4 +176,3 @@ export async function toggleContactAi(contactId: string, newState: boolean) {
   revalidatePath('/inbox');
   revalidatePath(`/inbox/${contactId}`);
 }
-

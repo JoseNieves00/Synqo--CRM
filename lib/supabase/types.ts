@@ -28,6 +28,8 @@ export interface Database {
           stripe_customer_id: string | null;
           subscription_status: SubscriptionStatus;
           plan_type: PlanType;
+          max_users: number;
+          is_active: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -42,6 +44,8 @@ export interface Database {
           stripe_customer_id?: string | null;
           subscription_status?: SubscriptionStatus;
           plan_type?: PlanType;
+          max_users?: number;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -56,6 +60,8 @@ export interface Database {
           stripe_customer_id?: string | null;
           subscription_status?: SubscriptionStatus;
           plan_type?: PlanType;
+          max_users?: number;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -68,6 +74,7 @@ export interface Database {
           email: string;
           full_name: string;
           role: UserRole;
+          is_super_admin: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -77,6 +84,7 @@ export interface Database {
           email: string;
           full_name: string;
           role?: UserRole;
+          is_super_admin?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -86,6 +94,7 @@ export interface Database {
           email?: string;
           full_name?: string;
           role?: UserRole;
+          is_super_admin?: boolean;
           created_at?: string;
           updated_at?: string;
         };

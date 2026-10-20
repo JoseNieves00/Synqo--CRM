@@ -24,17 +24,16 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
     throw new Error('No autorizado');
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
     .select('organization_id, role')
     .eq('id', user.id)
     .single();
 
-  if (!profile || (profile as any).role !== 'admin') {
+  if (!profile || profile.role !== 'admin') {
     throw new Error('Solo los administradores pueden modificar las credenciales de la organización.');
   }
 
-  const orgId = (profile as any).organization_id as string;
+  const orgId = profile.organization_id as string;
 
   const updatePayload: OrgUpdate = {
     updated_at: new Date().toISOString(),
@@ -74,4 +73,3 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
   revalidatePath('/settings');
   return { success: true };
 }
-

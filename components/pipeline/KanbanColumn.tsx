@@ -36,7 +36,7 @@ export function KanbanColumn({
             {label}
           </span>
         </div>
-        <span className="text-xs font-bold text-gray-400 bg-white px-2 py-0.5 rounded-full border border-gray-200 shadow-2xs">
+        <span className="text-xs font-bold text-gray-400 bg-white px-2 py-0.5 rounded-full border border-gray-200 shadow-sm">
           {contacts.length}
         </span>
       </div>

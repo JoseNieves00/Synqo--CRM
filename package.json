@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "tsx tests/security.test.ts",
+    "create-company": "tsx scripts/create-company.ts",
     "rotate-keys": "tsx scripts/rotate-keys.ts"
   },
   "dependencies": {

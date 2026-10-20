@@ -112,10 +112,10 @@ CREATE POLICY "Admins can update own organization"
         SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
     ));
 
--- Profiles
-CREATE POLICY "Users can view profiles in their organization"
+-- Profiles (evita recursión usando id = auth.uid())
+CREATE POLICY "Users can view own profile"
     ON profiles FOR SELECT
-    USING (organization_id = get_auth_org_id());
+    USING (id = auth.uid());
 
 CREATE POLICY "Admins can manage profiles in their organization"
     ON profiles FOR ALL

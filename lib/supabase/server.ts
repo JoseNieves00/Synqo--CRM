@@ -16,7 +16,7 @@ export function createServerSupabaseClient() {
         setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set({ name, value, ...options });
+              cookieStore.set(name, value, options);
             });
           } catch {
             // Manejo de llamadas en Server Components de solo lectura
@@ -26,4 +26,3 @@ export function createServerSupabaseClient() {
     }
   );
 }
-
