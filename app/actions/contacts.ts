@@ -45,7 +45,7 @@ export async function createLead(input: CreateLeadInput) {
   }
 
   // 3. Insertar el contacto en la base de datos
-  const { data: contact, error: insertError } = await (supabase.from('contacts') as any)
+  const { data: contact, error: insertError } = await (supabaseAdmin.from('contacts') as any)
     .insert({
       organization_id: profile.organization_id,
       name: input.name.trim() || 'Prospecto WhatsApp',
@@ -87,7 +87,7 @@ export async function deleteLead(contactId: string) {
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
-  const { error } = await (supabase.from('contacts') as any)
+  const { error } = await (supabaseAdmin.from('contacts') as any)
     .delete()
     .eq('id', contactId)
     .eq('organization_id', profile.organization_id);
@@ -141,9 +141,10 @@ export async function updateContactDetails(
   }
   if (updates.notes !== undefined || updates.customFields !== undefined) {
     // Obtener campos existentes
-    const { data: currentContact } = await (supabase.from('contacts') as any)
+    const { data: currentContact } = await (supabaseAdmin.from('contacts') as any)
       .select('custom_fields')
       .eq('id', contactId)
+      .eq('organization_id', profile.organization_id)
       .single();
 
     const existingFields = currentContact?.custom_fields || {};
@@ -154,7 +155,7 @@ export async function updateContactDetails(
     };
   }
 
-  const { error } = await (supabase.from('contacts') as any)
+  const { error } = await (supabaseAdmin.from('contacts') as any)
     .update(payload)
     .eq('id', contactId)
     .eq('organization_id', profile.organization_id);

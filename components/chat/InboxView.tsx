@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { MessageSquare, Search, Plus, Phone, Bot, User, Clock } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
+import { createClient } from '@/lib/supabase/client';
 
 interface ContactItem {
   id: string;
@@ -36,10 +37,64 @@ export function InboxView({
   messages,
 }: InboxViewProps) {
   const router = useRouter();
+  const [contactList, setContactList] = useState<ContactItem[]>(contacts);
+  const [messageList, setMessageList] = useState<MessageItem[]>(messages);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'ai' | 'human'>('all');
 
-  const filteredContacts = contacts.filter((c) => {
+  useEffect(() => {
+    setContactList(contacts);
+  }, [contacts]);
+
+  useEffect(() => {
+    setMessageList(messages);
+  }, [messages]);
+
+  // Suscripción Realtime a mensajes entrantes y cambios de contacto
+  useEffect(() => {
+    if (!activeContact?.id) return;
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel(`inbox-messages-${activeContact.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `contact_id=eq.${activeContact.id}`,
+        },
+        (payload) => {
+          const newMsg = payload.new as MessageItem;
+          setMessageList((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'contacts',
+        },
+        (payload) => {
+          const updated = payload.new as ContactItem;
+          setContactList((prev) =>
+            prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeContact?.id]);
+
+  const filteredContacts = contactList.filter((c) => {
     const matchesSearch =
       (c.name?.toLowerCase() || '').includes(search.toLowerCase()) ||
       c.phone.includes(search);
@@ -178,7 +233,10 @@ export function InboxView({
       {/* Columna Derecha: Ventana de Chat */}
       <div className="flex-1 min-w-0 h-full">
         {activeContact ? (
-          <ChatWindow contact={activeContact} messages={messages} />
+          <ChatWindow
+            contact={contactList.find((c) => c.id === activeContact.id) || activeContact}
+            messages={messageList}
+          />
         ) : (
           <div className="h-full bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center p-8 text-center shadow-sm">
             <MessageSquare className="w-12 h-12 text-gray-300 mb-3" />

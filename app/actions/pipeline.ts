@@ -32,7 +32,7 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
     updated_at: new Date().toISOString(),
   };
 
-  const { error: updateError } = await (supabase
+  const { error: updateError } = await (supabaseAdmin
     .from('contacts') as any)
     .update(updatePayload)
     .eq('id', contactId)

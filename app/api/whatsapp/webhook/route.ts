@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     // F. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await supabaseAdmin
       .from('organizations')
-      .select('id, name, subscription_status, whatsapp_access_token, cal_api_key, cal_event_type_id, system_prompt')
+      .select('id, name, subscription_status, is_active, whatsapp_access_token, cal_api_key, cal_event_type_id, system_prompt')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 
@@ -114,9 +114,10 @@ export async function POST(request: NextRequest) {
 
     const orgId = organization.id;
 
-    // G. Parche 1: Blindaje de Rentabilidad (Esquema de Suscripción)
+    // G. Parche 1: Blindaje de Rentabilidad (Esquema de Suscripción & Estado Activo)
     const isSubscriptionActive =
-      organization.subscription_status === 'active' || organization.subscription_status === 'trialing';
+      organization.is_active !== false &&
+      (organization.subscription_status === 'active' || organization.subscription_status === 'trialing');
 
     // H. Deduplicación de Mensaje (Evitar reprocesar el mismo meta_message_id)
     const { data: existingMessage } = await supabaseAdmin

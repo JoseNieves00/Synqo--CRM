@@ -1,7 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
+import { redirect } from 'next/navigation';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import {
   Users,
@@ -18,12 +19,15 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  const supabase = createServerSupabaseClient();
   const current = await getCurrentUserAndOrg();
+  if (!current) {
+    redirect('/login');
+  }
 
-  // Consultar contactos reales de la base de datos
-  const { data: contacts } = await (supabase.from('contacts') as any)
+  // Consultar contactos reales de la base de datos para la organización activa
+  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
     .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at')
+    .eq('organization_id', current.organization.id)
     .order('last_interaction_at', { ascending: false });
 
   const leadList = contacts || [];

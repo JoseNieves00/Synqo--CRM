@@ -1,5 +1,7 @@
 import React from 'react';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getCurrentUserAndOrg } from '@/app/actions/auth';
+import { redirect } from 'next/navigation';
 import { KanbanBoard } from '@/components/pipeline/KanbanBoard';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { Users } from 'lucide-react';
@@ -7,11 +9,15 @@ import { Users } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function PipelinePage() {
-  const supabase = createServerSupabaseClient();
+  const current = await getCurrentUserAndOrg();
+  if (!current) {
+    redirect('/login');
+  }
 
   // Consultar contactos reales de la organización activa
-  const { data: contacts } = await (supabase.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at')
+  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+    .eq('organization_id', current.organization.id)
     .order('last_interaction_at', { ascending: false });
 
   const leadList = contacts || [];

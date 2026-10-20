@@ -32,8 +32,17 @@ export function ContactCard({
     minute: '2-digit',
   });
 
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow transition-shadow">
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing select-none"
+    >
       <div className="flex items-start justify-between gap-2 mb-2">
         <h4 className="font-medium text-sm text-gray-900 truncate">
           {name || 'Lead sin nombre'}

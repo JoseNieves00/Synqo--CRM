@@ -28,8 +28,44 @@ export function KanbanColumn({
   contacts,
   onMoveStage,
 }: KanbanColumnProps) {
+  const [isOver, setIsOver] = React.useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsOver(false);
+    const contactId = e.dataTransfer.getData('text/plain');
+    if (contactId && onMoveStage) {
+      onMoveStage(contactId, id);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 min-w-[280px] bg-gray-50/80 rounded-xl border border-gray-200/80 p-3 max-h-[calc(100vh-180px)]">
+    <div
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`flex flex-col flex-1 min-w-[280px] rounded-2xl border transition-all duration-200 p-3 max-h-[calc(100vh-190px)] ${
+        isOver
+          ? 'bg-emerald-50/70 border-emerald-400 ring-2 ring-emerald-400/30 shadow-md'
+          : 'bg-gray-50/80 border-gray-200/80 shadow-sm'
+      }`}
+    >
       <div className="flex items-center justify-between pb-3 mb-2 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-md border ${colorClass}`}>
