@@ -18,8 +18,84 @@ import {
   Sliders,
   Check,
   Zap,
+  Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
+
+interface PlanDetails {
+  title: string;
+  badge: string;
+  description: string;
+  tokens: string;
+  seats: string;
+  features: string[];
+  highlight?: string;
+}
+
+const PLAN_BENEFITS: Record<string, PlanDetails> = {
+  core: {
+    title: 'Starter (Validación)',
+    badge: 'Starter',
+    description: 'Diseñado para negocios unipersonales o 1-2 asesores validando su canal de captación y cierre por WhatsApp.',
+    tokens: '500,000 tokens IA / mes (~350 - 500 chats)',
+    seats: 'Hasta 2 asientos de asesores incluidos',
+    features: [
+      'IA autónoma con Prompt 100% editable y personalizable',
+      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
+      'Agendamiento de citas sincronizado con Cal.com',
+      'Alertas sonoras melódicas y notificaciones push al navegador',
+      'Soporte técnico estándar por ticket y correo',
+    ],
+  },
+  starter: {
+    title: 'Starter (Validación)',
+    badge: 'Starter',
+    description: 'Diseñado para negocios unipersonales o 1-2 asesores validando su canal de captación y cierre por WhatsApp.',
+    tokens: '500,000 tokens IA / mes (~350 - 500 chats)',
+    seats: 'Hasta 2 asientos de asesores incluidos',
+    features: [
+      'IA autónoma con Prompt 100% editable y personalizable',
+      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
+      'Agendamiento de citas sincronizado con Cal.com',
+      'Alertas sonoras melódicas y notificaciones push al navegador',
+      'Soporte técnico estándar por ticket y correo',
+    ],
+  },
+  pro: {
+    title: 'Pro Comercial (Recomendado)',
+    badge: 'Pro',
+    description: 'Para empresas con equipo comercial activo que buscan acelerar la conversión y cierre de prospectos calificados.',
+    tokens: '2,500,000 tokens IA / mes (~1,800 - 2,500 chats)',
+    seats: 'Hasta 5 asientos de asesores incluidos',
+    features: [
+      'IA autónoma con Prompt 100% editable y personalizable',
+      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
+      'Agendamiento de citas sincronizado con Cal.com',
+      'Exportación de Leads y contactos a archivo CSV / Excel',
+      'Alertas sonoras melódicas y notificaciones push al navegador',
+      'Soporte comercial prioritario por correo electrónico',
+    ],
+    highlight: 'Plan Más Popular',
+  },
+  enterprise: {
+    title: 'Enterprise Corporativo (Escala)',
+    badge: 'Enterprise',
+    description: 'Para operaciones comerciales consolidadas con múltiples turnos y equipos comerciales grandes.',
+    tokens: '7,500,000 tokens IA / mes (~5,000 - 7,500 chats)',
+    seats: 'Hasta 12 asientos de asesores incluidos',
+    features: [
+      'IA autónoma con Prompt 100% editable y personalizable',
+      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
+      'Agendamiento de citas sincronizado con Cal.com',
+      'Exportación Masiva de Leads & Historial completo a Excel',
+      'Grupo VIP de WhatsApp dedicado con SLA de respuesta < 2h',
+      'Sesión de Capacitación en Vivo (45 min) para asesores',
+      'Facturación corporativa anual / local y soporte preferencial',
+    ],
+    highlight: 'Soporte VIP en WhatsApp',
+  },
+};
 
 interface SettingsFormProps {
   initialData: {
@@ -195,32 +271,102 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
             </div>
           )}
 
-          {/* Tarjeta de Licencia y Estado */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg">
-                  <CreditCard className="w-5 h-5" />
+          {/* Tarjeta de Licencia y Beneficios del Plan */}
+          {(() => {
+            const currentPlan = PLAN_BENEFITS[planType.toLowerCase()] || PLAN_BENEFITS.core;
+            return (
+              <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] rounded-xl">
+                      <CreditCard className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-gray-900">Estado de Licencia & Servicio</h2>
+                        {currentPlan.highlight && (
+                          <span className="text-[10px] bg-[#0052FF]/10 text-[#0052FF] font-semibold px-2 py-0.5 rounded-full border border-[#0052FF]/20">
+                            {currentPlan.highlight}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">Plan contratado y herramientas activas en tu suscripción</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-xs font-semibold px-3 py-1 rounded-full border flex items-center gap-1.5 ${
+                        subStatus === 'active' || subStatus === 'trialing'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          subStatus === 'active' || subStatus === 'trialing'
+                            ? 'bg-emerald-500 animate-pulse'
+                            : 'bg-rose-500'
+                        }`}
+                      />
+                      {subStatus === 'trialing'
+                        ? `Prueba Activa (${currentPlan.badge})`
+                        : `Plan ${currentPlan.badge}: ${subStatus.toUpperCase()}`}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Estado de Licencia y Servicio</h2>
-                  <p className="text-xs text-gray-500">Plan activo y disponibilidad de atención automatizada</p>
+
+                {/* Descripción y Resumen del Plan */}
+                <div className="space-y-3 pt-1">
+                  <p className="text-xs text-gray-700 leading-relaxed font-medium">
+                    {currentPlan.description}
+                  </p>
+
+                  {/* Cuotas del Plan: Asientos y Tokens */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs">
+                        <Users className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
+                          Capacidad de Equipo
+                        </span>
+                        <span className="text-xs font-bold text-gray-900">{currentPlan.seats}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
+                          Cuota Mensual de Inteligencia Artificial
+                        </span>
+                        <span className="text-xs font-bold text-gray-900">{currentPlan.tokens}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Lista Oficial de Beneficios */}
+                  <div className="pt-2">
+                    <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider block mb-2">
+                      Beneficios Incluidos en tu Plan:
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {currentPlan.features.map((feature, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-gray-600">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          <span>{feature}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-              <span
-                className={`text-xs font-semibold px-3 py-1 rounded-full border ${
-                  subStatus === 'active' || subStatus === 'trialing'
-                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                    : 'bg-rose-100 text-rose-800 border-rose-300'
-                }`}
-              >
-                {subStatus === 'trialing' ? `Prueba Activa (Plan ${planType.toUpperCase()})` : `Plan ${planType.toUpperCase()}: ${subStatus}`}
-              </span>
-            </div>
-            <div className="text-xs text-gray-600 leading-relaxed">
-              Tu empresa cuenta con acceso activo a la atención automática de WhatsApp, calificación de prospectos y agendamiento comercial con Inteligencia Artificial.
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">
