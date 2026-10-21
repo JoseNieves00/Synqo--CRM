@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import assert from 'assert';
-import { calculateBillingStatus, registerCompanyPayment, toggleCompanyStatus } from '../app/actions/superadmin';
+import { registerCompanyPayment, toggleCompanyStatus } from '../app/actions/superadmin';
+import { calculateBillingStatus } from '../lib/billing/billing-status';
 import { supabaseAdmin } from '../lib/supabase/admin';
 
 async function runBillingTests() {
