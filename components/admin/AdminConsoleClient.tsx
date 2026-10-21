@@ -90,12 +90,21 @@ export default function AdminConsoleClient({
   // Filtro de cobranza
   const [billingFilter, setBillingFilter] = useState<'all' | 'al_dia' | 'pendiente' | 'mora'>('all');
 
-  // Estado para modal de registro de pago
+  // Estado para modal de actualización de cobertura/pago
   const [payingOrg, setPayingOrg] = useState<OrganizationRow | null>(null);
-  const [payAmount, setPayAmount] = useState<number>(60);
   const [payMonth, setPayMonth] = useState<string>(currentMonthStr);
-  const [payMethod, setPayMethod] = useState<string>('transferencia');
-  const [payNotes, setPayNotes] = useState<string>('');
+
+  const getNextMonthStr = () => {
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const getNextYearStr = () => {
+    const now = new Date();
+    const nextYear = new Date(now.getFullYear() + 1, now.getMonth(), 1);
+    return `${nextYear.getFullYear()}-${String(nextYear.getMonth() + 1).padStart(2, '0')}`;
+  };
 
   // Filtrado de organizaciones
   const filteredOrgs = organizations.filter((org) => {
@@ -125,11 +134,8 @@ export default function AdminConsoleClient({
 
   const handleOpenPayModal = (org: OrganizationRow) => {
     setPayingOrg(org);
-    const suggestedPrice = org.plan_type === 'enterprise' ? 270 : org.plan_type === 'pro' ? 110 : 60;
-    setPayAmount(suggestedPrice);
-    setPayMonth(currentMonthStr);
-    setPayMethod('transferencia');
-    setPayNotes(`Pago mensual para ${org.name}`);
+    const isAlreadyCovered = org.paid_until_month && org.paid_until_month >= currentMonthStr;
+    setPayMonth(isAlreadyCovered ? getNextMonthStr() : currentMonthStr);
   };
 
   const handlePaymentSubmit = async (e: React.FormEvent) => {
@@ -142,13 +148,13 @@ export default function AdminConsoleClient({
     try {
       await registerCompanyPayment({
         organizationId: payingOrg.id,
-        amount: payAmount,
         periodMonth: payMonth,
-        paymentMethod: payMethod,
-        notes: payNotes,
       });
 
-      setSuccessMsg(`Pago de $${payAmount} USD registrado para "${payingOrg.name}" (${payMonth}). Cuenta al día y tokens reiniciados.`);
+      const isFuture = payMonth > currentMonthStr;
+      const newLabel = isFuture ? `Al día (hasta ${payMonth})` : `Al día (${payMonth})`;
+
+      setSuccessMsg(`Estado actualizado para "${payingOrg.name}" hasta ${payMonth}. Cuenta al día.`);
       setOrganizations((prev) =>
         prev.map((o) =>
           o.id === payingOrg.id
@@ -159,7 +165,7 @@ export default function AdminConsoleClient({
                 paid_until_month: payMonth,
                 days_past_due: 0,
                 billing_status: 'al_dia',
-                billing_status_label: `Al día (${payMonth})`,
+                billing_status_label: newLabel,
                 billing_status_color: 'emerald',
                 ai_tokens_used: 0,
               }
@@ -168,7 +174,7 @@ export default function AdminConsoleClient({
       );
       setPayingOrg(null);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error al registrar el pago.');
+      setErrorMsg(err.message || 'Error al actualizar estado.');
     } finally {
       setIsSubmitting(false);
     }
@@ -863,11 +869,29 @@ export default function AdminConsoleClient({
                 </div>
               </div>
 
-              {/* Primer mes cubierto (Opción A: Cortesía / Setup) */}
+              {/* Primer mes cubierto (Mensual vs Anual) */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Primer Mes Cubierto (Cortesía de Bienvenida / Setup)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Período Cubierto Inicial
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setFirstBillingMonth(currentMonthStr)}
+                      className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition cursor-pointer"
+                    >
+                      Mes Actual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFirstBillingMonth(getNextYearStr())}
+                      className="text-[10px] px-2 py-0.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold transition cursor-pointer"
+                    >
+                      ⭐ Pago Anual (1 Año)
+                    </button>
+                  </div>
+                </div>
                 <input
                   type="month"
                   value={firstBillingMonth}
@@ -875,7 +899,7 @@ export default function AdminConsoleClient({
                   className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Si el cliente inicia a mitad de mes (ej. día 20), este mes se marca como cubierto y su primera mensualidad se cobrará entre el 1 y el 5 del mes siguiente.
+                  Para cobros mensuales déjalo en el mes actual. Si el cliente pagó la anualidad por anticipado, pulsa <strong>Pago Anual</strong>.
                 </p>
               </div>
 
@@ -953,98 +977,96 @@ export default function AdminConsoleClient({
         </div>
       )}
 
-      {/* Modal: Registrar Pago Manual de Mensualidad */}
+      {/* Mini-Modal: Actualizar Cobertura de Pago (Mensual o Anual) */}
       {payingOrg && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-6 border-b border-gray-200 bg-gray-50/50">
-              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-emerald-600" />
-                Registrar Pago de Mensualidad
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-gray-200 bg-gray-50/50">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-emerald-600" />
+                Actualizar Estado de Pago
               </h3>
               <p className="text-xs text-gray-500 mt-1">
-                Registra el pago para <strong className="text-gray-800">{payingOrg.name}</strong>. Reactivará el servicio e iniciará un nuevo ciclo de tokens de IA.
+                Empresa: <strong className="text-gray-900">{payingOrg.name}</strong>
               </p>
             </div>
 
-            <form onSubmit={handlePaymentSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handlePaymentSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-2">
+                  Selecciona el período cubierto:
+                </label>
+                
+                {/* Botones de Selección Rápida */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setPayMonth(currentMonthStr)}
+                    className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer flex flex-col items-center gap-0.5 ${
+                      payMonth === currentMonthStr
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-500 ring-2 ring-emerald-500/20'
+                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span>Mes Actual</span>
+                    <span className="text-[10px] text-gray-400 font-mono font-normal">({currentMonthStr})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPayMonth(getNextMonthStr())}
+                    className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer flex flex-col items-center gap-0.5 ${
+                      payMonth === getNextMonthStr()
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-500 ring-2 ring-emerald-500/20'
+                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span>+1 Mes Siguiente</span>
+                    <span className="text-[10px] text-gray-400 font-mono font-normal">({getNextMonthStr()})</span>
+                  </button>
+                </div>
+
+                {/* Botón Destacado: Pago Anual (12 Meses) */}
+                <button
+                  type="button"
+                  onClick={() => setPayMonth(getNextYearStr())}
+                  className={`w-full py-2.5 px-3 mb-3 text-xs rounded-xl border font-bold transition cursor-pointer flex items-center justify-between ${
+                    payMonth === getNextYearStr()
+                      ? 'bg-gradient-to-r from-purple-500/10 to-indigo-500/10 text-purple-700 border-purple-500 ring-2 ring-purple-500/20'
+                      : 'bg-purple-50/50 text-purple-700 border-purple-200 hover:bg-purple-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span>⭐ Pago Anual Anticipado</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-mono font-normal">12 meses</span>
+                  </span>
+                  <span className="font-mono text-[11px] text-purple-600 font-bold">({getNextYearStr()})</span>
+                </button>
+
+                {/* Selector Manual */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Mes Cubierto *
-                  </label>
+                  <span className="text-[11px] text-gray-500 block mb-1">O define un mes específico:</span>
                   <input
                     type="month"
                     required
                     value={payMonth}
                     onChange={(e) => setPayMonth(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono font-semibold text-gray-800 bg-white"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Monto (USD) *
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={payAmount}
-                      onChange={(e) => setPayAmount(parseFloat(e.target.value) || 0)}
-                      className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-semibold"
-                    />
-                  </div>
-                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Método de Pago
-                </label>
-                <select
-                  value={payMethod}
-                  onChange={(e) => setPayMethod(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
-                >
-                  <option value="transferencia">Transferencia Bancaria Directa</option>
-                  <option value="stripe_link">Enlace de Pago Stripe</option>
-                  <option value="wompi">Wompi / Bancolombia</option>
-                  <option value="mercadopago">MercadoPago</option>
-                  <option value="otro">Otro</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Notas / Referencia de Pago (Opcional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={payNotes}
-                  onChange={(e) => setPayNotes(e.target.value)}
-                  placeholder="Ej. Transferencia recibida y confirmada"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 space-y-1">
-                <span className="font-bold flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  Efectos automáticos al confirmar:
-                </span>
-                <p>• La empresa queda marcada como <strong>Al día</strong> para el mes seleccionado.</p>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                <p>• La empresa quedará en verde <strong>Al día</strong> hasta el final de <strong>{payMonth}</strong>.</p>
                 <p>• Si estaba suspendida, se <strong>reactiva de inmediato</strong>.</p>
-                <p>• Los tokens consumidos de OpenAI se <strong>reinician a 0</strong> para el nuevo mes.</p>
+                <p>• Los tokens de OpenAI se <strong>reinician a 0</strong> para el nuevo ciclo.</p>
               </div>
 
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setPayingOrg(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -1054,7 +1076,7 @@ export default function AdminConsoleClient({
                   className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />
-                  {isSubmitting ? 'Guardando...' : 'Confirmar Pago y Reactivar'}
+                  {isSubmitting ? 'Guardando...' : 'Confirmar y Activar'}
                 </button>
               </div>
             </form>

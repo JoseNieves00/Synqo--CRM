@@ -73,9 +73,10 @@ export function calculateBillingStatus(org: {
   const paidMonth = org.paid_until_month || currentMonthStr;
 
   if (paidMonth >= currentMonthStr) {
+    const isFuture = paidMonth > currentMonthStr;
     return {
       status: 'al_dia',
-      label: `Al día (${paidMonth})`,
+      label: isFuture ? `Al día (hasta ${paidMonth})` : `Al día (${paidMonth})`,
       color: 'emerald',
       daysPastDue: 0,
       isSuspended: false,
@@ -114,3 +115,4 @@ export function calculateBillingStatus(org: {
     isSuspended: false,
   };
 }
+

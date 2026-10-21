@@ -407,22 +407,22 @@ export async function toggleCompanyStatus(organizationId: string, isActive: bool
  */
 export async function registerCompanyPayment(input: {
   organizationId: string;
-  amount: number;
   periodMonth: string;
+  amount?: number;
   paymentMethod?: string;
   notes?: string;
 }) {
   await requireSuperAdmin();
 
-  // 1. Registrar en libro contable
+  // 1. Registrar en libro contable si está disponible
   try {
     await (supabaseAdmin.from('organization_payments') as any).insert({
       organization_id: input.organizationId,
-      amount: input.amount,
+      amount: input.amount ?? 0,
       currency: 'USD',
       period_month: input.periodMonth,
       payment_method: input.paymentMethod || 'transferencia',
-      notes: input.notes || 'Registro manual por Super Admin',
+      notes: input.notes || 'Registro manual de cobertura por Super Admin',
       created_at: new Date().toISOString(),
     });
   } catch (err: any) {
