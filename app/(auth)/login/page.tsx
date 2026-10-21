@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import { signIn } from '@/app/actions/auth';
-import { ShieldCheck, Mail, Lock, ArrowRight, Loader2, Info, X } from 'lucide-react';
+import { ShieldCheck, Mail, Lock, ArrowRight, Loader2, X } from 'lucide-react';
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -129,18 +129,8 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Aviso de Registro Privado / Super Admin */}
-          <div className="mt-6 pt-5 border-t border-[#232A3B]">
-            <div className="flex items-start gap-2.5 bg-[#090A0F]/60 p-3 rounded-lg border border-[#232A3B] text-slate-400 text-xs leading-relaxed">
-              <Info className="w-4 h-4 text-[#00D2FF] flex-shrink-0 mt-0.5" />
-              <span>
-                El alta de nuevas empresas es gestionado exclusivamente por el <strong>Super Administrador</strong> de Synqo. Si tu organización aún no cuenta con acceso, comunícate con tu asesor comercial.
-              </span>
-            </div>
-          </div>
-
           {/* Seguridad */}
-          <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-slate-500">
+          <div className="mt-6 pt-5 border-t border-[#232A3B] flex items-center justify-center gap-2 text-[11px] text-slate-500">
             <ShieldCheck className="w-4 h-4 text-[#0052FF]" />
             <span>Conexión Cifrada & Seguridad Empresarial</span>
           </div>
