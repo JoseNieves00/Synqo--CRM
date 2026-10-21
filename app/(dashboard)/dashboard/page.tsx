@@ -22,6 +22,14 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const STAGE_BADGES: Record<string, { label: string; color: string }> = {
+  nuevo: { label: 'Nuevo Lead', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  calificado: { label: 'Calificado', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  cita_agendada: { label: 'Cita Agendada', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  ganado: { label: 'Cierre Ganado', color: 'bg-teal-50 text-teal-800 border-teal-200' },
+  perdido: { label: 'Perdido / Descarte', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+};
+
 export default async function DashboardPage() {
   const current = await getCurrentUserAndOrg();
   if (!current) {
@@ -236,9 +244,17 @@ export default async function DashboardPage() {
                       {lead.is_ai_active ? 'IA Activa' : 'Control Humano'}
                     </span>
 
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-[11px]">
-                      {lead.pipeline_stage}
-                    </span>
+                    {(() => {
+                      const stageBadge = STAGE_BADGES[lead.pipeline_stage] || {
+                        label: lead.pipeline_stage,
+                        color: 'bg-gray-100 text-gray-600 border-gray-200',
+                      };
+                      return (
+                        <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${stageBadge.color}`}>
+                          {stageBadge.label}
+                        </span>
+                      );
+                    })()}
 
                     <Link
                       href={`/inbox/${lead.id}`}

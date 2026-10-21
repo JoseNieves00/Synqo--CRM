@@ -47,6 +47,17 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
 5. **Regeneración de Contraseña para Administradores (Icono de Llave):**
    - Si un dueño o administrador de empresa olvida su contraseña, pulsa el botón de llave en la fila de su empresa.
    - El sistema generará una nueva contraseña temporal segura con forzado de cambio de clave al iniciar sesión y botón de copiado rápido.
+6. **Seguridad y Reseteo del Super Admin (Exclusivo por Terminal):**
+   - Por protocolo de máxima seguridad, la contraseña del **Super Administrador** (`admin@synqo.dev`) está bloqueada en la web y el botón de llave está desactivado para su propia cuenta, evitando bloqueos accidentales.
+   - Si requieres cambiar la contraseña del Super Admin, se realiza exclusivamente desde la consola del servidor:
+     ```bash
+     # Asignar una contraseña personalizada:
+     npx tsx scripts/reset-superadmin.ts "TuNuevaClave123!"
+
+     # O restablecer la clave maestra por defecto:
+     npm run reset-superadmin
+     ```
+   - El script restablece el acceso directamente en Supabase Auth, desactiva cualquier bandera de bloqueo temporal y asegura los privilegios maestros (`is_super_admin: true`).
 
 ---
 
