@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+export type { PlanType, SubscriptionStatus } from '@/lib/supabase/types';
 import { PlanType, SubscriptionStatus } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
@@ -152,7 +153,7 @@ const ProvisionSchema = z.object({
   adminName: z.string().min(2, 'El nombre del administrador es requerido.'),
   adminEmail: z.string().email('Correo electrónico inválido.'),
   adminPassword: z.string().min(8, 'La contraseña debe tener mínimo 8 caracteres.'),
-  planType: z.enum(['core', 'pro', 'enterprise']).default('core'),
+  planType: z.enum(['starter', 'core', 'pro', 'enterprise']).default('starter'),
   maxUsers: z.number().int().min(1).max(100).default(3),
 });
 
@@ -164,25 +165,42 @@ export async function provisionCompany(input: {
   adminName: string;
   adminEmail: string;
   adminPassword: string;
-  planType?: 'core' | 'pro' | 'enterprise';
+  planType?: 'starter' | 'core' | 'pro' | 'enterprise';
   maxUsers?: number;
 }) {
   await requireSuperAdmin();
 
   const validated = ProvisionSchema.parse(input);
 
-  // 1. Crear Organización
-  const { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
+  // 1. Crear Organización (intenta con el plan seleccionado y fallback a 'core' si la BD aún tiene el constraint original)
+  let planToInsert = validated.planType;
+  let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
     .insert({
       name: validated.companyName.trim(),
       subscription_status: 'active',
-      plan_type: validated.planType,
+      plan_type: planToInsert,
       max_users: validated.maxUsers,
       is_active: true,
       system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
     })
     .select('id, name')
     .single();
+
+  if (orgError && orgError.message?.includes('organizations_plan_type_check') && planToInsert === 'starter') {
+    const retry = await (supabaseAdmin.from('organizations') as any)
+      .insert({
+        name: validated.companyName.trim(),
+        subscription_status: 'active',
+        plan_type: 'core',
+        max_users: validated.maxUsers,
+        is_active: true,
+        system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
+      })
+      .select('id, name')
+      .single();
+    org = retry.data;
+    orgError = retry.error;
+  }
 
   if (orgError || !org) {
     throw new Error(`Error creando organización: ${orgError?.message}`);
@@ -306,13 +324,24 @@ export async function updateCompanyPlan(
 ) {
   await requireSuperAdmin();
 
-  const { error } = await (supabaseAdmin.from('organizations') as any)
+  let { error } = await (supabaseAdmin.from('organizations') as any)
     .update({
       plan_type: planType,
       subscription_status: subscriptionStatus,
       updated_at: new Date().toISOString(),
     })
     .eq('id', organizationId);
+
+  if (error && error.message?.includes('organizations_plan_type_check') && planType === 'starter') {
+    const retry = await (supabaseAdmin.from('organizations') as any)
+      .update({
+        plan_type: 'core',
+        subscription_status: subscriptionStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', organizationId);
+    error = retry.error;
+  }
 
   if (error) {
     throw new Error(`Error actualizando plan: ${error.message}`);

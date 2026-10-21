@@ -23,7 +23,7 @@ interface CreateCompanyOptions {
   adminName: string;
   adminEmail: string;
   adminPassword: string;
-  planType?: 'core' | 'pro' | 'enterprise';
+  planType?: 'starter' | 'core' | 'pro' | 'enterprise';
   subscriptionStatus?: 'active' | 'trialing';
 }
 
@@ -32,22 +32,38 @@ export async function provisionCompany({
   adminName,
   adminEmail,
   adminPassword,
-  planType = 'core',
+  planType = 'starter',
   subscriptionStatus = 'active',
 }: CreateCompanyOptions) {
   console.log(`\n🏢 [SUPER ADMIN] Provisionando organización: "${companyName}"...`);
 
-  // 1. Crear Organización en la base de datos
-  const { data: org, error: orgError } = await supabase
+  // 1. Crear Organización en la base de datos (con fallback a 'core' si la BD aún no tiene migrada la restricción)
+  let planToInsert = planType;
+  let { data: org, error: orgError } = await supabase
     .from('organizations')
     .insert({
       name: companyName.trim(),
       subscription_status: subscriptionStatus,
-      plan_type: planType,
+      plan_type: planToInsert,
       system_prompt: `Eres un asesor comercial experto y empático de ${companyName}. Responde con cortesía en español, resuelve dudas sobre nuestros servicios y guía al cliente a agendar una cita mediante el calendario.`,
     })
     .select('id, name, subscription_status, plan_type')
     .single();
+
+  if (orgError && orgError.message?.includes('organizations_plan_type_check') && planToInsert === 'starter') {
+    const retry = await supabase
+      .from('organizations')
+      .insert({
+        name: companyName.trim(),
+        subscription_status: subscriptionStatus,
+        plan_type: 'core',
+        system_prompt: `Eres un asesor comercial experto y empático de ${companyName}. Responde con cortesía en español, resuelve dudas sobre nuestros servicios y guía al cliente a agendar una cita mediante el calendario.`,
+      })
+      .select('id, name, subscription_status, plan_type')
+      .single();
+    org = retry.data;
+    orgError = retry.error;
+  }
 
   if (orgError || !org) {
     console.error('❌ Error creando organización:', orgError?.message);
@@ -115,7 +131,7 @@ async function main() {
   const adminName = args.find((a) => a.startsWith('--name='))?.split('=')[1] || 'Administrador Demo';
   const adminEmail = args.find((a) => a.startsWith('--email='))?.split('=')[1] || 'admin@synqo.dev';
   const adminPassword = args.find((a) => a.startsWith('--password='))?.split('=')[1] || 'Synqo123456!';
-  const planType = (args.find((a) => a.startsWith('--plan='))?.split('=')[1] as any) || 'core';
+  const planType = (args.find((a) => a.startsWith('--plan='))?.split('=')[1] as any) || 'starter';
 
   await provisionCompany({
     companyName,

@@ -84,9 +84,10 @@ export async function checkTokenQuota(organizationId: string): Promise<{
     }
 
     const defaultLimits: Record<string, number> = {
-      core: 100000,
-      pro: 500000,
-      enterprise: 2000000,
+      starter: 500000,
+      core: 500000,
+      pro: 2500000,
+      enterprise: 7500000,
     };
 
     const limit = Number(org.ai_tokens_limit) || defaultLimits[org.plan_type] || 100000;

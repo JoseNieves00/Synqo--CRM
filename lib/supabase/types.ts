@@ -11,7 +11,7 @@ export type PipelineStage = 'nuevo' | 'calificado' | 'cita_agendada' | 'ganado' 
 export type MessageSender = 'lead' | 'ai' | 'agent_manual' | 'system';
 export type ReminderStatus = 'pending' | 'sent' | 'cancelled';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing';
-export type PlanType = 'core' | 'pro' | 'enterprise';
+export type PlanType = 'starter' | 'core' | 'pro' | 'enterprise';
 
 export interface Database {
   public: {

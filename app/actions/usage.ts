@@ -37,9 +37,10 @@ export async function getOrganizationTokenUsage(): Promise<TokenUsageData | null
   if (!org) return null;
 
   const defaultLimits: Record<string, number> = {
-    core: 100000,
-    pro: 500000,
-    enterprise: 2000000,
+    starter: 500000,
+    core: 500000,
+    pro: 2500000,
+    enterprise: 7500000,
   };
 
   const tokensUsed = Number(org.ai_tokens_used || 0);

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import {
   OrganizationRow,
+  PlanType,
   provisionCompany,
   updateCompanySeats,
   toggleCompanyStatus,
@@ -69,7 +70,7 @@ export default function AdminConsoleClient({
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
-  const [planType, setPlanType] = useState<'core' | 'pro' | 'enterprise'>('core');
+  const [planType, setPlanType] = useState<PlanType>('starter');
   const [maxUsers, setMaxUsers] = useState<number>(3);
 
   // Filtrado de organizaciones
@@ -450,7 +451,7 @@ export default function AdminConsoleClient({
 
                       <td className="py-3.5 px-5">
                         <span className="capitalize px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
-                          {org.plan_type}
+                          {org.plan_type === 'core' ? 'Starter' : org.plan_type}
                         </span>
                       </td>
 
@@ -631,9 +632,9 @@ export default function AdminConsoleClient({
                     onChange={(e) => setPlanType(e.target.value as any)}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
                   >
-                    <option value="core">Core (Estándar)</option>
-                    <option value="pro">Pro</option>
-                    <option value="enterprise">Enterprise</option>
+                    <option value="starter">Starter (Validación - 2 Asientos)</option>
+                    <option value="pro">Pro (Comercial - 5 Asientos)</option>
+                    <option value="enterprise">Enterprise (Corporativo - 12 Asientos)</option>
                   </select>
                 </div>
 
