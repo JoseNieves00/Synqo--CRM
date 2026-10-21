@@ -66,10 +66,25 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
 Dado que la facturación inicial es **manual (asistida)**:
 
 ### Flujo de Venta y Activación:
-1. **Cierre de Venta:** Cobras la mensualidad o anualidad por transferencia bancaria directa o enlace de pago (Stripe Payment Link, Wompi o MercadoPago).
-2. **Aprovisionamiento:** Entras a `/admin`, creas la empresa y defines su cuota de usuarios según el plan pactado.
+1. **Cierre de Venta:** Cobras el Setup (50% anticipo, 50% al entregar) por transferencia bancaria directa o enlace de pago (Stripe Payment Link, Wompi o MercadoPago).
+2. **Aprovisionamiento con "Opción A" (Cortesía de Bienvenida):** 
+   - Si el cliente inicia a mitad de mes (ej. día 20), el sistema fija el mes en curso como **cubierto por cortesía/setup**.
+   - Su primera mensualidad regular se programará para cobrarse entre el **1 y el 5 del mes siguiente**.
 3. **Entrega de Credenciales:** Le entregas el correo y la contraseña temporal al dueño de la empresa.
-4. **Renovación Mensual:** Si el cliente renueva, mantiene su servicio activo. Si no paga tras el periodo de gracia, lo suspendes con 1 clic desde `/admin`.
+4. **Ciclo Mensual de Cobranza (Día 1 al 5):**
+   - **Día 1 al 5:** Período ordinario de pago. En `/admin` verás a la empresa en estado `Cobro Pendiente`.
+   - **Día 6 al 9 (Período de Gracia):** Si no ha pagado, el CRM lo resalta en ámbar `Período Gracia` para que le recuerdes el pago.
+   - **Día 10 (Suspensión Preventiva por Mora):** Si no paga al décimo día, el sistema o tú desde `/admin` aplican la suspensión preventiva:
+     - **WhatsApp:** La IA se apaga de inmediato (0 costo en OpenAI). Los mensajes de leads se guardan en la base de datos sin responder para no perder ventas.
+     - **CRM Web:** Los usuarios ven la pantalla de suspensión. El administrador del cliente tiene un botón directo para **descargar su respaldo completo de prospectos (CSV/Excel)** respetando la cláusula de propiedad de datos.
+   - **Día 30 (Baja Definitiva):** Si transcurren 30 días en mora, el sistema sugiere la baja definitiva del servicio.
+5. **Registro de Pago en 1 Clic:**
+   - Cuando el cliente te envíe el comprobante de transferencia o pague por link, pulsas **"Registrar Pago"** en `/admin`.
+   - **Efectos Automáticos:**
+     - El mes queda marcado como pagado.
+     - Si estaba suspendida, se **reactiva al instante**.
+     - Los tokens de OpenAI se **reinician a 0** para el nuevo ciclo mensual.
+     - Se guarda el recibo en el historial contable (`organization_payments`).
 
 ### Estructura de Planes y Márgenes Comerciales:
 
@@ -184,4 +199,31 @@ Si deseas sincronizar el enum de la base de datos de Supabase para que admita `s
    ALTER TABLE organizations ALTER COLUMN plan_type SET DEFAULT 'starter';
    ```
 *(Nota: El sistema en el código ya cuenta con fallback automático, por lo que las funciones siguen operando con total estabilidad aun antes de ejecutar este script).*
+
+---
+
+## 8. Sincronización de Base de Datos (Cobranza Manual y Pagos)
+
+Para habilitar las columnas de ciclo de facturación y el libro contable de pagos manuales en Supabase:
+
+1. Abre el **SQL Editor** en Supabase.
+2. Ejecuta el script ubicado en `supabase/migrations/20261021010000_add_manual_billing_and_mora_system.sql`:
+   ```sql
+   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS paid_until_month TEXT DEFAULT TO_CHAR(NOW(), 'YYYY-MM');
+   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_due_day INT DEFAULT 5;
+   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS past_due_since TIMESTAMPTZ;
+
+   CREATE TABLE IF NOT EXISTS organization_payments (
+       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+       amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+       currency TEXT NOT NULL DEFAULT 'USD',
+       period_month TEXT NOT NULL,
+       payment_method TEXT NOT NULL DEFAULT 'transferencia',
+       notes TEXT,
+       registered_by UUID REFERENCES auth.users(id),
+       created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+   );
+   ```
+*(Nota: El código cuenta con protección y fallbacks activos, por lo que todas las funciones de `/admin` y el CRM operan de manera segura con o sin la migración ejecutada).*
 

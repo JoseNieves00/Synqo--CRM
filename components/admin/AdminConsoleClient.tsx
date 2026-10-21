@@ -19,6 +19,10 @@ import {
   KeyRound,
   Copy,
   Check,
+  Receipt,
+  CreditCard,
+  DollarSign,
+  Filter,
 } from 'lucide-react';
 import {
   OrganizationRow,
@@ -28,6 +32,7 @@ import {
   toggleCompanyStatus,
   updateCompanyPlan,
   regenerateCompanyAdminPassword,
+  registerCompanyPayment,
 } from '@/app/actions/superadmin';
 
 interface Metrics {
@@ -37,6 +42,12 @@ interface Metrics {
   totalMessages: number;
   totalProfiles: number;
   totalAiTokensUsed?: number;
+  billingSummary?: {
+    paidCount: number;
+    pendingCount: number;
+    graceCount: number;
+    moraCount: number;
+  };
 }
 
 interface AdminConsoleClientProps {
@@ -65,22 +76,103 @@ export default function AdminConsoleClient({
   const [copiedKey, setCopiedKey] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
 
-  // Formulario de nueva empresa
+  const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+
+  // Formulario de nueva empresa (Opción A: mes actual como cortesía/setup)
   const [companyName, setCompanyName] = useState('');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [planType, setPlanType] = useState<PlanType>('starter');
-  const [maxUsers, setMaxUsers] = useState<number>(3);
+  const [maxUsers, setMaxUsers] = useState<number>(2);
+  const [firstBillingMonth, setFirstBillingMonth] = useState<string>(currentMonthStr);
+
+  // Filtro de cobranza
+  const [billingFilter, setBillingFilter] = useState<'all' | 'al_dia' | 'pendiente' | 'mora'>('all');
+
+  // Estado para modal de registro de pago
+  const [payingOrg, setPayingOrg] = useState<OrganizationRow | null>(null);
+  const [payAmount, setPayAmount] = useState<number>(60);
+  const [payMonth, setPayMonth] = useState<string>(currentMonthStr);
+  const [payMethod, setPayMethod] = useState<string>('transferencia');
+  const [payNotes, setPayNotes] = useState<string>('');
 
   // Filtrado de organizaciones
-  const filteredOrgs = organizations.filter(
-    (org) =>
+  const filteredOrgs = organizations.filter((org) => {
+    const matchesSearch =
       org.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       org.admin_email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       org.admin_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      org.id.includes(searchQuery)
-  );
+      org.id.includes(searchQuery);
+
+    if (!matchesSearch) return false;
+
+    if (billingFilter === 'al_dia') {
+      return org.billing_status === 'al_dia';
+    }
+    if (billingFilter === 'pendiente') {
+      return org.billing_status === 'pendiente' || org.billing_status === 'gracia';
+    }
+    if (billingFilter === 'mora') {
+      return (
+        org.billing_status === 'mora_preventiva' ||
+        org.billing_status === 'baja_definitiva' ||
+        !org.is_active
+      );
+    }
+    return true;
+  });
+
+  const handleOpenPayModal = (org: OrganizationRow) => {
+    setPayingOrg(org);
+    const suggestedPrice = org.plan_type === 'enterprise' ? 270 : org.plan_type === 'pro' ? 110 : 60;
+    setPayAmount(suggestedPrice);
+    setPayMonth(currentMonthStr);
+    setPayMethod('transferencia');
+    setPayNotes(`Pago mensual para ${org.name}`);
+  };
+
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingOrg) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      await registerCompanyPayment({
+        organizationId: payingOrg.id,
+        amount: payAmount,
+        periodMonth: payMonth,
+        paymentMethod: payMethod,
+        notes: payNotes,
+      });
+
+      setSuccessMsg(`Pago de $${payAmount} USD registrado para "${payingOrg.name}" (${payMonth}). Cuenta al día y tokens reiniciados.`);
+      setOrganizations((prev) =>
+        prev.map((o) =>
+          o.id === payingOrg.id
+            ? {
+                ...o,
+                is_active: true,
+                subscription_status: 'active',
+                paid_until_month: payMonth,
+                days_past_due: 0,
+                billing_status: 'al_dia',
+                billing_status_label: `Al día (${payMonth})`,
+                billing_status_color: 'emerald',
+                ai_tokens_used: 0,
+              }
+            : o
+        )
+      );
+      setPayingOrg(null);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error al registrar el pago.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleProvisionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +188,7 @@ export default function AdminConsoleClient({
         adminPassword,
         planType,
         maxUsers,
+        firstBillingMonth,
       });
 
       if (res.success) {
@@ -105,7 +198,7 @@ export default function AdminConsoleClient({
         setAdminName('');
         setAdminEmail('');
         setAdminPassword('');
-        setMaxUsers(3);
+        setMaxUsers(2);
         setIsProvisionOpen(false);
 
         // Actualizar lista local optimistamente
@@ -122,6 +215,11 @@ export default function AdminConsoleClient({
           contacts_count: 0,
           admin_email: adminEmail,
           admin_name: adminName,
+          paid_until_month: firstBillingMonth,
+          billing_status: 'al_dia',
+          billing_status_label: `Al día (${firstBillingMonth})`,
+          billing_status_color: 'emerald',
+          ai_tokens_used: 0,
         };
         setOrganizations([newOrgRow, ...organizations]);
         setMetrics((prev) => ({
@@ -350,6 +448,77 @@ export default function AdminConsoleClient({
         </div>
       </div>
 
+      {/* Barra de Control de Cobranza Mensual & Alertas */}
+      {metrics.billingSummary && (
+        <div className="p-5 bg-gradient-to-r from-slate-900 to-[#131722] rounded-2xl border border-slate-800 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 bg-[#0052FF]/20 text-[#00D2FF] rounded-2xl border border-[#00D2FF]/20 flex-shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  Control de Cobranza Mensual
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                  Ciclo Día 1 al 5
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Seguimiento de pagos manuales según Condiciones de Servicio (Mora preventiva al día 10).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              onClick={() => setBillingFilter('al_dia')}
+              className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 font-medium transition cursor-pointer ${
+                billingFilter === 'al_dia'
+                  ? 'bg-emerald-500 text-white border-emerald-400 font-bold'
+                  : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span>{metrics.billingSummary.paidCount} Al día</span>
+            </button>
+
+            <button
+              onClick={() => setBillingFilter('pendiente')}
+              className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 font-medium transition cursor-pointer ${
+                billingFilter === 'pendiente'
+                  ? 'bg-amber-500 text-white border-amber-400 font-bold'
+                  : 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span>{metrics.billingSummary.pendingCount + metrics.billingSummary.graceCount} Pendientes / Gracia</span>
+            </button>
+
+            <button
+              onClick={() => setBillingFilter('mora')}
+              className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 font-medium transition cursor-pointer ${
+                billingFilter === 'mora'
+                  ? 'bg-rose-500 text-white border-rose-400 font-bold'
+                  : 'bg-rose-500/10 border-rose-500/20 text-rose-400 hover:bg-rose-500/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+              <span>{metrics.billingSummary.moraCount} En Mora (10d+)</span>
+            </button>
+
+            {billingFilter !== 'all' && (
+              <button
+                onClick={() => setBillingFilter('all')}
+                className="px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                Limpiar filtro
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Controles y Tabla de Empresas */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -391,9 +560,10 @@ export default function AdminConsoleClient({
               <tr className="bg-gray-50/70 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider">
                 <th className="py-3 px-5">Empresa</th>
                 <th className="py-3 px-5">Administrador</th>
-                <th className="py-3 px-5">Asientos (Usuarios)</th>
+                <th className="py-3 px-5">Asientos</th>
                 <th className="py-3 px-5">Plan</th>
-                <th className="py-3 px-5">Consumo Tokens IA</th>
+                <th className="py-3 px-5">Tokens IA</th>
+                <th className="py-3 px-5">Cobranza & Ciclo</th>
                 <th className="py-3 px-5">Leads</th>
                 <th className="py-3 px-5">Estado</th>
                 <th className="py-3 px-5 text-right">Acciones</th>
@@ -402,7 +572,7 @@ export default function AdminConsoleClient({
             <tbody className="divide-y divide-gray-100">
               {filteredOrgs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400 text-sm">
+                  <td colSpan={9} className="py-12 text-center text-gray-400 text-sm">
                     No se encontraron organizaciones registradas.
                   </td>
                 </tr>
@@ -423,7 +593,7 @@ export default function AdminConsoleClient({
                         <div className="text-[11px] text-gray-500 font-mono">{org.admin_email}</div>
                       </td>
 
-                      <td className="py-3.5 px-5 min-w-[160px]">
+                      <td className="py-3.5 px-5 min-w-[150px]">
                         <div className="flex items-center justify-between mb-1">
                           <span className={`font-semibold ${seatsFull ? 'text-amber-600' : 'text-gray-700'}`}>
                             {org.users_count} / {org.max_users} asientos
@@ -486,6 +656,46 @@ export default function AdminConsoleClient({
                             </div>
                           );
                         })()}
+                      </td>
+
+                      {/* Cobranza & Mensualidad */}
+                      <td className="py-3.5 px-5 min-w-[150px]">
+                        <div className="flex flex-col gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              org.billing_status_color === 'emerald'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : org.billing_status_color === 'blue'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : org.billing_status_color === 'amber'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : org.billing_status_color === 'purple'
+                                ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                org.billing_status_color === 'emerald'
+                                  ? 'bg-emerald-500'
+                                  : org.billing_status_color === 'amber'
+                                  ? 'bg-amber-500'
+                                  : org.billing_status_color === 'purple'
+                                  ? 'bg-purple-500'
+                                  : 'bg-rose-500 animate-pulse'
+                              }`}
+                            />
+                            {org.billing_status_label || (org.is_active ? 'Al día' : 'En mora')}
+                          </span>
+
+                          <button
+                            onClick={() => handleOpenPayModal(org)}
+                            className="text-[11px] font-semibold text-[#0052FF] hover:text-[#0047E0] hover:underline flex items-center gap-1 cursor-pointer w-fit mt-0.5"
+                          >
+                            <Receipt className="w-3 h-3" />
+                            Registrar pago
+                          </button>
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-5 font-semibold text-gray-700">
@@ -653,6 +863,22 @@ export default function AdminConsoleClient({
                 </div>
               </div>
 
+              {/* Primer mes cubierto (Opción A: Cortesía / Setup) */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Primer Mes Cubierto (Cortesía de Bienvenida / Setup)
+                </label>
+                <input
+                  type="month"
+                  value={firstBillingMonth}
+                  onChange={(e) => setFirstBillingMonth(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Si el cliente inicia a mitad de mes (ej. día 20), este mes se marca como cubierto y su primera mensualidad se cobrará entre el 1 y el 5 del mes siguiente.
+                </p>
+              </div>
+
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
                 <button
                   type="button"
@@ -723,6 +949,115 @@ export default function AdminConsoleClient({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Registrar Pago Manual de Mensualidad */}
+      {payingOrg && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 border-b border-gray-200 bg-gray-50/50">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-emerald-600" />
+                Registrar Pago de Mensualidad
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Registra el pago para <strong className="text-gray-800">{payingOrg.name}</strong>. Reactivará el servicio e iniciará un nuevo ciclo de tokens de IA.
+              </p>
+            </div>
+
+            <form onSubmit={handlePaymentSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Mes Cubierto *
+                  </label>
+                  <input
+                    type="month"
+                    required
+                    value={payMonth}
+                    onChange={(e) => setPayMonth(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Monto (USD) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(parseFloat(e.target.value) || 0)}
+                      className="w-full pl-7 pr-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Método de Pago
+                </label>
+                <select
+                  value={payMethod}
+                  onChange={(e) => setPayMethod(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
+                >
+                  <option value="transferencia">Transferencia Bancaria Directa</option>
+                  <option value="stripe_link">Enlace de Pago Stripe</option>
+                  <option value="wompi">Wompi / Bancolombia</option>
+                  <option value="mercadopago">MercadoPago</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Notas / Referencia de Pago (Opcional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
+                  placeholder="Ej. Transferencia recibida y confirmada"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 space-y-1">
+                <span className="font-bold flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  Efectos automáticos al confirmar:
+                </span>
+                <p>• La empresa queda marcada como <strong>Al día</strong> para el mes seleccionado.</p>
+                <p>• Si estaba suspendida, se <strong>reactiva de inmediato</strong>.</p>
+                <p>• Los tokens consumidos de OpenAI se <strong>reinician a 0</strong> para el nuevo mes.</p>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setPayingOrg(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4" />
+                  {isSubmitting ? 'Guardando...' : 'Confirmar Pago y Reactivar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

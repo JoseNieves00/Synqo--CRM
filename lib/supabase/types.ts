@@ -30,6 +30,9 @@ export interface Database {
           plan_type: PlanType;
           max_users: number;
           is_active: boolean;
+          paid_until_month?: string | null;
+          billing_due_day?: number;
+          past_due_since?: string | null;
           ai_tokens_used?: number;
           ai_tokens_limit?: number;
           created_at: string;
@@ -48,6 +51,9 @@ export interface Database {
           plan_type?: PlanType;
           max_users?: number;
           is_active?: boolean;
+          paid_until_month?: string | null;
+          billing_due_day?: number;
+          past_due_since?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -64,6 +70,9 @@ export interface Database {
           plan_type?: PlanType;
           max_users?: number;
           is_active?: boolean;
+          paid_until_month?: string | null;
+          billing_due_day?: number;
+          past_due_since?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -191,6 +200,42 @@ export interface Database {
           scheduled_for?: string;
           reminder_type?: string;
           status?: ReminderStatus;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      organization_payments: {
+        Row: {
+          id: string;
+          organization_id: string;
+          amount: number;
+          currency: string;
+          period_month: string;
+          payment_method: string;
+          notes: string | null;
+          registered_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          amount?: number;
+          currency?: string;
+          period_month: string;
+          payment_method?: string;
+          notes?: string | null;
+          registered_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          amount?: number;
+          currency?: string;
+          period_month?: string;
+          payment_method?: string;
+          notes?: string | null;
+          registered_by?: string | null;
           created_at?: string;
         };
         Relationships: [];

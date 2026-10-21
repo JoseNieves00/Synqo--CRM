@@ -10,6 +10,7 @@ import { SidebarNav } from '@/components/dashboard/SidebarNav';
 import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
 import { MustChangePasswordModal } from '@/components/profile/MustChangePasswordModal';
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
+import { SuspendedOrganizationModal } from '@/components/billing/SuspendedOrganizationModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,11 @@ export default async function DashboardLayout({
   const userRole = current?.profile?.role || 'agent';
   const isSuperAdmin = Boolean(current?.profile?.is_super_admin);
   const isAdmin = userRole === 'admin' || isSuperAdmin;
+  const isSuspended =
+    !isSuperAdmin &&
+    (current?.organization?.is_active === false ||
+      subStatus === 'past_due' ||
+      subStatus === 'canceled');
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-slate-50">
@@ -92,6 +98,18 @@ export default async function DashboardLayout({
         mustChange={Boolean(current?.mustChangePassword)}
         userEmail={userEmail}
       />
+
+      {/* Pantalla Bloqueante de Suspensión Preventiva por Mora (Garantiza Propiedad de Datos) */}
+      {isSuspended && (
+        <SuspendedOrganizationModal
+          orgName={orgName}
+          userFullName={userFullName}
+          userEmail={userEmail}
+          userRole={userRole}
+          signOutAction={signOut}
+          statusLabel={subStatus === 'canceled' ? 'Baja Definitiva (30d+)' : 'Suspensión Preventiva (Mora)'}
+        />
+      )}
 
       {/* Área de Contenido Principal con Scroll Independiente */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
