@@ -35,8 +35,8 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
    - Nombre de la empresa (ej. *Inmobiliaria Horizonte*).
    - Nombre y correo del Administrador del cliente (ej. *gerencia@horizonte.com*).
    - Contraseña inicial del cliente.
-   - Plan comercial asignado: `Core` (Inicial), `Pro` (Comercial) o `Enterprise`.
-   - Límite de Asientos autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (ej. 3, 5, 10).
+   - Plan comercial asignado: `Starter` (Validación comercial - 2 asientos), `Pro` (Comercial recomendado - 5 asientos) o `Enterprise` (Corporativo - 12 asientos).
+   - Límite de Asientos autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (2 para Starter, 5 para Pro, 12 para Enterprise, o el cupo negociado).
 2. **Edición Dinámica de Cupos de Asientos:**
    - Puedes aumentar o reducir los asientos autorizados en cualquier momento con el botón de edición rápida (icono de lápiz) sin tocar la base de datos.
 3. **Suspensión Inmediata por Morosidad (Toggle de Estado):**
@@ -75,6 +75,7 @@ Dado que la facturación inicial es **manual (asistida)**:
 
 | Característica | 🟢 Starter (Validación) | 🚀 Pro (Recomendado) | 🏢 Enterprise (Escala) |
 | :--- | :--- | :--- | :--- |
+| **Identificador en BD** | `starter` *(o `core` por compatibilidad)* | `pro` | `enterprise` |
 | **Precio sugerido** | **$49 - $69 USD / mes** | **$99 - $129 USD / mes** | **$249 - $299 USD / mes** |
 | **Público objetivo** | Negocio unipersonal o 1-2 asesores validando canal. | Empresa con equipo de ventas activo (3-5 personas). | Operación consolidada con turnos o equipo comercial grande. |
 | **Usuarios / Asesores** | **Hasta 2 usuarios** | **Hasta 5 usuarios** | **Hasta 12 usuarios** |
@@ -85,7 +86,19 @@ Dado que la facturación inicial es **manual (asistida)**:
 | **Cal.com / Agendamiento** | Incluido | Incluido | Incluido |
 | **Kanban & Bandeja Realtime** | Incluido | Incluido | Incluido |
 | **Alertas Sonoras y Push** | Incluido | Incluido | Incluido |
-| **Diferenciadores Clave** | Soporte por ticket/email estándar | Soporte por email prioritario | • **Grupo VIP de WhatsApp con SLA < 2h**<br>• **Sesión de Capacitación en Vivo (45 min)** para asesores<br>• **Exportación Masiva de Leads & Historial** (CSV/Excel)<br>• Facturación corporativa anual/local |
+| **Exportación CSV / Excel** | — | **Incluido** *(Descarga directa de leads filtrados)* | **Incluido** *(Historial masivo completo)* |
+| **Soporte & Atención** | Soporte por ticket y correo estándar | Soporte por email prioritario comercial | • **Grupo VIP de WhatsApp con SLA < 2h**<br>• **Sesión de Capacitación en Vivo (45 min)** para asesores<br>• Facturación corporativa anual / local |
+
+#### Detalle de Planes para el Cliente (según `/settings`):
+- **Plan Starter (Validación):**
+  - **Ideal para:** Profesionales independientes o startups validando su primer canal de atención y captación en WhatsApp.
+  - **Incluye:** 2 asientos de equipo, 500k tokens IA, prompt 100% personalizable, agendamiento Cal.com, alertas push y soporte técnico estándar.
+- **Plan Pro (Comercial — Recomendado):**
+  - **Ideal para:** Empresas en crecimiento con 3 a 5 vendedores activos que requieren exportar prospectos y responder con mayor volumen de mensajes sin interrupciones.
+  - **Incluye:** 5 asientos de equipo, 2.5M tokens IA, exportación de contactos a CSV / Excel, agendamiento Cal.com y soporte prioritario.
+- **Plan Enterprise (Corporativo):**
+  - **Ideal para:** Operaciones comerciales consolidadas, múltiples turnos o agencias con más de 10 asesores.
+  - **Incluye:** 12 asientos de equipo, 7.5M tokens IA, exportación masiva completa, canal VIP exclusivo de WhatsApp con atención inmediata (< 2 horas) y sesión de onboarding personalizada de 45 minutos.
 
 ---
 
@@ -142,9 +155,33 @@ Desde la terminal del proyecto puedes ejecutar:
   npm run simulate "Mensaje del prospecto para probar la IA"
   ```
 
+- **Aprovisionar Empresa desde la Terminal:**
+  ```bash
+  npx tsx scripts/create-company.ts --company="Nombre Empresa" --name="Nombre Admin" --email="admin@cliente.com" --password="Password123!" --plan=starter
+  ```
+  *(Planes admitidos en `--plan`: `starter`, `pro`, `enterprise`)*.
+
 - **Verificar Compilación y Tipado:**
   ```bash
   npm run typecheck
   npm run build
   ```
+
+---
+
+## 7. Sincronización de Base de Datos (Migración de Planes)
+
+Si deseas sincronizar el enum de la base de datos de Supabase para que admita `starter` de forma nativa además de `core`:
+
+1. Abre el **SQL Editor** en tu panel de Supabase.
+2. Ejecuta el script ubicado en `supabase/migrations/20261021000000_allow_starter_plan_type.sql`:
+   ```sql
+   ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_plan_type_check;
+   ALTER TABLE organizations ADD CONSTRAINT organizations_plan_type_check 
+     CHECK (plan_type IN ('starter', 'core', 'pro', 'enterprise'));
+
+   UPDATE organizations SET plan_type = 'starter' WHERE plan_type = 'core';
+   ALTER TABLE organizations ALTER COLUMN plan_type SET DEFAULT 'starter';
+   ```
+*(Nota: El sistema en el código ya cuenta con fallback automático, por lo que las funciones siguen operando con total estabilidad aun antes de ejecutar este script).*
 
