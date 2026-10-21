@@ -44,6 +44,9 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
    - **Efecto Inmediato:** Suspendes el acceso al CRM para todos los asesores de esa empresa **y** el webhook corta automáticamente las respuestas de IA para ese número de WhatsApp, impidiendo que consuman saldo en OpenAI.
 4. **Monitor Global de Tokens:**
    - Visualizas en la tabla el consumo exacto de tokens de cada cliente, su barra de porcentaje y badges de advertencia (*"80%+"* o *"Agotado"*).
+5. **Regeneración de Contraseña para Administradores (Icono de Llave):**
+   - Si un dueño o administrador de empresa olvida su contraseña, pulsa el botón de llave en la fila de su empresa.
+   - El sistema generará una nueva contraseña temporal segura con forzado de cambio de clave al iniciar sesión y botón de copiado rápido.
 
 ---
 

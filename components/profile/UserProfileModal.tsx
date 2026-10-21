@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { updateUserProfile } from '@/app/actions/profile';
-import { User, Lock, CheckCircle2, AlertCircle, X, Shield } from 'lucide-react';
+import { User, Lock, CheckCircle2, AlertCircle, X, Shield, HelpCircle } from 'lucide-react';
 
 interface UserProfileModalProps {
   initialFullName: string;
@@ -20,8 +20,10 @@ export function UserProfileModal({
   onClose,
 }: UserProfileModalProps) {
   const [fullName, setFullName] = useState(initialFullName);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showForgotHelp, setShowForgotHelp] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
@@ -34,27 +36,40 @@ export function UserProfileModal({
     setSaving(true);
     setFeedback(null);
 
-    if (newPassword && newPassword.length < 8) {
-      setFeedback({
-        type: 'error',
-        message: 'La nueva contraseña debe tener al menos 8 caracteres.',
-      });
-      setSaving(false);
-      return;
-    }
+    // Si se desea cambiar la contraseña
+    if (newPassword) {
+      if (!currentPassword) {
+        setFeedback({
+          type: 'error',
+          message: 'Debes ingresar tu contraseña actual para autorizar el cambio.',
+        });
+        setSaving(false);
+        return;
+      }
 
-    if (newPassword && newPassword !== confirmPassword) {
-      setFeedback({
-        type: 'error',
-        message: 'Las contraseñas ingresadas no coinciden.',
-      });
-      setSaving(false);
-      return;
+      if (newPassword.length < 8) {
+        setFeedback({
+          type: 'error',
+          message: 'La nueva contraseña debe tener al menos 8 caracteres.',
+        });
+        setSaving(false);
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        setFeedback({
+          type: 'error',
+          message: 'Las contraseñas ingresadas no coinciden.',
+        });
+        setSaving(false);
+        return;
+      }
     }
 
     try {
       const res = await updateUserProfile({
         fullName,
+        currentPassword: currentPassword ? currentPassword : undefined,
         newPassword: newPassword ? newPassword : undefined,
       });
 
@@ -63,6 +78,7 @@ export function UserProfileModal({
           type: 'success',
           message: 'Tu perfil fue actualizado exitosamente.',
         });
+        setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
         setTimeout(() => {
@@ -149,31 +165,87 @@ export function UserProfileModal({
             />
           </div>
 
-          <div className="pt-2 border-t border-gray-100">
-            <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-gray-500" />
-              Nueva Contraseña (Opcional)
-            </label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Dejar en blanco para mantener la actual"
-              className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs text-gray-900 mb-2"
-            />
-
-            {newPassword && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Confirmar Nueva Contraseña
+          <div className="pt-2 border-t border-gray-100 space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-gray-500" />
+                  Cambiar Contraseña (Opcional)
                 </label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repite la contraseña"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs text-gray-900"
-                />
+                <button
+                  type="button"
+                  onClick={() => setShowForgotHelp(!showForgotHelp)}
+                  className="text-[11px] text-[#0052FF] hover:underline font-semibold cursor-pointer"
+                >
+                  ¿Olvidaste tu contraseña actual?
+                </button>
+              </div>
+
+              {showForgotHelp && (
+                <div className="mb-3 p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-blue-900 text-xs space-y-1.5 animate-in fade-in duration-150">
+                  <div className="flex items-center gap-1.5 font-bold text-blue-950">
+                    <HelpCircle className="w-4 h-4 text-[#0052FF]" />
+                    <span>Recuperación de Contraseña por Jerarquía</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-blue-800">
+                    {userRole === 'admin' ? (
+                      <>
+                        🏢 Como <strong>Administrador de Empresa</strong>, comunícate con el <strong>Super Administrador de Synqo</strong> (<code className="bg-blue-100 px-1 py-0.5 rounded font-mono">admin@synqo.dev</code>) para regenerar tu contraseña temporal de inmediato.
+                      </>
+                    ) : userRole === 'superadmin' ? (
+                      <>
+                        🛡️ Como <strong>Super Administrador</strong>, la recuperación de credenciales se gestiona a nivel de infraestructura central.
+                      </>
+                    ) : (
+                      <>
+                        👤 Como <strong>Asesor / Colaborador</strong>, solicita al <strong>Administrador de tu empresa</strong> que regenere tu contraseña temporal desde la pestaña <em>"Equipo & Asientos"</em> en Configuración.
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              <label className="block text-[11px] text-gray-500 mb-1">
+                1. Contraseña Actual (requerida para autorizar cambios)
+              </label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Ingresa tu contraseña actual"
+                className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
+              />
+            </div>
+
+            {(currentPassword.length > 0 || newPassword.length > 0) && (
+              <div className="space-y-2.5 pt-1 animate-in fade-in duration-150">
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">
+                    2. Nueva Contraseña (mínimo 8 caracteres)
+                  </label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Escribe tu nueva contraseña"
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
+                  />
+                </div>
+
+                {newPassword && (
+                  <div>
+                    <label className="block text-[11px] text-gray-500 mb-1">
+                      3. Confirmar Nueva Contraseña
+                    </label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Repite exactamente la nueva contraseña"
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

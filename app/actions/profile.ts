@@ -61,8 +61,32 @@ export async function updateUserProfile(input: {
     // 2. Actualizar Contraseña si fue provista
     if (validated.newPassword && validated.newPassword.trim()) {
       const cleanPassword = validated.newPassword.trim();
+      const isForcedChange = Boolean(user.user_metadata?.must_change_password);
 
-      // Si el usuario ya tenía sesión pero no está forzado a cambiar, podemos validar la anterior o actualizar directamente
+      // Si no es un cambio forzado por primer login con clave temporal, exigir y verificar la contraseña actual
+      if (!isForcedChange) {
+        if (!validated.currentPassword || !validated.currentPassword.trim()) {
+          return {
+            success: false,
+            error: 'Por seguridad, debes ingresar tu contraseña actual para autorizar el cambio.',
+          };
+        }
+
+        // Verificar la contraseña actual contra Supabase Auth
+        const { error: verifyError } = await supabase.auth.signInWithPassword({
+          email: user.email!,
+          password: validated.currentPassword.trim(),
+        });
+
+        if (verifyError) {
+          return {
+            success: false,
+            error: 'La contraseña actual ingresada es incorrecta. Si no la recuerdas, solicita el restablecimiento a tu administrador.',
+          };
+        }
+      }
+
+      // Proceder con la actualización de la contraseña
       const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
         password: cleanPassword,
         user_metadata: {

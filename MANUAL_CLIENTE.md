@@ -13,8 +13,13 @@ Bienvenido a **Synqo CRM**. Para garantizar la privacidad de tus conversaciones 
    - Accede con el correo corporativo y la contraseña temporal que te proporcionó tu asesor de Synqo.
 2. **Cambio de Contraseña Obligatorio:**
    - En tu primer inicio de sesión, el sistema te solicitará de manera obligatoria establecer una **nueva contraseña personal y privada** (mínimo 8 caracteres).
-3. **Gestión de Perfil:**
-   - En cualquier momento puedes hacer clic en tu nombre en la esquina inferior izquierda de la pantalla para editar tu nombre visible o actualizar tu contraseña.
+3. **Actualización Segura de Contraseña:**
+   - En cualquier momento puedes hacer clic en tu nombre en la esquina inferior izquierda de la pantalla para editar tu nombre o cambiar tu contraseña.
+   - **Por seguridad empresarial:** El sistema te exigirá validar tu **Contraseña Actual** antes de confirmar la nueva clave.
+4. **Cadena de Recuperación de Acceso:**
+   - Si no recuerdas tu contraseña, la recuperación se realiza mediante la jerarquía de tu organización:
+     - **Si eres Asesor o Agente:** Solicita al Administrador de tu empresa que regenere tu clave temporal en 1 clic desde la pestaña *Equipo & Asientos*.
+     - **Si eres Administrador:** Comunícate con el Super Admin de Synqo (`admin@synqo.dev`) para regenerar tu acceso temporal de inmediato.
 
 ---
 

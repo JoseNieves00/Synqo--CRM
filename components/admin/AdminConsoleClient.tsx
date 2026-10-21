@@ -16,6 +16,9 @@ import {
   ExternalLink,
   Lock,
   Zap,
+  KeyRound,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {
   OrganizationRow,
@@ -23,6 +26,7 @@ import {
   updateCompanySeats,
   toggleCompanyStatus,
   updateCompanyPlan,
+  regenerateCompanyAdminPassword,
 } from '@/app/actions/superadmin';
 
 interface Metrics {
@@ -52,6 +56,13 @@ export default function AdminConsoleClient({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [regeneratedAdmin, setRegeneratedAdmin] = useState<{
+    orgName: string;
+    email: string;
+    tempPassword: string;
+  } | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
 
   // Formulario de nueva empresa
   const [companyName, setCompanyName] = useState('');
@@ -158,9 +169,74 @@ export default function AdminConsoleClient({
     }
   };
 
+  const handleRegenerateAdminPassword = async (org: OrganizationRow) => {
+    setIsRegenerating(org.id);
+    setErrorMsg(null);
+    try {
+      const res = await regenerateCompanyAdminPassword(org.id);
+      setRegeneratedAdmin({
+        orgName: org.name,
+        email: res.email,
+        tempPassword: res.tempPassword,
+      });
+      setSuccessMsg(`Contraseña temporal regenerada para el administrador de "${org.name}".`);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error regenerando contraseña.');
+    } finally {
+      setIsRegenerating(null);
+    }
+  };
+
+  const handleCopyPassword = () => {
+    if (!regeneratedAdmin) return;
+    navigator.clipboard.writeText(regeneratedAdmin.tempPassword);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
   return (
     <div className="space-y-8">
       {/* Notificaciones */}
+      {regeneratedAdmin && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-400 text-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center flex-shrink-0 font-bold shadow-sm">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-amber-950">
+                Nueva Contraseña Temporal Generada ({regeneratedAdmin.orgName})
+              </p>
+              <p className="text-[11px] text-amber-800">
+                Admin: <code className="font-mono font-semibold">{regeneratedAdmin.email}</code>
+              </p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="text-[11px] text-slate-600">Clave Temporal:</span>
+                <span className="font-mono bg-white px-2.5 py-0.5 rounded-lg border border-amber-300 text-xs font-bold text-slate-950 select-all">
+                  {regeneratedAdmin.tempPassword}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <button
+              onClick={handleCopyPassword}
+              className="px-3.5 py-1.5 bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+            >
+              {copiedKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedKey ? 'Copiada' : 'Copiar Clave'}
+            </button>
+            <button
+              onClick={() => setRegeneratedAdmin(null)}
+              className="text-xs text-gray-500 hover:text-gray-800 font-semibold px-2 py-1 cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
       {successMsg && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -429,7 +505,16 @@ export default function AdminConsoleClient({
                         )}
                       </td>
 
-                      <td className="py-3.5 px-5 text-right">
+                      <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleRegenerateAdminPassword(org)}
+                          disabled={isRegenerating === org.id}
+                          className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-[#0052FF] hover:bg-[#0052FF]/10 transition cursor-pointer disabled:opacity-50"
+                          title="Regenerar contraseña temporal del Administrador"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+
                         <button
                           onClick={() => handleToggleStatus(org)}
                           className={`p-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${

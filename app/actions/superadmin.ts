@@ -322,3 +322,49 @@ export async function updateCompanyPlan(
   return { success: true };
 }
 
+/**
+ * Regenerar contraseña temporal para el Administrador de una empresa cliente
+ */
+export async function regenerateCompanyAdminPassword(organizationId: string) {
+  await requireSuperAdmin();
+
+  // 1. Obtener el perfil del administrador de la empresa
+  const { data: adminProfile, error: profileError } = await (supabaseAdmin.from('profiles') as any)
+    .select('id, full_name, email, role')
+    .eq('organization_id', organizationId)
+    .eq('role', 'admin')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  if (profileError || !adminProfile) {
+    throw new Error('No se encontró el administrador asignado a esta empresa.');
+  }
+
+  // 2. Generar contraseña temporal segura
+  const randomSuffix = Math.random().toString(36).slice(-6);
+  const randomPin = Math.floor(10 + Math.random() * 90);
+  const tempPassword = `Synqo_${randomSuffix}!${randomPin}`;
+
+  // 3. Actualizar contraseña y activar bandera obligatoria de primer cambio
+  const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(adminProfile.id, {
+    password: tempPassword,
+    user_metadata: {
+      full_name: adminProfile.full_name,
+      must_change_password: true,
+    },
+  });
+
+  if (authError) {
+    throw new Error(`Error regenerando contraseña del admin: ${authError.message}`);
+  }
+
+  revalidatePath('/admin');
+  return {
+    success: true,
+    email: adminProfile.email,
+    fullName: adminProfile.full_name,
+    tempPassword,
+  };
+}
+
