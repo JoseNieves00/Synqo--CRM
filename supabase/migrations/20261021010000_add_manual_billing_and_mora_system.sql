@@ -29,3 +29,4 @@ CREATE TABLE IF NOT EXISTS organization_payments (
 -- 3. Índices para consultas rápidas de estado de cobranza
 CREATE INDEX IF NOT EXISTS idx_organizations_billing ON organizations(id, is_active, subscription_status, paid_until_month);
 CREATE INDEX IF NOT EXISTS idx_organization_payments_org ON organization_payments(organization_id, period_month);
+

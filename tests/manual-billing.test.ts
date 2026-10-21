@@ -88,3 +88,4 @@ runBillingTests().catch((err) => {
   console.error('❌ Error en pruebas de facturación:', err);
   process.exit(1);
 });
+
