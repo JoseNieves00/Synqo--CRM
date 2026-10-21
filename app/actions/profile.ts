@@ -63,6 +63,19 @@ export async function updateUserProfile(input: {
       const cleanPassword = validated.newPassword.trim();
       const isForcedChange = Boolean(user.user_metadata?.must_change_password);
 
+      // Si es Super Admin, bloquear modificación desde la interfaz web (solo terminal)
+      const { data: userProfile } = await (supabaseAdmin.from('profiles') as any)
+        .select('is_super_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (userProfile?.is_super_admin || user.email?.toLowerCase() === 'admin@synqo.dev') {
+        return {
+          success: false,
+          error: 'Por seguridad, la contraseña de la cuenta Super Admin solo puede modificarse mediante la terminal: npm run reset-superadmin',
+        };
+      }
+
       // Si no es un cambio forzado por primer login con clave temporal, exigir y verificar la contraseña actual
       if (!isForcedChange) {
         if (!validated.currentPassword || !validated.currentPassword.trim()) {

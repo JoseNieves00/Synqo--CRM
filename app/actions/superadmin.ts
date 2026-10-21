@@ -330,7 +330,7 @@ export async function regenerateCompanyAdminPassword(organizationId: string) {
 
   // 1. Obtener el perfil del administrador de la empresa
   const { data: adminProfile, error: profileError } = await (supabaseAdmin.from('profiles') as any)
-    .select('id, full_name, email, role')
+    .select('id, full_name, email, role, is_super_admin')
     .eq('organization_id', organizationId)
     .eq('role', 'admin')
     .order('created_at', { ascending: true })
@@ -339,6 +339,13 @@ export async function regenerateCompanyAdminPassword(organizationId: string) {
 
   if (profileError || !adminProfile) {
     throw new Error('No se encontró el administrador asignado a esta empresa.');
+  }
+
+  // Protección: Bloquear cambio de contraseña de Super Admin desde la web
+  if (adminProfile.is_super_admin || adminProfile.email?.toLowerCase() === 'admin@synqo.dev') {
+    throw new Error(
+      'Por seguridad de infraestructura, la contraseña del Super Admin solo puede modificarse mediante la terminal: npm run reset-superadmin'
+    );
   }
 
   // 2. Generar contraseña temporal segura

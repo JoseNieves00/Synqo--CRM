@@ -165,90 +165,111 @@ export function UserProfileModal({
             />
           </div>
 
-          <div className="pt-2 border-t border-gray-100 space-y-3">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-gray-500" />
-                  Cambiar Contraseña (Opcional)
+          {/* Bloque de Contraseña */}
+          {userEmail.toLowerCase() === 'admin@synqo.dev' || userRole === 'superadmin' ? (
+            <div className="pt-2 border-t border-gray-100">
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-white space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-[#00D2FF]" />
+                    <span className="font-bold text-xs">Cuenta Super Admin Protegida</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold bg-[#0052FF]/20 text-[#00D2FF] border border-[#00D2FF]/30">
+                    Terminal Only
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Por seguridad de infraestructura, la contraseña del Super Administrador está desactivada en la web y únicamente se puede actualizar mediante terminal:
+                </p>
+                <div className="bg-[#090A0F] p-2.5 rounded-xl border border-slate-800">
+                  <code className="text-xs font-mono text-[#00D2FF] block select-all">
+                    npm run reset-superadmin
+                  </code>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="pt-2 border-t border-gray-100 space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-gray-500" />
+                    Cambiar Contraseña (Opcional)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotHelp(!showForgotHelp)}
+                    className="text-[11px] text-[#0052FF] hover:underline font-semibold cursor-pointer"
+                  >
+                    ¿Olvidaste tu contraseña actual?
+                  </button>
+                </div>
+
+                {showForgotHelp && (
+                  <div className="mb-3 p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-blue-900 text-xs space-y-1.5 animate-in fade-in duration-150">
+                    <div className="flex items-center gap-1.5 font-bold text-blue-950">
+                      <HelpCircle className="w-4 h-4 text-[#0052FF]" />
+                      <span>Recuperación de Contraseña por Jerarquía</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-blue-800">
+                      {userRole === 'admin' ? (
+                        <>
+                          🏢 Como <strong>Administrador de Empresa</strong>, comunícate con el <strong>Super Administrador de Synqo</strong> (<code className="bg-blue-100 px-1 py-0.5 rounded font-mono">admin@synqo.dev</code>) para regenerar tu contraseña temporal de inmediato.
+                        </>
+                      ) : (
+                        <>
+                          👤 Como <strong>Asesor / Colaborador</strong>, solicita al <strong>Administrador de tu empresa</strong> que regenere tu contraseña temporal desde la pestaña <em>"Equipo & Asientos"</em> en Configuración.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+
+                <label className="block text-[11px] text-gray-500 mb-1">
+                  1. Contraseña Actual (requerida para autorizar cambios)
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setShowForgotHelp(!showForgotHelp)}
-                  className="text-[11px] text-[#0052FF] hover:underline font-semibold cursor-pointer"
-                >
-                  ¿Olvidaste tu contraseña actual?
-                </button>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Ingresa tu contraseña actual"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
+                />
               </div>
 
-              {showForgotHelp && (
-                <div className="mb-3 p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-blue-900 text-xs space-y-1.5 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-1.5 font-bold text-blue-950">
-                    <HelpCircle className="w-4 h-4 text-[#0052FF]" />
-                    <span>Recuperación de Contraseña por Jerarquía</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-blue-800">
-                    {userRole === 'admin' ? (
-                      <>
-                        🏢 Como <strong>Administrador de Empresa</strong>, comunícate con el <strong>Super Administrador de Synqo</strong> (<code className="bg-blue-100 px-1 py-0.5 rounded font-mono">admin@synqo.dev</code>) para regenerar tu contraseña temporal de inmediato.
-                      </>
-                    ) : userRole === 'superadmin' ? (
-                      <>
-                        🛡️ Como <strong>Super Administrador</strong>, la recuperación de credenciales se gestiona a nivel de infraestructura central.
-                      </>
-                    ) : (
-                      <>
-                        👤 Como <strong>Asesor / Colaborador</strong>, solicita al <strong>Administrador de tu empresa</strong> que regenere tu contraseña temporal desde la pestaña <em>"Equipo & Asientos"</em> en Configuración.
-                      </>
-                    )}
-                  </p>
-                </div>
-              )}
-
-              <label className="block text-[11px] text-gray-500 mb-1">
-                1. Contraseña Actual (requerida para autorizar cambios)
-              </label>
-              <input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Ingresa tu contraseña actual"
-                className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
-              />
-            </div>
-
-            {(currentPassword.length > 0 || newPassword.length > 0) && (
-              <div className="space-y-2.5 pt-1 animate-in fade-in duration-150">
-                <div>
-                  <label className="block text-[11px] text-gray-500 mb-1">
-                    2. Nueva Contraseña (mínimo 8 caracteres)
-                  </label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Escribe tu nueva contraseña"
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
-                  />
-                </div>
-
-                {newPassword && (
+              {(currentPassword.length > 0 || newPassword.length > 0) && (
+                <div className="space-y-2.5 pt-1 animate-in fade-in duration-150">
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">
-                      3. Confirmar Nueva Contraseña
+                      2. Nueva Contraseña (mínimo 8 caracteres)
                     </label>
                     <input
                       type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Repite exactamente la nueva contraseña"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Escribe tu nueva contraseña"
                       className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
                     />
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+
+                  {newPassword && (
+                    <div>
+                      <label className="block text-[11px] text-gray-500 mb-1">
+                        3. Confirmar Nueva Contraseña
+                      </label>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Repite exactamente la nueva contraseña"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-xs text-gray-900"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="pt-3 flex items-center justify-end gap-2">
             <button

@@ -506,14 +506,23 @@ export default function AdminConsoleClient({
                       </td>
 
                       <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleRegenerateAdminPassword(org)}
-                          disabled={isRegenerating === org.id}
-                          className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-[#0052FF] hover:bg-[#0052FF]/10 transition cursor-pointer disabled:opacity-50"
-                          title="Regenerar contraseña temporal del Administrador"
-                        >
-                          <KeyRound className="w-4 h-4" />
-                        </button>
+                        {org.admin_email?.toLowerCase() === 'admin@synqo.dev' ? (
+                          <span
+                            className="p-1.5 text-gray-300 cursor-not-allowed inline-flex items-center"
+                            title="La contraseña del Super Admin solo se cambia por terminal (npm run reset-superadmin)"
+                          >
+                            <KeyRound className="w-4 h-4 opacity-30 text-gray-400" />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleRegenerateAdminPassword(org)}
+                            disabled={isRegenerating === org.id}
+                            className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-[#0052FF] hover:bg-[#0052FF]/10 transition cursor-pointer disabled:opacity-50"
+                            title="Regenerar contraseña temporal del Administrador"
+                          >
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                        )}
 
                         <button
                           onClick={() => handleToggleStatus(org)}
