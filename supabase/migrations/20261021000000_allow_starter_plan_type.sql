@@ -24,3 +24,4 @@ ALTER COLUMN plan_type SET DEFAULT 'starter';
 UPDATE organizations 
 SET ai_tokens_limit = 500000 
 WHERE plan_type = 'starter' AND (ai_tokens_limit IS NULL OR ai_tokens_limit <= 100000);
+
