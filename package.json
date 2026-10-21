@@ -11,7 +11,8 @@
     "test": "tsx tests/security.test.ts && tsx tests/superadmin-team.test.ts && tsx tests/profile-tokens.test.ts",
     "create-company": "tsx scripts/create-company.ts",
     "rotate-keys": "tsx scripts/rotate-keys.ts",
-    "simulate": "tsx scripts/simulate-chat.ts"
+    "simulate": "tsx scripts/simulate-chat.ts",
+    "reset-superadmin": "tsx scripts/reset-superadmin.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.1",
