@@ -77,11 +77,19 @@ export async function getSuperAdminMetrics() {
     (supabaseAdmin.from('messages') as any)
       .select('id', { count: 'exact', head: true }),
     (supabaseAdmin.from('profiles') as any)
-      .select('id', { count: 'exact', head: true }),
+      .select('id, organization_id, email, is_super_admin'),
   ]);
 
   const orgs = orgsRes.data || [];
   const totalOrgs = orgsRes.count || orgs.length;
+  const profiles = profilesRes.data || [];
+
+  const exemptOrgIds = new Set(
+    profiles
+      .filter((p: any) => p.is_super_admin || p.email?.toLowerCase() === superAdminEmail.toLowerCase())
+      .map((p: any) => p.organization_id)
+      .filter(Boolean)
+  );
 
   const activeOrgs = orgs.filter(
     (o: any) => o.is_active !== false && (o.subscription_status === 'active' || o.subscription_status === 'trialing')
@@ -93,6 +101,8 @@ export async function getSuperAdminMetrics() {
   let moraCount = 0;
 
   for (const org of orgs) {
+    if (exemptOrgIds.has(org.id)) continue; // Super Admin exento de métricas de cobranza / mora
+
     const bStatus = calculateBillingStatus(org);
     if (bStatus.status === 'al_dia') paidCount++;
     else if (bStatus.status === 'pendiente') pendingCount++;
@@ -126,6 +136,8 @@ export interface OrganizationRow {
   plan_type: PlanType;
   max_users: number;
   is_active: boolean;
+  cal_com_enabled?: boolean;
+  is_exempt?: boolean;
   whatsapp_phone_number_id: string | null;
   created_at: string;
   users_count: number;
@@ -145,7 +157,7 @@ export interface OrganizationRow {
 }
 
 /**
- * Listar todas las organizaciones con conteo de usuarios y estado de asientos
+ * Listar todas las organizaciones con conteo y límite de usuarios
  */
 export async function listAllOrganizations(): Promise<OrganizationRow[]> {
   await requireSuperAdmin();
@@ -173,7 +185,10 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
     const orgProfiles = profiles.filter((p: any) => p.organization_id === org.id);
     const orgContacts = contacts.filter((c: any) => c.organization_id === org.id);
     const adminUser = orgProfiles.find((p: any) => p.role === 'admin') || orgProfiles[0];
-    const bStatus = calculateBillingStatus(org);
+    const isSuperAdminOrg = orgProfiles.some((p: any) =>
+      Boolean(p.is_super_admin) || (p.email && p.email.toLowerCase() === superAdminEmail.toLowerCase())
+    );
+    const bStatus = calculateBillingStatus({ ...org, is_exempt: isSuperAdminOrg });
 
     return {
       id: org.id,
@@ -182,6 +197,8 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       plan_type: org.plan_type || 'core',
       max_users: org.max_users ?? 3,
       is_active: org.is_active ?? true,
+      cal_com_enabled: Boolean(org.cal_com_enabled ?? Boolean(org.cal_api_key)),
+      is_exempt: isSuperAdminOrg,
       whatsapp_phone_number_id: org.whatsapp_phone_number_id || null,
       created_at: org.created_at,
       users_count: orgProfiles.length,
@@ -212,6 +229,7 @@ const ProvisionSchema = z.object({
   planType: z.enum(['starter', 'core', 'pro', 'enterprise']).default('starter'),
   maxUsers: z.number().int().min(1).max(100).default(3),
   firstBillingMonth: z.string().optional(),
+  calComEnabled: z.boolean().default(false),
 });
 
 /**
@@ -225,6 +243,7 @@ export async function provisionCompany(input: {
   planType?: 'starter' | 'core' | 'pro' | 'enterprise';
   maxUsers?: number;
   firstBillingMonth?: string;
+  calComEnabled?: boolean;
 }) {
   await requireSuperAdmin();
 
@@ -243,6 +262,7 @@ export async function provisionCompany(input: {
     plan_type: planToInsert,
     max_users: validated.maxUsers,
     is_active: true,
+    cal_com_enabled: validated.calComEnabled,
     paid_until_month: paidUntilMonth,
     billing_due_day: 5,
     system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
@@ -253,9 +273,10 @@ export async function provisionCompany(input: {
     .select('id, name')
     .single();
 
-  if (orgError && (orgError.message?.includes('paid_until_month') || orgError.message?.includes('column'))) {
+  if (orgError && (orgError.message?.includes('paid_until_month') || orgError.message?.includes('cal_com_enabled') || orgError.message?.includes('column'))) {
     delete insertPayload.paid_until_month;
     delete insertPayload.billing_due_day;
+    delete insertPayload.cal_com_enabled;
     const retry = await (supabaseAdmin.from('organizations') as any)
       .insert(insertPayload)
       .select('id, name')
@@ -341,13 +362,13 @@ export async function provisionCompany(input: {
 }
 
 /**
- * Modificar límite de asientos (max_users) de una empresa
+ * Modificar límite de usuarios (max_users) de una empresa
  */
 export async function updateCompanySeats(organizationId: string, maxUsers: number) {
   await requireSuperAdmin();
 
   if (maxUsers < 1 || maxUsers > 500) {
-    throw new Error('El límite de asientos debe estar entre 1 y 500.');
+    throw new Error('El límite de usuarios debe estar entre 1 y 500.');
   }
 
   const { error } = await (supabaseAdmin.from('organizations') as any)
@@ -358,7 +379,7 @@ export async function updateCompanySeats(organizationId: string, maxUsers: numbe
     .eq('id', organizationId);
 
   if (error) {
-    throw new Error(`Error actualizando asientos: ${error.message}`);
+    throw new Error(`Error actualizando límite de usuarios: ${error.message}`);
   }
 
   safeRevalidate('/admin');
@@ -369,7 +390,7 @@ export async function updateCompanySeats(organizationId: string, maxUsers: numbe
  * Actualizar detalles completos de una empresa desde la Consola Super Admin:
  * - Nombre comercial
  * - Plan comercial (Starter, Pro, Enterprise)
- * - Límite de asientos (con validación de usuarios activos)
+ * - Límite de usuarios (con validación de usuarios activos)
  * - Límite de tokens IA (boosters o cuota base)
  * - Reinicio opcional de tokens consumidos a 0 (cortesía de soporte)
  */
@@ -380,6 +401,7 @@ export async function updateCompanyDetails(input: {
   maxUsers: number;
   aiTokensLimit?: number;
   resetTokensUsed?: boolean;
+  calComEnabled?: boolean;
 }) {
   await requireSuperAdmin();
 
@@ -389,17 +411,17 @@ export async function updateCompanyDetails(input: {
   }
 
   if (input.maxUsers < 1 || input.maxUsers > 500) {
-    throw new Error('El límite de asientos debe estar entre 1 y 500.');
+    throw new Error('El límite de usuarios debe estar entre 1 y 500.');
   }
 
-  // Validación de seguridad: no permitir reducir asientos por debajo de los usuarios reales actuales
+  // Validación de seguridad: no permitir reducir usuarios por debajo de los usuarios reales actuales
   const { count: currentUsersCount, error: countErr } = await (supabaseAdmin.from('profiles') as any)
     .select('id', { count: 'exact', head: true })
     .eq('organization_id', input.organizationId);
 
   if (!countErr && typeof currentUsersCount === 'number' && input.maxUsers < currentUsersCount) {
     throw new Error(
-      `No se puede reducir a ${input.maxUsers} asientos porque la empresa tiene ${currentUsersCount} usuarios activos. Primero deben desactivar o eliminar miembros del equipo.`
+      `No se puede reducir a ${input.maxUsers} usuarios porque la empresa tiene ${currentUsersCount} usuarios activos. Primero deben desactivar o eliminar miembros del equipo.`
     );
   }
 
@@ -414,6 +436,10 @@ export async function updateCompanyDetails(input: {
     updated_at: new Date().toISOString(),
   };
 
+  if (typeof input.calComEnabled === 'boolean') {
+    updateData.cal_com_enabled = input.calComEnabled;
+  }
+
   if (input.resetTokensUsed) {
     updateData.ai_tokens_used = 0;
   }
@@ -421,6 +447,15 @@ export async function updateCompanyDetails(input: {
   let { error } = await (supabaseAdmin.from('organizations') as any)
     .update(updateData)
     .eq('id', input.organizationId);
+
+  // Fallback si la columna cal_com_enabled aún no existe en la BD
+  if (error && (error.message?.includes('cal_com_enabled') || error.message?.includes('column'))) {
+    delete updateData.cal_com_enabled;
+    const retry = await (supabaseAdmin.from('organizations') as any)
+      .update(updateData)
+      .eq('id', input.organizationId);
+    error = retry.error;
+  }
 
   // Fallback si la BD aún tiene constraint con 'core' en vez de 'starter'
   if (error && error.message?.includes('organizations_plan_type_check') && input.planType === 'starter') {

@@ -55,7 +55,7 @@ async function requireOrgAdmin() {
 }
 
 /**
- * Obtener todos los miembros del equipo y métricas de cupos/asientos
+ * Obtener todos los miembros del equipo y métricas de cupos/usuarios
  */
 export async function getTeamInfo() {
   const { org } = await requireOrgAdmin();
@@ -94,7 +94,7 @@ const AddMemberSchema = z.object({
 
 /**
  * Crear un nuevo miembro para el equipo con contraseña temporal.
- * Valida estrictamente el límite de asientos `max_users`.
+ * Valida estrictamente el límite de usuarios `max_users`.
  */
 export async function addTeamMember(input: {
   fullName: string;
@@ -114,7 +114,7 @@ export async function addTeamMember(input: {
   const maxUsers = org.max_users ?? 3;
   if ((currentCount || 0) >= maxUsers) {
     throw new Error(
-      `Has alcanzado el límite de ${maxUsers} usuarios permitidos para tu plan actual. Contacta a soporte para habilitar más asientos.`
+      `Has alcanzado el límite de ${maxUsers} usuarios permitidos para tu plan actual. Contacta a soporte para habilitar más usuarios.`
     );
   }
 

@@ -72,13 +72,24 @@ export async function getCurrentUserAndOrg() {
       profile.email === 'admin@synqo.dev'
     );
 
-    // Leer organización con supabaseAdmin
-    const { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
+    // Leer organización con supabaseAdmin (intentando incluir cal_com_enabled con fallback)
+    let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, cal_event_type_id, system_prompt'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, cal_event_type_id, system_prompt'
       )
       .eq('id', profile.organization_id)
       .single();
+
+    if (orgError && orgError.message?.includes('cal_com_enabled')) {
+      const retry = await (supabaseAdmin.from('organizations') as any)
+        .select(
+          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, cal_event_type_id, system_prompt'
+        )
+        .eq('id', profile.organization_id)
+        .single();
+      org = retry.data;
+      orgError = retry.error;
+    }
 
     if (orgError || !org) {
       console.warn('[AUTH WARN] Organización no encontrada para ID:', profile.organization_id);

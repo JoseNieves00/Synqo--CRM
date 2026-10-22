@@ -23,7 +23,7 @@ export default async function SettingsPage() {
 
   const org = current.organization;
 
-  // Cargar información de equipo y asientos
+  // Cargar información de equipo y usuarios
   let teamData = null;
   try {
     teamData = await getTeamInfo();
@@ -36,6 +36,7 @@ export default async function SettingsPage() {
       initialData={{
         whatsappPhoneNumberId: org?.whatsapp_phone_number_id,
         calEventTypeId: org?.cal_event_type_id,
+        calComEnabled: Boolean(org?.cal_com_enabled),
         systemPrompt: org?.system_prompt,
         subscriptionStatus: org?.subscription_status,
         planType: org?.plan_type,

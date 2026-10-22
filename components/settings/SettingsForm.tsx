@@ -20,6 +20,8 @@ import {
   Zap,
   Sparkles,
   ShieldCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
 
@@ -39,7 +41,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     badge: 'Starter',
     description: 'Diseñado para negocios unipersonales o 1-2 asesores validando su canal de captación y cierre por WhatsApp.',
     tokens: '500,000 tokens IA / mes (~350 - 500 chats)',
-    seats: 'Hasta 2 asientos de asesores incluidos',
+    seats: 'Hasta 2 usuarios de asesores incluidos',
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
@@ -53,7 +55,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     badge: 'Starter',
     description: 'Diseñado para negocios unipersonales o 1-2 asesores validando su canal de captación y cierre por WhatsApp.',
     tokens: '500,000 tokens IA / mes (~350 - 500 chats)',
-    seats: 'Hasta 2 asientos de asesores incluidos',
+    seats: 'Hasta 2 usuarios de asesores incluidos',
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
@@ -67,7 +69,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     badge: 'Pro',
     description: 'Para empresas con equipo comercial activo que buscan acelerar la conversión y cierre de prospectos calificados.',
     tokens: '2,500,000 tokens IA / mes (~1,800 - 2,500 chats)',
-    seats: 'Hasta 5 asientos de asesores incluidos',
+    seats: 'Hasta 5 usuarios de asesores incluidos',
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
@@ -83,7 +85,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     badge: 'Enterprise',
     description: 'Para operaciones comerciales consolidadas con múltiples turnos y equipos comerciales grandes.',
     tokens: '7,500,000 tokens IA / mes (~5,000 - 7,500 chats)',
-    seats: 'Hasta 12 asientos de asesores incluidos',
+    seats: 'Hasta 12 usuarios de asesores incluidos',
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
@@ -101,6 +103,7 @@ interface SettingsFormProps {
   initialData: {
     whatsappPhoneNumberId?: string | null;
     calEventTypeId?: string | null;
+    calComEnabled?: boolean;
     systemPrompt?: string | null;
     subscriptionStatus?: string | null;
     planType?: string | null;
@@ -123,6 +126,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [activeTab, setActiveTab] = useState<'integrations' | 'team'>('integrations');
   const [phoneNumberId, setPhoneNumberId] = useState(initialData.whatsappPhoneNumberId || '');
   const [accessToken, setAccessToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
   const [calApiKey, setCalApiKey] = useState('');
   const [calEventTypeId, setCalEventTypeId] = useState(initialData.calEventTypeId || '');
   const [systemPrompt, setSystemPrompt] = useState(
@@ -248,7 +252,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
             }`}
           >
             <Users className="w-4 h-4" />
-            Equipo & Asientos ({teamData.members.length}/{teamData.organization.maxUsers})
+            Equipo & Usuarios ({teamData.members.length}/{teamData.organization.maxUsers})
           </button>
         )}
       </div>
@@ -325,7 +329,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                     {currentPlan.description}
                   </p>
 
-                  {/* Cuotas del Plan: Asientos y Tokens */}
+                  {/* Cuotas del Plan: Usuarios y Tokens */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs">
@@ -417,113 +421,131 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Phone Number ID de Meta
+                Phone Number ID de Meta (Solo números)
               </label>
               <input
                 type="text"
                 placeholder="Ej. 104589234812345"
                 value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black"
+                onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
+                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
               />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Encuéntralo en Meta for Developers → WhatsApp → API Setup → Phone number ID.
+              </p>
             </div>
 
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
                 <span>WhatsApp Permanent Access Token</span>
                 <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Almacenamiento Seguro
+                  <Lock className="w-3 h-3" /> Cifrado AES-256
                 </span>
               </label>
-              <input
-                type="password"
-                placeholder="••••••••••••••••••••••••"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Cal.com Scheduling */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-purple-50 text-purple-600 rounded-lg">
-                <Calendar className="w-5 h-5" />
+              <div className="relative">
+                <input
+                  type={showToken ? 'text' : 'password'}
+                  placeholder="EAAG••••••••••••••••••••"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value.trim())}
+                  className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowToken(!showToken)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                  title={showToken ? 'Ocultar token' : 'Mostrar token'}
+                >
+                  {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Integración con Cal.com</h2>
-                <p className="text-xs text-gray-500">Permite a Synqo AI consultar disponibilidad y agendar citas</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleTestCal}
-              disabled={testingCal}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition cursor-pointer disabled:opacity-50"
-            >
-              <Zap className={`w-3.5 h-3.5 ${testingCal ? 'animate-spin' : ''}`} />
-              {testingCal ? 'Probando...' : 'Probar Conexión Cal.com'}
-            </button>
-          </div>
-
-          {calTestResult && (
-            <div
-              className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
-                calTestResult.success
-                  ? 'bg-purple-50 text-purple-800 border border-purple-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
-            >
-              {calTestResult.success ? (
-                <CheckCircle2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-              )}
-              <span>{calTestResult.success ? calTestResult.message : calTestResult.error}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
-                <span>Cal.com API Key</span>
-                <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Almacenamiento Cifrado
-                </span>
-              </label>
-              <input
-                type="password"
-                placeholder="cal_live_••••••••••••••••"
-                value={calApiKey}
-                onChange={(e) => setCalApiKey(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
-              />
               <p className="text-[11px] text-gray-400 mt-1">
-                Generada en Cal.com $\rightarrow$ Settings $\rightarrow$ Developer $\rightarrow$ API Keys (empieza con <code>cal_live_</code>).
-              </p>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Tipo de Evento o Enlace Cal.com (Opcional - Detección Automática)
-              </label>
-              <input
-                type="text"
-                placeholder="Ej. cita-comercial (o déjalo vacío para auto-detectar)"
-                value={calEventTypeId}
-                onChange={(e) => setCalEventTypeId(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
-              />
-              <p className="text-[11px] text-gray-500 mt-1">
-                Puedes escribir el nombre de tu evento (ej. <strong className="text-purple-700">cita-comercial</strong>), pegar tu enlace completo, o dejarlo en blanco para que el botón <strong>"Probar Conexión"</strong> lo detecte y complete automáticamente.
+                Token del Sistema con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
               </p>
             </div>
           </div>
         </div>
+
+        {/* Cal.com Scheduling (Solo si el Super Admin lo habilitó para esta empresa) */}
+        {initialData.calComEnabled && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-purple-50 text-purple-600 rounded-lg">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900">Integración con Cal.com</h2>
+                  <p className="text-xs text-gray-500">Permite a Synqo AI consultar disponibilidad y agendar citas</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTestCal}
+                disabled={testingCal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition cursor-pointer disabled:opacity-50"
+              >
+                <Zap className={`w-3.5 h-3.5 ${testingCal ? 'animate-spin' : ''}`} />
+                {testingCal ? 'Probando...' : 'Probar Conexión Cal.com'}
+              </button>
+            </div>
+
+            {calTestResult && (
+              <div
+                className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                  calTestResult.success
+                    ? 'bg-purple-50 text-purple-800 border border-purple-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
+              >
+                {calTestResult.success ? (
+                  <CheckCircle2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                )}
+                <span>{calTestResult.success ? calTestResult.message : calTestResult.error}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
+                  <span>Cal.com API Key</span>
+                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> Almacenamiento Cifrado
+                  </span>
+                </label>
+                <input
+                  type="password"
+                  placeholder="cal_live_••••••••••••••••"
+                  value={calApiKey}
+                  onChange={(e) => setCalApiKey(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Generada en Cal.com → Settings → Developer → API Keys (empieza con <code>cal_live_</code>).
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">
+                  Tipo de Evento o Enlace Cal.com (Opcional - Detección Automática)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. cita-comercial (o déjalo vacío para auto-detectar)"
+                  value={calEventTypeId}
+                  onChange={(e) => setCalEventTypeId(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Puedes escribir el nombre de tu evento (ej. <strong className="text-purple-700">cita-comercial</strong>), pegar tu enlace completo, o dejarlo en blanco para que el botón <strong>"Probar Conexión"</strong> lo detecte y complete automáticamente.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* OpenAI System Prompt */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">

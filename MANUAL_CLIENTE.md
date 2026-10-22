@@ -18,7 +18,7 @@ Bienvenido a **Synqo CRM**. Para garantizar la privacidad de tus conversaciones 
    - **Por seguridad empresarial:** El sistema te exigirá validar tu **Contraseña Actual** antes de confirmar la nueva clave.
 4. **Cadena de Recuperación de Acceso:**
    - Si no recuerdas tu contraseña, la recuperación se realiza mediante la jerarquía de tu organización:
-     - **Si eres Asesor o Agente:** Solicita al Administrador de tu empresa que regenere tu clave temporal en 1 clic desde la pestaña *Equipo & Asientos*.
+     - **Si eres Asesor o Agente:** Solicita al Administrador de tu empresa que regenere tu clave temporal en 1 clic desde la pestaña *Equipo & Usuarios*.
      - **Si eres Administrador:** Comunícate con el Super Admin de Synqo (`admin@synqo.dev`) para regenerar tu acceso temporal de inmediato.
 
 ---
@@ -59,14 +59,14 @@ En el cuadro **Instrucciones y Objetivos del Asesor IA**, define con tus propias
 
 ---
 
-## 3. Gestión de tu Equipo Comercial (Pestaña "Equipo & Asientos")
+## 3. Gestión de tu Equipo Comercial (Pestaña "Equipo & Usuarios")
 
 1. **Invitar Nuevos Asesores:**
    - Haz clic en **"+ Agregar Miembro"**.
    - Ingresa el nombre del asesor, su correo electrónico y asígnale una contraseña temporal inicial.
    - Selecciona su rol: **Agente** (atención comercial) o **Supervisor**.
 2. **Control de Cupos:**
-   - La barra de asientos te muestra cuántos usuarios tienes activos y cuántos tienes disponibles según tu plan.
+   - La barra de cupos te muestra cuántos usuarios tienes activos y cuántos tienes disponibles según tu plan.
 3. **Regenerar Contraseña Temporal:**
    - Si un asesor olvida su clave, el administrador puede presionar el botón de reinicio junto a su nombre. El sistema generará una nueva clave temporal con botón de copiado rápido, y el asesor deberá cambiarla al ingresar.
 4. **Revocación Inmediata de Acceso:**

@@ -218,7 +218,7 @@ export function UserProfileModal({
                         </>
                       ) : (
                         <>
-                          👤 Como <strong>Asesor / Colaborador</strong>, solicita al <strong>Administrador de tu empresa</strong> que regenere tu contraseña temporal desde la pestaña <em>"Equipo & Asientos"</em> en Configuración.
+                          👤 Como <strong>Asesor / Colaborador</strong>, solicita al <strong>Administrador de tu empresa</strong> que regenere tu contraseña temporal desde la pestaña <em>"Equipo & Usuarios"</em> en Configuración.
                         </>
                       )}
                     </p>

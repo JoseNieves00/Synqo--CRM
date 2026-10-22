@@ -40,12 +40,13 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
   };
 
   if (input.whatsappPhoneNumberId !== undefined) {
-    updatePayload.whatsapp_phone_number_id = input.whatsappPhoneNumberId.trim();
+    updatePayload.whatsapp_phone_number_id = input.whatsappPhoneNumberId.trim().replace(/[^0-9]/g, '');
   }
 
-  // Cifrar secreto de WhatsApp con AES-256-GCM antes de persistir
+  // Cifrar secreto de WhatsApp con AES-256-GCM antes de persistir (limpiando prefijo Bearer si fue copiado)
   if (input.whatsappAccessToken && input.whatsappAccessToken.trim() !== '') {
-    updatePayload.whatsapp_access_token = encryptSecret(input.whatsappAccessToken.trim());
+    const cleanToken = input.whatsappAccessToken.trim().replace(/^Bearer\s+/i, '');
+    updatePayload.whatsapp_access_token = encryptSecret(cleanToken);
   }
 
   // Cifrar secreto de Cal.com con AES-256-GCM antes de persistir
@@ -119,12 +120,15 @@ export async function testWhatsAppConnection(input: {
     };
   }
 
+  const cleanPhoneId = phoneId.replace(/[^0-9]/g, '');
+  const cleanToken = token.replace(/^Bearer\s+/i, '');
+
   try {
-    const metaUrl = `https://graph.facebook.com/v20.0/${phoneId}?fields=verified_name,display_phone_number,code_verification_status,quality_rating`;
+    const metaUrl = `https://graph.facebook.com/v20.0/${cleanPhoneId}?fields=verified_name,display_phone_number,code_verification_status,quality_rating`;
     const res = await fetch(metaUrl, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${cleanToken}`,
       },
     });
 

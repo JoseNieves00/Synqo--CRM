@@ -3,7 +3,7 @@
 -- Adds max_users (seats limit) to organizations and is_super_admin to profiles
 -- ==============================================================================
 
--- 1. Agregar columna max_users en organizations (límite de asientos autorizados)
+-- 1. Agregar columna max_users en organizations (límite de usuarios autorizados)
 ALTER TABLE organizations 
 ADD COLUMN IF NOT EXISTS max_users INTEGER DEFAULT 3 NOT NULL;
 
@@ -20,6 +20,6 @@ UPDATE profiles
 SET is_super_admin = TRUE 
 WHERE email = 'admin@synqo.dev';
 
--- 5. Índice de rendimiento para recuento de asientos por organización
+-- 5. Índice de rendimiento para recuento de usuarios por organización
 CREATE INDEX IF NOT EXISTS idx_profiles_org_id ON profiles(organization_id);
 

@@ -227,13 +227,13 @@ export function TeamTab({ initialData }: TeamTabProps) {
         </div>
       )}
 
-      {/* Tarjeta de Control de Asientos / Cupos */}
+      {/* Tarjeta de Control de Usuarios / Cupos */}
       <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold text-gray-900">
-                Gestión de Asientos & Agentes
+                Gestión de Usuarios & Agentes
               </h2>
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                 Plan {initialData.organization.planType}
@@ -255,7 +255,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
               }`}
             >
               <UserPlus className="w-4 h-4" />
-              {isQuotaFull ? 'Límite de Asientos Alcanzado' : 'Agregar Miembro'}
+              {isQuotaFull ? 'Límite de Usuarios Alcanzado' : 'Agregar Miembro'}
             </button>
           </div>
         </div>
@@ -264,7 +264,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
         <div className="mt-5 pt-5 border-t border-gray-100">
           <div className="flex items-center justify-between text-xs mb-1.5">
             <span className="font-semibold text-gray-700">
-              {usedSeats} de {maxUsers} asientos ocupados
+              {usedSeats} de {maxUsers} usuarios ocupados
             </span>
             <span
               className={`font-bold ${

@@ -76,15 +76,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'no_incoming_message' }, { status: 200 });
   }
 
-  // D. Filtrar solo mensajes de texto
-  if (incomingMessage.type !== 'text') {
-    return NextResponse.json({ status: 'non_text_message_ignored' }, { status: 200 });
+  // D. Filtrar mensajes soportados (texto y notas de voz / audios)
+  const isText = incomingMessage.type === 'text';
+  const isAudio = incomingMessage.type === 'audio';
+
+  if (!isText && !isAudio) {
+    return NextResponse.json({ status: 'unsupported_message_type_ignored' }, { status: 200 });
   }
 
   const metaMessageId = incomingMessage.id;
   const leadPhone = incomingMessage.from;
-  const rawContent = incomingMessage.text?.body || '';
-  const sanitizedContent = sanitizeLeadMessage(rawContent);
   const leadName = value.contacts?.[0]?.profile?.name || 'Lead WhatsApp';
   const phoneNumberId = value.metadata?.phone_number_id;
 
@@ -113,6 +114,29 @@ export async function POST(request: NextRequest) {
     }
 
     const orgId = organization.id;
+
+    // F2. Procesar contenido del mensaje: Texto plano o Transcripción de Audio con Whisper
+    let rawContent = '';
+    if (isText) {
+      rawContent = incomingMessage.text?.body || '';
+    } else if (isAudio) {
+      const audioId = incomingMessage.audio?.id;
+      if (audioId && organization.whatsapp_access_token) {
+        try {
+          const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+          const media = await WhatsAppService.downloadMedia(audioId, decryptedToken);
+          const transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType);
+          rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
+        } catch (audioErr: any) {
+          console.error('[WHATSAPP AUDIO TRANSCRIPTION ERROR]', audioErr);
+          rawContent = '🎤 [Nota de voz no reproducible]';
+        }
+      } else {
+        rawContent = '🎤 [Nota de voz]';
+      }
+    }
+
+    const sanitizedContent = sanitizeLeadMessage(rawContent);
 
     // G. Parche 1: Blindaje de Rentabilidad (Esquema de Suscripción & Estado Activo)
     const isSubscriptionActive =

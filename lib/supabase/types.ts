@@ -30,6 +30,7 @@ export interface Database {
           plan_type: PlanType;
           max_users: number;
           is_active: boolean;
+          cal_com_enabled?: boolean;
           paid_until_month?: string | null;
           billing_due_day?: number;
           past_due_since?: string | null;
@@ -51,6 +52,7 @@ export interface Database {
           plan_type?: PlanType;
           max_users?: number;
           is_active?: boolean;
+          cal_com_enabled?: boolean;
           paid_until_month?: string | null;
           billing_due_day?: number;
           past_due_since?: string | null;
@@ -70,6 +72,7 @@ export interface Database {
           plan_type?: PlanType;
           max_users?: number;
           is_active?: boolean;
+          cal_com_enabled?: boolean;
           paid_until_month?: string | null;
           billing_due_day?: number;
           past_due_since?: string | null;

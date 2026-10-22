@@ -65,7 +65,7 @@ export default function SuperAdminLoading() {
               <tr className="bg-gray-50/70 border-b border-gray-200 text-gray-400 font-semibold uppercase tracking-wider">
                 <th className="py-3 px-5">Empresa</th>
                 <th className="py-3 px-5">Administrador</th>
-                <th className="py-3 px-5">Asientos</th>
+                <th className="py-3 px-5">Usuarios</th>
                 <th className="py-3 px-5">Plan</th>
                 <th className="py-3 px-5">Tokens IA</th>
                 <th className="py-3 px-5">Leads</th>

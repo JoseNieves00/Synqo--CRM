@@ -23,6 +23,7 @@ import {
   CreditCard,
   DollarSign,
   Filter,
+  Calendar,
 } from 'lucide-react';
 import {
   OrganizationRow,
@@ -76,6 +77,7 @@ export default function AdminConsoleClient({
   const [editSeats, setEditSeats] = useState<number>(2);
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
   const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
+  const [editCalCom, setEditCalCom] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -96,6 +98,7 @@ export default function AdminConsoleClient({
   const [adminPassword, setAdminPassword] = useState('');
   const [planType, setPlanType] = useState<PlanType>('starter');
   const [maxUsers, setMaxUsers] = useState<number>(2);
+  const [provisionCalCom, setProvisionCalCom] = useState<boolean>(false);
   const [firstBillingMonth, setFirstBillingMonth] = useState<string>(currentMonthStr);
 
   // Filtro de cobranza
@@ -206,6 +209,7 @@ export default function AdminConsoleClient({
         planType,
         maxUsers,
         firstBillingMonth,
+        calComEnabled: provisionCalCom,
       });
 
       if (res.success) {
@@ -216,6 +220,7 @@ export default function AdminConsoleClient({
         setAdminEmail('');
         setAdminPassword('');
         setMaxUsers(2);
+        setProvisionCalCom(false);
         setIsProvisionOpen(false);
 
         // Actualizar lista local optimistamente
@@ -226,6 +231,8 @@ export default function AdminConsoleClient({
           plan_type: planType,
           max_users: maxUsers,
           is_active: true,
+          cal_com_enabled: provisionCalCom,
+          is_exempt: false,
           whatsapp_phone_number_id: null,
           created_at: new Date().toISOString(),
           users_count: 1,
@@ -262,6 +269,7 @@ export default function AdminConsoleClient({
     const defaultLimit = PLAN_DEFAULTS[safePlan]?.aiTokensLimit || 500000;
     setEditTokensLimit(org.ai_tokens_limit || defaultLimit);
     setEditResetTokens(false);
+    setEditCalCom(Boolean(org.cal_com_enabled));
   };
 
   const handlePlanChange = (newPlan: PlanType) => {
@@ -279,7 +287,7 @@ export default function AdminConsoleClient({
 
     if (editSeats < editingOrg.users_count) {
       setErrorMsg(
-        `No puedes reducir a ${editSeats} asientos porque la empresa tiene ${editingOrg.users_count} usuarios activos.`
+        `No puedes reducir a ${editSeats} usuarios porque la empresa tiene ${editingOrg.users_count} usuarios activos.`
       );
       return;
     }
@@ -295,6 +303,7 @@ export default function AdminConsoleClient({
         maxUsers: editSeats,
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
+        calComEnabled: editCalCom,
       });
 
       setOrganizations((prev) =>
@@ -307,6 +316,7 @@ export default function AdminConsoleClient({
                 max_users: editSeats,
                 ai_tokens_limit: editTokensLimit,
                 ai_tokens_used: editResetTokens ? 0 : o.ai_tokens_used,
+                cal_com_enabled: editCalCom,
               }
             : o
         )
@@ -454,7 +464,7 @@ export default function AdminConsoleClient({
         <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Usuarios / Asientos
+              Usuarios del Equipo
             </span>
             <div className="p-2.5 bg-purple-50 text-purple-600 rounded-xl">
               <Users className="w-5 h-5" />
@@ -626,7 +636,7 @@ export default function AdminConsoleClient({
               <tr className="bg-gray-50/70 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider">
                 <th className="py-3 px-5">Empresa</th>
                 <th className="py-3 px-5">Administrador</th>
-                <th className="py-3 px-5">Asientos</th>
+                <th className="py-3 px-5">Usuarios</th>
                 <th className="py-3 px-5">Plan</th>
                 <th className="py-3 px-5">Tokens IA</th>
                 <th className="py-3 px-5">Cobranza & Ciclo</th>
@@ -650,8 +660,22 @@ export default function AdminConsoleClient({
                   return (
                     <tr key={org.id} className="hover:bg-gray-50/50 transition">
                       <td className="py-3.5 px-5">
-                        <div className="font-bold text-gray-900 text-sm">{org.name}</div>
-                        <div className="text-[11px] text-gray-400 font-mono">ID: {org.id.slice(0, 8)}...</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-900 text-sm">{org.name}</span>
+                          {org.is_exempt && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              👑 Super Admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[11px] text-gray-400 font-mono">ID: {org.id.slice(0, 8)}...</span>
+                          {org.cal_com_enabled && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                              <Calendar className="w-2.5 h-2.5" /> Cal.com
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-5">
@@ -662,11 +686,11 @@ export default function AdminConsoleClient({
                       <td className="py-3.5 px-5 min-w-[150px]">
                         <div className="flex items-center justify-between mb-1">
                           <span className={`font-semibold ${seatsFull ? 'text-amber-600' : 'text-gray-700'}`}>
-                            {org.users_count} / {org.max_users} asientos
+                            {org.users_count} / {org.max_users} usuarios
                           </span>
                           <button
                             onClick={() => handleOpenEditModal(org)}
-                            title="Editar empresa y asientos"
+                            title="Editar empresa y límite de usuarios"
                             className="text-gray-400 hover:text-emerald-600 transition cursor-pointer p-0.5"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
@@ -759,13 +783,20 @@ export default function AdminConsoleClient({
                             {org.billing_status_label || (org.is_active ? 'Al día' : 'En mora')}
                           </span>
 
-                          <button
-                            onClick={() => handleOpenPayModal(org)}
-                            className="text-[11px] font-semibold text-[#0052FF] hover:text-[#0047E0] hover:underline flex items-center gap-1 cursor-pointer w-fit mt-0.5"
-                          >
-                            <Receipt className="w-3 h-3" />
-                            Registrar pago
-                          </button>
+                          {org.is_exempt ? (
+                            <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1 mt-0.5">
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              Cuenta Exenta
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenPayModal(org)}
+                              className="text-[11px] font-semibold text-[#0052FF] hover:text-[#0047E0] hover:underline flex items-center gap-1 cursor-pointer w-fit mt-0.5"
+                            >
+                              <Receipt className="w-3 h-3" />
+                              Registrar pago
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -791,7 +822,7 @@ export default function AdminConsoleClient({
                         <button
                           onClick={() => handleOpenEditModal(org)}
                           className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
-                          title="Editar empresa (Plan, Asientos, Tokens)"
+                          title="Editar empresa (Plan, Usuarios, Tokens)"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
@@ -921,15 +952,15 @@ export default function AdminConsoleClient({
                     onChange={(e) => setPlanType(e.target.value as any)}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
                   >
-                    <option value="starter">Starter (Validación - 2 Asientos)</option>
-                    <option value="pro">Pro (Comercial - 5 Asientos)</option>
-                    <option value="enterprise">Enterprise (Corporativo - 12 Asientos)</option>
+                    <option value="starter">Starter (Validación - 2 Usuarios)</option>
+                    <option value="pro">Pro (Comercial - 5 Usuarios)</option>
+                    <option value="enterprise">Enterprise (Corporativo - 12 Usuarios)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Límite de Asientos (Usuarios)
+                    Límite de Usuarios
                   </label>
                   <input
                     type="number"
@@ -976,6 +1007,26 @@ export default function AdminConsoleClient({
                 </p>
               </div>
 
+              {/* Módulo de Agendamiento Cal.com */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-gray-200 bg-gray-50/50">
+                <div className="flex items-center gap-2.5">
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  <div>
+                    <div className="text-xs font-semibold text-gray-800">Módulo de Agendamiento (Cal.com)</div>
+                    <div className="text-[10px] text-gray-500">Habilita o deshabilita la vista de agendamiento para este cliente</div>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={provisionCalCom}
+                    onChange={(e) => setProvisionCalCom(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
                 <button
                   type="button"
@@ -997,7 +1048,7 @@ export default function AdminConsoleClient({
         </div>
       )}
 
-      {/* Modal: Editar Empresa (Plan, Asientos, Tokens) — Diseño Horizontal Adaptativo */}
+      {/* Modal: Editar Empresa (Plan, Usuarios, Tokens) — Diseño Horizontal Adaptativo */}
       {editingOrg && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200 my-auto">
@@ -1012,7 +1063,7 @@ export default function AdminConsoleClient({
                     Editar Empresa: <span>{editingOrg.name}</span>
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Ajuste de plan comercial, cupo de asientos y asignación de tokens IA para el mes en curso.
+                    Ajuste de plan comercial, límite de usuarios y asignación de tokens IA para el mes en curso.
                   </p>
                 </div>
               </div>
@@ -1054,19 +1105,19 @@ export default function AdminConsoleClient({
                       onChange={(e) => handlePlanChange(e.target.value as PlanType)}
                       className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-medium text-gray-800"
                     >
-                      <option value="starter">Starter (Validación - 2 Asientos / 500k Tokens)</option>
-                      <option value="pro">Pro (Comercial - 5 Asientos / 2.5M Tokens)</option>
-                      <option value="enterprise">Enterprise (Corporativo - 12 Asientos / 7.5M Tokens)</option>
+                      <option value="starter">Starter (Validación - 2 Usuarios / 500k Tokens)</option>
+                      <option value="pro">Pro (Comercial - 5 Usuarios / 2.5M Tokens)</option>
+                      <option value="enterprise">Enterprise (Corporativo - 12 Usuarios / 7.5M Tokens)</option>
                     </select>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      💡 Al cambiar de plan, los cupos recomendados de asientos y tokens se ajustan automáticamente.
+                      💡 Al cambiar de plan, los cupos recomendados de usuarios y tokens se ajustan automáticamente.
                     </p>
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-xs font-semibold text-gray-700">
-                        Límite de Asientos (Usuarios)
+                        Límite de Usuarios
                       </label>
                       <span className="text-[11px] text-gray-500 font-medium">
                         En uso: <strong className="text-gray-900">{editingOrg.users_count}</strong> activos
@@ -1083,6 +1134,26 @@ export default function AdminConsoleClient({
                     <p className="text-[10px] text-gray-400 mt-1">
                       🛡️ Protección de integridad: No se puede reducir por debajo de {editingOrg.users_count} miembros activos.
                     </p>
+                  </div>
+
+                  {/* Módulo de Agendamiento Cal.com */}
+                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                    <div className="flex items-center gap-2.5">
+                      <Calendar className="w-4 h-4 text-blue-600" />
+                      <div>
+                        <div className="text-xs font-bold text-slate-800">Módulo de Agendamiento (Cal.com)</div>
+                        <div className="text-[10px] text-slate-500">Muestra u oculta la tarjeta de agendamiento para este cliente</div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editCalCom}
+                        onChange={(e) => setEditCalCom(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
                   </div>
 
                   {/* Tarjeta de Resumen Rápido / Cortesía de soporte */}

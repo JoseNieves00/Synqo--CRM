@@ -4,7 +4,7 @@ import assert from 'assert';
 import { supabaseAdmin } from '../lib/supabase/admin';
 
 async function runTests() {
-  console.log('🧪 Iniciando Pruebas de Consola Super Admin y Control de Asientos...\n');
+  console.log('🧪 Iniciando Pruebas de Consola Super Admin y Control de Usuarios...\n');
 
   // 1. Verificar existencia de la organización demo y super admin en Supabase
   console.log('1️⃣  Verificando perfil de Super Administrador...');
@@ -17,8 +17,8 @@ async function runTests() {
   assert.strictEqual(superAdminProfile.is_super_admin, true, 'is_super_admin debe ser true');
   console.log('   ✅ Super Admin verificado correctamente:', superAdminProfile.email);
 
-  // 2. Verificar lectura de organizaciones y asientos
-  console.log('2️⃣  Probando límites de asientos y conteo en organizaciones...');
+  // 2. Verificar lectura de organizaciones y usuarios
+  console.log('2️⃣  Probando límites de usuarios y conteo en organizaciones...');
   const { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
     .select('id, name, max_users, is_active, subscription_status')
     .eq('id', superAdminProfile.organization_id)
@@ -27,7 +27,7 @@ async function runTests() {
   assert(!orgError && org, 'La organización debe existir.');
   assert(org.max_users >= 1, 'max_users debe ser al menos 1.');
   assert(org.is_active === true, 'is_active debe ser true.');
-  console.log(`   ✅ Organización "${org.name}" verificada: ${org.max_users} asientos autorizados.`);
+  console.log(`   ✅ Organización "${org.name}" verificada: ${org.max_users} usuarios autorizados.`);
 
   // 3. Probar lógica de control de cupos (Seat Quota Check)
   console.log('3️⃣  Validando bloqueo de creación de agentes al superar max_users...');
@@ -47,9 +47,9 @@ async function runTests() {
   assert.throws(
     () => testSeatExceeded(org.max_users, org.max_users),
     /Has alcanzado el límite/,
-    'Debe lanzar error al superar la cuota de asientos'
+    'Debe lanzar error al superar la cuota de usuarios'
   );
-  console.log('   ✅ Bloqueo de cuota de asientos probado con éxito.');
+  console.log('   ✅ Bloqueo de cuota de usuarios probado con éxito.');
 
   // 4. Probar actualización de campos de contacto (Ficha y Notas)
   console.log('4️⃣  Probando persistencia de notas y fase en contactos...');

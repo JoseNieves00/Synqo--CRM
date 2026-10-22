@@ -45,6 +45,17 @@ async function runBillingTests() {
   assert.strictEqual(canceladaStatus.isSuspended, true);
   console.log('   ✅ Estado "Baja Definitiva (30d+)" verificado:', canceladaStatus.label);
 
+  // Caso 4: Cuenta del Super Admin exenta de mora y pagos
+  const exentaStatus = calculateBillingStatus({
+    is_active: true,
+    is_exempt: true,
+    subscription_status: 'past_due', // Aunque estuviera en past_due, la exención prima
+  });
+  assert.strictEqual(exentaStatus.status, 'al_dia');
+  assert.strictEqual(exentaStatus.isSuspended, false);
+  assert.strictEqual(exentaStatus.label, 'Exento (Super Admin)');
+  console.log('   ✅ Estado "Cuenta Exenta (Super Admin)" verificado:', exentaStatus.label);
+
   // 2. Probar toggleCompanyStatus en base de datos real
   console.log('\n2️⃣  Probando suspensión y reactivación en Supabase...');
   const { data: demoOrg } = await (supabaseAdmin.from('organizations') as any)

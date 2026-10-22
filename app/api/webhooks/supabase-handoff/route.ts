@@ -7,8 +7,8 @@ export async function POST(request: NextRequest) {
   const secretHeader = request.headers.get('x-supabase-webhook-secret');
   const expectedSecret = process.env.SUPABASE_WEBHOOK_SECRET;
 
-  if (expectedSecret && secretHeader !== expectedSecret) {
-    return new NextResponse('Unauthorized: Invalid webhook secret', { status: 401 });
+  if (!expectedSecret || secretHeader !== expectedSecret) {
+    return new NextResponse('Unauthorized: Invalid or missing webhook secret', { status: 401 });
   }
 
   try {

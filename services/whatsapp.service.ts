@@ -134,5 +134,52 @@ export class WhatsAppService {
       console.warn('[WHATSAPP MARK READ WARNING]', e);
     }
   }
+
+  /**
+   * Descarga un archivo multimedia (audio/nota de voz, documento o imagen) desde Meta Graph API.
+   * Preserva la autenticación Bearer requerida en la URL de descarga directa de Meta CDN.
+   */
+  static async downloadMedia(mediaId: string, accessToken: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const cleanToken = accessToken.trim().replace(/^Bearer\s+/i, '');
+
+    // 1. Consultar metadatos del medio para obtener la URL temporal de descarga
+    const metaRes = await fetch(`${this.BASE_URL}/${mediaId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${cleanToken}`,
+      },
+    });
+
+    if (!metaRes.ok) {
+      const err = await metaRes.json().catch(() => ({}));
+      throw new Error(`Error obteniendo metadatos de audio Meta (${metaRes.status}): ${JSON.stringify(err)}`);
+    }
+
+    const metaData = await metaRes.json();
+    const downloadUrl = metaData.url;
+    const mimeType = metaData.mime_type || 'audio/ogg';
+
+    if (!downloadUrl) {
+      throw new Error('Meta no devolvió la URL de descarga para el archivo de audio.');
+    }
+
+    // 2. Descargar el archivo binario pasando el token Bearer en el encabezado
+    const downloadRes = await fetch(downloadUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${cleanToken}`,
+      },
+    });
+
+    if (!downloadRes.ok) {
+      throw new Error(`Error descargando audio desde Meta CDN (${downloadRes.status})`);
+    }
+
+    const arrayBuffer = await downloadRes.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      mimeType,
+    };
+  }
 }
 

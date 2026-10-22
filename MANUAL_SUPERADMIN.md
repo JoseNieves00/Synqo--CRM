@@ -26,7 +26,7 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
 │                        CONSOLA SUPER ADMIN                             │
 ├─────────────┬─────────────┬──────────────┬──────────────┬──────────────┤
 │  Empresas   │  Usuarios   │    Leads     │   Mensajes   │  Tokens IA   │
-│ 12 Activas  │ 48 Asientos │ 1,420 Totales│ 18,900 Chats │  1.4M Usados │
+│ 12 Activas  │ 48 Usuarios │ 1,420 Totales│ 18,900 Chats │  1.4M Usados │
 └─────────────┴─────────────┴──────────────┴──────────────┴──────────────┘
 ```
 
@@ -35,13 +35,13 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
    - Nombre de la empresa (ej. *Inmobiliaria Horizonte*).
    - Nombre y correo del Administrador del cliente (ej. *gerencia@horizonte.com*).
    - Contraseña inicial del cliente.
-   - Plan comercial asignado: `Starter` (Validación comercial - 2 asientos), `Pro` (Comercial recomendado - 5 asientos) o `Enterprise` (Corporativo - 12 asientos).
-   - Límite de Asientos autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (2 para Starter, 5 para Pro, 12 para Enterprise, o el cupo negociado).
+   - Plan comercial asignado: `Starter` (Validación comercial - 2 usuarios), `Pro` (Comercial recomendado - 5 usuarios) o `Enterprise` (Corporativo - 12 usuarios).
+   - Límite de Usuarios autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (2 para Starter, 5 para Pro, 12 para Enterprise, o el cupo negociado).
 2. **Edición Integral de Empresa (Modal de Tenant & Upgrades):**
    - **Nombre de la empresa:** Corrección de razón social, marca o erratas ortográficas.
-   - **Upgrades y Downgrades de Plan:** Cambiar en caliente entre `Starter`, `Pro` y `Enterprise` con botón de 1 clic para *sincronizar los cupos recomendados del plan* (asientos y tokens).
-   - **Límite de Asientos:** Aumentar o ajustar cupos de asesores por ventas de *add-ons* de asientos.  
-     *(🛡️ **Blindaje de Seguridad:** El sistema bloquea reducciones de asientos si son menores a la cantidad de miembros activos actuales, impidiendo estados huérfanos o usuarios bloqueados).*
+   - **Upgrades y Downgrades de Plan:** Cambiar en caliente entre `Starter`, `Pro` y `Enterprise` con botón de 1 clic para *sincronizar los cupos recomendados del plan* (usuarios y tokens).
+   - **Límite de Usuarios:** Aumentar o ajustar cupos de asesores por ventas de *add-ons* de usuarios.  
+     *(🛡️ **Blindaje de Seguridad:** El sistema bloquea reducciones de cupos de usuarios si son menores a la cantidad de miembros activos actuales, impidiendo estados huérfanos o usuarios bloqueados).*
    - **Paquetes de Tokens Extra (Boosters Mensuales):** Botones rápidos de 1 clic `[ ⭐ +1M Tokens (Booster) ]` y `[ +500k Tokens ]` para recargar saldo de WhatsApp IA ante campañas de alta demanda sin forzar un upgrade de plan.
    - **Regla de Negocio de Boosters:** Los tokens extra aplican **únicamente para el mes en curso**. Al registrar el pago de renovación mensual en `/admin`, el sistema reinicia el consumo a 0 y **restablece automáticamente el límite a la cuota base del plan** (`500k`, `2.5M` o `7.5M`), evitando que el cliente conserve saldo extra de por vida de forma gratuita.
    - **Cortesía Técnica de Soporte:** Opción para reiniciar el consumo acumulado de tokens a 0 en cualquier momento sin esperar a fin de mes.
@@ -117,13 +117,13 @@ Dado que la facturación inicial es **manual (asistida)**:
 #### Detalle de Planes para el Cliente (según `/settings`):
 - **Plan Starter (Validación):**
   - **Ideal para:** Profesionales independientes o startups validando su primer canal de atención y captación en WhatsApp.
-  - **Incluye:** 2 asientos de equipo, 500k tokens IA, prompt 100% personalizable, agendamiento Cal.com, alertas push y soporte técnico estándar.
+  - **Incluye:** 2 usuarios de equipo, 500k tokens IA, prompt 100% personalizable, agendamiento Cal.com, alertas push y soporte técnico estándar.
 - **Plan Pro (Comercial — Recomendado):**
   - **Ideal para:** Empresas en crecimiento con 3 a 5 vendedores activos que requieren exportar prospectos y responder con mayor volumen de mensajes sin interrupciones.
-  - **Incluye:** 5 asientos de equipo, 2.5M tokens IA, exportación de contactos a CSV / Excel, agendamiento Cal.com y soporte prioritario.
+  - **Incluye:** 5 usuarios de equipo, 2.5M tokens IA, exportación de contactos a CSV / Excel, agendamiento Cal.com y soporte prioritario.
 - **Plan Enterprise (Corporativo):**
   - **Ideal para:** Operaciones comerciales consolidadas, múltiples turnos o agencias con más de 10 asesores.
-  - **Incluye:** 12 asientos de equipo, 7.5M tokens IA, exportación masiva completa, canal VIP exclusivo de WhatsApp con atención inmediata (< 2 horas) y sesión de onboarding personalizada de 45 minutos.
+  - **Incluye:** 12 usuarios de equipo, 7.5M tokens IA, exportación masiva completa, canal VIP exclusivo de WhatsApp con atención inmediata (< 2 horas) y sesión de onboarding personalizada de 45 minutos.
 
 ---
 
@@ -192,7 +192,7 @@ Desde la terminal del proyecto puedes ejecutar:
   ```bash
   npm test
   ```
-  *(Verifica criptografía, seguridad HMAC, RLS, límites de asientos, tokens y perfiles).*
+  *(Verifica criptografía, seguridad HMAC, RLS, límites de usuarios, tokens y perfiles).*
 
 - **Simular Conversación en Tiempo Real (Prueba Local):**
   ```bash

@@ -20,7 +20,18 @@ export function calculateBillingStatus(org: {
   paid_until_month?: string | null;
   past_due_since?: string | null;
   created_at?: string;
+  is_exempt?: boolean;
 }): BillingStatusResult {
+  // 0. Si la organización está exenta de pago (ej. Super Admin / Cuenta Interna)
+  if (org.is_exempt) {
+    return {
+      status: 'al_dia',
+      label: 'Exento (Super Admin)',
+      color: 'emerald',
+      daysPastDue: 0,
+      isSuspended: false,
+    };
+  }
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthNum = now.getMonth() + 1;
