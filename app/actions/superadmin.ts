@@ -7,6 +7,7 @@ import { PlanType, SubscriptionStatus } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
+import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -365,6 +366,81 @@ export async function updateCompanySeats(organizationId: string, maxUsers: numbe
 }
 
 /**
+ * Actualizar detalles completos de una empresa desde la Consola Super Admin:
+ * - Nombre comercial
+ * - Plan comercial (Starter, Pro, Enterprise)
+ * - Límite de asientos (con validación de usuarios activos)
+ * - Límite de tokens IA (boosters o cuota base)
+ * - Reinicio opcional de tokens consumidos a 0 (cortesía de soporte)
+ */
+export async function updateCompanyDetails(input: {
+  organizationId: string;
+  name: string;
+  planType: PlanType;
+  maxUsers: number;
+  aiTokensLimit?: number;
+  resetTokensUsed?: boolean;
+}) {
+  await requireSuperAdmin();
+
+  const name = (input.name || '').trim();
+  if (name.length < 2 || name.length > 100) {
+    throw new Error('El nombre de la empresa debe tener entre 2 y 100 caracteres.');
+  }
+
+  if (input.maxUsers < 1 || input.maxUsers > 500) {
+    throw new Error('El límite de asientos debe estar entre 1 y 500.');
+  }
+
+  // Validación de seguridad: no permitir reducir asientos por debajo de los usuarios reales actuales
+  const { count: currentUsersCount, error: countErr } = await (supabaseAdmin.from('profiles') as any)
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', input.organizationId);
+
+  if (!countErr && typeof currentUsersCount === 'number' && input.maxUsers < currentUsersCount) {
+    throw new Error(
+      `No se puede reducir a ${input.maxUsers} asientos porque la empresa tiene ${currentUsersCount} usuarios activos. Primero deben desactivar o eliminar miembros del equipo.`
+    );
+  }
+
+  const defaultLimit = PLAN_DEFAULTS[input.planType]?.aiTokensLimit || 500000;
+  const tokensLimit = input.aiTokensLimit && input.aiTokensLimit > 0 ? input.aiTokensLimit : defaultLimit;
+
+  const updateData: Record<string, any> = {
+    name,
+    plan_type: input.planType,
+    max_users: input.maxUsers,
+    ai_tokens_limit: tokensLimit,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.resetTokensUsed) {
+    updateData.ai_tokens_used = 0;
+  }
+
+  let { error } = await (supabaseAdmin.from('organizations') as any)
+    .update(updateData)
+    .eq('id', input.organizationId);
+
+  // Fallback si la BD aún tiene constraint con 'core' en vez de 'starter'
+  if (error && error.message?.includes('organizations_plan_type_check') && input.planType === 'starter') {
+    updateData.plan_type = 'core';
+    const retry = await (supabaseAdmin.from('organizations') as any)
+      .update(updateData)
+      .eq('id', input.organizationId);
+    error = retry.error;
+  }
+
+  if (error) {
+    throw new Error(`Error actualizando empresa: ${error.message}`);
+  }
+
+  safeRevalidate('/admin');
+  safeRevalidate('/', 'layout');
+  return { success: true };
+}
+
+/**
  * Suspender o reactivar una empresa por morosidad o solicitud
  */
 export async function toggleCompanyStatus(organizationId: string, isActive: boolean) {
@@ -429,13 +505,23 @@ export async function registerCompanyPayment(input: {
     console.warn('[PAYMENT LEDGER WARN]', err?.message);
   }
 
-  // 2. Actualizar empresa: reactivar, renovar ciclo y reiniciar tokens consumidos
+  // 2. Obtener el plan de la empresa para resetear el límite de tokens a la cuota base oficial
+  const { data: orgData } = await (supabaseAdmin.from('organizations') as any)
+    .select('plan_type')
+    .eq('id', input.organizationId)
+    .single();
+
+  const planKey = orgData?.plan_type || 'starter';
+  const baseTokensLimit = PLAN_DEFAULTS[planKey]?.aiTokensLimit || 500000;
+
+  // 3. Actualizar empresa: reactivar, renovar ciclo, reiniciar tokens consumidos y expirar boosters temporales
   const updateData: Record<string, any> = {
     paid_until_month: input.periodMonth,
     is_active: true,
     subscription_status: 'active',
     past_due_since: null,
     ai_tokens_used: 0, // Cláusula 6 y 7: tokens se renuevan al pagar el mes
+    ai_tokens_limit: baseTokensLimit, // Boosters adicionales expiran con el nuevo ciclo mensual
     updated_at: new Date().toISOString(),
   };
 

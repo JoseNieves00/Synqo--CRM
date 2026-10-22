@@ -31,9 +31,11 @@ import {
   updateCompanySeats,
   toggleCompanyStatus,
   updateCompanyPlan,
+  updateCompanyDetails,
   regenerateCompanyAdminPassword,
   registerCompanyPayment,
 } from '@/app/actions/superadmin';
+import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
 
 interface Metrics {
   totalOrganizations: number;
@@ -64,7 +66,11 @@ export default function AdminConsoleClient({
   const [searchQuery, setSearchQuery] = useState('');
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<OrganizationRow | null>(null);
-  const [newSeatLimit, setNewSeatLimit] = useState<number>(3);
+  const [editName, setEditName] = useState<string>('');
+  const [editPlan, setEditPlan] = useState<PlanType>('starter');
+  const [editSeats, setEditSeats] = useState<number>(2);
+  const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
+  const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -242,20 +248,68 @@ export default function AdminConsoleClient({
     }
   };
 
-  const handleUpdateSeats = async () => {
+  const handleOpenEditModal = (org: OrganizationRow) => {
+    setEditingOrg(org);
+    setEditName(org.name);
+    const safePlan: PlanType = org.plan_type === 'core' ? 'starter' : org.plan_type;
+    setEditPlan(safePlan);
+    setEditSeats(org.max_users);
+    const defaultLimit = PLAN_DEFAULTS[safePlan]?.aiTokensLimit || 500000;
+    setEditTokensLimit(org.ai_tokens_limit || defaultLimit);
+    setEditResetTokens(false);
+  };
+
+  const handleApplyPlanDefaults = (plan: PlanType) => {
+    const defaults = PLAN_DEFAULTS[plan];
+    if (defaults) {
+      setEditSeats(Math.max(defaults.maxUsers, editingOrg?.users_count || 1));
+      setEditTokensLimit(defaults.aiTokensLimit);
+    }
+  };
+
+  const handleUpdateCompanyDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!editingOrg) return;
+
+    if (editSeats < editingOrg.users_count) {
+      setErrorMsg(
+        `No puedes reducir a ${editSeats} asientos porque la empresa tiene ${editingOrg.users_count} usuarios activos.`
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
 
     try {
-      await updateCompanySeats(editingOrg.id, newSeatLimit);
+      await updateCompanyDetails({
+        organizationId: editingOrg.id,
+        name: editName,
+        planType: editPlan,
+        maxUsers: editSeats,
+        aiTokensLimit: editTokensLimit,
+        resetTokensUsed: editResetTokens,
+      });
+
       setOrganizations((prev) =>
-        prev.map((o) => (o.id === editingOrg.id ? { ...o, max_users: newSeatLimit } : o))
+        prev.map((o) =>
+          o.id === editingOrg.id
+            ? {
+                ...o,
+                name: editName,
+                plan_type: editPlan,
+                max_users: editSeats,
+                ai_tokens_limit: editTokensLimit,
+                ai_tokens_used: editResetTokens ? 0 : o.ai_tokens_used,
+              }
+            : o
+        )
       );
-      setSuccessMsg(`Límite de asientos para "${editingOrg.name}" actualizado a ${newSeatLimit}.`);
+
+      setSuccessMsg(`Empresa "${editName}" actualizada exitosamente.`);
       setEditingOrg(null);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error al actualizar asientos.');
+      setErrorMsg(err.message || 'Error al actualizar empresa.');
     } finally {
       setIsSubmitting(false);
     }
@@ -605,11 +659,8 @@ export default function AdminConsoleClient({
                             {org.users_count} / {org.max_users} asientos
                           </span>
                           <button
-                            onClick={() => {
-                              setEditingOrg(org);
-                              setNewSeatLimit(org.max_users);
-                            }}
-                            title="Modificar asientos"
+                            onClick={() => handleOpenEditModal(org)}
+                            title="Editar empresa y asientos"
                             className="text-gray-400 hover:text-emerald-600 transition cursor-pointer p-0.5"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
@@ -626,9 +677,14 @@ export default function AdminConsoleClient({
                       </td>
 
                       <td className="py-3.5 px-5">
-                        <span className="capitalize px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(org)}
+                          className="capitalize px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200 transition cursor-pointer flex items-center gap-1"
+                          title="Cambiar plan comercial (Upgrade / Downgrade)"
+                        >
                           {org.plan_type === 'core' ? 'Starter' : org.plan_type}
-                        </span>
+                        </button>
                       </td>
 
                       <td className="py-3.5 px-5 min-w-[140px]">
@@ -723,6 +779,14 @@ export default function AdminConsoleClient({
                       </td>
 
                       <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenEditModal(org)}
+                          className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
+                          title="Editar empresa (Plan, Asientos, Tokens)"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+
                         {org.admin_email?.toLowerCase() === 'admin@synqo.dev' ? (
                           <span
                             className="p-1.5 text-gray-300 cursor-not-allowed inline-flex items-center"
@@ -924,55 +988,202 @@ export default function AdminConsoleClient({
         </div>
       )}
 
-      {/* Modal: Editar Asientos */}
+      {/* Modal: Editar Empresa (Plan, Asientos, Tokens) */}
       {editingOrg && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-gray-200">
-            <div className="p-5 border-b border-gray-200 bg-gray-50/50">
-              <h3 className="text-sm font-bold text-gray-900">
-                Ajustar Asientos: {editingOrg.name}
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Define cuántos agentes o supervisores puede crear esta empresa.
-              </p>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0052FF] flex items-center justify-center font-bold shadow-sm">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    Editar Empresa: {editingOrg.name}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Gestión de plan comercial, cupo de asientos y asignación de tokens IA.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingOrg(null)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <form onSubmit={handleUpdateCompanyDetails} className="p-6 space-y-4">
+              {/* Nombre de la Empresa */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Cantidad Máxima de Asientos
+                  Nombre Comercial de la Empresa *
                 </label>
                 <input
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={newSeatLimit}
-                  onChange={(e) => setNewSeatLimit(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Ej. Clínica Dental Sonrisas"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
                 />
-                <span className="text-[11px] text-gray-400 mt-1 block">
-                  Actualmente tiene {editingOrg.users_count} miembros activos.
-                </span>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              {/* Plan Comercial */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Plan Comercial
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPlanDefaults(editPlan)}
+                    className="text-[11px] font-semibold text-[#0052FF] hover:text-[#0047E0] hover:underline flex items-center gap-1 cursor-pointer"
+                    title="Aplica asientos y cuota de tokens por defecto de este plan"
+                  >
+                    <Zap className="w-3 h-3" />
+                    Sincronizar cupos base del plan
+                  </button>
+                </div>
+                <select
+                  value={editPlan}
+                  onChange={(e) => {
+                    const newPlan = e.target.value as PlanType;
+                    setEditPlan(newPlan);
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-medium"
+                >
+                  <option value="starter">Starter (Validación - 2 Asientos / 500k Tokens)</option>
+                  <option value="pro">Pro (Comercial - 5 Asientos / 2.5M Tokens)</option>
+                  <option value="enterprise">Enterprise (Corporativo - 12 Asientos / 7.5M Tokens)</option>
+                </select>
+              </div>
+
+              {/* Límite de Asientos */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Límite de Asientos (Usuarios)
+                  </label>
+                  <span className="text-[11px] text-gray-500">
+                    En uso: <strong className="text-gray-900">{editingOrg.users_count}</strong> miembros activos
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  min={editingOrg.users_count || 1}
+                  max={500}
+                  value={editSeats}
+                  onChange={(e) => setEditSeats(parseInt(e.target.value, 10) || 1)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Por seguridad, no se puede reducir a un número menor que los miembros actuales ({editingOrg.users_count}).
+                </p>
+              </div>
+
+              {/* Gestión de Tokens IA y Boosters */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    Límite de Tokens IA Mensual
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-600 font-semibold">
+                    {(editingOrg.ai_tokens_used || 0).toLocaleString()} consumidos
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step={100000}
+                    min={100000}
+                    max={100000000}
+                    value={editTokensLimit}
+                    onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-bold text-slate-900"
+                  />
+                  <span className="text-xs font-semibold text-slate-500 flex-shrink-0">
+                    = {(editTokensLimit / 1000).toLocaleString()}k
+                  </span>
+                </div>
+
+                {/* Presets Rápidos de Tokens (Booster de 1 Clic) */}
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
+                    Acciones Rápidas (Paquetes Booster & Restablecer):
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditTokensLimit((prev) => prev + 1000000)}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
+                      title="Suma 1 Millón de tokens para el mes en curso"
+                    >
+                      ⭐ +1M Tokens (Booster)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditTokensLimit((prev) => prev + 500000)}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
+                      title="Suma 500k tokens para el mes en curso"
+                    >
+                      +500k Tokens
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditTokensLimit(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)
+                      }
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
+                      title="Restablece al valor oficial del plan"
+                    >
+                      ↺ Base Plan ({((PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000) / 1000)}k)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-700 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={editResetTokens}
+                      onChange={(e) => setEditResetTokens(e.target.checked)}
+                      className="rounded text-[#0052FF] focus:ring-[#0052FF]/20"
+                    />
+                    Reiniciar tokens consumidos a 0 (Cortesía de soporte)
+                  </label>
+                </div>
+
+                <p className="text-[10px] text-slate-500 italic">
+                  💡 Al renovar la mensualidad en la fecha de cobro, los paquetes booster expiran y el límite vuelve automáticamente a la cuota base del plan.
+                </p>
+              </div>
+
+              {/* Botones de Acción */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setEditingOrg(null)}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
-                  type="button"
-                  onClick={handleUpdateSeats}
+                  type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                  className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  {isSubmitting ? 'Guardando...' : 'Guardar Asientos'}
+                  <Check className="w-4 h-4" />
+                  {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}

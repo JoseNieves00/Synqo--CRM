@@ -37,8 +37,14 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
    - Contraseña inicial del cliente.
    - Plan comercial asignado: `Starter` (Validación comercial - 2 asientos), `Pro` (Comercial recomendado - 5 asientos) o `Enterprise` (Corporativo - 12 asientos).
    - Límite de Asientos autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (2 para Starter, 5 para Pro, 12 para Enterprise, o el cupo negociado).
-2. **Edición Dinámica de Cupos de Asientos:**
-   - Puedes aumentar o reducir los asientos autorizados en cualquier momento con el botón de edición rápida (icono de lápiz) sin tocar la base de datos.
+2. **Edición Integral de Empresa (Modal de Tenant & Upgrades):**
+   - **Nombre de la empresa:** Corrección de razón social, marca o erratas ortográficas.
+   - **Upgrades y Downgrades de Plan:** Cambiar en caliente entre `Starter`, `Pro` y `Enterprise` con botón de 1 clic para *sincronizar los cupos recomendados del plan* (asientos y tokens).
+   - **Límite de Asientos:** Aumentar o ajustar cupos de asesores por ventas de *add-ons* de asientos.  
+     *(🛡️ **Blindaje de Seguridad:** El sistema bloquea reducciones de asientos si son menores a la cantidad de miembros activos actuales, impidiendo estados huérfanos o usuarios bloqueados).*
+   - **Paquetes de Tokens Extra (Boosters Mensuales):** Botones rápidos de 1 clic `[ ⭐ +1M Tokens (Booster) ]` y `[ +500k Tokens ]` para recargar saldo de WhatsApp IA ante campañas de alta demanda sin forzar un upgrade de plan.
+   - **Regla de Negocio de Boosters:** Los tokens extra aplican **únicamente para el mes en curso**. Al registrar el pago de renovación mensual en `/admin`, el sistema reinicia el consumo a 0 y **restablece automáticamente el límite a la cuota base del plan** (`500k`, `2.5M` o `7.5M`), evitando que el cliente conserve saldo extra de por vida de forma gratuita.
+   - **Cortesía Técnica de Soporte:** Opción para reiniciar el consumo acumulado de tokens a 0 en cualquier momento sin esperar a fin de mes.
 3. **Suspensión Inmediata por Morosidad (Toggle de Estado):**
    - Si un cliente se atrasa en el pago, haz clic en el botón de pausa.
    - **Efecto Inmediato:** Suspendes el acceso al CRM para todos los asesores de esa empresa **y** el webhook corta automáticamente las respuestas de IA para ese número de WhatsApp, impidiendo que consuman saldo en OpenAI.
@@ -67,9 +73,9 @@ Dado que la facturación inicial es **manual (asistida)**:
 
 ### Flujo de Venta y Activación:
 1. **Cierre de Venta:** Cobras el Setup (50% anticipo, 50% al entregar) por transferencia bancaria directa o enlace de pago (Stripe Payment Link, Wompi o MercadoPago).
-2. **Aprovisionamiento con "Opción A" (Cortesía de Bienvenida):** 
-   - Si el cliente inicia a mitad de mes (ej. día 20), el sistema fija el mes en curso como **cubierto por cortesía/setup**.
-   - Su primera mensualidad regular se programará para cobrarse entre el **1 y el 5 del mes siguiente**.
+2. **Aprovisionamiento con "Opción A" (Cortesía de Bienvenida) o Pago Anual:** 
+   - **Plan Mensual:** Si el cliente inicia a mitad de mes (ej. día 20), el sistema fija el mes en curso como **cubierto por cortesía/setup**. Su primera mensualidad regular se programará para cobrarse entre el **1 y el 5 del mes siguiente**.
+   - **Plan Anual:** Puedes pulsar el botón rápido **`⭐ Pago Anual (1 Año)`** en el modal de aprovisionamiento. Esto establece la cobertura inicial por 12 meses exactos (ej. hasta `2027-10`), aplicando la bonificación de 2 meses gratis contemplada en las Condiciones de Servicio.
 3. **Entrega de Credenciales:** Le entregas el correo y la contraseña temporal al dueño de la empresa.
 4. **Ciclo Mensual de Cobranza (Día 1 al 5):**
    - **Día 1 al 5:** Período ordinario de pago. En `/admin` verás a la empresa en estado `Cobro Pendiente`.
@@ -78,13 +84,17 @@ Dado que la facturación inicial es **manual (asistida)**:
      - **WhatsApp:** La IA se apaga de inmediato (0 costo en OpenAI). Los mensajes de leads se guardan en la base de datos sin responder para no perder ventas.
      - **CRM Web:** Los usuarios ven la pantalla de suspensión. El administrador del cliente tiene un botón directo para **descargar su respaldo completo de prospectos (CSV/Excel)** respetando la cláusula de propiedad de datos.
    - **Día 30 (Baja Definitiva):** Si transcurren 30 días en mora, el sistema sugiere la baja definitiva del servicio.
-5. **Registro de Pago en 1 Clic:**
-   - Cuando el cliente te envíe el comprobante de transferencia o pague por link, pulsas **"Registrar Pago"** en `/admin`.
-   - **Efectos Automáticos:**
-     - El mes queda marcado como pagado.
+5. **Modal de Cobertura y Pago Simplificado (1 Clic):**
+   - El CRM no actúa como sistema contable complejo (no requiere ingresar montos en dólares, métodos de pago ni notas que saturen la operación). Su función exclusiva es el **control de acceso, estado del servicio (Al día vs. Mora) y ciclo de tokens**.
+   - Al pulsar **"Registrar Pago"** en `/admin`, dispones de:
+     - **`[ Mes Actual ]`**: Marca el mes corriente como cubierto y al día.
+     - **`[ +1 Mes Siguiente ]`**: Extiende la cobertura al mes entrante.
+     - **`[ ⭐ Pago Anual Anticipado (12 meses) ]`**: Suma automáticamente 1 año completo a partir de hoy (ej. de `2026-10` a `2027-10`).
+     - **Selector manual de mes (`type="month"`)**: Para coberturas trimestrales, semestrales o fechas personalizadas.
+   - **Efectos Automáticos al Confirmar:**
+     - La empresa queda marcada en verde como **`Al día (hasta YYYY-MM)`** (durante todo el período cubierto nunca entrará en mora ni generará alertas falsas).
      - Si estaba suspendida, se **reactiva al instante**.
-     - Los tokens de OpenAI se **reinician a 0** para el nuevo ciclo mensual.
-     - Se guarda el recibo en el historial contable (`organization_payments`).
+     - El contador de tokens consumidos de OpenAI se **reinicia a 0** para el nuevo ciclo de servicio.
 
 ### Estructura de Planes y Márgenes Comerciales:
 
