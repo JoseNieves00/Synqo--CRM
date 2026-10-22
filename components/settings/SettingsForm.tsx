@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
+  Copy,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
 
@@ -102,6 +103,8 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
 interface SettingsFormProps {
   initialData: {
     whatsappPhoneNumberId?: string | null;
+    hasWhatsappToken?: boolean;
+    hasWhatsappAppSecret?: boolean;
     calEventTypeId?: string | null;
     calComEnabled?: boolean;
     systemPrompt?: string | null;
@@ -127,12 +130,35 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [phoneNumberId, setPhoneNumberId] = useState(initialData.whatsappPhoneNumberId || '');
   const [accessToken, setAccessToken] = useState('');
   const [showToken, setShowToken] = useState(false);
+  const [appSecret, setAppSecret] = useState('');
+  const [showAppSecret, setShowAppSecret] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
   const [calApiKey, setCalApiKey] = useState('');
   const [calEventTypeId, setCalEventTypeId] = useState(initialData.calEventTypeId || '');
   const [systemPrompt, setSystemPrompt] = useState(
     initialData.systemPrompt ||
       'Eres un asesor comercial experto y empático de Synqo. Responde con cortesía, resuelve dudas de servicios y orienta al prospecto a agendar una cita mediante Cal.com.'
   );
+
+  // URL del Webhook y token de verificación para Meta Developers
+  const webhookUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/whatsapp/webhook`
+    : 'https://crm.synqo.dev/api/whatsapp/webhook';
+  const verifyToken = 'synqo_webhook_2026';
+
+  const copyToClipboard = (text: string, type: 'url' | 'token') => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      if (type === 'url') {
+        setCopiedWebhook(true);
+        setTimeout(() => setCopiedWebhook(false), 2000);
+      } else {
+        setCopiedToken(true);
+        setTimeout(() => setCopiedToken(false), 2000);
+      }
+    }
+  };
 
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
@@ -153,6 +179,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
       const res = await testWhatsAppConnection({
         phoneNumberId: phoneNumberId || undefined,
         accessToken: accessToken || undefined,
+        appSecret: appSecret || undefined,
       });
       setWaTestResult(res);
     } catch (err: any) {
@@ -190,6 +217,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
       await updateOrganizationSettings({
         whatsappPhoneNumberId: phoneNumberId || undefined,
         whatsappAccessToken: accessToken || undefined,
+        whatsappAppSecret: appSecret || undefined,
         calApiKey: calApiKey || undefined,
         calEventTypeId: calEventTypeId || undefined,
         systemPrompt: systemPrompt || undefined,
@@ -201,6 +229,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
       });
       // Limpiar campos sensibles por seguridad
       setAccessToken('');
+      setAppSecret('');
       setCalApiKey('');
     } catch (err: any) {
       setFeedback({
@@ -377,94 +406,198 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">
-        {/* Meta WhatsApp Cloud API */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
-                <Bot className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Meta WhatsApp Cloud API (v20+)</h2>
-                <p className="text-xs text-gray-500">Credenciales del número comercial de WhatsApp Business</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleTestWhatsApp}
-              disabled={testingWhatsApp}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer disabled:opacity-50"
-            >
-              <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
-              {testingWhatsApp ? 'Probando...' : 'Probar Conexión WhatsApp'}
-            </button>
-          </div>
-
-          {waTestResult && (
-            <div
-              className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
-                waTestResult.success
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
-            >
-              {waTestResult.success ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-              )}
-              <span>{waTestResult.success ? waTestResult.message : waTestResult.error}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Phone Number ID de Meta (Solo números)
-              </label>
-              <input
-                type="text"
-                placeholder="Ej. 104589234812345"
-                value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
-              />
-              <p className="text-[11px] text-gray-400 mt-1">
-                Encuéntralo en Meta for Developers → WhatsApp → API Setup → Phone number ID.
-              </p>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
-                <span>WhatsApp Permanent Access Token</span>
-                <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Cifrado AES-256
+            {/* Guía y Datos del Webhook para Meta Developers */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-xl p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/80 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-500/20 text-blue-400 rounded-lg border border-blue-500/30">
+                    <ShieldCheck className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Configuración del Webhook en Meta Developers</h3>
+                    <p className="text-xs text-slate-300">Pega estos datos en tu App de Meta para recibir los mensajes de WhatsApp</p>
+                  </div>
+                </div>
+                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Webhook Listo
                 </span>
-              </label>
-              <div className="relative">
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  placeholder="EAAG••••••••••••••••••••"
-                  value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value.trim())}
-                  className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
-                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {/* URL del Webhook */}
+                <div className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="font-semibold text-slate-200">URL de devolución de llamada (Webhook URL)</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(webhookUrl, 'url')}
+                      className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 cursor-pointer font-medium transition"
+                    >
+                      {copiedWebhook ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedWebhook ? '¡Copiado!' : 'Copiar URL'}
+                    </button>
+                  </div>
+                  <div className="bg-slate-950/60 rounded px-2.5 py-1.5 text-xs font-mono text-emerald-400 break-all select-all border border-slate-800">
+                    {webhookUrl}
+                  </div>
+                </div>
+
+                {/* Token de Verificación */}
+                <div className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="font-semibold text-slate-200">Token de verificación (Verify Token)</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(verifyToken, 'token')}
+                      className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 cursor-pointer font-medium transition"
+                    >
+                      {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedToken ? '¡Copiado!' : 'Copiar Token'}
+                    </button>
+                  </div>
+                  <div className="bg-slate-950/60 rounded px-2.5 py-1.5 text-xs font-mono text-blue-400 select-all border border-slate-800">
+                    {verifyToken}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pasos visuales rápidos */}
+              <div className="bg-slate-950/40 rounded-lg p-3 border border-slate-800 text-[11px] text-slate-300 space-y-1">
+                <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span>📌 Pasos en tu App de Meta Developers:</span>
+                  <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">30 segundos</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-slate-400 pt-0.5">
+                  <li>En tu App de Meta ve a <strong className="text-slate-200">WhatsApp → Configuración</strong>.</li>
+                  <li>En la sección <strong className="text-slate-200">Webhook</strong> pulsa <em>Editar</em>, pega la URL y el Token de arriba y haz clic en <em>Verificar y guardar</em>.</li>
+                  <li>En la tabla de campos, haz clic en <strong className="text-slate-200">Administrar</strong> y activa la casilla <code className="text-emerald-400 bg-slate-850 px-1 rounded font-mono">messages</code>.</li>
+                </ol>
+              </div>
+            </div>
+
+            {/* Meta WhatsApp Cloud API */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                    <Bot className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">Meta WhatsApp Cloud API (v20+)</h2>
+                    <p className="text-xs text-gray-500">Credenciales del número comercial de WhatsApp Business</p>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
-                  title={showToken ? 'Ocultar token' : 'Mostrar token'}
+                  onClick={handleTestWhatsApp}
+                  disabled={testingWhatsApp}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer disabled:opacity-50"
                 >
-                  {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
+                  {testingWhatsApp ? 'Probando...' : 'Probar Conexión WhatsApp'}
                 </button>
               </div>
-              <p className="text-[11px] text-gray-400 mt-1">
-                Token del Sistema con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
-              </p>
+
+              {waTestResult && (
+                <div
+                  className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                    waTestResult.success
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {waTestResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  )}
+                  <span>{waTestResult.success ? waTestResult.message : waTestResult.error}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1">
+                    Phone Number ID de Meta (Solo números)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. 104589234812345"
+                    value={phoneNumberId}
+                    onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
+                    className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Encuéntralo en Meta for Developers → WhatsApp → API Setup → Phone number ID.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
+                    <span>WhatsApp Permanent Access Token</span>
+                    <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Cifrado AES-256
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showToken ? 'text' : 'password'}
+                      placeholder={initialData.hasWhatsappToken ? '•••••••••••••••••••••••• (Guardado)' : 'EAAG••••••••••••••••••••'}
+                      value={accessToken}
+                      onChange={(e) => setAccessToken(e.target.value.trim())}
+                      className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowToken(!showToken)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                      title={showToken ? 'Ocultar token' : 'Mostrar token'}
+                    >
+                      {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Token del Sistema con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
+                  </p>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <span>Meta App Secret (Clave Secreta de la App)</span>
+                      <span className="text-[10px] bg-slate-100 text-slate-600 font-normal px-2 py-0.5 rounded-full border border-slate-200">
+                        Recomendado para Autogestión
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Cifrado AES-256
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showAppSecret ? 'text' : 'password'}
+                      placeholder={initialData.hasWhatsappAppSecret ? '•••••••••••••••••••••••••••••••• (Guardado)' : 'Ej. a1b2c3d4e5f67890abcdef1234567890'}
+                      value={appSecret}
+                      onChange={(e) => setAppSecret(e.target.value.trim())}
+                      className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAppSecret(!showAppSecret)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                      title={showAppSecret ? 'Ocultar secret' : 'Mostrar secret'}
+                    >
+                      {showAppSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Encuéntralo en Meta for Developers → Configuración de la app → Información básica → Clave secreta. Valida criptográficamente cada mensaje entrante para tu empresa.
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
         {/* Cal.com Scheduling (Solo si el Super Admin lo habilitó para esta empresa) */}
         {initialData.calComEnabled && (

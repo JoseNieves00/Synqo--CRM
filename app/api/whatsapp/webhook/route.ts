@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
+  const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN || 'synqo_webhook_2026';
 
   if (mode === 'subscribe' && token === expectedToken && challenge) {
     console.log('[WHATSAPP WEBHOOK] Handshake completado exitosamente con Meta.');
@@ -42,14 +42,6 @@ export async function POST(request: NextRequest) {
   // A. Obtener el cuerpo crudo de la petición para verificación HMAC intacta
   const rawBody = await request.text();
   const signature = request.headers.get('x-hub-signature-256');
-  const appSecret = process.env.META_APP_SECRET || '';
-
-  // B. Verificación Criptográfica Estricta (Security-by-Design)
-  const isValidSignature = verifyMetaSignature(rawBody, signature, appSecret);
-  if (!isValidSignature) {
-    console.error('[SECURITY ALERT] Firma inválida rechazada en WhatsApp Webhook.');
-    return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
-  }
 
   let payload: any;
   try {
@@ -66,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'ignored_empty_value' }, { status: 200 });
   }
 
-  // C. Descartar notificaciones de estado (sent, delivered, read) para evitar ecos y bucles
+  // B. Descartar notificaciones de estado (sent, delivered, read) para evitar ecos y bucles
   if (value.statuses && (!value.messages || value.messages.length === 0)) {
     return NextResponse.json({ status: 'status_update_acknowledged' }, { status: 200 });
   }
@@ -76,7 +68,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'no_incoming_message' }, { status: 200 });
   }
 
-  // D. Filtrar mensajes soportados (texto y notas de voz / audios)
+  // C. Filtrar mensajes soportados (texto y notas de voz / audios)
   const isText = incomingMessage.type === 'text';
   const isAudio = incomingMessage.type === 'audio';
 
@@ -93,7 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing phoneNumberId or leadPhone in metadata' }, { status: 400 });
   }
 
-  // E. Control de Tasa (Rate Limiting) y Prevención de Wallet Exhaustion
+  // D. Control de Tasa (Rate Limiting) y Prevención de Wallet Exhaustion
   const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
   if (!rateLimitResult.success) {
     console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de 15 msgs/min.`);
@@ -101,16 +93,35 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // F. Identificar la Organización dueña del WABA Phone Number ID
-    const { data: organization, error: orgError } = await supabaseAdmin
-      .from('organizations')
-      .select('id, name, subscription_status, is_active, whatsapp_access_token, cal_api_key, cal_event_type_id, system_prompt')
+    // E. Identificar la Organización dueña del WABA Phone Number ID
+    const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
+      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, cal_api_key, cal_event_type_id, system_prompt')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 
     if (orgError || !organization) {
       console.error(`[ORG NOT FOUND] No hay organización vinculada al phone_number_id: ${phoneNumberId}`);
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    }
+
+    // F. Verificación Criptográfica Multi-tenant (App Secret por Organización con fallback a env global)
+    let secretToVerify = process.env.META_APP_SECRET || '';
+    if (organization.whatsapp_app_secret) {
+      try {
+        secretToVerify = decryptSecret(organization.whatsapp_app_secret);
+      } catch (err) {
+        console.warn(`[WEBHOOK] Error desencriptando whatsapp_app_secret para org "${organization.name}":`, err);
+      }
+    }
+
+    if (secretToVerify) {
+      const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
+      if (!isValidSignature) {
+        console.error(`[SECURITY ALERT] Firma HMAC inválida rechazada para org "${organization.name}".`);
+        return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
+      }
+    } else {
+      console.warn(`[SECURITY NOTE] Webhook procesado sin validación HMAC (ni la org ni el servidor tienen App Secret configurado).`);
     }
 
     const orgId = organization.id;

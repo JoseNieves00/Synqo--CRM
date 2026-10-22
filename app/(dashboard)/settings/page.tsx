@@ -35,6 +35,8 @@ export default async function SettingsPage() {
     <SettingsForm
       initialData={{
         whatsappPhoneNumberId: org?.whatsapp_phone_number_id,
+        hasWhatsappToken: Boolean(org?.whatsapp_access_token),
+        hasWhatsappAppSecret: Boolean(org?.whatsapp_app_secret),
         calEventTypeId: org?.cal_event_type_id,
         calComEnabled: Boolean(org?.cal_com_enabled),
         systemPrompt: org?.system_prompt,

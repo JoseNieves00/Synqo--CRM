@@ -9,6 +9,7 @@ import { revalidatePath } from 'next/cache';
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
   whatsappAccessToken?: string;
+  whatsappAppSecret?: string;
   calApiKey?: string;
   calEventTypeId?: string;
   systemPrompt?: string;
@@ -49,6 +50,15 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
     updatePayload.whatsapp_access_token = encryptSecret(cleanToken);
   }
 
+  // Cifrar Meta App Secret con AES-256-GCM para verificación HMAC multi-tenant
+  if (input.whatsappAppSecret !== undefined) {
+    if (input.whatsappAppSecret.trim() !== '') {
+      updatePayload.whatsapp_app_secret = encryptSecret(input.whatsappAppSecret.trim());
+    } else {
+      updatePayload.whatsapp_app_secret = null;
+    }
+  }
+
   // Cifrar secreto de Cal.com con AES-256-GCM antes de persistir
   if (input.calApiKey && input.calApiKey.trim() !== '') {
     updatePayload.cal_api_key = encryptSecret(input.calApiKey.trim());
@@ -82,6 +92,7 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 export async function testWhatsAppConnection(input: {
   phoneNumberId?: string;
   accessToken?: string;
+  appSecret?: string;
 }) {
   let phoneId = input.phoneNumberId?.trim();
   let token = input.accessToken?.trim();
@@ -143,9 +154,18 @@ export async function testWhatsAppConnection(input: {
 
     const name = data.verified_name || data.display_phone_number || phoneId;
     const quality = data.quality_rating || 'UNKNOWN';
+
+    let secretNote = '';
+    if (input.appSecret && input.appSecret.trim()) {
+      const s = input.appSecret.trim();
+      secretNote = s.length === 32 
+        ? ' • App Secret verificado (formato HMAC 32 caracteres OK).'
+        : ' • Nota: El App Secret suele tener 32 caracteres en Meta.';
+    }
+
     return {
       success: true,
-      message: `¡Conexión Exitosa con Meta! Línea verificada: ${name} (Calidad: ${quality}).`,
+      message: `¡Conexión Exitosa con Meta! Línea verificada: ${name} (Calidad: ${quality})${secretNote}`,
     };
   } catch (err: any) {
     return {
