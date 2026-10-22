@@ -167,6 +167,9 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
         eventTypeId: calEventTypeId || undefined,
       });
       setCalTestResult(res);
+      if (res.success && (res as any).detectedEventId) {
+        setCalEventTypeId(String((res as any).detectedEventId));
+      }
     } catch (err: any) {
       setCalTestResult({ success: false, error: err.message || 'Error probando Cal.com' });
     } finally {
@@ -489,7 +492,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
               <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
                 <span>Cal.com API Key</span>
                 <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Almacenamiento Seguro
+                  <Lock className="w-3 h-3" /> Almacenamiento Cifrado
                 </span>
               </label>
               <input
@@ -497,21 +500,27 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                 placeholder="cal_live_••••••••••••••••"
                 value={calApiKey}
                 onChange={(e) => setCalApiKey(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black"
+                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
               />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Generada en Cal.com $\rightarrow$ Settings $\rightarrow$ Developer $\rightarrow$ API Keys (empieza con <code>cal_live_</code>).
+              </p>
             </div>
 
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Event Type ID de Cal.com
+                Tipo de Evento o Enlace Cal.com (Opcional - Detección Automática)
               </label>
               <input
                 type="text"
-                placeholder="Ej. 123456"
+                placeholder="Ej. cita-comercial (o déjalo vacío para auto-detectar)"
                 value={calEventTypeId}
                 onChange={(e) => setCalEventTypeId(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black"
+                className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
               />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Puedes escribir el nombre de tu evento (ej. <strong className="text-purple-700">cita-comercial</strong>), pegar tu enlace completo, o dejarlo en blanco para que el botón <strong>"Probar Conexión"</strong> lo detecte y complete automáticamente.
+              </p>
             </div>
           </div>
         </div>

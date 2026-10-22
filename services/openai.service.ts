@@ -222,7 +222,7 @@ ${systemPromptConfig || 'Eres el asesor comercial de Synqo.'}
             } else {
               const booking = await CalService.createBooking({
                 apiKey: calApiKey,
-                eventTypeId: parseInt(calEventTypeId, 10),
+                eventTypeId: calEventTypeId,
                 start: validated.start_iso_time,
                 name: validated.lead_name || leadName || 'Cliente WhatsApp',
                 email: validated.lead_email || `${leadPhone}@synqo.client`,

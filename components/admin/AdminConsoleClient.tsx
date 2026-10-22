@@ -264,8 +264,9 @@ export default function AdminConsoleClient({
     setEditResetTokens(false);
   };
 
-  const handleApplyPlanDefaults = (plan: PlanType) => {
-    const defaults = PLAN_DEFAULTS[plan];
+  const handlePlanChange = (newPlan: PlanType) => {
+    setEditPlan(newPlan);
+    const defaults = PLAN_DEFAULTS[newPlan];
     if (defaults) {
       setEditSeats(Math.max(defaults.maxUsers, editingOrg?.users_count || 1));
       setEditTokensLimit(defaults.aiTokensLimit);
@@ -996,250 +997,249 @@ export default function AdminConsoleClient({
         </div>
       )}
 
-      {/* Modal: Editar Empresa (Plan, Asientos, Tokens) */}
+      {/* Modal: Editar Empresa (Plan, Asientos, Tokens) — Diseño Horizontal Adaptativo */}
       {editingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200 my-auto">
+            {/* Cabecera */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0052FF] flex items-center justify-center font-bold shadow-sm">
+                <div className="w-10 h-10 rounded-2xl bg-[#0052FF]/10 text-[#0052FF] flex items-center justify-center font-bold shadow-xs">
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">
-                    Editar Empresa: {editingOrg.name}
+                  <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                    Editar Empresa: <span>{editingOrg.name}</span>
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Gestión de plan comercial, cupo de asientos y asignación de tokens IA.
+                    Ajuste de plan comercial, cupo de asientos y asignación de tokens IA para el mes en curso.
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingOrg(null)}
-                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+                className="text-gray-400 hover:text-gray-700 p-2 rounded-xl hover:bg-gray-200/60 transition cursor-pointer text-sm font-semibold"
+                title="Cerrar modal"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleUpdateCompanyDetails} className="p-6 space-y-4">
-              {/* Nombre de la Empresa */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Nombre Comercial de la Empresa *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  placeholder="Ej. Clínica Dental Sonrisas"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
-                />
-              </div>
-
-              {/* Plan Comercial */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Plan Comercial
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => handleApplyPlanDefaults(editPlan)}
-                    className="text-[11px] font-semibold text-[#0052FF] hover:text-[#0047E0] hover:underline flex items-center gap-1 cursor-pointer"
-                    title="Aplica asientos y cuota de tokens por defecto de este plan"
-                  >
-                    <Zap className="w-3 h-3" />
-                    Sincronizar cupos base del plan
-                  </button>
-                </div>
-                <select
-                  value={editPlan}
-                  onChange={(e) => {
-                    const newPlan = e.target.value as PlanType;
-                    setEditPlan(newPlan);
-                  }}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-medium"
-                >
-                  <option value="starter">Starter (Validación - 2 Asientos / 500k Tokens)</option>
-                  <option value="pro">Pro (Comercial - 5 Asientos / 2.5M Tokens)</option>
-                  <option value="enterprise">Enterprise (Corporativo - 12 Asientos / 7.5M Tokens)</option>
-                </select>
-              </div>
-
-              {/* Límite de Asientos */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Límite de Asientos (Usuarios)
-                  </label>
-                  <span className="text-[11px] text-gray-500">
-                    En uso: <strong className="text-gray-900">{editingOrg.users_count}</strong> miembros activos
-                  </span>
-                </div>
-                <input
-                  type="number"
-                  min={editingOrg.users_count || 1}
-                  max={500}
-                  value={editSeats}
-                  onChange={(e) => setEditSeats(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  Por seguridad, no se puede reducir a un número menor que los miembros actuales ({editingOrg.users_count}).
-                </p>
-              </div>
-
-              {/* Gestión de Tokens IA y Boosters */}
-              <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/70 border border-slate-200 space-y-3.5">
-                {/* Cabecera con consumo actual y porcentaje */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    Límite Mensual de Tokens IA
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-600 font-semibold bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                    Consumidos: {(editingOrg.ai_tokens_used || 0).toLocaleString()} ({Math.min(100, Math.round(((editingOrg.ai_tokens_used || 0) / editTokensLimit) * 100))}%)
-                  </span>
-                </div>
-
-                {/* Tarjeta destacada con el límite actual seleccionado en texto legible y estimación */}
-                <div className="p-3 bg-white rounded-xl border border-blue-100 shadow-xs flex items-center justify-between">
+            <form onSubmit={handleUpdateCompanyDetails} className="p-6">
+              {/* Layout Horizontal de 2 Columnas */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Columna Izquierda: Información de Empresa & Equipo */}
+                <div className="space-y-4">
                   <div>
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                      Cuota Asignada
-                    </span>
-                    <div className="text-base font-extrabold text-[#0052FF] flex items-baseline gap-1.5">
-                      <span>{formatTokenDetailed(editTokensLimit)}</span>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Nombre Comercial de la Empresa *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="Ej. Clínica Dental Sonrisas"
+                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold text-gray-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Plan Comercial
+                    </label>
+                    <select
+                      value={editPlan}
+                      onChange={(e) => handlePlanChange(e.target.value as PlanType)}
+                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-medium text-gray-800"
+                    >
+                      <option value="starter">Starter (Validación - 2 Asientos / 500k Tokens)</option>
+                      <option value="pro">Pro (Comercial - 5 Asientos / 2.5M Tokens)</option>
+                      <option value="enterprise">Enterprise (Corporativo - 12 Asientos / 7.5M Tokens)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      💡 Al cambiar de plan, los cupos recomendados de asientos y tokens se ajustan automáticamente.
+                    </p>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        Límite de Asientos (Usuarios)
+                      </label>
+                      <span className="text-[11px] text-gray-500 font-medium">
+                        En uso: <strong className="text-gray-900">{editingOrg.users_count}</strong> activos
+                      </span>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                      Capacidad Estimada
-                    </span>
-                    <span className="text-xs font-bold text-slate-700">
-                      {estimateChatsFromTokens(editTokensLimit)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Chips de selección rápida por niveles oficiales */}
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-600 block mb-1.5">
-                    Niveles Predefinidos (1 Clic):
-                  </span>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                    {[
-                      { tokens: 500000, label: '500k', sub: 'Starter' },
-                      { tokens: 1000000, label: '1M', sub: '1 Millón' },
-                      { tokens: 2500000, label: '2.5M', sub: 'Pro' },
-                      { tokens: 5000000, label: '5M', sub: '5 Millones' },
-                      { tokens: 7500000, label: '7.5M', sub: 'Enterprise' },
-                      { tokens: 10000000, label: '10M', sub: '10 Millones' },
-                    ].map((tier) => {
-                      const isSelected = editTokensLimit === tier.tokens;
-                      return (
-                        <button
-                          key={tier.tokens}
-                          type="button"
-                          onClick={() => setEditTokensLimit(tier.tokens)}
-                          className={`p-1.5 rounded-xl text-center border transition cursor-pointer ${
-                            isSelected
-                              ? 'bg-[#0052FF] text-white border-[#0052FF] shadow-xs'
-                              : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
-                          }`}
-                        >
-                          <span className="block text-xs font-bold leading-tight">{tier.label}</span>
-                          <span className={`block text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                            {tier.sub}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Boosters Rápidos de 1 Clic (+1M, +500k, Restablecer base) */}
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-600 block mb-1.5">
-                    Adicionar Paquetes Booster (Mes en Curso):
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setEditTokensLimit((prev) => prev + 1000000)}
-                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
-                      title="Suma 1 Millón de tokens (1M) al límite del mes actual"
-                    >
-                      ⭐ +1 Millón Extra (+1M)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setEditTokensLimit((prev) => prev + 500000)}
-                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
-                      title="Suma 500k tokens al límite del mes actual"
-                    >
-                      +500k Extra
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditTokensLimit(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)
-                      }
-                      className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
-                      title="Restablece al límite oficial del plan seleccionado"
-                    >
-                      ↺ Base Plan ({formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)})
-                    </button>
-                  </div>
-                </div>
-
-                {/* Input manual alternativo para custom exacto */}
-                <div className="pt-2 border-t border-slate-200/70">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      O ingresar cantidad manual exacta si requiere una cuota personalizada:
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      step={100000}
-                      min={100000}
-                      max={100000000}
-                      value={editTokensLimit}
-                      onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
-                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-semibold text-slate-800"
+                      min={editingOrg.users_count || 1}
+                      max={500}
+                      value={editSeats}
+                      onChange={(e) => setEditSeats(parseInt(e.target.value, 10) || 1)}
+                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold text-gray-900"
                     />
-                    <span className="text-xs font-bold text-slate-600 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 font-mono flex-shrink-0">
-                      {formatTokenQuota(editTokensLimit)}
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      🛡️ Protección de integridad: No se puede reducir por debajo de {editingOrg.users_count} miembros activos.
+                    </p>
+                  </div>
+
+                  {/* Tarjeta de Resumen Rápido / Cortesía de soporte */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-700 block">
+                      Cortesía de Soporte Técnico
                     </span>
+                    <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={editResetTokens}
+                        onChange={(e) => setEditResetTokens(e.target.checked)}
+                        className="rounded text-[#0052FF] focus:ring-[#0052FF]/20 w-4 h-4"
+                      />
+                      <span>Reiniciar tokens consumidos a 0 ahora</span>
+                    </label>
+                    <p className="text-[10px] text-slate-500">
+                      Consumo acumulado actual: <strong className="text-slate-800">{(editingOrg.ai_tokens_used || 0).toLocaleString()}</strong> tokens.
+                    </p>
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-700 font-medium">
-                    <input
-                      type="checkbox"
-                      checked={editResetTokens}
-                      onChange={(e) => setEditResetTokens(e.target.checked)}
-                      className="rounded text-[#0052FF] focus:ring-[#0052FF]/20"
-                    />
-                    Reiniciar tokens consumidos a 0 (Cortesía o prueba técnica)
-                  </label>
-                </div>
+                {/* Columna Derecha: Gestión de Tokens IA y Boosters */}
+                <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/70 border border-slate-200 flex flex-col justify-between space-y-3">
+                  <div className="space-y-3">
+                    {/* Cabecera con consumo actual y porcentaje */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                        Límite Mensual de Tokens IA
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-600 font-semibold bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                        {Math.min(100, Math.round(((editingOrg.ai_tokens_used || 0) / editTokensLimit) * 100))}% consumido
+                      </span>
+                    </div>
 
-                <p className="text-[10px] text-slate-500 italic">
-                  💡 Al renovar la mensualidad en la fecha de cobro, los paquetes booster expiran y el límite vuelve automáticamente a la cuota base del plan ({formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}).
-                </p>
+                    {/* Tarjeta destacada con el límite actual seleccionado en texto legible y estimación */}
+                    <div className="p-3 bg-white rounded-xl border border-blue-100 shadow-xs flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          Cuota Asignada
+                        </span>
+                        <div className="text-base font-black text-[#0052FF]">
+                          {formatTokenDetailed(editTokensLimit)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          Capacidad Estimada
+                        </span>
+                        <span className="text-xs font-bold text-slate-700">
+                          {estimateChatsFromTokens(editTokensLimit)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Chips de selección rápida por niveles oficiales */}
+                    <div>
+                      <span className="text-[11px] font-semibold text-slate-600 block mb-1">
+                        Niveles Predefinidos (1 Clic):
+                      </span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { tokens: 500000, label: '500k', sub: 'Starter' },
+                          { tokens: 1000000, label: '1M', sub: '1 Millón' },
+                          { tokens: 2500000, label: '2.5M', sub: 'Pro' },
+                          { tokens: 5000000, label: '5M', sub: '5 Millones' },
+                          { tokens: 7500000, label: '7.5M', sub: 'Enterprise' },
+                          { tokens: 10000000, label: '10M', sub: '10 Millones' },
+                        ].map((tier) => {
+                          const isSelected = editTokensLimit === tier.tokens;
+                          return (
+                            <button
+                              key={tier.tokens}
+                              type="button"
+                              onClick={() => setEditTokensLimit(tier.tokens)}
+                              className={`py-1 px-2 rounded-xl text-center border transition cursor-pointer ${
+                                isSelected
+                                  ? 'bg-[#0052FF] text-white border-[#0052FF] shadow-xs'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
+                              }`}
+                            >
+                              <span className="block text-xs font-bold leading-tight">{tier.label}</span>
+                              <span className={`block text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                                {tier.sub}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Boosters Rápidos de 1 Clic (+1M, +500k, Restablecer base) */}
+                    <div>
+                      <span className="text-[11px] font-semibold text-slate-600 block mb-1">
+                        Paquetes Booster (Mes en Curso):
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setEditTokensLimit((prev) => prev + 1000000)}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
+                          title="Suma 1 Millón de tokens (1M) al límite del mes actual"
+                        >
+                          ⭐ +1M Booster
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditTokensLimit((prev) => prev + 500000)}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
+                          title="Suma 500k tokens al límite del mes actual"
+                        >
+                          +500k Extra
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditTokensLimit(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)
+                          }
+                          className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
+                          title="Restablece al límite oficial del plan seleccionado"
+                        >
+                          ↺ Base Plan ({formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)})
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Input manual alternativo para custom exacto */}
+                  <div className="pt-2 border-t border-slate-200/80 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step={100000}
+                        min={100000}
+                        max={100000000}
+                        value={editTokensLimit}
+                        onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
+                        placeholder="Cantidad manual..."
+                        className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-semibold text-slate-800"
+                      />
+                      <span className="text-xs font-bold text-slate-700 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 font-mono flex-shrink-0 shadow-2xs">
+                        {formatTokenQuota(editTokensLimit)}
+                      </span>
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 italic">
+                      💡 Los boosters expiran al renovar el mes y vuelven a la base de {formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}.
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {/* Botones de Acción */}
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              {/* Botones de Acción (Footer Horizontal) */}
+              <div className="mt-6 pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setEditingOrg(null)}
@@ -1250,7 +1250,7 @@ export default function AdminConsoleClient({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-6 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}

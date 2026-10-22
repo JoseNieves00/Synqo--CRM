@@ -165,7 +165,26 @@ META_WEBHOOK_VERIFY_TOKEN=synqo_secure_verify_token_2026
 
 ---
 
-## 6. Comandos de Mantenimiento y Verificación
+## 6. Vinculación de Cal.com (Agendamiento Autónomo con API v2)
+
+Synqo CRM se conecta nativamente con **Cal.com API v2** para permitir que la IA autónoma consulte disponibilidad en tiempo real y reserve citas directamente en el calendario del cliente:
+
+1. **Credenciales Requeridas:**
+   - **Cal.com API Key:** Clave de desarrollador generada en *Settings* $\rightarrow$ *Developer* $\rightarrow$ *API Keys* (inicia con `cal_live_`). Se almacena cifrada con **AES-256-GCM** en la base de datos.
+   - **Tipo de Evento (Event Type):**
+     - El cliente puede ingresar el **slug** del evento (ej. `cita-comercial`).
+     - O pegar el enlace público o privado completo (ej. `https://cal.com/d/token/cita-comercial`).
+     - O dejarlo en blanco: al presionar **"Probar Conexión"**, el sistema consulta `/v2/event-types` y **auto-detecta y completa el ID numérico oficial** automáticamente.
+2. **Arquitectura y Versionado de la API v2:**
+   - Cal.com API v2 exige cabeceras de versionado por endpoint (`cal-api-version`):
+     - Catálogo de eventos: `2026-06-12` (`/v2/event-types`)
+     - Consulta de slots: `2024-09-04` (`/v2/slots`)
+     - Creación de reservas: `2026-05-01` (`/v2/bookings`)
+   - `CalService` (`services/cal.service.ts`) encapsula esta lógica y maneja automáticamente la resolución de slugs a IDs numéricos de forma transparente.
+
+---
+
+## 7. Comandos de Mantenimiento y Verificación
 
 Desde la terminal del proyecto puedes ejecutar:
 
@@ -194,7 +213,7 @@ Desde la terminal del proyecto puedes ejecutar:
 
 ---
 
-## 7. Sincronización de Base de Datos (Migración de Planes)
+## 8. Sincronización de Base de Datos (Migración de Planes)
 
 Si deseas sincronizar el enum de la base de datos de Supabase para que admita `starter` de forma nativa además de `core`:
 
@@ -212,7 +231,7 @@ Si deseas sincronizar el enum de la base de datos de Supabase para que admita `s
 
 ---
 
-## 8. Sincronización de Base de Datos (Cobranza Manual y Pagos)
+## 9. Sincronización de Base de Datos (Cobranza Manual y Pagos)
 
 Para habilitar las columnas de ciclo de facturación y el libro contable de pagos manuales en Supabase:
 

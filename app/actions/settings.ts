@@ -152,7 +152,7 @@ export async function testWhatsAppConnection(input: {
 }
 
 /**
- * Prueba en tiempo real la conexión con Cal.com.
+ * Prueba en tiempo real la conexión con Cal.com (Migrado a API v2).
  * Valida que la API Key sea válida y enumera los tipos de evento disponibles.
  */
 export async function testCalConnection(input: {
@@ -194,27 +194,64 @@ export async function testCalConnection(input: {
     };
   }
 
+  const cleanKey = key.trim().replace(/^Bearer\s+/i, '');
+
   try {
-    const res = await fetch(`https://api.cal.com/v1/event-types?apiKey=${key}`, {
+    const res = await fetch('https://api.cal.com/v2/event-types', {
       method: 'GET',
       headers: {
+        'Authorization': `Bearer ${cleanKey}`,
+        'cal-api-version': '2026-06-12',
         'Content-Type': 'application/json',
       },
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
 
-    if (!res.ok) {
+    if (!res.ok || data?.status === 'error') {
+      const errMsg =
+        data?.error?.message ||
+        data?.message ||
+        (res.status === 401
+          ? 'API Key de Cal.com inválida o no autorizada.'
+          : `Error HTTP ${res.status} al consultar Cal.com`);
       return {
         success: false,
-        error: data.message || 'API Key de Cal.com inválida o no autorizada.',
+        error: errMsg,
       };
     }
 
-    const count = data.event_types?.length || 0;
+    const eventTypes = Array.isArray(data?.data)
+      ? data.data
+      : (data?.event_types || []);
+    const count = eventTypes.length;
+
+    let targetEvent: any = null;
+    const searchTarget = (input.eventTypeId || '').trim().toLowerCase();
+
+    if (searchTarget) {
+      targetEvent = eventTypes.find((et: any) =>
+        String(et.id) === searchTarget ||
+        String(et.slug).toLowerCase() === searchTarget ||
+        searchTarget.includes(String(et.slug).toLowerCase()) ||
+        String(et.title).toLowerCase() === searchTarget
+      );
+    } else if (count === 1) {
+      targetEvent = eventTypes[0];
+    }
+
+    let summary = '';
+    if (targetEvent) {
+      summary = ` Evento verificado: "${targetEvent.title || targetEvent.slug}" (ID: ${targetEvent.id}).`;
+    } else if (count > 0) {
+      const list = eventTypes.map((et: any) => `"${et.title || et.slug}" [ID: ${et.id}]`).join(', ');
+      summary = ` Se encontraron ${count} tipos de eventos: ${list}.`;
+    }
+
     return {
       success: true,
-      message: `¡Conexión Exitosa con Cal.com! Se encontraron ${count} tipos de eventos configurados en tu cuenta.`,
+      message: `¡Conexión Exitosa con Cal.com (API v2)!${summary}`,
+      detectedEventId: targetEvent?.id || (count === 1 ? eventTypes[0]?.id : undefined),
     };
   } catch (err: any) {
     return {

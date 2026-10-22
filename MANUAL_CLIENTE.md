@@ -36,9 +36,19 @@ Como Administrador de tu empresa, puedes configurar tus canales de atención y l
    - El sistema validará instantáneamente la línea y te mostrará una confirmación verde con el nombre oficial registrado de tu empresa y la calidad de la línea.
 
 ### B. Conectar tu Calendario de Citas (Cal.com)
-1. Ingresa tu **API Key de Cal.com** y tu **Event Type ID**.
-2. Pulsa el botón **"Probar Conexión Cal.com"**:
-   - El sistema confirmará que el calendario está listo para ofrecer horarios disponibles y confirmar citas en tiempo real.
+1. **Generar tu API Key en Cal.com:**
+   - Inicia sesión en [app.cal.com](https://app.cal.com).
+   - Ve a **Settings** (Ajustes) en la esquina inferior izquierda $\rightarrow$ **Developer** $\rightarrow$ **API Keys**.
+   - Haz clic en **+ Add New Key** (ej. nombre: *"Synqo CRM"*) y copia la clave generada (empieza por `cal_live_`).
+2. **Vincular en Synqo CRM:**
+   - Pega tu clave en **Cal.com API Key**.
+   - En **Tipo de Evento o Enlace Cal.com**:
+     - Puedes escribir el nombre de tu evento (ej. `cita-comercial`).
+     - O pegar tu enlace directo de Cal.com (ej. `https://cal.com/jose-rm6umc/cita-comercial` o el enlace privado `/d/...`).
+     - **O dejarlo vacío:** Al dejarlo en blanco y pulsar **"Probar Conexión Cal.com"**, el CRM consultará tu cuenta por API v2 y **detectará y completará el ID automáticamente**.
+3. Pulsa el botón **"Probar Conexión Cal.com"**:
+   - El sistema confirmará que el calendario está listo con un mensaje verde, mostrando el nombre de tu evento verificado.
+4. Haz clic en **"Guardar Configuración"**. A partir de este momento, cuando un lead calificado converse con el bot en WhatsApp, la IA consultará tus horas libres reales y agendará la reunión directamente en tu Google Calendar / Cal.com sin intervención humana.
 
 ### C. Personalizar tu Asesor de Inteligencia Artificial
 En el cuadro **Instrucciones y Objetivos del Asesor IA**, define con tus propias palabras:
