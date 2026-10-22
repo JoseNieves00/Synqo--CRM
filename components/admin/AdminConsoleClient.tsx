@@ -35,7 +35,12 @@ import {
   regenerateCompanyAdminPassword,
   registerCompanyPayment,
 } from '@/app/actions/superadmin';
-import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
+import {
+  PLAN_DEFAULTS,
+  formatTokenQuota,
+  formatTokenDetailed,
+  estimateChatsFromTokens,
+} from '@/lib/billing/plan-defaults';
 
 interface Metrics {
   totalOrganizations: number;
@@ -698,8 +703,11 @@ export default function AdminConsoleClient({
                           return (
                             <div>
                               <div className="flex items-center justify-between mb-1 text-[11px]">
-                                <span className={`font-mono font-semibold ${isOver ? 'text-rose-600' : isWarn ? 'text-amber-600' : 'text-gray-700'}`}>
-                                  {used.toLocaleString()} / {(limit / 1000)}k
+                                <span
+                                  className={`font-mono font-semibold ${isOver ? 'text-rose-600' : isWarn ? 'text-amber-600' : 'text-gray-700'}`}
+                                  title={`${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}
+                                >
+                                  {formatTokenQuota(used)} / {formatTokenQuota(limit)}
                                 </span>
                                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                                   isOver ? 'bg-rose-100 text-rose-700' : isWarn ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
@@ -1085,54 +1093,96 @@ export default function AdminConsoleClient({
               </div>
 
               {/* Gestión de Tokens IA y Boosters */}
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/70 border border-slate-200 space-y-3.5">
+                {/* Cabecera con consumo actual y porcentaje */}
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-amber-500" />
-                    Límite de Tokens IA Mensual
+                    <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                    Límite Mensual de Tokens IA
                   </span>
-                  <span className="text-[11px] font-mono text-slate-600 font-semibold">
-                    {(editingOrg.ai_tokens_used || 0).toLocaleString()} consumidos
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step={100000}
-                    min={100000}
-                    max={100000000}
-                    value={editTokensLimit}
-                    onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-bold text-slate-900"
-                  />
-                  <span className="text-xs font-semibold text-slate-500 flex-shrink-0">
-                    = {(editTokensLimit / 1000).toLocaleString()}k
+                  <span className="text-[11px] font-mono text-slate-600 font-semibold bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                    Consumidos: {(editingOrg.ai_tokens_used || 0).toLocaleString()} ({Math.min(100, Math.round(((editingOrg.ai_tokens_used || 0) / editTokensLimit) * 100))}%)
                   </span>
                 </div>
 
-                {/* Presets Rápidos de Tokens (Booster de 1 Clic) */}
+                {/* Tarjeta destacada con el límite actual seleccionado en texto legible y estimación */}
+                <div className="p-3 bg-white rounded-xl border border-blue-100 shadow-xs flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      Cuota Asignada
+                    </span>
+                    <div className="text-base font-extrabold text-[#0052FF] flex items-baseline gap-1.5">
+                      <span>{formatTokenDetailed(editTokensLimit)}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      Capacidad Estimada
+                    </span>
+                    <span className="text-xs font-bold text-slate-700">
+                      {estimateChatsFromTokens(editTokensLimit)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Chips de selección rápida por niveles oficiales */}
                 <div>
-                  <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-                    Acciones Rápidas (Paquetes Booster & Restablecer):
+                  <span className="text-[11px] font-semibold text-slate-600 block mb-1.5">
+                    Niveles Predefinidos (1 Clic):
+                  </span>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                    {[
+                      { tokens: 500000, label: '500k', sub: 'Starter' },
+                      { tokens: 1000000, label: '1M', sub: '1 Millón' },
+                      { tokens: 2500000, label: '2.5M', sub: 'Pro' },
+                      { tokens: 5000000, label: '5M', sub: '5 Millones' },
+                      { tokens: 7500000, label: '7.5M', sub: 'Enterprise' },
+                      { tokens: 10000000, label: '10M', sub: '10 Millones' },
+                    ].map((tier) => {
+                      const isSelected = editTokensLimit === tier.tokens;
+                      return (
+                        <button
+                          key={tier.tokens}
+                          type="button"
+                          onClick={() => setEditTokensLimit(tier.tokens)}
+                          className={`p-1.5 rounded-xl text-center border transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#0052FF] text-white border-[#0052FF] shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
+                          }`}
+                        >
+                          <span className="block text-xs font-bold leading-tight">{tier.label}</span>
+                          <span className={`block text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                            {tier.sub}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Boosters Rápidos de 1 Clic (+1M, +500k, Restablecer base) */}
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-600 block mb-1.5">
+                    Adicionar Paquetes Booster (Mes en Curso):
                   </span>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setEditTokensLimit((prev) => prev + 1000000)}
                       className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
-                      title="Suma 1 Millón de tokens para el mes en curso"
+                      title="Suma 1 Millón de tokens (1M) al límite del mes actual"
                     >
-                      ⭐ +1M Tokens (Booster)
+                      ⭐ +1 Millón Extra (+1M)
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setEditTokensLimit((prev) => prev + 500000)}
                       className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
-                      title="Suma 500k tokens para el mes en curso"
+                      title="Suma 500k tokens al límite del mes actual"
                     >
-                      +500k Tokens
+                      +500k Extra
                     </button>
 
                     <button
@@ -1141,10 +1191,33 @@ export default function AdminConsoleClient({
                         setEditTokensLimit(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)
                       }
                       className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
-                      title="Restablece al valor oficial del plan"
+                      title="Restablece al límite oficial del plan seleccionado"
                     >
-                      ↺ Base Plan ({((PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000) / 1000)}k)
+                      ↺ Base Plan ({formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)})
                     </button>
+                  </div>
+                </div>
+
+                {/* Input manual alternativo para custom exacto */}
+                <div className="pt-2 border-t border-slate-200/70">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      O ingresar cantidad manual exacta si requiere una cuota personalizada:
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      step={100000}
+                      min={100000}
+                      max={100000000}
+                      value={editTokensLimit}
+                      onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
+                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-semibold text-slate-800"
+                    />
+                    <span className="text-xs font-bold text-slate-600 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 font-mono flex-shrink-0">
+                      {formatTokenQuota(editTokensLimit)}
+                    </span>
                   </div>
                 </div>
 
@@ -1156,12 +1229,12 @@ export default function AdminConsoleClient({
                       onChange={(e) => setEditResetTokens(e.target.checked)}
                       className="rounded text-[#0052FF] focus:ring-[#0052FF]/20"
                     />
-                    Reiniciar tokens consumidos a 0 (Cortesía de soporte)
+                    Reiniciar tokens consumidos a 0 (Cortesía o prueba técnica)
                   </label>
                 </div>
 
                 <p className="text-[10px] text-slate-500 italic">
-                  💡 Al renovar la mensualidad en la fecha de cobro, los paquetes booster expiran y el límite vuelve automáticamente a la cuota base del plan.
+                  💡 Al renovar la mensualidad en la fecha de cobro, los paquetes booster expiran y el límite vuelve automáticamente a la cuota base del plan ({formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}).
                 </p>
               </div>
 
