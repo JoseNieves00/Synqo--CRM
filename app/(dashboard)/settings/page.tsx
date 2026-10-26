@@ -43,6 +43,8 @@ export default async function SettingsPage() {
         subscriptionStatus: org?.subscription_status,
         planType: org?.plan_type,
         orgName: org?.name,
+        metaAppId: process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || '1628755725455108',
+        metaConfigId: process.env.META_CONFIG_ID || process.env.NEXT_PUBLIC_META_CONFIG_ID || '',
       }}
       teamData={teamData || undefined}
     />

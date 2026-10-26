@@ -75,7 +75,7 @@ export async function getCurrentUserAndOrg() {
     // Leer organización con supabaseAdmin (intentando incluir cal_com_enabled con fallback)
     let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, cal_event_type_id, system_prompt'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt'
       )
       .eq('id', profile.organization_id)
       .single();
@@ -83,7 +83,7 @@ export async function getCurrentUserAndOrg() {
     if (orgError && orgError.message?.includes('cal_com_enabled')) {
       const retry = await (supabaseAdmin.from('organizations') as any)
         .select(
-          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, cal_event_type_id, system_prompt'
+          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt'
         )
         .eq('id', profile.organization_id)
         .single();

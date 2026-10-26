@@ -97,9 +97,11 @@ async function main() {
   // 3. Probar persistencia de mensajes y prospectos en Supabase
   console.log('3️⃣  [PRUEBA INGESTA CRM] Simulando recepción de mensaje y creación de prospecto...');
   
-  // Buscar organización activa para la prueba
+  // Buscar organización activa con credenciales de WhatsApp configuradas
   const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
     .select('id, name, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret')
+    .not('whatsapp_phone_number_id', 'is', null)
+    .not('whatsapp_access_token', 'is', null)
     .limit(1)
     .single();
 

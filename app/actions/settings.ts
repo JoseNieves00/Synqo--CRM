@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
 import { Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
+import { WhatsAppService } from '@/services/whatsapp.service';
 
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
@@ -79,6 +80,159 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 
   if (updateError) {
     throw new Error(`Error actualizando ajustes: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  return { success: true };
+}
+
+/**
+ * Procesa el código de Embedded Signup directamente desde un Server Action.
+ */
+export async function processEmbeddedSignup(input: {
+  code: string;
+  phoneNumberId?: string;
+  wabaId?: string;
+}) {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error('No autorizado');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && !profile.is_super_admin)) {
+    throw new Error('Solo los administradores pueden vincular credenciales de WhatsApp.');
+  }
+
+  const orgId = profile.organization_id;
+  const { code, phoneNumberId: passedPhoneId, wabaId: passedWabaId } = input;
+
+  if (!code) {
+    throw new Error('El código de autorización de Meta es obligatorio.');
+  }
+
+  // 1. Intercambiar código por Access Token
+  const tokenResult = await WhatsAppService.exchangeCodeForToken(code);
+  let accessToken = tokenResult.accessToken;
+
+  // 2. Intentar obtener token de larga duración
+  accessToken = await WhatsAppService.getLongLivedToken(accessToken);
+
+  // 3. Obtener o inferir WABA ID
+  let wabaId = passedWabaId;
+  if (!wabaId) {
+    const debugInfo = await WhatsAppService.debugToken(accessToken);
+    if (debugInfo.wabaIds && debugInfo.wabaIds.length > 0) {
+      wabaId = debugInfo.wabaIds[0];
+    }
+  }
+
+  // 4. Suscribir WABA a webhooks
+  let subscribed = false;
+  if (wabaId) {
+    subscribed = await WhatsAppService.subscribeWabaApp(wabaId, accessToken);
+  }
+
+  // 5. Determinar Phone Number ID
+  let phoneNumberId = passedPhoneId;
+  let phoneDetails: any = null;
+
+  if (!phoneNumberId && wabaId) {
+    const numbers = await WhatsAppService.getWabaPhoneNumbers(wabaId, accessToken);
+    if (numbers.length > 0) {
+      phoneNumberId = numbers[0].id;
+      phoneDetails = numbers[0];
+    }
+  } else if (phoneNumberId) {
+    phoneDetails = await WhatsAppService.getPhoneNumberDetails(phoneNumberId, accessToken);
+  }
+
+  if (!phoneNumberId) {
+    throw new Error(
+      'No se detectó ningún número de WhatsApp Business configurado en la cuenta de Meta. Completa el registro del número en Meta y vuelve a intentarlo.'
+    );
+  }
+
+  const encryptedToken = encryptSecret(accessToken);
+  const serverAppSecret = process.env.META_APP_SECRET;
+  const encryptedAppSecret = serverAppSecret ? encryptSecret(serverAppSecret) : null;
+
+  const updatePayload: OrgUpdate = {
+    whatsapp_phone_number_id: phoneNumberId.trim().replace(/[^0-9]/g, ''),
+    whatsapp_access_token: encryptedToken,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (encryptedAppSecret) {
+    updatePayload.whatsapp_app_secret = encryptedAppSecret;
+  }
+
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update(updatePayload)
+    .eq('id', orgId);
+
+  if (updateError) {
+    throw new Error(`Error guardando credenciales: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+
+  return {
+    success: true,
+    phoneNumberId,
+    displayPhoneNumber: phoneDetails?.display_phone_number || null,
+    verifiedName: phoneDetails?.verified_name || null,
+    wabaId: wabaId || null,
+    webhooksSubscribed: subscribed,
+  };
+}
+
+/**
+ * Desconecta WhatsApp Business de la organización actual eliminando sus credenciales de Meta.
+ */
+export async function disconnectWhatsApp() {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error('No autorizado');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && !profile.is_super_admin)) {
+    throw new Error('Solo los administradores pueden desconectar WhatsApp.');
+  }
+
+  const orgId = profile.organization_id;
+
+  const { error } = await supabaseAdmin
+    .from('organizations')
+    .update({
+      whatsapp_phone_number_id: null,
+      whatsapp_access_token: null,
+      whatsapp_app_secret: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (error) {
+    throw new Error(`Error desconectando WhatsApp: ${error.message}`);
   }
 
   revalidatePath('/settings');

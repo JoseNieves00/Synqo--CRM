@@ -5,3 +5,8 @@ declare module '*.css' {
   const content: Record<string, string>;
   export default content;
 }
+
+interface Window {
+  FB?: any;
+  fbAsyncInit?: () => void;
+}

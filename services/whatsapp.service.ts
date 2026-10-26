@@ -181,5 +181,201 @@ export class WhatsAppService {
       mimeType,
     };
   }
+
+  /**
+   * Intercambia el código de autorización generado por el popup de Meta Embedded Signup
+   * por un User Access Token de la API de Graph.
+   */
+  static async exchangeCodeForToken(code: string): Promise<{
+    accessToken: string;
+    tokenType?: string;
+    expiresIn?: number;
+  }> {
+    const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+
+    if (!appId || !appSecret) {
+      throw new Error('Variables META_APP_ID o META_APP_SECRET no configuradas en el servidor.');
+    }
+
+    const url = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
+    url.searchParams.set('client_id', appId);
+    url.searchParams.set('client_secret', appSecret);
+    url.searchParams.set('code', code);
+
+    const res = await fetch(url.toString(), { method: 'GET' });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.access_token) {
+      const errMsg = data.error?.message || 'Error al intercambiar código de autorización en Meta';
+      console.error('[META EMBEDDED SIGNUP OAUTH ERROR]', data);
+      throw new Error(`Meta OAuth Error: ${errMsg}`);
+    }
+
+    return {
+      accessToken: data.access_token,
+      tokenType: data.token_type,
+      expiresIn: data.expires_in,
+    };
+  }
+
+  /**
+   * Intenta intercambiar un token de usuario de corta duración por un token de larga duración (~60 días).
+   */
+  static async getLongLivedToken(shortLivedToken: string): Promise<string> {
+    const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+
+    if (!appId || !appSecret) return shortLivedToken;
+
+    try {
+      const url = new URL('https://graph.facebook.com/v21.0/oauth/access_token');
+      url.searchParams.set('grant_type', 'fb_exchange_token');
+      url.searchParams.set('client_id', appId);
+      url.searchParams.set('client_secret', appSecret);
+      url.searchParams.set('fb_exchange_token', shortLivedToken);
+
+      const res = await fetch(url.toString(), { method: 'GET' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.access_token) {
+        return data.access_token;
+      }
+    } catch (e) {
+      console.warn('[META LONG LIVED TOKEN WARNING]', e);
+    }
+    return shortLivedToken;
+  }
+
+  /**
+   * Inspecciona el token con debug_token para extraer los WABA IDs autorizados en granular_scopes.
+   */
+  static async debugToken(userAccessToken: string): Promise<{
+    isValid: boolean;
+    wabaIds: string[];
+    scopes: string[];
+  }> {
+    const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+
+    if (!appId || !appSecret) {
+      return { isValid: false, wabaIds: [], scopes: [] };
+    }
+
+    try {
+      const url = new URL('https://graph.facebook.com/v21.0/debug_token');
+      url.searchParams.set('input_token', userAccessToken);
+      url.searchParams.set('access_token', `${appId}|${appSecret}`);
+
+      const res = await fetch(url.toString(), { method: 'GET' });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.data) {
+        return { isValid: false, wabaIds: [], scopes: [] };
+      }
+
+      const info = data.data;
+      const wabaIds: string[] = [];
+
+      if (Array.isArray(info.granular_scopes)) {
+        for (const gs of info.granular_scopes) {
+          if (gs.scope === 'whatsapp_business_management' && Array.isArray(gs.target_ids)) {
+            wabaIds.push(...gs.target_ids);
+          }
+        }
+      }
+
+      return {
+        isValid: Boolean(info.is_valid),
+        wabaIds,
+        scopes: info.scopes || [],
+      };
+    } catch (err) {
+      console.warn('[META DEBUG TOKEN ERROR]', err);
+      return { isValid: false, wabaIds: [], scopes: [] };
+    }
+  }
+
+  /**
+   * Suscribe la aplicación a la cuenta de WhatsApp Business (WABA) del cliente
+   * para recibir sus webhooks automáticamente en Synqo CRM.
+   */
+  static async subscribeWabaApp(wabaId: string, accessToken: string): Promise<boolean> {
+    try {
+      const url = `https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        console.log(`[META EMBEDDED SIGNUP] WABA ${wabaId} suscrita exitosamente a webhooks.`);
+        return true;
+      }
+      console.warn(`[META SUBSCRIBED APPS WARNING] WABA ${wabaId}:`, data);
+      return false;
+    } catch (err) {
+      console.warn(`[META SUBSCRIBED APPS ERROR] WABA ${wabaId}:`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Obtiene la lista de números telefónicos asociados a una WABA.
+   */
+  static async getWabaPhoneNumbers(wabaId: string, accessToken: string): Promise<Array<{
+    id: string;
+    display_phone_number: string;
+    verified_name?: string;
+    quality_rating?: string;
+    code_verification_status?: string;
+  }>> {
+    try {
+      const url = `https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,code_verification_status`;
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.data)) {
+        return data.data;
+      }
+      console.warn(`[META PHONE NUMBERS WARNING] WABA ${wabaId}:`, data);
+      return [];
+    } catch (err) {
+      console.warn(`[META PHONE NUMBERS ERROR] WABA ${wabaId}:`, err);
+      return [];
+    }
+  }
+
+  /**
+   * Obtiene información detallada de un número telefónico por su Phone Number ID.
+   */
+  static async getPhoneNumberDetails(phoneNumberId: string, accessToken: string): Promise<{
+    id: string;
+    display_phone_number?: string;
+    verified_name?: string;
+    quality_rating?: string;
+  } | null> {
+    try {
+      const url = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating`;
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
 }
+
 

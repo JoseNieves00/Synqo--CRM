@@ -17,7 +17,7 @@ async function simulateIncomingLeadMessage() {
   // 1. Obtener la primera organización activa
   const { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
     .select('id, name, system_prompt, cal_event_type_id, is_active')
-    .eq('name', 'Empresa Synqo Demo')
+    .eq('name', 'Empresa Synqo')
     .single();
 
   if (orgError || !org) {
