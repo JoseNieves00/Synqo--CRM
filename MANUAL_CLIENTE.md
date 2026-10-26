@@ -28,12 +28,18 @@ Bienvenido a **Synqo CRM**. Para garantizar la privacidad de tus conversaciones 
 Como Administrador de tu empresa, puedes configurar tus canales de atención y la inteligencia de tu asistente virtual:
 
 ### A. Conectar tu Línea Comercial de WhatsApp (Meta Cloud API)
-1. Ingresa a la pestaña **Integraciones & IA**.
-2. Completa los dos campos requeridos:
-   - **Phone Number ID:** Identificador único de tu número en WhatsApp Business.
-   - **WhatsApp Permanent Access Token:** Clave de acceso permanente de tu línea.
-3. Pulsa el botón **"Probar Conexión WhatsApp"**:
-   - El sistema validará instantáneamente la línea y te mostrará una confirmación verde con el nombre oficial registrado de tu empresa y la calidad de la línea.
+1. Ingresa a la pestaña **Integraciones & IA** en Ajustes.
+2. **Configurar el Webhook en tu App de Meta (30 segundos):**
+   - En la tarjeta oscura superior verás tu **URL de Webhook** y tu **Token de Verificación** con botones de copiado rápido en 1 clic.
+   - En tu app de [developers.facebook.com](https://developers.facebook.com/) ve a **WhatsApp $\rightarrow$ Configuración**.
+   - Haz clic en **Editar Webhook**, pega la URL y el Token y pulsa *Verificar y Guardar*.
+   - En la lista de campos de Webhook, haz clic en **Administrar** y activa la casilla `messages`.
+3. **Ingresar tus Credenciales en Synqo:**
+   - **Phone Number ID:** Identificador numérico de tu número en Meta (WhatsApp $\rightarrow$ API Setup).
+   - **WhatsApp Permanent Access Token:** Clave de acceso permanente de tu línea con permisos `whatsapp_business_messaging`.
+   - **Meta App Secret (Recomendado):** Clave secreta de tu app en Meta (Configuración de la app $\rightarrow$ Información básica $\rightarrow$ Clave secreta) para blindaje criptográfico HMAC exclusivo de tu empresa.
+4. Pulsa el botón **"Probar Conexión WhatsApp"**:
+   - El sistema validará instantáneamente la línea y te mostrará una confirmación verde con el nombre oficial registrado de tu empresa, la calidad de la línea y el estado de tu App Secret.
 
 ### B. Conectar tu Calendario de Citas (Cal.com)
 1. **Generar tu API Key en Cal.com:**

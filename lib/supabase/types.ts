@@ -22,6 +22,7 @@ export interface Database {
           name: string;
           whatsapp_phone_number_id: string | null;
           whatsapp_access_token: string | null;
+          whatsapp_app_secret?: string | null;
           cal_api_key: string | null;
           cal_event_type_id: string | null;
           system_prompt: string | null;
@@ -44,6 +45,7 @@ export interface Database {
           name: string;
           whatsapp_phone_number_id?: string | null;
           whatsapp_access_token?: string | null;
+          whatsapp_app_secret?: string | null;
           cal_api_key?: string | null;
           cal_event_type_id?: string | null;
           system_prompt?: string | null;
@@ -64,6 +66,7 @@ export interface Database {
           name?: string;
           whatsapp_phone_number_id?: string | null;
           whatsapp_access_token?: string | null;
+          whatsapp_app_secret?: string | null;
           cal_api_key?: string | null;
           cal_event_type_id?: string | null;
           system_prompt?: string | null;
