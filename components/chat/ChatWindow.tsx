@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MessageSender } from '@/lib/supabase/types';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
@@ -8,8 +8,9 @@ import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow } from '@/services/contact.service';
 import { sendAgentMessage, sendAgentTemplate, toggleContactAi } from '@/app/actions/chat';
-import { MetaTemplateKey } from '@/services/whatsapp.service';
+import { META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
 import { Phone, Clock, AlertCircle, UserCheck } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface MessageItem {
   id: string;
@@ -29,19 +30,49 @@ interface ChatWindowProps {
     custom_fields?: any;
   };
   messages: MessageItem[];
+  onOptimisticMessage?: (msg: MessageItem) => void;
+  customTemplates?: Array<{ name: string; label: string }>;
 }
 
-export function ChatWindow({ contact, messages }: ChatWindowProps) {
+export function ChatWindow({ contact, messages, onOptimisticMessage, customTemplates }: ChatWindowProps) {
+  const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   const is24hValid = isWithin24HourWindow(contact.last_interaction_at);
   const remainingHours = getRemainingHoursInWindow(contact.last_interaction_at);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
+
   const handleSendMessage = async (text: string) => {
-    await sendAgentMessage(contact.id, text);
+    onOptimisticMessage?.({
+      id: `temp-${Date.now()}`,
+      sender_type: 'agent_manual',
+      content: text,
+      created_at: new Date().toISOString(),
+    });
+    try {
+      await sendAgentMessage(contact.id, text);
+    } finally {
+      router.refresh();
+    }
   };
 
-  const handleSendTemplate = async (templateKey: MetaTemplateKey) => {
-    await sendAgentTemplate(contact.id, templateKey);
+  const handleSendTemplate = async (templateKey: string) => {
+    const tplLabel = (META_TEMPLATES as any)[templateKey]?.label || templateKey;
+    onOptimisticMessage?.({
+      id: `temp-${Date.now()}`,
+      sender_type: 'agent_manual',
+      content: `[Plantilla oficial: ${tplLabel}]`,
+      created_at: new Date().toISOString(),
+    });
+    try {
+      await sendAgentTemplate(contact.id, templateKey);
+    } finally {
+      router.refresh();
+    }
   };
 
   const handleToggleAi = async (newState: boolean) => {
@@ -135,14 +166,16 @@ export function ChatWindow({ contact, messages }: ChatWindowProps) {
                 />
               ))
             )}
+            <div ref={messagesEndRef} />
           </div>
 
-          {/* Input de Chat con selector estático de plantillas */}
+          {/* Input de Chat con selector dinámico de plantillas */}
           <ChatInput
             contactId={contact.id}
             isWithin24h={is24hValid}
             onSendMessage={handleSendMessage}
             onSendTemplate={handleSendTemplate}
+            customTemplates={customTemplates}
           />
         </div>
 

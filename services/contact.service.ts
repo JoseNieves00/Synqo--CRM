@@ -13,7 +13,8 @@ export function isWithin24HourWindow(lastInteractionAt: string | Date | null | u
   const currentTime = Date.now();
   const diffHours = (currentTime - interactionTime) / (1000 * 60 * 60);
 
-  return diffHours < 24 && diffHours >= 0;
+  // Permitir ventana de 24 horas con tolerancia para ligeros desfases de reloj (clock skew de hasta 1 hora a futuro)
+  return diffHours < 24 && diffHours >= -1.0;
 }
 
 /**
@@ -25,8 +26,8 @@ export function getRemainingHoursInWindow(lastInteractionAt: string | Date | nul
   if (isNaN(interactionTime)) return 0;
 
   const diffHours = (Date.now() - interactionTime) / (1000 * 60 * 60);
-  const remaining = 24 - diffHours;
-  return remaining > 0 ? Math.floor(remaining * 10) / 10 : 0;
+  const remaining = 24 - Math.max(0, diffHours);
+  return remaining > 0 ? Math.min(24, Math.floor(remaining * 10) / 10) : 0;
 }
 
 export const PIPELINE_STAGES: { id: PipelineStage; label: string; color: string }[] = [

@@ -8,7 +8,8 @@ interface ChatInputProps {
   contactId: string;
   isWithin24h: boolean;
   onSendMessage: (text: string) => Promise<void>;
-  onSendTemplate: (templateKey: MetaTemplateKey) => Promise<void>;
+  onSendTemplate: (templateName: string) => Promise<void>;
+  customTemplates?: Array<{ name: string; label: string }>;
 }
 
 export function ChatInput({
@@ -16,9 +17,10 @@ export function ChatInput({
   isWithin24h,
   onSendMessage,
   onSendTemplate,
+  customTemplates,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<MetaTemplateKey>('reactivacion_lead');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('reactivacion_lead');
   const [loading, setLoading] = useState(false);
 
   const handleSubmitText = async (e: React.FormEvent) => {
@@ -52,7 +54,7 @@ export function ChatInput({
           <div>
             <p className="text-sm font-semibold text-amber-900">Ventana de 24 horas de Meta cerrada</p>
             <p className="text-xs text-amber-700">
-              Han transcurrido más de 24 horas desde la última respuesta del cliente. Para reanudar el contacto sin penalizaciones de Meta, selecciona una plantilla pre-aprobada:
+              Han transcurrido más de 24 horas desde la última respuesta (o es un contacto nuevo). Para iniciar o reanudar el contacto de forma oficial, envía una plantilla pre-aprobada por Meta:
             </p>
           </div>
         </div>
@@ -60,12 +62,20 @@ export function ChatInput({
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
           <select
             value={selectedTemplate}
-            onChange={(e) => setSelectedTemplate(e.target.value as MetaTemplateKey)}
+            onChange={(e) => setSelectedTemplate(e.target.value)}
             className="flex-1 bg-white border border-amber-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
           >
+            {/* Plantillas del catálogo estándar */}
             {Object.entries(META_TEMPLATES).map(([key, item]) => (
-              <option key={key} value={key}>
+              <option key={key} value={item.name}>
                 {item.label} ({item.name})
+              </option>
+            ))}
+
+            {/* Plantillas dinámicas personalizadas de la empresa */}
+            {customTemplates?.filter(t => !META_TEMPLATES[t.name as MetaTemplateKey]).map((tpl) => (
+              <option key={tpl.name} value={tpl.name}>
+                {tpl.label || tpl.name} ({tpl.name})
               </option>
             ))}
           </select>

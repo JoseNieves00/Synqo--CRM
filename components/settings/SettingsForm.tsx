@@ -7,6 +7,8 @@ import {
   testCalConnection,
   processEmbeddedSignup,
   disconnectWhatsApp,
+  addCustomTemplate,
+  deleteCustomTemplate,
 } from '@/app/actions/settings';
 import {
   KeyRound,
@@ -29,6 +31,9 @@ import {
   ChevronUp,
   Unlink,
   RefreshCw,
+  FileText,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
 
@@ -119,6 +124,7 @@ interface SettingsFormProps {
     orgName?: string | null;
     metaAppId?: string;
     metaConfigId?: string;
+    whatsappTemplates?: Array<{ name: string; label: string }>;
   };
   teamData?: {
     organization: {
@@ -236,6 +242,73 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
   const [testingCal, setTestingCal] = useState(false);
   const [calTestResult, setCalTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
+
+  // Gestión dinámica de plantillas de WhatsApp (Meta)
+  const [templates, setTemplates] = useState<Array<{ name: string; label: string }>>(
+    initialData.whatsappTemplates || []
+  );
+  const [newTplName, setNewTplName] = useState('');
+  const [newTplLabel, setNewTplLabel] = useState('');
+  const [savingTpl, setSavingTpl] = useState(false);
+  const [tplFeedback, setTplFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleAddTemplate = async () => {
+    const cleanName = newTplName.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!cleanName) {
+      setTplFeedback({
+        type: 'error',
+        message: 'Por favor ingresa el nombre exacto de la plantilla en Meta (ej: reactivacion_lead).',
+      });
+      return;
+    }
+    setSavingTpl(true);
+    setTplFeedback(null);
+    try {
+      const res = await addCustomTemplate({
+        name: cleanName,
+        label: newTplLabel.trim() || undefined,
+      });
+      if (res.templates) {
+        setTemplates(res.templates);
+      }
+      setNewTplName('');
+      setNewTplLabel('');
+      setTplFeedback({
+        type: 'success',
+        message: `Plantilla "${cleanName}" guardada y lista para usarse en el Inbox.`,
+      });
+    } catch (err: any) {
+      setTplFeedback({
+        type: 'error',
+        message: err.message || 'Error al guardar la plantilla en el CRM.',
+      });
+    } finally {
+      setSavingTpl(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateName: string) => {
+    if (!confirm(`¿Deseas quitar la plantilla "${templateName}" del CRM?`)) return;
+    setSavingTpl(true);
+    setTplFeedback(null);
+    try {
+      const res = await deleteCustomTemplate(templateName);
+      if (res.templates) {
+        setTemplates(res.templates);
+      }
+      setTplFeedback({
+        type: 'success',
+        message: `Plantilla "${templateName}" eliminada correctamente.`,
+      });
+    } catch (err: any) {
+      setTplFeedback({
+        type: 'error',
+        message: err.message || 'Error al eliminar la plantilla.',
+      });
+    } finally {
+      setSavingTpl(false);
+    }
+  };
 
   /**
    * Lanza el flujo oficial de Meta Embedded Signup
@@ -916,6 +989,183 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Plantillas de WhatsApp (Meta) para Ventana de 24 Horas y Nuevos Prospectos */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-50 text-amber-600 rounded-lg">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">Plantillas de WhatsApp (Meta)</h2>
+                    <p className="text-xs text-gray-500">
+                      Disponibles en el selector del chat cuando la ventana de 24 horas expire o al crear un nuevo lead
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {tplFeedback && (
+                <div
+                  className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                    tplFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {tplFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  )}
+                  <span>{tplFeedback.message}</span>
+                </div>
+              )}
+
+              {/* Formulario para agregar nueva plantilla */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+                <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">
+                  Vincular Nueva Plantilla desde Meta
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-gray-700 block mb-1">
+                      Nombre exacto en Meta <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="ej: reactivacion_lead"
+                      value={newTplName}
+                      onChange={(e) => setNewTplName(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                      className="w-full text-xs font-mono border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-gray-700 block mb-1">
+                      Etiqueta en CRM (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="ej: Reactivación de Lead"
+                      value={newTplLabel}
+                      onChange={(e) => setNewTplLabel(e.target.value)}
+                      className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-1 flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleAddTemplate}
+                      disabled={savingTpl || !newTplName.trim()}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer disabled:opacity-50"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      {savingTpl ? 'Guardando...' : 'Agregar'}
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Copia el nombre tal cual lo aprobaste en el <strong>Administrador de WhatsApp de Meta</strong> (sin espacios ni mayúsculas). El CRM solo requiere el nombre para invocar el envío oficial.
+                </p>
+              </div>
+
+              {/* Listado de plantillas activas en el CRM */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-gray-700">
+                  Plantillas disponibles en el Inbox:
+                </h3>
+
+                <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                  {/* Plantillas del Sistema */}
+                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <div>
+                        <p className="text-xs font-semibold text-gray-900">Reactivación de Contacto</p>
+                        <p className="text-[11px] font-mono text-gray-500">reactivacion_lead</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                      Plantilla Estándar
+                    </span>
+                  </div>
+
+                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <div>
+                        <p className="text-xs font-semibold text-gray-900">Saludo de Prueba Meta</p>
+                        <p className="text-[11px] font-mono text-gray-500">hello_world</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                      Plantilla Estándar
+                    </span>
+                  </div>
+
+                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <div>
+                        <p className="text-xs font-semibold text-gray-900">Recordatorio de Cita</p>
+                        <p className="text-[11px] font-mono text-gray-500">recordatorio_cita</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                      Plantilla Estándar
+                    </span>
+                  </div>
+
+                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <div>
+                        <p className="text-xs font-semibold text-gray-900">Seguimiento General</p>
+                        <p className="text-[11px] font-mono text-gray-500">seguimiento_general</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                      Plantilla Estándar
+                    </span>
+                  </div>
+
+                  {/* Plantillas Personalizadas */}
+                  {templates
+                    .filter(
+                      (t) =>
+                        !['reactivacion_lead', 'hello_world', 'recordatorio_cita', 'seguimiento_general'].includes(
+                          t.name
+                        )
+                    )
+                    .map((tpl) => (
+                      <div key={tpl.name} className="p-3 flex items-center justify-between hover:bg-gray-50/70 transition">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-2 h-2 rounded-full bg-amber-500" />
+                          <div>
+                            <p className="text-xs font-semibold text-gray-900">{tpl.label || tpl.name}</p>
+                            <p className="text-[11px] font-mono text-gray-500">{tpl.name}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-medium bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                            Personalizada
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTemplate(tpl.name)}
+                            disabled={savingTpl}
+                            className="p-1 text-gray-400 hover:text-rose-600 rounded transition cursor-pointer"
+                            title="Eliminar plantilla"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
               </div>
             </div>
 

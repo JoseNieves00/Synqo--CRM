@@ -29,12 +29,14 @@ interface InboxViewProps {
   contacts: ContactItem[];
   activeContact: ContactItem | null;
   messages: MessageItem[];
+  customTemplates?: Array<{ name: string; label: string }>;
 }
 
 export function InboxView({
   contacts,
   activeContact,
   messages,
+  customTemplates,
 }: InboxViewProps) {
   const router = useRouter();
   const [contactList, setContactList] = useState<ContactItem[]>(contacts);
@@ -50,49 +52,73 @@ export function InboxView({
     setMessageList(messages);
   }, [messages]);
 
-  // Suscripción Realtime a mensajes entrantes y cambios de contacto
+  // 1. Polling inteligente: Actualiza automáticamente el inbox cada 3.5 segundos cuando la pestaña está activa
   useEffect(() => {
-    if (!activeContact?.id) return;
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        router.refresh();
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [router]);
+
+  // 2. Suscripción Realtime a mensajes entrantes y cambios de contacto
+  useEffect(() => {
     const supabase = createClient();
 
-    const channel = supabase
-      .channel(`inbox-messages-${activeContact.id}`)
+    // Canal para actualizar la lista de contactos en tiempo real
+    const contactsChannel = supabase
+      .channel('inbox-contacts-realtime')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `contact_id=eq.${activeContact.id}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as MessageItem;
-          setMessageList((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'contacts',
         },
         (payload) => {
-          const updated = payload.new as ContactItem;
-          setContactList((prev) =>
-            prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
-          );
+          if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as ContactItem;
+            setContactList((prev) =>
+              prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+            );
+          } else {
+            router.refresh();
+          }
         }
       )
       .subscribe();
 
+    // Canal para mensajes del contacto activo
+    let messagesChannel: any = null;
+    if (activeContact?.id) {
+      messagesChannel = supabase
+        .channel(`inbox-messages-${activeContact.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `contact_id=eq.${activeContact.id}`,
+          },
+          (payload) => {
+            const newMsg = payload.new as MessageItem;
+            setMessageList((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+          }
+        )
+        .subscribe();
+    }
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(contactsChannel);
+      if (messagesChannel) supabase.removeChannel(messagesChannel);
     };
-  }, [activeContact?.id]);
+  }, [activeContact?.id, router]);
 
   const filteredContacts = contactList.filter((c) => {
     const matchesSearch =
@@ -236,6 +262,8 @@ export function InboxView({
           <ChatWindow
             contact={contactList.find((c) => c.id === activeContact.id) || activeContact}
             messages={messageList}
+            onOptimisticMessage={(msg) => setMessageList((prev) => [...prev, msg])}
+            customTemplates={customTemplates}
           />
         ) : (
           <div className="h-full bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center p-8 text-center shadow-sm">

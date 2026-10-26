@@ -62,11 +62,13 @@ export async function sendAgentMessage(contactId: string, content: string) {
     body: content,
   });
 
-  // 6. Silenciar la IA automáticamente y actualizar última interacción
+  // 6. Silenciar la IA automáticamente y registrar actualización
+  // NOTA CRÍTICA: NO sobreescribir last_interaction_at aquí, ya que Meta mide la ventana de 24h
+  // exclusivamente desde el último mensaje enviado por el CLIENTE.
   await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: false,
-      last_interaction_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq('id', contactId);
 
@@ -83,9 +85,9 @@ export async function sendAgentMessage(contactId: string, content: string) {
 }
 
 /**
- * Envía una de las 3 plantillas aprobadas cuando la ventana de 24h ha vencido.
+ * Envía una plantilla oficial de Meta cuando la ventana de 24h ha vencido o para iniciar un lead nuevo.
  */
-export async function sendAgentTemplate(contactId: string, templateKey: MetaTemplateKey) {
+export async function sendAgentTemplate(contactId: string, templateKey: string) {
   const supabase = createServerSupabaseClient();
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -118,29 +120,32 @@ export async function sendAgentTemplate(contactId: string, templateKey: MetaTemp
     throw new Error('WhatsApp no configurado');
   }
 
-  const templateDef = META_TEMPLATES[templateKey];
+  const templateDef = (META_TEMPLATES as any)[templateKey];
+  const templateName = templateDef?.name || templateKey;
+  const templateLabel = templateDef?.label || templateKey;
   const decryptedToken = decryptSecret(org.whatsapp_access_token);
 
   const metaId = await WhatsAppService.sendTemplateMessage({
     phoneNumberId: org.whatsapp_phone_number_id,
     accessToken: decryptedToken,
     to: contact.phone,
-    templateName: templateDef.name,
+    templateName,
     languageCode: 'es',
   });
 
-  // Silenciar IA al enviar plantilla y actualizar interaction
+  // Silenciar IA al enviar plantilla y registrar actualización
+  // La ventana de 24h se abrirá cuando el cliente responda a esta plantilla vía Webhook
   await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: false,
-      last_interaction_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq('id', contactId);
 
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
-    content: `[Plantilla enviada: ${templateDef.label}]`,
+    content: `[Plantilla enviada: ${templateLabel}]`,
     meta_message_id: metaId || null,
   });
 

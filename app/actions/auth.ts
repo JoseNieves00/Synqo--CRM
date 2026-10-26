@@ -72,15 +72,15 @@ export async function getCurrentUserAndOrg() {
       profile.email === 'admin@synqo.dev'
     );
 
-    // Leer organización con supabaseAdmin (intentando incluir cal_com_enabled con fallback)
+    // Leer organización con supabaseAdmin (con fallback si falta alguna columna opcional)
     let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates'
       )
       .eq('id', profile.organization_id)
       .single();
 
-    if (orgError && orgError.message?.includes('cal_com_enabled')) {
+    if (orgError && (orgError.message?.includes('whatsapp_templates') || orgError.message?.includes('cal_com_enabled'))) {
       const retry = await (supabaseAdmin.from('organizations') as any)
         .select(
           'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt'
