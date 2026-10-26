@@ -16,9 +16,9 @@ export default async function InboxPage() {
 
   // Consultar contactos reales de la organización
   const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields')
     .eq('organization_id', current.organization.id)
-    .order('last_interaction_at', { ascending: false })
+    .order('updated_at', { ascending: false })
     .limit(50);
 
   const contactList = contacts || [];
@@ -50,6 +50,7 @@ export default async function InboxPage() {
       contacts={contactList}
       activeContact={activeContact}
       messages={messages || []}
+      customTemplates={(current.organization as any)?.whatsapp_templates || []}
     />
   );
 }

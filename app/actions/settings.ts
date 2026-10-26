@@ -87,6 +87,111 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 }
 
 /**
+ * Agrega o actualiza una plantilla de WhatsApp en la organización.
+ */
+export async function addCustomTemplate(input: { name: string; label?: string }) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const cleanName = input.name.trim().toLowerCase().replace(/\s+/g, '_');
+  if (!cleanName) throw new Error('El nombre de la plantilla en Meta es obligatorio.');
+
+  const label = input.label?.trim() || cleanName;
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('whatsapp_templates')
+    .eq('id', profile.organization_id)
+    .single();
+
+  const currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
+    ? org.whatsapp_templates
+    : [];
+
+  const existingIdx = currentTemplates.findIndex((t) => t.name === cleanName);
+  let updatedTemplates: Array<{ name: string; label: string }>;
+  if (existingIdx >= 0) {
+    updatedTemplates = currentTemplates.map((t, idx) => (idx === existingIdx ? { name: cleanName, label } : t));
+  } else {
+    updatedTemplates = [...currentTemplates, { name: cleanName, label }];
+  }
+
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      whatsapp_templates: updatedTemplates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', profile.organization_id);
+
+  if (updateError) {
+    if (updateError.message?.includes('whatsapp_templates')) {
+      throw new Error(
+        'Falta ejecutar la migración SQL en Supabase: ALTER TABLE organizations ADD COLUMN IF NOT EXISTS whatsapp_templates JSONB DEFAULT \'[]\'::jsonb;'
+      );
+    }
+    throw new Error(`Error al guardar plantilla: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true, templates: updatedTemplates };
+}
+
+/**
+ * Elimina una plantilla de WhatsApp de la organización.
+ */
+export async function deleteCustomTemplate(templateName: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('whatsapp_templates')
+    .eq('id', profile.organization_id)
+    .single();
+
+  const currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
+    ? org.whatsapp_templates
+    : [];
+
+  const updatedTemplates = currentTemplates.filter((t) => t.name !== templateName);
+
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      whatsapp_templates: updatedTemplates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', profile.organization_id);
+
+  if (updateError) {
+    if (updateError.message?.includes('whatsapp_templates')) {
+      throw new Error(
+        'Falta ejecutar la migración SQL en Supabase: ALTER TABLE organizations ADD COLUMN IF NOT EXISTS whatsapp_templates JSONB DEFAULT \'[]\'::jsonb;'
+      );
+    }
+    throw new Error(`Error al eliminar plantilla: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true, templates: updatedTemplates };
+}
+
+/**
  * Procesa el código de Embedded Signup directamente desde un Server Action.
  */
 export async function processEmbeddedSignup(input: {

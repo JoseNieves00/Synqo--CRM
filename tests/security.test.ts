@@ -116,6 +116,11 @@ console.log('🧪 Iniciando Suite de Pruebas Automatizadas de Seguridad & Lógic
   assert.strictEqual(isWithin24HourWindow(recentTime), true, 'Mensaje hace 2h debe estar dentro de la ventana');
   assert.ok(getRemainingHoursInWindow(recentTime) > 21, 'Deben restar más de 21 horas');
 
+  // Lead con ligero desfase de reloj (servidor 10 segundos adelante del navegador)
+  const clockSkewTime = new Date(Date.now() + 10000).toISOString();
+  assert.strictEqual(isWithin24HourWindow(clockSkewTime), true, 'Mensaje recién enviado con clock skew debe ser válido');
+  assert.strictEqual(getRemainingHoursInWindow(clockSkewTime), 24, 'Horas restantes deben ser 24');
+
   // Lead antiguo (hace 25 horas)
   const expiredTime = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
   assert.strictEqual(isWithin24HourWindow(expiredTime), false, 'Mensaje hace 25h debe estar fuera de la ventana');

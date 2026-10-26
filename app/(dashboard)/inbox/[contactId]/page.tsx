@@ -22,9 +22,9 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
   // Consultar contactos y mensajes en paralelo para máxima velocidad
   const [contactsRes, messagesRes] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields')
       .eq('organization_id', current.organization.id)
-      .order('last_interaction_at', { ascending: false })
+      .order('updated_at', { ascending: false })
       .limit(50),
     (supabaseAdmin.from('messages') as any)
       .select('id, sender_type, content, created_at')
@@ -59,6 +59,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       contacts={contactList}
       activeContact={activeContact}
       messages={messages || []}
+      customTemplates={(current.organization as any)?.whatsapp_templates || []}
     />
   );
 }

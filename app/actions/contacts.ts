@@ -52,7 +52,8 @@ export async function createLead(input: CreateLeadInput) {
       phone: cleanedPhone,
       pipeline_stage: input.pipelineStage || 'nuevo',
       is_ai_active: true,
-      last_interaction_at: new Date().toISOString(),
+      // Lead manual creado sin interacción previa: ventana de 24h cerrada por defecto según políticas de Meta
+      last_interaction_at: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
     })
     .select('id')
     .single();
@@ -167,4 +168,78 @@ export async function updateContactDetails(
   revalidatePath('/inbox');
   revalidatePath('/pipeline');
   return { success: true };
+}
+
+/**
+ * Elimina un prospecto de forma definitiva tras validar la contraseña del usuario.
+ * Protege contra borrados accidentales y audita la acción.
+ */
+export async function deleteContactWithPassword(contactId: string, password: string) {
+  const supabase = createServerSupabaseClient();
+
+  // 1. Validar sesión del usuario
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user || !user.email) {
+    throw new Error('No autorizado');
+  }
+
+  if (!password || password.trim().length === 0) {
+    throw new Error('Debes ingresar tu contraseña para confirmar la eliminación.');
+  }
+
+  // 2. Validar contraseña contra Supabase Auth
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: password.trim(),
+  });
+
+  if (signInError) {
+    throw new Error('Contraseña incorrecta. La eliminación ha sido cancelada por seguridad.');
+  }
+
+  // 3. Obtener organización del usuario
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) {
+    throw new Error('Organización no encontrada para este usuario.');
+  }
+
+  // 4. Verificar pertenencia del contacto (Anti-IDOR)
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!contact) {
+    throw new Error('Contacto no encontrado o no tienes permisos sobre él.');
+  }
+
+  // 5. Eliminar mensajes asociados
+  await (supabaseAdmin.from('messages') as any)
+    .delete()
+    .eq('contact_id', contactId);
+
+  // 6. Eliminar el contacto
+  const { error: deleteError } = await (supabaseAdmin.from('contacts') as any)
+    .delete()
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id);
+
+  if (deleteError) {
+    throw new Error(`Error al eliminar el prospecto: ${deleteError.message}`);
+  }
+
+  revalidatePath('/inbox');
+  revalidatePath('/pipeline');
+  revalidatePath('/dashboard');
+
+  return { success: true, message: 'Prospecto eliminado exitosamente.' };
 }

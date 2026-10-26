@@ -3,6 +3,11 @@
  * Se utilizan cuando la ventana de 24 horas del lead ha expirado.
  */
 export const META_TEMPLATES = {
+  hello_world: {
+    name: 'hello_world',
+    label: 'Saludo Oficial (hello_world)',
+    description: 'Plantilla estándar de Meta para iniciar contacto con nuevos prospectos.',
+  },
   recordatorio_cita: {
     name: 'recordatorio_cita',
     label: 'Recordatorio de Cita Agendada',
@@ -85,32 +90,51 @@ export class WhatsAppService {
   }: SendTemplateMessageParams): Promise<string> {
     const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        type: 'template',
-        template: {
-          name: templateName,
-          language: { code: languageCode },
-          components,
-        },
-      }),
-    });
+    // Intentar con el código principal y fallback a variantes comunes de español (es_CO, es, es_LA)
+    const candidateLanguages = [languageCode, 'es_CO', 'es', 'es_LA'].filter(
+      (val, idx, arr) => arr.indexOf(val) === idx
+    );
 
-    if (!response.ok) {
+    let lastErrorData: any = null;
+
+    for (const code of candidateLanguages) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code },
+            ...(components && components.length > 0 ? { components } : {}),
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.messages?.[0]?.id || '';
+      }
+
       const errorData = await response.json().catch(() => ({}));
-      console.error('[WHATSAPP TEMPLATE API ERROR]', errorData);
-      throw new Error(`WhatsApp Template Error (${response.status}): ${JSON.stringify(errorData)}`);
+      lastErrorData = errorData;
+
+      // Si el error no es de idioma no encontrado, salir para no insistir inútilmente
+      const errStr = JSON.stringify(errorData);
+      if (!errStr.includes('does not exist in') && !errStr.includes('language')) {
+        break;
+      }
     }
 
-    const data = await response.json();
-    return data.messages?.[0]?.id || '';
+    console.error('[WHATSAPP TEMPLATE API ERROR]', lastErrorData);
+    throw new Error(
+      `WhatsApp Template Error: ${lastErrorData?.error?.message || JSON.stringify(lastErrorData)}`
+    );
   }
 
   /**

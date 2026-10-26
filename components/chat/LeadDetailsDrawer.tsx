@@ -12,9 +12,15 @@ import {
   CheckCircle2,
   Calendar,
   ExternalLink,
+  Trash2,
+  Lock,
+  AlertTriangle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { PipelineStage } from '@/lib/supabase/types';
-import { updateContactDetails } from '@/app/actions/contacts';
+import { updateContactDetails, deleteContactWithPassword } from '@/app/actions/contacts';
+import { useRouter } from 'next/navigation';
 
 interface LeadDetailsDrawerProps {
   contact: {
@@ -44,11 +50,19 @@ export function LeadDetailsDrawer({
   isOpen,
   onClose,
 }: LeadDetailsDrawerProps) {
+  const router = useRouter();
   const [name, setName] = useState(contact.name || '');
   const [stage, setStage] = useState<PipelineStage>(contact.pipeline_stage);
   const [notes, setNotes] = useState<string>(contact.custom_fields?.notes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  // Estados para eliminación segura con contraseña
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -67,6 +81,26 @@ export function LeadDetailsDrawer({
       console.error('Error saving contact details:', err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeleteContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletePassword.trim() || isDeleting) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await deleteContactWithPassword(contact.id, deletePassword);
+      setShowDeleteModal(false);
+      onClose();
+      router.push('/inbox');
+      router.refresh();
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Error al eliminar el prospecto');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -186,8 +220,8 @@ export function LeadDetailsDrawer({
         </div>
       </div>
 
-      {/* Drawer Footer with Save Button */}
-      <div className="p-3 border-t border-gray-200 bg-gray-50/50">
+      {/* Drawer Footer with Save & Delete Buttons */}
+      <div className="p-3 border-t border-gray-200 bg-gray-50/50 space-y-2">
         <button
           onClick={handleSave}
           disabled={isSaving}
@@ -196,7 +230,91 @@ export function LeadDetailsDrawer({
           <Save className="w-3.5 h-3.5" />
           {isSaving ? 'Guardando...' : 'Guardar Ficha'}
         </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setDeleteError(null);
+            setDeletePassword('');
+            setShowDeleteModal(true);
+          }}
+          className="w-full py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-xl font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Eliminar Prospecto</span>
+        </button>
       </div>
+
+      {/* Modal de Confirmación con Contraseña */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mb-3">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+
+            <h3 className="font-bold text-base text-gray-900 mb-1">
+              ¿Eliminar este prospecto?
+            </h3>
+            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+              Esta acción es permanente e irreversible. Se eliminará a{' '}
+              <strong className="text-gray-800">{contact.name || contact.phone}</strong>{' '}
+              junto con todo su historial de mensajes de la base de datos.
+            </p>
+
+            {deleteError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs mb-3 font-medium">
+                {deleteError}
+              </div>
+            )}
+
+            <form onSubmit={handleDeleteContact} className="space-y-4">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-gray-600 block mb-1">
+                  Confirma tu contraseña para continuar
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Tu contraseña de Synqo"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    className="w-full pl-3 pr-10 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                  >
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={isDeleting}
+                  className="flex-1 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl border border-gray-300 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDeleting || !deletePassword.trim()}
+                  className="flex-1 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isDeleting ? 'Eliminando...' : 'Eliminar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
