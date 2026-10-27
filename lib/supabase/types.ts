@@ -13,6 +13,8 @@ export type ReminderStatus = 'pending' | 'sent' | 'cancelled';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing';
 export type PlanType = 'starter' | 'core' | 'pro' | 'enterprise';
 
+export type AvailabilityStatus = 'available' | 'busy' | 'offline';
+
 export interface Database {
   public: {
     Tables: {
@@ -92,6 +94,8 @@ export interface Database {
           full_name: string;
           role: UserRole;
           is_super_admin: boolean;
+          last_seen_at?: string;
+          availability_status?: AvailabilityStatus;
           created_at: string;
           updated_at: string;
         };
@@ -102,6 +106,8 @@ export interface Database {
           full_name: string;
           role?: UserRole;
           is_super_admin?: boolean;
+          last_seen_at?: string;
+          availability_status?: AvailabilityStatus;
           created_at?: string;
           updated_at?: string;
         };
@@ -112,6 +118,8 @@ export interface Database {
           full_name?: string;
           role?: UserRole;
           is_super_admin?: boolean;
+          last_seen_at?: string;
+          availability_status?: AvailabilityStatus;
           created_at?: string;
           updated_at?: string;
         };
@@ -127,6 +135,7 @@ export interface Database {
           custom_fields: Json;
           is_ai_active: boolean;
           last_interaction_at: string;
+          assigned_to?: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -139,6 +148,7 @@ export interface Database {
           custom_fields?: Json;
           is_ai_active?: boolean;
           last_interaction_at?: string;
+          assigned_to?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -151,6 +161,7 @@ export interface Database {
           custom_fields?: Json;
           is_ai_active?: boolean;
           last_interaction_at?: string;
+          assigned_to?: string | null;
           created_at?: string;
           updated_at?: string;
         };

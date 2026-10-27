@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   User,
@@ -30,6 +31,7 @@ interface LeadDetailsDrawerProps {
     pipeline_stage: PipelineStage;
     is_ai_active: boolean;
     last_interaction_at: string;
+    assigned_to?: string | null;
     custom_fields?: any;
     created_at?: string;
   };
@@ -63,6 +65,18 @@ export function LeadDetailsDrawer({
   const [showPassword, setShowPassword] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setName(contact.name || '');
+    setStage(contact.pipeline_stage);
+    setNotes(contact.custom_fields?.notes || '');
+    setSavedSuccess(false);
+  }, [contact.id, contact.name, contact.pipeline_stage, contact.custom_fields?.notes]);
 
   if (!isOpen) return null;
 
@@ -199,7 +213,7 @@ export function LeadDetailsDrawer({
             <span className="flex items-center gap-1">
               <Clock className="w-3 h-3" /> Última Interacción:
             </span>
-            <span className="font-mono text-gray-700">
+            <span suppressHydrationWarning className="font-mono text-gray-700">
               {new Date(contact.last_interaction_at).toLocaleTimeString('es-ES', {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -245,9 +259,9 @@ export function LeadDetailsDrawer({
         </button>
       </div>
 
-      {/* Modal de Confirmación con Contraseña */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+      {/* Modal de Confirmación con Contraseña (Teletransportado al body para pantalla completa) */}
+      {showDeleteModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150">
             <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mb-3">
               <AlertTriangle className="w-5 h-5" />
@@ -313,7 +327,8 @@ export function LeadDetailsDrawer({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

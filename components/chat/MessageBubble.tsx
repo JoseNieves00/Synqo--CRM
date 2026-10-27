@@ -68,7 +68,7 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
         </p>
 
         {/* Hora */}
-        <div className="text-[10px] mt-1 text-right opacity-60">
+        <div suppressHydrationWarning className="text-[10px] mt-1 text-right opacity-60">
           {formattedTime}
         </div>
       </div>

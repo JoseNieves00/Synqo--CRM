@@ -51,6 +51,7 @@ export class WhatsAppService {
    */
   static async sendTextMessage({ phoneNumberId, accessToken, to, body }: SendTextMessageParams): Promise<string> {
     const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
 
     const response = await fetch(url, {
       method: 'POST',
@@ -61,7 +62,7 @@ export class WhatsAppService {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        to: cleanTo,
         type: 'text',
         text: { preview_url: false, body },
       }),
@@ -89,9 +90,10 @@ export class WhatsAppService {
     components = [],
   }: SendTemplateMessageParams): Promise<string> {
     const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
 
-    // Intentar con el código principal y fallback a variantes comunes de español (es_CO, es, es_LA)
-    const candidateLanguages = [languageCode, 'es_CO', 'es', 'es_LA'].filter(
+    // Intentar con el código principal y fallback a variantes comunes (es_CO, es, es_LA, en_US, en)
+    const candidateLanguages = [languageCode, 'es_CO', 'es', 'es_LA', 'en_US', 'en'].filter(
       (val, idx, arr) => arr.indexOf(val) === idx
     );
 
@@ -106,7 +108,7 @@ export class WhatsAppService {
         },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
-          to,
+          to: cleanTo,
           type: 'template',
           template: {
             name: templateName,

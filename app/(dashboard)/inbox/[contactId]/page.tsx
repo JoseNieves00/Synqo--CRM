@@ -19,10 +19,10 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
     redirect('/login');
   }
 
-  // Consultar contactos y mensajes en paralelo para máxima velocidad
-  const [contactsRes, messagesRes] = await Promise.all([
+  // Consultar contactos, mensajes y miembros en paralelo para máxima velocidad
+  const [contactsRes, messagesRes, teamRes] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to')
       .eq('organization_id', current.organization.id)
       .order('updated_at', { ascending: false })
       .limit(50),
@@ -31,6 +31,10 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       .eq('contact_id', contactId)
       .order('created_at', { ascending: true })
       .limit(100),
+    (supabaseAdmin.from('profiles') as any)
+      .select('id, full_name, email, role')
+      .eq('organization_id', current.organization.id)
+      .order('full_name', { ascending: true }),
   ]);
 
   const contactList = contactsRes.data || [];
@@ -40,7 +44,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
 
   if (!activeContact) {
     const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, assigned_to')
       .eq('id', contactId)
       .eq('organization_id', current.organization.id)
       .single();
@@ -53,6 +57,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
   }
 
   const messages = messagesRes.data || [];
+  const teamMembers = teamRes.data || [];
 
   return (
     <InboxView
@@ -60,6 +65,9 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       activeContact={activeContact}
       messages={messages || []}
       customTemplates={(current.organization as any)?.whatsapp_templates || []}
+      currentUserId={current.user.id}
+      currentUserRole={current.profile?.role || 'agent'}
+      teamMembers={teamMembers}
     />
   );
 }

@@ -7,6 +7,7 @@ import { sanitizeLeadMessage } from '@/lib/security/sanitize';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { WhatsAppService } from '@/services/whatsapp.service';
 import { OpenAIService } from '@/services/openai.service';
+import { AssignmentService } from '@/services/assignment.service';
 
 /**
  * 1. GET: Handshake de verificación inicial de Meta WhatsApp Webhook.
@@ -68,11 +69,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'no_incoming_message' }, { status: 200 });
   }
 
-  // C. Filtrar mensajes soportados (texto y notas de voz / audios)
-  const isText = incomingMessage.type === 'text';
-  const isAudio = incomingMessage.type === 'audio';
+  // C. Filtrar tipos de mensajes
+  const msgType = incomingMessage.type;
+  // Descartar reacciones silenciosamente (no requieren procesamiento ni IA)
+  if (msgType === 'reaction') {
+    return NextResponse.json({ status: 'reaction_acknowledged' }, { status: 200 });
+  }
 
-  if (!isText && !isAudio) {
+  const supportedTypes = ['text', 'audio', 'button', 'interactive', 'image', 'document', 'location'];
+  if (!supportedTypes.includes(msgType)) {
     return NextResponse.json({ status: 'unsupported_message_type_ignored' }, { status: 200 });
   }
 
@@ -126,11 +131,36 @@ export async function POST(request: NextRequest) {
 
     const orgId = organization.id;
 
-    // F2. Procesar contenido del mensaje: Texto plano o Transcripción de Audio con Whisper
+    // F2. Procesar contenido del mensaje: Texto, Botones, Interactivo, Multimedia o Notas de Voz
     let rawContent = '';
-    if (isText) {
+    if (msgType === 'text') {
       rawContent = incomingMessage.text?.body || '';
-    } else if (isAudio) {
+    } else if (msgType === 'button') {
+      // Clic en botón de plantilla rápida de Meta
+      rawContent = incomingMessage.button?.text || incomingMessage.button?.payload || '[Botón presionado]';
+    } else if (msgType === 'interactive') {
+      // Clic en lista o botón interactivo
+      const interactive = incomingMessage.interactive;
+      if (interactive?.type === 'button_reply') {
+        rawContent = interactive.button_reply?.title || '[Botón seleccionado]';
+      } else if (interactive?.type === 'list_reply') {
+        rawContent = interactive.list_reply?.title || '[Opción de lista seleccionada]';
+      } else {
+        rawContent = '[Respuesta interactiva]';
+      }
+    } else if (msgType === 'image') {
+      const caption = incomingMessage.image?.caption;
+      rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
+    } else if (msgType === 'document') {
+      const filename = incomingMessage.document?.filename || 'Archivo';
+      const caption = incomingMessage.document?.caption;
+      rawContent = caption ? `📄 [Documento: ${filename}]: ${caption}` : `📄 [Documento recibido: ${filename}]`;
+    } else if (msgType === 'location') {
+      const loc = incomingMessage.location;
+      rawContent = loc
+        ? `📍 [Ubicación compartida: lat ${loc.latitude}, lng ${loc.longitude}${loc.name ? ` (${loc.name})` : ''}]`
+        : '📍 [Ubicación compartida]';
+    } else if (msgType === 'audio') {
       const audioId = incomingMessage.audio?.id;
       if (audioId && organization.whatsapp_access_token) {
         try {
@@ -189,17 +219,20 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', contactId);
     } else {
-      const { data: newContact, error: createError } = await supabaseAdmin
-        .from('contacts')
+      // Asignación automática por disponibilidad (Load Balancing) con fallback a cola del Admin
+      const bestAgentId = await AssignmentService.findBestAvailableAgent(orgId);
+
+      const { data: newContact, error: createError } = await (supabaseAdmin.from('contacts') as any)
         .insert({
           organization_id: orgId,
           phone: leadPhone,
           name: leadName,
           pipeline_stage: 'nuevo',
           is_ai_active: true,
+          assigned_to: bestAgentId || null,
           last_interaction_at: new Date().toISOString(),
         })
-        .select('id, is_ai_active')
+        .select('id, is_ai_active, assigned_to')
         .single();
 
       if (createError || !newContact) {
@@ -207,6 +240,20 @@ export async function POST(request: NextRequest) {
       }
       contactId = newContact.id;
       isAiActive = newContact.is_ai_active;
+
+      // Si se asignó a un agente disponible, registrar auditoría interna
+      if (bestAgentId) {
+        const { data: assignedAgent } = await (supabaseAdmin.from('profiles') as any)
+          .select('full_name')
+          .eq('id', bestAgentId)
+          .single();
+
+        await (supabaseAdmin.from('messages') as any).insert({
+          contact_id: contactId,
+          sender_type: 'system',
+          content: `[Sistema: Lead asignado automáticamente a ${assignedAgent?.full_name || 'Agente'}]`,
+        });
+      }
     }
 
     // J. Persistir el Mensaje Entrante en Supabase de Inmediato
@@ -230,33 +277,84 @@ export async function POST(request: NextRequest) {
               await WhatsAppService.markAsRead(phoneNumberId, decryptedWhatsAppToken, metaMessageId);
             }
 
-            // 2. Procesar con OpenAI y herramientas (Cal.com + Pipeline Stage)
-            const aiResponseText = await OpenAIService.processLeadMessage({
-              contactId,
-              organizationId: orgId,
-              leadPhone,
-              leadName,
-              systemPromptConfig: organization.system_prompt,
-              calApiKey: decryptedCalApiKey,
-              calEventTypeId: organization.cal_event_type_id,
-            });
+            // Detección Determinística de Solicitud de Asesor Humano (Cero Fuga)
+            const humanHandoffPatterns = [
+              /\b(asesor|humano|persona\s+real|agente\s+humano|operador)\b/i,
+              /hablar\s+con\s+(un|una|alguien)/i,
+              /atenci[oó]n\s+human[ao]/i,
+              /soporte\s+human[ao]/i,
+              /quiero\s+(un|una)\s+asesor/i,
+              /comunicar(me)?\s+con\s+(un|una)/i,
+              /p[aá]same\s+(con|a)\s+(un|alguien)/i,
+              /necesito\s+(un|una)\s+asesor/i,
+              /necesito\s+hablar\s+con\s+/i,
+            ];
+
+            const isDirectHandoffRequest = humanHandoffPatterns.some((p) => p.test(sanitizedContent));
+
+            let aiResponseText = '';
+
+            if (isDirectHandoffRequest) {
+              // Apagar la IA determinísticamente para activar la campana y notificaciones
+              await supabaseAdmin
+                .from('contacts')
+                .update({
+                  is_ai_active: false,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', contactId);
+
+              // Registrar nota interna en el CRM para el asesor
+              await supabaseAdmin.from('messages').insert({
+                contact_id: contactId,
+                sender_type: 'system',
+                content: '[🚨 Relevo Silencioso Activado: Cliente solicita atención personalizada]',
+              });
+
+              // Respuesta 100% humanizada y natural hacia WhatsApp (cero fricción)
+              aiResponseText =
+                '¡Hola! Claro que sí, con mucho gusto. Ya mismo te atiendo por aquí con todo detalle, dame un momento.';
+            } else {
+              // 2. Procesar con OpenAI y herramientas (Cal.com + Pipeline Stage)
+              aiResponseText = await OpenAIService.processLeadMessage({
+                contactId,
+                organizationId: orgId,
+                leadPhone,
+                leadName,
+                systemPromptConfig: organization.system_prompt,
+                calApiKey: decryptedCalApiKey,
+                calEventTypeId: organization.cal_event_type_id,
+              });
+            }
 
             // 3. Enviar respuesta por WhatsApp
             if (decryptedWhatsAppToken && aiResponseText) {
-              const outboundMetaId = await WhatsAppService.sendTextMessage({
-                phoneNumberId,
-                accessToken: decryptedWhatsAppToken,
-                to: leadPhone,
-                body: aiResponseText,
-              });
+              try {
+                const outboundMetaId = await WhatsAppService.sendTextMessage({
+                  phoneNumberId,
+                  accessToken: decryptedWhatsAppToken,
+                  to: leadPhone,
+                  body: aiResponseText,
+                });
 
-              // 4. Guardar la respuesta de la IA en la base de datos
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                sender_type: 'ai',
-                content: aiResponseText,
-                meta_message_id: outboundMetaId || null,
-              });
+                // 4. Guardar la respuesta de la IA en la base de datos
+                await supabaseAdmin.from('messages').insert({
+                  contact_id: contactId,
+                  sender_type: 'ai',
+                  content: aiResponseText,
+                  meta_message_id: outboundMetaId || null,
+                });
+              } catch (sendError: any) {
+                console.error('[WHATSAPP OUTBOUND SEND ERROR]', sendError);
+                const errMessage = sendError?.message || '';
+                if (errMessage.includes('190') || errMessage.includes('expired') || errMessage.includes('OAuthException')) {
+                  await supabaseAdmin.from('messages').insert({
+                    contact_id: contactId,
+                    sender_type: 'system',
+                    content: '⚠️ No se pudo enviar la respuesta de la IA porque el token de WhatsApp de Meta expiró. Reconecta la cuenta en Configuración.',
+                  });
+                }
+              }
             }
           } catch (asyncErr) {
             console.error('[ASYNC AI WORKER ERROR]', asyncErr);

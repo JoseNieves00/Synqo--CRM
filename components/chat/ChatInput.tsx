@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Send, AlertTriangle, FileText } from 'lucide-react';
+import { Send, AlertTriangle, FileText, Lock } from 'lucide-react';
 import { META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
 
 interface ChatInputProps {
@@ -10,6 +10,9 @@ interface ChatInputProps {
   onSendMessage: (text: string) => Promise<void>;
   onSendTemplate: (templateName: string) => Promise<void>;
   customTemplates?: Array<{ name: string; label: string }>;
+  disabled?: boolean;
+  disabledReason?: string;
+  onTyping?: () => void;
 }
 
 export function ChatInput({
@@ -18,10 +21,25 @@ export function ChatInput({
   onSendMessage,
   onSendTemplate,
   customTemplates,
+  disabled,
+  disabledReason,
+  onTyping,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('reactivacion_lead');
+  const availableTemplates = customTemplates && customTemplates.length > 0
+    ? customTemplates
+    : Object.values(META_TEMPLATES);
+
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(
+    availableTemplates[0]?.name || 'reactivacion_lead'
+  );
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (availableTemplates.length > 0 && !availableTemplates.some((t) => t.name === selectedTemplate)) {
+      setSelectedTemplate(availableTemplates[0].name);
+    }
+  }, [availableTemplates, selectedTemplate]);
 
   const handleSubmitText = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,6 +63,16 @@ export function ChatInput({
     }
   };
 
+  // Modo Solo Lectura / Bloqueo Anti-Colisión (asignado a otro agente)
+  if (disabled) {
+    return (
+      <div className="p-4 bg-slate-100 border-t border-gray-200 flex items-center justify-center gap-2.5 text-xs text-slate-600 font-medium">
+        <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+        <span>{disabledReason || 'Este chat está siendo atendido por otro asesor. Modo solo lectura.'}</span>
+      </div>
+    );
+  }
+
   // Parche 4: Si la ventana de 24 horas de Meta expiró, bloquear texto libre y mostrar selector estático
   if (!isWithin24h) {
     return (
@@ -65,19 +93,19 @@ export function ChatInput({
             onChange={(e) => setSelectedTemplate(e.target.value)}
             className="flex-1 bg-white border border-amber-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
           >
-            {/* Plantillas del catálogo estándar */}
-            {Object.entries(META_TEMPLATES).map(([key, item]) => (
-              <option key={key} value={item.name}>
-                {item.label} ({item.name})
-              </option>
-            ))}
-
-            {/* Plantillas dinámicas personalizadas de la empresa */}
-            {customTemplates?.filter(t => !META_TEMPLATES[t.name as MetaTemplateKey]).map((tpl) => (
-              <option key={tpl.name} value={tpl.name}>
-                {tpl.label || tpl.name} ({tpl.name})
-              </option>
-            ))}
+            {customTemplates && customTemplates.length > 0 ? (
+              customTemplates.map((tpl) => (
+                <option key={tpl.name} value={tpl.name}>
+                  {tpl.label || tpl.name} ({tpl.name})
+                </option>
+              ))
+            ) : (
+              Object.entries(META_TEMPLATES).map(([key, item]) => (
+                <option key={key} value={item.name}>
+                  {item.label} ({item.name})
+                </option>
+              ))
+            )}
           </select>
 
           <button
@@ -100,7 +128,10 @@ export function ChatInput({
         type="text"
         placeholder="Escribe un mensaje como agente (esto pausará la IA automáticamente)..."
         value={message}
-        onChange={(e) => setMessage(e.target.value)}
+        onChange={(e) => {
+          setMessage(e.target.value);
+          onTyping?.();
+        }}
         disabled={loading}
         className="flex-1 border border-gray-300 rounded-md px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0052FF] disabled:bg-gray-100"
       />

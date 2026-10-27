@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { createPortal } from 'react-dom';
 import {
   updateOrganizationSettings,
   testWhatsAppConnection,
@@ -8,6 +10,7 @@ import {
   processEmbeddedSignup,
   disconnectWhatsApp,
   addCustomTemplate,
+  updateCustomTemplate,
   deleteCustomTemplate,
 } from '@/app/actions/settings';
 import {
@@ -23,17 +26,17 @@ import {
   Check,
   Zap,
   Sparkles,
-  ShieldCheck,
   Eye,
   EyeOff,
-  Copy,
   ChevronDown,
   ChevronUp,
   Unlink,
   RefreshCw,
   FileText,
   Plus,
+  Pencil,
   Trash2,
+  Save,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
 
@@ -140,6 +143,7 @@ interface SettingsFormProps {
 }
 
 export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'integrations' | 'team'>('integrations');
   const [phoneNumberId, setPhoneNumberId] = useState(initialData.whatsappPhoneNumberId || '');
   const [accessToken, setAccessToken] = useState('');
@@ -148,16 +152,15 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [showAppSecret, setShowAppSecret] = useState(false);
   const [hasToken, setHasToken] = useState(Boolean(initialData.hasWhatsappToken));
   const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  const [savingManualWa, setSavingManualWa] = useState(false);
   const [disconnectingWhatsApp, setDisconnectingWhatsApp] = useState(false);
   const [capturedPhoneId, setCapturedPhoneId] = useState<string | null>(null);
   const [capturedWabaId, setCapturedWabaId] = useState<string | null>(null);
   const [showManualConfig, setShowManualConfig] = useState(!initialData.hasWhatsappToken && !initialData.whatsappPhoneNumberId);
 
   const metaAppId = initialData.metaAppId || process.env.NEXT_PUBLIC_META_APP_ID || '1628755725455108';
-  const metaConfigId = initialData.metaConfigId || process.env.NEXT_PUBLIC_META_CONFIG_ID || '';
+  const metaConfigId = initialData.metaConfigId || process.env.NEXT_PUBLIC_META_CONFIG_ID || '1897459618280453';
 
-  const [copiedWebhook, setCopiedWebhook] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(false);
   const [calApiKey, setCalApiKey] = useState('');
   const [calEventTypeId, setCalEventTypeId] = useState(initialData.calEventTypeId || '');
   const [systemPrompt, setSystemPrompt] = useState(
@@ -212,25 +215,6 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
     return () => window.removeEventListener('message', handleMessage);
   }, [metaAppId]);
 
-  // URL del Webhook y token de verificación para Meta Developers
-  const webhookUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/api/whatsapp/webhook`
-    : 'https://crm.synqo.dev/api/whatsapp/webhook';
-  const verifyToken = 'synqo_webhook_2026';
-
-  const copyToClipboard = (text: string, type: 'url' | 'token') => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(text);
-      if (type === 'url') {
-        setCopiedWebhook(true);
-        setTimeout(() => setCopiedWebhook(false), 2000);
-      } else {
-        setCopiedToken(true);
-        setTimeout(() => setCopiedToken(false), 2000);
-      }
-    }
-  };
-
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
@@ -244,13 +228,38 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [calTestResult, setCalTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
   // Gestión dinámica de plantillas de WhatsApp (Meta)
+  const DEFAULT_SYSTEM_TEMPLATES = [
+    { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
+    { name: 'hello_world', label: 'Saludo de Prueba Meta' },
+    { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
+    { name: 'seguimiento_general', label: 'Seguimiento General' },
+  ];
+
   const [templates, setTemplates] = useState<Array<{ name: string; label: string }>>(
-    initialData.whatsappTemplates || []
+    initialData.whatsappTemplates && initialData.whatsappTemplates.length > 0
+      ? initialData.whatsappTemplates
+      : DEFAULT_SYSTEM_TEMPLATES
   );
   const [newTplName, setNewTplName] = useState('');
   const [newTplLabel, setNewTplLabel] = useState('');
   const [savingTpl, setSavingTpl] = useState(false);
   const [tplFeedback, setTplFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [templateToDelete, setTemplateToDelete] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [deletingTpl, setDeletingTpl] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [templateToEdit, setTemplateToEdit] = useState<{ oldName: string; name: string; label: string } | null>(null);
+  const [editPassword, setEditPassword] = useState('');
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editingTpl, setEditingTpl] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleAddTemplate = async () => {
     const cleanName = newTplName.trim().toLowerCase().replace(/\s+/g, '_');
@@ -287,26 +296,115 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
     }
   };
 
-  const handleDeleteTemplate = async (templateName: string) => {
-    if (!confirm(`¿Deseas quitar la plantilla "${templateName}" del CRM?`)) return;
-    setSavingTpl(true);
-    setTplFeedback(null);
+  const handleSaveEditTemplate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!templateToEdit) return;
+    const cleanNewName = templateToEdit.name.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!cleanNewName) {
+      setEditError('El nombre técnico de la plantilla en Meta no puede estar vacío.');
+      return;
+    }
+    if (!editPassword.trim()) {
+      setEditError('Debes ingresar tu contraseña para confirmar la modificación.');
+      return;
+    }
+
+    setEditingTpl(true);
+    setEditError(null);
     try {
-      const res = await deleteCustomTemplate(templateName);
+      const res = await updateCustomTemplate({
+        oldName: templateToEdit.oldName,
+        newName: cleanNewName,
+        label: templateToEdit.label.trim() || undefined,
+        password: editPassword,
+      });
+      if (res.templates) {
+        setTemplates(res.templates);
+      }
+      setTemplateToEdit(null);
+      setEditPassword('');
+      setTplFeedback({
+        type: 'success',
+        message: `Plantilla actualizada con éxito.`,
+      });
+      router.refresh();
+    } catch (err: any) {
+      setEditError(err.message || 'Error al actualizar la plantilla.');
+    } finally {
+      setEditingTpl(false);
+    }
+  };
+
+  const confirmDeleteTemplate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!templateToDelete) return;
+    if (!deletePassword.trim()) {
+      setDeleteError('Debes ingresar tu contraseña para confirmar la eliminación.');
+      return;
+    }
+
+    setDeletingTpl(true);
+    setDeleteError(null);
+    try {
+      const res = await deleteCustomTemplate({
+        templateName: templateToDelete,
+        password: deletePassword,
+      });
       if (res.templates) {
         setTemplates(res.templates);
       }
       setTplFeedback({
         type: 'success',
-        message: `Plantilla "${templateName}" eliminada correctamente.`,
+        message: `Plantilla "${templateToDelete}" eliminada correctamente del CRM.`,
       });
+      setTemplateToDelete(null);
+      setDeletePassword('');
+      router.refresh();
     } catch (err: any) {
-      setTplFeedback({
+      setDeleteError(err.message || 'Error al eliminar la plantilla.');
+    } finally {
+      setDeletingTpl(false);
+    }
+  };
+
+  /**
+   * Guarda directamente las credenciales manuales de WhatsApp sin depender de Meta Login
+   */
+  const handleSaveManualWhatsApp = async () => {
+    const cleanPhone = phoneNumberId.trim().replace(/[^0-9]/g, '');
+    if (!cleanPhone) {
+      setFeedback({
         type: 'error',
-        message: err.message || 'Error al eliminar la plantilla.',
+        message: 'Por favor ingresa un Phone Number ID válido de Meta (solo números).',
+      });
+      return;
+    }
+
+    setSavingManualWa(true);
+    setFeedback(null);
+    try {
+      await updateOrganizationSettings({
+        whatsappPhoneNumberId: cleanPhone,
+        whatsappAccessToken: accessToken.trim() || undefined,
+      });
+
+      if (accessToken.trim()) {
+        setHasToken(true);
+        setAccessToken('');
+      }
+
+      setFeedback({
+        type: 'success',
+        message: '¡Credenciales de WhatsApp guardadas exitosamente!',
+      });
+      router.refresh();
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err?.message || 'Error al guardar las credenciales de WhatsApp.',
       });
     } finally {
-      setSavingTpl(false);
+      setSavingManualWa(false);
     }
   };
 
@@ -325,6 +423,19 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
     setConnectingWhatsApp(true);
     setFeedback(null);
 
+    // Watchdog de seguridad: Si la ventana de Meta se bloquea o el usuario la cierra, liberar el botón tras 15 segundos
+    const watchdogTimer = setTimeout(() => {
+      setConnectingWhatsApp(false);
+    }, 15000);
+
+    const handleFocusBack = () => {
+      setTimeout(() => {
+        setConnectingWhatsApp(false);
+        window.removeEventListener('focus', handleFocusBack);
+      }, 1500);
+    };
+    window.addEventListener('focus', handleFocusBack);
+
     const loginOptions: Record<string, any> = {
       response_type: 'code',
       override_default_response_type: true,
@@ -341,6 +452,9 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
     }
 
     window.FB.login(async (response: any) => {
+      clearTimeout(watchdogTimer);
+      window.removeEventListener('focus', handleFocusBack);
+
       if (response.authResponse?.code) {
         try {
           const res = await processEmbeddedSignup({
@@ -654,76 +768,6 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">
-            {/* Guía y Datos del Webhook para Meta Developers */}
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-xl p-6 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/80 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-blue-500/20 text-blue-400 rounded-lg border border-blue-500/30">
-                    <ShieldCheck className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">Configuración del Webhook en Meta Developers</h3>
-                    <p className="text-xs text-slate-300">Pega estos datos en tu App de Meta para recibir los mensajes de WhatsApp</p>
-                  </div>
-                </div>
-                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Webhook Listo
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                {/* URL del Webhook */}
-                <div className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="font-semibold text-slate-200">URL de devolución de llamada (Webhook URL)</span>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(webhookUrl, 'url')}
-                      className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 cursor-pointer font-medium transition"
-                    >
-                      {copiedWebhook ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      {copiedWebhook ? '¡Copiado!' : 'Copiar URL'}
-                    </button>
-                  </div>
-                  <div className="bg-slate-950/60 rounded px-2.5 py-1.5 text-xs font-mono text-emerald-400 break-all select-all border border-slate-800">
-                    {webhookUrl}
-                  </div>
-                </div>
-
-                {/* Token de Verificación */}
-                <div className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="font-semibold text-slate-200">Token de verificación (Verify Token)</span>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(verifyToken, 'token')}
-                      className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 cursor-pointer font-medium transition"
-                    >
-                      {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      {copiedToken ? '¡Copiado!' : 'Copiar Token'}
-                    </button>
-                  </div>
-                  <div className="bg-slate-950/60 rounded px-2.5 py-1.5 text-xs font-mono text-blue-400 select-all border border-slate-800">
-                    {verifyToken}
-                  </div>
-                </div>
-              </div>
-
-              {/* Pasos visuales rápidos */}
-              <div className="bg-slate-950/40 rounded-lg p-3 border border-slate-800 text-[11px] text-slate-300 space-y-1">
-                <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                  <span>📌 Pasos en tu App de Meta Developers:</span>
-                  <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">30 segundos</span>
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-400 pt-0.5">
-                  <li>En tu App de Meta ve a <strong className="text-slate-200">WhatsApp → Configuración</strong>.</li>
-                  <li>En la sección <strong className="text-slate-200">Webhook</strong> pulsa <em>Editar</em>, pega la URL y el Token de arriba y haz clic en <em>Verificar y guardar</em>.</li>
-                  <li>En la tabla de campos, haz clic en <strong className="text-slate-200">Administrar</strong> y activa la casilla <code className="text-emerald-400 bg-slate-850 px-1 rounded font-mono">messages</code>.</li>
-                </ol>
-              </div>
-            </div>
-
             {/* Meta WhatsApp Cloud API */}
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
@@ -798,16 +842,16 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {/* BOTÓN OFICIAL AZUL PARA RECONECTAR / ACTUALIZAR CUENTA */}
+                      {/* BOTÓN OFICIAL AZUL PARA EMBEDDED SIGNUP CON FACEBOOK */}
                       <button
                         type="button"
                         onClick={handleConnectWhatsApp}
                         disabled={connectingWhatsApp}
                         className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#1877F2] hover:bg-[#166FE5] transition cursor-pointer shadow-xs disabled:opacity-50"
-                        title="Volver a abrir el flujo de Meta para cambiar de número o renovar permisos"
+                        title="Abrir ventana oficial de Meta para sincronizar cuenta por Facebook Login"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${connectingWhatsApp ? 'animate-spin' : ''}`} />
-                        <span>{connectingWhatsApp ? 'Conectando...' : 'Reconectar / Cambiar'}</span>
+                        <span>{connectingWhatsApp ? 'Conectando con Meta...' : 'Reconectar con Facebook'}</span>
                       </button>
 
                       <button
@@ -952,40 +996,22 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                           Token del Sistema con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
                         </p>
                       </div>
+                    </div>
 
-                      <div className="md:col-span-2">
-                        <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <span>Meta App Secret (Clave Secreta de la App)</span>
-                            <span className="text-[10px] bg-slate-100 text-slate-600 font-normal px-2 py-0.5 rounded-full border border-slate-200">
-                              Opcional con Embedded Signup
-                            </span>
-                          </span>
-                          <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> Cifrado AES-256
-                          </span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showAppSecret ? 'text' : 'password'}
-                            placeholder={initialData.hasWhatsappAppSecret ? '•••••••••••••••••••••••••••••••• (Guardado)' : 'Ej. a1b2c3d4e5f67890abcdef1234567890'}
-                            value={appSecret}
-                            onChange={(e) => setAppSecret(e.target.value.trim())}
-                            className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowAppSecret(!showAppSecret)}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
-                            title={showAppSecret ? 'Ocultar secret' : 'Mostrar secret'}
-                          >
-                            {showAppSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        <p className="text-[11px] text-gray-400 mt-1">
-                          Encuéntralo en Meta for Developers → Configuración de la app → Información básica → Clave secreta.
-                        </p>
-                      </div>
+                    {/* Botón para guardar cambios de WhatsApp en el mismo bloque */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-gray-100">
+                      <p className="text-[11px] text-gray-500">
+                        Al guardar, el token se cifrará de inmediato con AES-256 y quedará activo en el CRM.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleSaveManualWhatsApp}
+                        disabled={savingManualWa || !phoneNumberId.trim()}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
+                      >
+                        <Save className={`w-3.5 h-3.5 ${savingManualWa ? 'animate-spin' : ''}`} />
+                        <span>{savingManualWa ? 'Guardando...' : 'Guardar Credenciales de WhatsApp'}</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1074,97 +1100,76 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
               {/* Listado de plantillas activas en el CRM */}
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-gray-700">
-                  Plantillas disponibles en el Inbox:
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-gray-700">
+                    Plantillas configuradas ({templates.length}):
+                  </h3>
+                  <span className="text-[11px] text-gray-400">
+                    Disponibles en el selector del chat
+                  </span>
+                </div>
 
                 <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden bg-white">
-                  {/* Plantillas del Sistema */}
-                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <div>
-                        <p className="text-xs font-semibold text-gray-900">Reactivación de Contacto</p>
-                        <p className="text-[11px] font-mono text-gray-500">reactivacion_lead</p>
-                      </div>
+                  {templates.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-gray-500">
+                      No hay plantillas registradas. Agrega una arriba con el nombre exacto aprobado en Meta.
                     </div>
-                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
-                      Plantilla Estándar
-                    </span>
-                  </div>
-
-                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <div>
-                        <p className="text-xs font-semibold text-gray-900">Saludo de Prueba Meta</p>
-                        <p className="text-[11px] font-mono text-gray-500">hello_world</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
-                      Plantilla Estándar
-                    </span>
-                  </div>
-
-                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <div>
-                        <p className="text-xs font-semibold text-gray-900">Recordatorio de Cita</p>
-                        <p className="text-[11px] font-mono text-gray-500">recordatorio_cita</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
-                      Plantilla Estándar
-                    </span>
-                  </div>
-
-                  <div className="p-3 flex items-center justify-between bg-gray-50/50">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <div>
-                        <p className="text-xs font-semibold text-gray-900">Seguimiento General</p>
-                        <p className="text-[11px] font-mono text-gray-500">seguimiento_general</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
-                      Plantilla Estándar
-                    </span>
-                  </div>
-
-                  {/* Plantillas Personalizadas */}
-                  {templates
-                    .filter(
-                      (t) =>
-                        !['reactivacion_lead', 'hello_world', 'recordatorio_cita', 'seguimiento_general'].includes(
-                          t.name
-                        )
-                    )
-                    .map((tpl) => (
-                      <div key={tpl.name} className="p-3 flex items-center justify-between hover:bg-gray-50/70 transition">
+                  ) : (
+                    templates.map((tpl) => (
+                      <div
+                        key={tpl.name}
+                        className="p-3 flex items-center justify-between hover:bg-gray-50/70 transition"
+                      >
                         <div className="flex items-center gap-2.5">
-                          <div className="w-2 h-2 rounded-full bg-amber-500" />
+                          <div className="w-2 h-2 rounded-full bg-emerald-500" />
                           <div>
-                            <p className="text-xs font-semibold text-gray-900">{tpl.label || tpl.name}</p>
-                            <p className="text-[11px] font-mono text-gray-500">{tpl.name}</p>
+                            <p className="text-xs font-semibold text-gray-900">
+                              {tpl.label || tpl.name}
+                            </p>
+                            <p className="text-[11px] font-mono text-gray-500">
+                              {tpl.name}
+                            </p>
                           </div>
                         </div>
+
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-medium bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
-                            Personalizada
-                          </span>
                           <button
                             type="button"
-                            onClick={() => handleDeleteTemplate(tpl.name)}
-                            disabled={savingTpl}
-                            className="p-1 text-gray-400 hover:text-rose-600 rounded transition cursor-pointer"
+                            onClick={() => {
+                              setTemplateToEdit({
+                                oldName: tpl.name,
+                                name: tpl.name,
+                                label: tpl.label || tpl.name,
+                              });
+                              setEditPassword('');
+                              setShowEditPassword(false);
+                              setEditError(null);
+                            }}
+                            disabled={savingTpl || deletingTpl || editingTpl}
+                            className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            title="Editar plantilla"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTemplateToDelete(tpl.name);
+                              setDeletePassword('');
+                              setShowDeletePassword(false);
+                              setDeleteError(null);
+                            }}
+                            disabled={savingTpl || deletingTpl || editingTpl}
+                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                             title="Eliminar plantilla"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                    ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -1285,6 +1290,199 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           </button>
         </div>
       </form>
+
+      {/* Modal de Edición de Plantilla */}
+      {templateToEdit && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                <Pencil className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-gray-900">
+                  Editar Plantilla
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Modifica el nombre técnico de Meta o su etiqueta.
+                </p>
+              </div>
+            </div>
+
+            {editError && (
+              <div className="p-2.5 rounded-lg text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditTemplate} className="space-y-3 pt-1">
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">
+                  Nombre exacto en Meta <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={templateToEdit.name}
+                  onChange={(e) =>
+                    setTemplateToEdit({
+                      ...templateToEdit,
+                      name: e.target.value.toLowerCase().replace(/\s+/g, '_'),
+                    })
+                  }
+                  placeholder="ej: reactivacion_lead"
+                  className="w-full text-xs font-mono border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">
+                  Etiqueta en CRM (Nombre amigable)
+                </label>
+                <input
+                  type="text"
+                  value={templateToEdit.label}
+                  onChange={(e) =>
+                    setTemplateToEdit({
+                      ...templateToEdit,
+                      label: e.target.value,
+                    })
+                  }
+                  placeholder="ej: Reactivación de Lead"
+                  className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">
+                  Confirma con tu contraseña <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Tu contraseña de Synqo"
+                    className="w-full text-xs border border-gray-300 rounded-lg pl-3 pr-9 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-0.5"
+                    title={showEditPassword ? 'Ocultar' : 'Mostrar'}
+                  >
+                    {showEditPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTemplateToEdit(null);
+                    setEditPassword('');
+                    setEditError(null);
+                  }}
+                  disabled={editingTpl}
+                  className="flex-1 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl border border-gray-300 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={editingTpl || !templateToEdit.name.trim() || !editPassword.trim()}
+                  className="flex-1 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  {editingTpl ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal de Confirmación para Eliminar Plantilla */}
+      {templateToDelete && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+              <Trash2 className="w-5 h-5" />
+            </div>
+
+            <div>
+              <h3 className="font-bold text-base text-gray-900 mb-1">
+                ¿Eliminar plantilla de WhatsApp?
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                ¿Estás seguro de que deseas quitar la plantilla{' '}
+                <strong className="text-gray-800 font-mono">"{templateToDelete}"</strong> del CRM? Ya no estará disponible en el selector del Inbox.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="p-2.5 rounded-lg text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <form onSubmit={confirmDeleteTemplate} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">
+                  Confirma con tu contraseña <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showDeletePassword ? 'text' : 'password'}
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="Tu contraseña de Synqo"
+                    className="w-full text-xs border border-gray-300 rounded-lg pl-3 pr-9 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white"
+                    autoFocus
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeletePassword(!showDeletePassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-0.5"
+                    title={showDeletePassword ? 'Ocultar' : 'Mostrar'}
+                  >
+                    {showDeletePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTemplateToDelete(null);
+                    setDeletePassword('');
+                    setDeleteError(null);
+                  }}
+                  disabled={deletingTpl}
+                  className="flex-1 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl border border-gray-300 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={deletingTpl || !deletePassword.trim()}
+                  className="flex-1 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {deletingTpl ? 'Eliminando...' : 'Eliminar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
       </>
       )}
     </div>

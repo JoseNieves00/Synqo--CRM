@@ -10,6 +10,7 @@ import { SidebarNav } from '@/components/dashboard/SidebarNav';
 import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
 import { MustChangePasswordModal } from '@/components/profile/MustChangePasswordModal';
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
+import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
 import { SuspendedOrganizationModal } from '@/components/billing/SuspendedOrganizationModal';
 
 export const dynamic = 'force-dynamic';
@@ -90,8 +91,17 @@ export default async function DashboardLayout({
         />
       </aside>
 
-      {/* Notificador de Relevo Humano (Campana Sonora + Notificación Push) */}
-      {orgId && <HandoffAlertNotifier organizationId={orgId} />}
+      {/* Latido de Presencia y Detección Antifantasma */}
+      <UserPresenceHeartbeat />
+
+      {/* Notificador de Relevo Humano y Nuevas Asignaciones */}
+      {orgId && (
+        <HandoffAlertNotifier
+          organizationId={orgId}
+          currentUserId={current?.user?.id}
+          isAdmin={isAdmin}
+        />
+      )}
 
       {/* Modal Obligatorio de Cambio de Contraseña si ingresó con Clave Temporal */}
       <MustChangePasswordModal
