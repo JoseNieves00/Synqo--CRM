@@ -6,7 +6,11 @@ import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SettingsPage() {
+interface SettingsPageProps {
+  searchParams?: { [key: string]: string | undefined };
+}
+
+export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const current = await getCurrentUserAndOrg();
 
   if (!current) {
@@ -46,6 +50,8 @@ export default async function SettingsPage() {
         whatsappTemplates: (org as any)?.whatsapp_templates || [],
         metaAppId: process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || '1628755725455108',
         metaConfigId: process.env.META_CONFIG_ID || process.env.NEXT_PUBLIC_META_CONFIG_ID || '1897459618280453',
+        initialOauthCode: searchParams?.code,
+        initialOauthError: searchParams?.error || searchParams?.error_description,
       }}
       teamData={teamData || undefined}
     />
