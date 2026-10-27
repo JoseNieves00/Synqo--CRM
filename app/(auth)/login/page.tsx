@@ -1,9 +1,70 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import Image from 'next/image';
+import { useSearchParams } from 'next/navigation';
 import { signIn } from '@/app/actions/auth';
-import { ShieldCheck, Mail, Lock, ArrowRight, Loader2, X } from 'lucide-react';
+import {
+  ShieldCheck,
+  Mail,
+  Lock,
+  ArrowRight,
+  Loader2,
+  X,
+  Clock,
+  ShieldAlert,
+} from 'lucide-react';
+
+function SessionReasonNotice() {
+  const searchParams = useSearchParams();
+  const reason = searchParams.get('reason');
+
+  if (!reason) return null;
+
+  if (reason === 'inactivity') {
+    return (
+      <div className="mb-5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+        <Clock className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-bold text-amber-300">Sesión Expirada por Inactividad</p>
+          <p className="text-[11px] text-amber-200/80 mt-0.5">
+            Por seguridad de tu empresa, tu sesión se cerró tras superar el límite de tiempo sin uso. Por favor vuelve a identificarte.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (reason === 'expired') {
+    return (
+      <div className="mb-5 p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-200 text-xs flex items-start gap-2.5">
+        <Clock className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-bold text-blue-300">Límite Máximo de Sesión Alcanzado</p>
+          <p className="text-[11px] text-blue-200/80 mt-0.5">
+            Tu sesión alcanzó las 24 horas de duración máxima permitida por política de seguridad corporativa.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (reason === 'unauthorized') {
+    return (
+      <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2.5">
+        <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-bold text-rose-300">Acceso Restringido</p>
+          <p className="text-[11px] text-rose-200/80 mt-0.5">
+            No tienes privilegios suficientes para acceder a esa sección.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -64,6 +125,10 @@ export default function LoginPage() {
 
       <div className="mt-7 sm:mx-auto sm:w-full sm:max-w-md relative z-10 px-4 sm:px-0">
         <div className="bg-[#131722] border border-[#232A3B] py-8 px-6 shadow-2xl rounded-2xl sm:px-10">
+          <Suspense fallback={null}>
+            <SessionReasonNotice />
+          </Suspense>
+
           {error && (
             <div className="mb-5 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
               {error}

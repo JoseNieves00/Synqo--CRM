@@ -18,6 +18,8 @@ import {
   Zap,
   AlertTriangle,
   ShieldAlert,
+  AlertCircle,
+  UserCheck,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -39,7 +41,7 @@ export default async function DashboardPage() {
   // Consultas optimizadas en paralelo
   const [{ data: contacts }, tokenUsage] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at, assigned_to')
       .eq('organization_id', current.organization.id)
       .order('last_interaction_at', { ascending: false })
       .limit(100),
@@ -52,6 +54,8 @@ export default async function DashboardPage() {
   const aiActiveLeads = leadList.filter((c: any) => c.is_ai_active).length;
   const bookedAppointments = leadList.filter((c: any) => c.pipeline_stage === 'cita_agendada').length;
   const wonLeads = leadList.filter((c: any) => c.pipeline_stage === 'ganado').length;
+  const unassignedLeads = leadList.filter((c: any) => !c.assigned_to);
+  const unassignedCount = unassignedLeads.length;
 
   const conversionRate = totalLeads > 0
     ? (((bookedAppointments + wonLeads) / totalLeads) * 100).toFixed(1)
@@ -123,14 +127,34 @@ export default async function DashboardPage() {
       )}
 
       {/* Tarjetas de Métricas Clave Reales */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between text-gray-500 mb-2">
-            <span className="text-xs font-medium">Total de Prospectos</span>
+            <span className="text-xs font-medium">Total Prospectos</span>
             <Users className="w-4 h-4 text-gray-400" />
           </div>
           <div className="text-2xl font-bold text-gray-900">{totalLeads}</div>
-          <span className="text-xs text-gray-400">Contactos comerciales activos</span>
+          <span className="text-xs text-gray-400">Contactos comerciales</span>
+        </div>
+
+        {/* Métrica de Leads Sin Asignar */}
+        <div className={`p-5 rounded-xl border shadow-sm transition ${
+          unassignedCount > 0
+            ? 'bg-amber-50/70 border-amber-300'
+            : 'bg-white border-gray-200'
+        }`}>
+          <div className="flex items-center justify-between text-gray-500 mb-2">
+            <span className={`text-xs font-medium ${unassignedCount > 0 ? 'text-amber-900 font-bold' : ''}`}>
+              Sin Asignar
+            </span>
+            <AlertCircle className={`w-4 h-4 ${unassignedCount > 0 ? 'text-amber-600 animate-pulse' : 'text-gray-400'}`} />
+          </div>
+          <div className={`text-2xl font-bold ${unassignedCount > 0 ? 'text-amber-950' : 'text-gray-900'}`}>
+            {unassignedCount}
+          </div>
+          <span className={`text-xs font-semibold ${unassignedCount > 0 ? 'text-amber-700' : 'text-gray-400'}`}>
+            {unassignedCount > 0 ? 'Requieren atención' : 'Todo asignado'}
+          </span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
@@ -140,7 +164,7 @@ export default async function DashboardPage() {
           </div>
           <div className="text-2xl font-bold text-gray-900">{aiActiveLeads}</div>
           <span className="text-xs text-emerald-600 font-medium">
-            {totalLeads > 0 ? `${Math.round((aiActiveLeads / totalLeads) * 100)}% atendidos por IA` : 'Sin leads aún'}
+            {totalLeads > 0 ? `${Math.round((aiActiveLeads / totalLeads) * 100)}% con IA` : 'Sin leads'}
           </span>
         </div>
 
@@ -150,7 +174,7 @@ export default async function DashboardPage() {
             <CalendarCheck className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-2xl font-bold text-gray-900">{bookedAppointments}</div>
-          <span className="text-xs text-blue-600 font-medium">Confirmadas vía Cal.com</span>
+          <span className="text-xs text-blue-600 font-medium">Vía Cal.com</span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
@@ -159,13 +183,13 @@ export default async function DashboardPage() {
             <TrendingUp className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-2xl font-bold text-gray-900">{conversionRate}%</div>
-          <span className="text-xs text-purple-600 font-medium">Citas & Ventas cerradas</span>
+          <span className="text-xs text-purple-600 font-medium">Cierre & Citas</span>
         </div>
 
         {/* Métrica de Consumo de Tokens */}
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between text-gray-500 mb-2">
-            <span className="text-xs font-medium">Consumo de Tokens IA</span>
+            <span className="text-xs font-medium">Tokens IA</span>
             <Zap className={`w-4 h-4 ${tokenUsage && tokenUsage.isWarning ? 'text-amber-500' : 'text-emerald-500'}`} />
           </div>
           <div className="text-2xl font-bold text-gray-900">
@@ -184,10 +208,93 @@ export default async function DashboardPage() {
             />
           </div>
           <span className="text-[10px] text-gray-400 mt-1 block font-mono">
-            {tokenUsage ? `${(tokenUsage.tokensUsed).toLocaleString()} / ${(tokenUsage.tokensLimit).toLocaleString()} tokens` : '0 tokens'}
+            {tokenUsage ? `${(tokenUsage.tokensUsed).toLocaleString()} / ${(tokenUsage.tokensLimit).toLocaleString()}` : '0 tokens'}
           </span>
         </div>
       </div>
+
+      {/* SECCIÓN PRIORITARIA: PROSPECTOS SIN ASIGNAR */}
+      {unassignedCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-50/80 via-white to-amber-50/40 border border-amber-200/90 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/60 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-gray-900">
+                    Prospectos Sin Asignar (Atención Prioritaria)
+                  </h3>
+                  <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                    {unassignedCount} {unassignedCount === 1 ? 'pendiente' : 'pendientes'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Estos contactos no tienen un asesor responsable asignado. Puedes tomar el lead o asignarlo directamente en el Inbox.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href="/inbox"
+              prefetch={true}
+              className="text-xs text-amber-900 hover:text-amber-950 font-semibold flex items-center gap-1.5 self-start sm:self-auto bg-amber-100/80 hover:bg-amber-200/80 px-3.5 py-1.5 rounded-xl border border-amber-300 transition shrink-0"
+            >
+              <span>Ver cola en Inbox</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {unassignedLeads.slice(0, 6).map((lead: any) => {
+              const stageBadge = STAGE_BADGES[lead.pipeline_stage] || {
+                label: lead.pipeline_stage,
+                color: 'bg-gray-100 text-gray-700 border-gray-200',
+              };
+              return (
+                <div
+                  key={lead.id}
+                  className="bg-white rounded-xl border border-amber-200/80 p-3.5 flex flex-col justify-between gap-3 hover:shadow-md transition"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-bold text-gray-900 truncate">
+                        {lead.name || 'Sin nombre registrado'}
+                      </h4>
+                      <p className="text-[11px] text-gray-500 font-mono mt-0.5 flex items-center gap-1">
+                        <Phone className="w-3 h-3 text-gray-400 shrink-0" />
+                        <span>{lead.phone}</span>
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${stageBadge.color}`}>
+                      {stageBadge.label}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-[11px]">
+                    <span className="text-gray-500 flex items-center gap-1 text-[11px]">
+                      <Clock className="w-3 h-3 text-gray-400" />
+                      {lead.last_interaction_at
+                        ? new Date(lead.last_interaction_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                        : 'Reciente'}
+                    </span>
+                    <Link
+                      href={`/inbox/${lead.id}`}
+                      prefetch={true}
+                      className="inline-flex items-center gap-1 font-bold text-xs text-[#0052FF] hover:text-[#0047E0] hover:underline"
+                    >
+                      <span>Tomar lead</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Sección de Leads Recientes y Enlaces Rápidos */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

@@ -14,6 +14,9 @@ export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing'
 export type PlanType = 'starter' | 'core' | 'pro' | 'enterprise';
 
 export type AvailabilityStatus = 'available' | 'busy' | 'offline';
+export type TicketCategory = 'whatsapp' | 'ai_assistant' | 'calendar' | 'billing' | 'bug' | 'feature_request';
+export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 
 export interface Database {
   public: {
@@ -254,6 +257,60 @@ export interface Database {
           notes?: string | null;
           registered_by?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      support_tickets: {
+        Row: {
+          id: string;
+          organization_id: string;
+          created_by: string | null;
+          category: TicketCategory;
+          priority: TicketPriority;
+          status: TicketStatus;
+          title: string;
+          description: string;
+          screenshot_url: string | null;
+          github_issue_number: number | null;
+          github_issue_url: string | null;
+          system_metadata: Json;
+          created_at: string;
+          updated_at: string;
+          resolved_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          created_by?: string | null;
+          category: TicketCategory;
+          priority?: TicketPriority;
+          status?: TicketStatus;
+          title: string;
+          description: string;
+          screenshot_url?: string | null;
+          github_issue_number?: number | null;
+          github_issue_url?: string | null;
+          system_metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+          resolved_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          created_by?: string | null;
+          category?: TicketCategory;
+          priority?: TicketPriority;
+          status?: TicketStatus;
+          title?: string;
+          description?: string;
+          screenshot_url?: string | null;
+          github_issue_number?: number | null;
+          github_issue_url?: string | null;
+          system_metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+          resolved_at?: string | null;
         };
         Relationships: [];
       };

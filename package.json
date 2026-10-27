@@ -1,6 +1,6 @@
 {
   "name": "synqo-crm",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/security.test.ts && tsx tests/superadmin-team.test.ts && tsx tests/profile-tokens.test.ts && tsx tests/manual-billing.test.ts && tsx tests/embedded-signup.test.ts && tsx tests/multi-agent-assignment.test.ts",
+    "test": "tsx tests/security.test.ts && tsx tests/superadmin-team.test.ts && tsx tests/profile-tokens.test.ts && tsx tests/manual-billing.test.ts && tsx tests/embedded-signup.test.ts && tsx tests/multi-agent-assignment.test.ts && tsx tests/support-tickets-and-copilot.test.ts && tsx tests/auth-security-and-session.test.ts",
     "create-company": "tsx scripts/create-company.ts",
     "rotate-keys": "tsx scripts/rotate-keys.ts",
     "simulate": "tsx scripts/simulate-chat.ts",

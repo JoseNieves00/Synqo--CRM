@@ -54,12 +54,20 @@ export async function sendAgentMessage(contactId: string, content: string) {
 
   const decryptedToken = decryptSecret(org.whatsapp_access_token);
 
+  const cleanContent = typeof content === 'string' ? content.trim() : '';
+  if (!cleanContent) {
+    throw new Error('El mensaje no puede estar vacío.');
+  }
+  if (cleanContent.length > 4096) {
+    throw new Error('El mensaje supera el límite permitido por WhatsApp (4,096 caracteres).');
+  }
+
   // 5. Enviar mensaje mediante Meta Cloud API
   const metaMessageId = await WhatsAppService.sendTextMessage({
     phoneNumberId: org.whatsapp_phone_number_id,
     accessToken: decryptedToken,
     to: contact.phone,
-    body: content,
+    body: cleanContent,
   });
 
   // 6. Silenciar la IA automáticamente y registrar actualización
@@ -76,7 +84,7 @@ export async function sendAgentMessage(contactId: string, content: string) {
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
-    content,
+    content: cleanContent,
     meta_message_id: metaMessageId || null,
   });
 
