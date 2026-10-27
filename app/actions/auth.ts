@@ -4,17 +4,40 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { checkRateLimit } from '@/lib/security/rate-limiter';
 
 /**
  * Iniciar sesión con Email y Contraseña.
- * Solo usuarios previamente aprovisionados por el Super Administrador pueden acceder.
+ * Incluye sanitización de entrada, validación estricta y protección anti-fuerza bruta.
  */
 export async function signIn(formData: FormData) {
-  const email = (formData.get('email') as string)?.trim();
-  const password = formData.get('password') as string;
+  const rawEmail = formData.get('email');
+  const rawPassword = formData.get('password');
 
-  if (!email || !password) {
-    return { error: 'Por favor ingresa tu correo y contraseña.' };
+  if (typeof rawEmail !== 'string' || typeof rawPassword !== 'string') {
+    return { error: 'Entrada inválida. Por favor ingresa tu correo y contraseña.' };
+  }
+
+  const email = rawEmail.toLowerCase().trim();
+  const password = rawPassword;
+
+  // Validación de formato de correo RFC 5322 simplificado
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!email || !emailRegex.test(email) || email.length > 100) {
+    return { error: 'Por favor ingresa un correo electrónico válido.' };
+  }
+
+  if (!password || password.length < 6 || password.length > 128) {
+    return { error: 'La contraseña debe contener al menos 6 caracteres.' };
+  }
+
+  // Protección Anti-Fuerza Bruta: máximo 5 intentos por minuto por cuenta de correo
+  const rateLimitKey = `login_${email}`;
+  const rateCheck = await checkRateLimit(rateLimitKey, 5);
+  if (!rateCheck.success) {
+    return {
+      error: 'Demasiados intentos fallidos de inicio de sesión. Por seguridad de tu cuenta, espera 1 minuto antes de volver a intentar.',
+    };
   }
 
   const supabase = createServerSupabaseClient();
@@ -75,15 +98,15 @@ export async function getCurrentUserAndOrg() {
     // Leer organización con supabaseAdmin (con fallback si falta alguna columna opcional)
     let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit'
       )
       .eq('id', profile.organization_id)
       .single();
 
-    if (orgError && (orgError.message?.includes('whatsapp_templates') || orgError.message?.includes('cal_com_enabled'))) {
+    if (orgError && (orgError.message?.includes('whatsapp_templates') || orgError.message?.includes('cal_com_enabled') || orgError.message?.includes('ai_tokens'))) {
       const retry = await (supabaseAdmin.from('organizations') as any)
         .select(
-          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt'
+          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, ai_tokens_used, ai_tokens_limit'
         )
         .eq('id', profile.organization_id)
         .single();

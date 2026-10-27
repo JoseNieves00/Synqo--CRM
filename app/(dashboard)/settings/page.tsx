@@ -52,6 +52,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         metaConfigId: process.env.META_CONFIG_ID || process.env.NEXT_PUBLIC_META_CONFIG_ID || '1897459618280453',
         initialOauthCode: searchParams?.code,
         initialOauthError: searchParams?.error || searchParams?.error_description,
+        aiTokensUsed: Number(org?.ai_tokens_used || 0),
+        aiTokensLimit: Number(org?.ai_tokens_limit || 0),
+        maxUsers: Number(org?.max_users || 2),
       }}
       teamData={teamData || undefined}
     />

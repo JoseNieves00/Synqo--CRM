@@ -22,11 +22,15 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
   }
 }
 
-// In-memory fallback para entornos de desarrollo local sin Redis configurado
+// In-memory fallback para entornos sin Redis configurado o límites personalizados por acción
 const memoryStore = new Map<string, { count: number; resetTime: number }>();
 
-export async function checkRateLimit(identifier: string): Promise<{ success: boolean; remaining: number }> {
-  if (ratelimit) {
+export async function checkRateLimit(
+  identifier: string,
+  maxRequests: number = 15
+): Promise<{ success: boolean; remaining: number }> {
+  // Si se solicita un límite diferente a 15 (ej. 5 para login anti-fuerza bruta), usar memoryStore para exactitud
+  if (ratelimit && maxRequests === 15) {
     try {
       const result = await ratelimit.limit(identifier);
       return { success: result.success, remaining: result.remaining };
@@ -35,20 +39,20 @@ export async function checkRateLimit(identifier: string): Promise<{ success: boo
     }
   }
 
-  // Fallback de memoria
+  // Fallback de memoria por ventana deslizante de 60 segundos
   const now = Date.now();
   const record = memoryStore.get(identifier);
 
   if (!record || now > record.resetTime) {
     memoryStore.set(identifier, { count: 1, resetTime: now + 60000 });
-    return { success: true, remaining: 14 };
+    return { success: true, remaining: maxRequests - 1 };
   }
 
-  if (record.count >= 15) {
+  if (record.count >= maxRequests) {
     return { success: false, remaining: 0 };
   }
 
   record.count += 1;
-  return { success: true, remaining: 15 - record.count };
+  return { success: true, remaining: Math.max(0, maxRequests - record.count) };
 }
 

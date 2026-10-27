@@ -130,6 +130,9 @@ interface SettingsFormProps {
     whatsappTemplates?: Array<{ name: string; label: string }>;
     initialOauthCode?: string;
     initialOauthError?: string;
+    aiTokensUsed?: number;
+    aiTokensLimit?: number;
+    maxUsers?: number;
   };
   teamData?: {
     organization: {
@@ -143,6 +146,11 @@ interface SettingsFormProps {
     members: any[];
   };
 }
+
+// Bandera para Meta Embedded Signup:
+// Mantener en false mientras se completa la verificación oficial de Meta Tech Provider.
+// En false, la conexión oficial se realiza mediante Phone Number ID y Token Permanente del Sistema.
+const SHOW_EMBEDDED_SIGNUP = false;
 
 export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const router = useRouter();
@@ -770,6 +778,28 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           {/* Tarjeta de Licencia y Beneficios del Plan */}
           {(() => {
             const currentPlan = PLAN_BENEFITS[planType.toLowerCase()] || PLAN_BENEFITS.core;
+            const maxUsersCount = teamData?.organization?.maxUsers ?? initialData.maxUsers ?? 2;
+            const activeUsersCount = teamData?.organization?.usedUsers ?? 1;
+            const remainingSeats = teamData?.organization?.remainingSeats ?? Math.max(0, maxUsersCount - activeUsersCount);
+
+            const effectiveLimit =
+              initialData.aiTokensLimit && initialData.aiTokensLimit > 0
+                ? initialData.aiTokensLimit
+                : planType.toLowerCase() === 'enterprise'
+                ? 7500000
+                : planType.toLowerCase() === 'pro'
+                ? 2500000
+                : 500000;
+            const effectiveUsed = initialData.aiTokensUsed || 0;
+            const tokenPercent = Math.min(100, Math.round((effectiveUsed / effectiveLimit) * 100));
+
+            // Aproximación de chats basada en la cantidad de tokens configurada en la base de datos:
+            // Una sesión promedio de atención completa por WhatsApp consume entre 800 y 1,200 tokens IA.
+            const minEstimatedChats = Math.floor(effectiveLimit / 1200);
+            const maxEstimatedChats = Math.floor(effectiveLimit / 800);
+            const remainingTokens = Math.max(0, effectiveLimit - effectiveUsed);
+            const remainingEstimatedChats = Math.floor(remainingTokens / 1000);
+
             return (
               <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
@@ -818,29 +848,67 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                     {currentPlan.description}
                   </p>
 
-                  {/* Cuotas del Plan: Usuarios y Tokens */}
+                  {/* Cuotas del Plan: Usuarios y Tokens Dinámicos desde Base de Datos */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs">
-                        <Users className="w-4 h-4" />
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
+                          <Users className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
+                            Capacidad de Asesores (Base de Datos)
+                          </span>
+                          <span className="text-xs font-bold text-gray-900">
+                            {activeUsersCount} de {maxUsersCount} usuarios activos
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
-                          Capacidad de Equipo
-                        </span>
-                        <span className="text-xs font-bold text-gray-900">{currentPlan.seats}</span>
+                      <div className="text-[11px] text-gray-600 flex items-center justify-between pt-1.5 border-t border-slate-200/70 font-medium">
+                        <span>{remainingSeats > 0 ? `${remainingSeats} ${remainingSeats === 1 ? 'cupo disponible' : 'cupos disponibles'}` : 'Límite alcanzado'}</span>
+                        <span className="font-semibold text-slate-700 font-mono">Máx: {maxUsersCount}</span>
                       </div>
                     </div>
 
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs">
-                        <Zap className="w-4 h-4" />
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
+                              Cuota de Tokens IA en Tiempo Real
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-700 font-mono">
+                              {tokenPercent}%
+                            </span>
+                          </div>
+                          <span className="text-xs font-bold text-gray-900 font-mono">
+                            {effectiveUsed.toLocaleString()} / {effectiveLimit.toLocaleString()} tokens
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
-                          Cuota Mensual de Inteligencia Artificial
+
+                      {/* Barra de progreso de consumo de tokens */}
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            tokenPercent >= 90
+                              ? 'bg-rose-500'
+                              : tokenPercent >= 75
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${tokenPercent}%` }}
+                        />
+                      </div>
+
+                      <div className="text-[11px] text-gray-600 flex items-center justify-between pt-0.5 font-medium">
+                        <span>~{minEstimatedChats.toLocaleString()} a {maxEstimatedChats.toLocaleString()} chats/mes</span>
+                        <span className="text-emerald-700 font-semibold font-mono">
+                          ~{remainingEstimatedChats.toLocaleString()} chats restantes
                         </span>
-                        <span className="text-xs font-bold text-gray-900">{currentPlan.tokens}</span>
                       </div>
                     </div>
                   </div>
@@ -914,7 +982,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                 </div>
               )}
 
-              {/* SECCIÓN 1: VINCULACIÓN OFICIAL CON META EMBEDDED SIGNUP */}
+              {/* SECCIÓN WHATSAPP CLOUD API: CONEXIÓN OFICIAL DIRECTA O EMBEDDED SIGNUP */}
               {hasToken && phoneNumberId ? (
                 // Estado: Conectado
                 <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-5 space-y-4">
@@ -940,17 +1008,27 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                     </div>
 
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                      {/* BOTÓN OFICIAL AZUL PARA EMBEDDED SIGNUP CON FACEBOOK */}
-                      <button
-                        type="button"
-                        onClick={handleConnectWhatsApp}
-                        disabled={connectingWhatsApp}
-                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#1877F2] hover:bg-[#166FE5] transition cursor-pointer shadow-xs disabled:opacity-50"
-                        title="Abrir ventana oficial de Meta para sincronizar cuenta por Facebook Login"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${connectingWhatsApp ? 'animate-spin' : ''}`} />
-                        <span>{connectingWhatsApp ? 'Conectando con Meta...' : 'Reconectar con Facebook'}</span>
-                      </button>
+                      {SHOW_EMBEDDED_SIGNUP ? (
+                        <button
+                          type="button"
+                          onClick={handleConnectWhatsApp}
+                          disabled={connectingWhatsApp}
+                          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#1877F2] hover:bg-[#166FE5] transition cursor-pointer shadow-xs disabled:opacity-50"
+                          title="Abrir ventana oficial de Meta para sincronizar cuenta por Facebook Login"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${connectingWhatsApp ? 'animate-spin' : ''}`} />
+                          <span>{connectingWhatsApp ? 'Conectando con Meta...' : 'Reconectar con Facebook'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowManualConfig(!showManualConfig)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 transition cursor-pointer"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{showManualConfig ? 'Ocultar Credenciales' : 'Actualizar Credenciales'}</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -989,9 +1067,73 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                       Tus clientes ya pueden escribir a este número y serán atendidos inmediatamente por la Inteligencia Artificial y tu equipo comercial.
                     </span>
                   </div>
+
+                  {/* Edición de credenciales cuando ya está conectado */}
+                  {showManualConfig && (
+                    <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-xl space-y-4 mt-3">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                        <span className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                          Actualizar Credenciales de WhatsApp
+                        </span>
+                        <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> Cifrado AES-256
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700 block mb-1">
+                            Phone Number ID de Meta (Solo números)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Ej. 104589234812345"
+                            value={phoneNumberId}
+                            onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
+                            className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700 block mb-1">
+                            Nuevo WhatsApp Permanent Access Token
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showToken ? 'text' : 'password'}
+                              placeholder="•••••••••••••••••••••••• (Guardado)"
+                              value={accessToken}
+                              onChange={(e) => setAccessToken(e.target.value.trim())}
+                              className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowToken(!showToken)}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                              title={showToken ? 'Ocultar token' : 'Mostrar token'}
+                            >
+                              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveManualWhatsApp}
+                          disabled={savingManualWa || !phoneNumberId.trim()}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-sm cursor-pointer disabled:opacity-50"
+                        >
+                          <Save className={`w-3.5 h-3.5 ${savingManualWa ? 'animate-spin' : ''}`} />
+                          <span>{savingManualWa ? 'Guardando...' : 'Actualizar Credenciales'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                // Estado: No conectado -> Hero Card con Botón Oficial Azul
+              ) : SHOW_EMBEDDED_SIGNUP ? (
+                // Estado: No conectado con Embedded Signup activo
                 <div className="bg-gradient-to-br from-blue-50/80 via-white to-slate-50 border-2 border-dashed border-[#1877F2]/30 rounded-2xl p-6 sm:p-7 space-y-5">
                   {waFeedback && (
                     <div
@@ -1029,7 +1171,6 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                       </p>
                     </div>
 
-                    {/* BOTÓN OFICIAL AZUL DE META EMBEDDED SIGNUP + ENLACE DIRECTO DE EMERGENCIA */}
                     <div className="flex flex-col items-stretch sm:items-end gap-1.5 shrink-0">
                       <button
                         type="button"
@@ -1054,118 +1195,123 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] text-[#1877F2] hover:underline inline-flex items-center gap-1 font-medium cursor-pointer"
-                        title="Abre la ventana de autorización directamente en una pestaña nueva si tu navegador bloquea popups"
                       >
                         ¿No abre la ventana? Conectar en pestaña nueva &rarr;
                       </a>
                     </div>
                   </div>
+                </div>
+              ) : (
+                // Estado: No conectado con Configuración Directa Oficial
+                <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-5">
+                  <div className="border-b border-gray-100 pb-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-block mb-1.5">
+                      Conexión Oficial WhatsApp Cloud API
+                    </span>
+                    <h3 className="text-base font-bold text-gray-900">
+                      Vincular Número de WhatsApp Business
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      Conecta la línea de WhatsApp de tu empresa ingresando tu Phone Number ID y el Token Permanente generado en Meta Business Suite.
+                    </p>
+                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-blue-100/60 text-[11px] text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Inicio de sesión oficial con Facebook</span>
+                  {waFeedback && (
+                    <div
+                      className={`p-3.5 rounded-xl text-xs font-semibold flex items-start gap-2.5 ${
+                        waFeedback.type === 'success'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : waFeedback.type === 'warning'
+                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}
+                    >
+                      {waFeedback.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      )}
+                      <p>{waFeedback.message}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Configuración 100% autogestionada</span>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 block mb-1">
+                        Phone Number ID de Meta <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej. 104589234812345"
+                        value={phoneNumberId}
+                        onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Encuéntralo en Meta for Developers → WhatsApp → API Setup → Phone number ID.
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Cifrado militar AES-256 automático</span>
+
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
+                        <span>
+                          Token Permanente de Meta (Usuario del Sistema) <span className="text-rose-500">*</span>
+                        </span>
+                        <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> Cifrado AES-256
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showToken ? 'text' : 'password'}
+                          placeholder={hasToken ? '•••••••••••••••••••••••• (Guardado)' : 'EAAG••••••••••••••••••••'}
+                          value={accessToken}
+                          onChange={(e) => setAccessToken(e.target.value.trim())}
+                          className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowToken(!showToken)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                          title={showToken ? 'Ocultar token' : 'Mostrar token'}
+                        >
+                          {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Token permanente con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
+                      </p>
                     </div>
+                  </div>
+
+                  {/* Guía paso a paso */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs text-slate-700">
+                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-800 block">
+                      Instrucciones de Vinculación Oficial:
+                    </span>
+                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-600">
+                      <li>Ingresa a tu <strong>Meta Business Suite</strong> (Configuración del Negocio &rarr; Usuarios del Sistema).</li>
+                      <li>Genera un Token permanente con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.</li>
+                      <li>Pega el <strong>Phone Number ID</strong> y el <strong>Token</strong> en los campos superiores y haz clic en <em>Guardar y Vincular WhatsApp</em>.</li>
+                    </ol>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-gray-100">
+                    <p className="text-[11px] text-gray-500">
+                      El token se cifra con AES-256 en base de datos. Ningún empleado tiene acceso a la clave en texto plano.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSaveManualWhatsApp}
+                      disabled={savingManualWa || !phoneNumberId.trim()}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      <Save className={`w-4 h-4 ${savingManualWa ? 'animate-spin' : ''}`} />
+                      <span>{savingManualWa ? 'Guardando...' : 'Guardar y Vincular WhatsApp'}</span>
+                    </button>
                   </div>
                 </div>
               )}
-
-              {/* SECCIÓN 2: ACORDEÓN DE CONFIGURACIÓN MANUAL AVANZADA */}
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowManualConfig(!showManualConfig)}
-                  className="w-full flex items-center justify-between p-4 bg-gray-50/70 hover:bg-gray-100/70 transition cursor-pointer text-left"
-                >
-                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-700">
-                    <Lock className="w-4 h-4 text-gray-500" />
-                    <span>Configuración Manual de Credenciales (Opciones Avanzadas)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
-                    <span>{showManualConfig ? 'Ocultar' : 'Mostrar'}</span>
-                    {showManualConfig ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </div>
-                </button>
-
-                {showManualConfig && (
-                  <div className="p-4 sm:p-5 bg-white border-t border-gray-200 space-y-4">
-                    <p className="text-xs text-gray-500">
-                      Utiliza estos campos si necesitas configurar tokens permanentes generados manualmente en Meta for Developers o claves secretas específicas.
-                    </p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-semibold text-gray-700 block mb-1">
-                          Phone Number ID de Meta (Solo números)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Ej. 104589234812345"
-                          value={phoneNumberId}
-                          onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
-                          className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
-                        />
-                        <p className="text-[11px] text-gray-400 mt-1">
-                          Encuéntralo en Meta for Developers → WhatsApp → API Setup → Phone number ID.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
-                          <span>WhatsApp Permanent Access Token</span>
-                          <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> Cifrado AES-256
-                          </span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showToken ? 'text' : 'password'}
-                            placeholder={hasToken ? '•••••••••••••••••••••••• (Guardado)' : 'EAAG••••••••••••••••••••'}
-                            value={accessToken}
-                            onChange={(e) => setAccessToken(e.target.value.trim())}
-                            className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowToken(!showToken)}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
-                            title={showToken ? 'Ocultar token' : 'Mostrar token'}
-                          >
-                            {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        <p className="text-[11px] text-gray-400 mt-1">
-                          Token del Sistema con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Botón para guardar cambios de WhatsApp en el mismo bloque */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-gray-100">
-                      <p className="text-[11px] text-gray-500">
-                        Al guardar, el token se cifrará de inmediato con AES-256 y quedará activo en el CRM.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleSaveManualWhatsApp}
-                        disabled={savingManualWa || !phoneNumberId.trim()}
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
-                      >
-                        <Save className={`w-3.5 h-3.5 ${savingManualWa ? 'animate-spin' : ''}`} />
-                        <span>{savingManualWa ? 'Guardando...' : 'Guardar Credenciales de WhatsApp'}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Plantillas de WhatsApp (Meta) para Ventana de 24 Horas y Nuevos Prospectos */}
