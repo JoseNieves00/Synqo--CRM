@@ -133,11 +133,9 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
     languageCode: 'es',
   });
 
-  // Silenciar IA al enviar plantilla y registrar actualización
-  // La ventana de 24h se abrirá cuando el cliente responda a esta plantilla vía Webhook
+  // Registrar actualización en el contacto (sin desactivar la IA si el lead está configurado con IA)
   await (supabaseAdmin.from('contacts') as any)
     .update({
-      is_ai_active: false,
       updated_at: new Date().toISOString(),
     })
     .eq('id', contactId);

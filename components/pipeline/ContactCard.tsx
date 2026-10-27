@@ -71,7 +71,7 @@ export function ContactCard({
       <p className="text-xs text-gray-500 font-mono mb-3">{phone}</p>
 
       <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-100">
-        <span className="flex items-center gap-1">
+        <span suppressHydrationWarning className="flex items-center gap-1">
           <Clock className="w-3 h-3" />
           {formattedDate}
         </span>

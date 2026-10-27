@@ -111,9 +111,18 @@ export async function addCustomTemplate(input: { name: string; label?: string })
     .eq('id', profile.organization_id)
     .single();
 
-  const currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
+  let currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
     ? org.whatsapp_templates
     : [];
+
+  if (currentTemplates.length === 0) {
+    currentTemplates = [
+      { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
+      { name: 'hello_world', label: 'Saludo de Prueba Meta' },
+      { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
+      { name: 'seguimiento_general', label: 'Seguimiento General' },
+    ];
+  }
 
   const existingIdx = currentTemplates.findIndex((t) => t.name === cleanName);
   let updatedTemplates: Array<{ name: string; label: string }>;
@@ -145,12 +154,116 @@ export async function addCustomTemplate(input: { name: string; label?: string })
 }
 
 /**
- * Elimina una plantilla de WhatsApp de la organización.
+ * Actualiza el nombre o la etiqueta de una plantilla de WhatsApp existente en la organización.
+ * Requiere confirmación de contraseña del usuario por seguridad.
  */
-export async function deleteCustomTemplate(templateName: string) {
+export async function updateCustomTemplate(input: {
+  oldName: string;
+  newName: string;
+  label?: string;
+  password?: string;
+}) {
   const supabase = createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('No autorizado');
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user || !user.email) throw new Error('No autorizado');
+
+  if (!input.password || input.password.trim().length === 0) {
+    throw new Error('Debes ingresar tu contraseña para confirmar la modificación.');
+  }
+
+  // Validar contraseña contra Supabase Auth
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: input.password.trim(),
+  });
+
+  if (signInError) {
+    throw new Error('Contraseña incorrecta. La modificación ha sido cancelada por seguridad.');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const cleanNewName = input.newName.trim().toLowerCase().replace(/\s+/g, '_');
+  if (!cleanNewName) throw new Error('El nombre de la plantilla en Meta es obligatorio.');
+
+  const label = input.label?.trim() || cleanNewName;
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('whatsapp_templates')
+    .eq('id', profile.organization_id)
+    .single();
+
+  let currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
+    ? org.whatsapp_templates
+    : [];
+
+  if (currentTemplates.length === 0) {
+    currentTemplates = [
+      { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
+      { name: 'hello_world', label: 'Saludo de Prueba Meta' },
+      { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
+      { name: 'seguimiento_general', label: 'Seguimiento General' },
+    ];
+  }
+
+  const existingIdx = currentTemplates.findIndex((t) => t.name === input.oldName);
+  if (existingIdx >= 0) {
+    currentTemplates[existingIdx] = { name: cleanNewName, label };
+  } else {
+    currentTemplates.push({ name: cleanNewName, label });
+  }
+
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      whatsapp_templates: currentTemplates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', profile.organization_id);
+
+  if (updateError) {
+    if (updateError.message?.includes('whatsapp_templates')) {
+      throw new Error(
+        'Falta ejecutar la migración SQL en Supabase: ALTER TABLE organizations ADD COLUMN IF NOT EXISTS whatsapp_templates JSONB DEFAULT \'[]\'::jsonb;'
+      );
+    }
+    throw new Error(`Error al actualizar plantilla: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true, templates: currentTemplates };
+}
+
+/**
+ * Elimina una plantilla de WhatsApp de la organización.
+ * Requiere confirmación de contraseña del usuario por seguridad.
+ */
+export async function deleteCustomTemplate(input: string | { templateName: string; password?: string }) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user || !user.email) throw new Error('No autorizado');
+
+  const templateName = typeof input === 'string' ? input : input.templateName;
+  const password = typeof input === 'object' ? input.password : undefined;
+
+  if (!password || password.trim().length === 0) {
+    throw new Error('Debes ingresar tu contraseña para confirmar la eliminación.');
+  }
+
+  // Validar contraseña contra Supabase Auth
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: password.trim(),
+  });
+
+  if (signInError) {
+    throw new Error('Contraseña incorrecta. La eliminación ha sido cancelada por seguridad.');
+  }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
     .select('organization_id')
@@ -164,9 +277,18 @@ export async function deleteCustomTemplate(templateName: string) {
     .eq('id', profile.organization_id)
     .single();
 
-  const currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
+  let currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
     ? org.whatsapp_templates
     : [];
+
+  if (currentTemplates.length === 0) {
+    currentTemplates = [
+      { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
+      { name: 'hello_world', label: 'Saludo de Prueba Meta' },
+      { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
+      { name: 'seguimiento_general', label: 'Seguimiento General' },
+    ];
+  }
 
   const updatedTemplates = currentTemplates.filter((t) => t.name !== templateName);
 

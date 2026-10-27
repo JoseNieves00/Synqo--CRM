@@ -52,6 +52,7 @@ export async function createLead(input: CreateLeadInput) {
       phone: cleanedPhone,
       pipeline_stage: input.pipelineStage || 'nuevo',
       is_ai_active: true,
+      assigned_to: user.id,
       // Lead manual creado sin interacción previa: ventana de 24h cerrada por defecto según políticas de Meta
       last_interaction_at: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
     })

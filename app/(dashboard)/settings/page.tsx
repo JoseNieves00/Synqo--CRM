@@ -45,7 +45,7 @@ export default async function SettingsPage() {
         orgName: org?.name,
         whatsappTemplates: (org as any)?.whatsapp_templates || [],
         metaAppId: process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID || '1628755725455108',
-        metaConfigId: process.env.META_CONFIG_ID || process.env.NEXT_PUBLIC_META_CONFIG_ID || '',
+        metaConfigId: process.env.META_CONFIG_ID || process.env.NEXT_PUBLIC_META_CONFIG_ID || '1897459618280453',
       }}
       teamData={teamData || undefined}
     />

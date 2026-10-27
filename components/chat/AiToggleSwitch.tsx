@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bot, UserCheck } from 'lucide-react';
 
 interface AiToggleSwitchProps {
@@ -16,6 +16,10 @@ export function AiToggleSwitch({
 }: AiToggleSwitchProps) {
   const [isActive, setIsActive] = useState(initialIsAiActive);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    setIsActive(initialIsAiActive);
+  }, [initialIsAiActive, contactId]);
 
   const handleToggle = async () => {
     if (isUpdating) return;

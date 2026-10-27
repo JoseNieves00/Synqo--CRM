@@ -14,12 +14,18 @@ export default async function InboxPage() {
     redirect('/login');
   }
 
-  // Consultar contactos reales de la organización
-  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields')
-    .eq('organization_id', current.organization.id)
-    .order('updated_at', { ascending: false })
-    .limit(50);
+  // Consultar contactos reales de la organización y miembros del equipo
+  const [{ data: contacts }, { data: teamMembers }] = await Promise.all([
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to')
+      .eq('organization_id', current.organization.id)
+      .order('updated_at', { ascending: false })
+      .limit(50),
+    (supabaseAdmin.from('profiles') as any)
+      .select('id, full_name, email, role')
+      .eq('organization_id', current.organization.id)
+      .order('full_name', { ascending: true }),
+  ]);
 
   const contactList = contacts || [];
 
@@ -51,6 +57,9 @@ export default async function InboxPage() {
       activeContact={activeContact}
       messages={messages || []}
       customTemplates={(current.organization as any)?.whatsapp_templates || []}
+      currentUserId={current.user.id}
+      currentUserRole={current.profile?.role || 'agent'}
+      teamMembers={teamMembers || []}
     />
   );
 }

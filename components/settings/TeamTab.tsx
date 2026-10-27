@@ -338,7 +338,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
                       </span>
                     </td>
 
-                    <td className="py-3.5 px-6 text-gray-500">
+                    <td suppressHydrationWarning className="py-3.5 px-6 text-gray-500">
                       {new Date(member.created_at).toLocaleDateString('es-ES', {
                         year: 'numeric',
                         month: 'short',

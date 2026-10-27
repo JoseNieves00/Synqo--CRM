@@ -171,9 +171,10 @@ export async function addTeamMember(input: {
 }
 
 /**
- * Eliminar un miembro del equipo
+ * Eliminar un miembro del equipo.
+ * Protege contra leads huérfanos transfiriéndolos al agente seleccionado o a la cola Sin Asignar.
  */
-export async function removeTeamMember(memberId: string) {
+export async function removeTeamMember(memberId: string, reassignLeadsToId?: string | null) {
   const { user, org } = await requireOrgAdmin();
 
   if (memberId === user.id) {
@@ -190,11 +191,34 @@ export async function removeTeamMember(memberId: string) {
     throw new Error('El usuario no pertenece a tu organización.');
   }
 
+  // Si se indicó un agente de destino, verificar que pertenezca a la misma org
+  if (reassignLeadsToId) {
+    const { data: destProfile } = await (supabaseAdmin.from('profiles') as any)
+      .select('id, organization_id')
+      .eq('id', reassignLeadsToId)
+      .eq('organization_id', org.id)
+      .single();
+
+    if (destProfile) {
+      await (supabaseAdmin.from('contacts') as any)
+        .update({ assigned_to: reassignLeadsToId, updated_at: new Date().toISOString() })
+        .eq('organization_id', org.id)
+        .eq('assigned_to', memberId);
+    }
+  } else {
+    // Si no se especificó, mover los leads a la cola "Sin Asignar" de forma limpia
+    await (supabaseAdmin.from('contacts') as any)
+      .update({ assigned_to: null, updated_at: new Date().toISOString() })
+      .eq('organization_id', org.id)
+      .eq('assigned_to', memberId);
+  }
+
   // Eliminar perfil y usuario auth
   await (supabaseAdmin.from('profiles') as any).delete().eq('id', memberId);
   await supabaseAdmin.auth.admin.deleteUser(memberId);
 
   revalidatePath('/settings');
+  revalidatePath('/inbox');
   return { success: true };
 }
 
