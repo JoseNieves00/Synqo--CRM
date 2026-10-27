@@ -128,6 +128,8 @@ interface SettingsFormProps {
     metaAppId?: string;
     metaConfigId?: string;
     whatsappTemplates?: Array<{ name: string; label: string }>;
+    initialOauthCode?: string;
+    initialOauthError?: string;
   };
   teamData?: {
     organization: {
@@ -239,6 +241,53 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
+
+  // Estado dedicado para notificaciones y errores del bloque de WhatsApp
+  const [waFeedback, setWaFeedback] = useState<{
+    type: 'success' | 'error' | 'warning';
+    message: string;
+  } | null>(null);
+
+  // Escucha si el usuario completó la autenticación mediante redireccionamiento de Meta
+  useEffect(() => {
+    if (initialData.initialOauthCode) {
+      setConnectingWhatsApp(true);
+      setWaFeedback({
+        type: 'warning',
+        message: 'Finalizando vinculación de WhatsApp Business con Meta Graph API...',
+      });
+
+      processEmbeddedSignup({ code: initialData.initialOauthCode })
+        .then((res) => {
+          if (res.success) {
+            setPhoneNumberId(res.phoneNumberId);
+            setHasToken(true);
+            setWaFeedback({
+              type: 'success',
+              message: `¡WhatsApp Business conectado exitosamente con Meta! Número vinculado: ${
+                res.displayPhoneNumber || res.phoneNumberId
+              }${res.verifiedName ? ` (${res.verifiedName})` : ''}`,
+            });
+            router.replace('/settings');
+          }
+        })
+        .catch((err: any) => {
+          setWaFeedback({
+            type: 'error',
+            message: `Error al procesar autorización de Meta: ${err?.message || 'Código de autorización no válido'}`,
+          });
+        })
+        .finally(() => {
+          setConnectingWhatsApp(false);
+        });
+    } else if (initialData.initialOauthError) {
+      setWaFeedback({
+        type: 'error',
+        message: `Meta denegó la autorización: ${initialData.initialOauthError}`,
+      });
+      router.replace('/settings');
+    }
+  }, [initialData.initialOauthCode, initialData.initialOauthError, router]);
 
   // Estados para pruebas de conexión
   const [testingWhatsApp, setTestingWhatsApp] = useState(false);
@@ -423,29 +472,46 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
    * Lanza el flujo oficial de Meta Embedded Signup
    */
   const handleConnectWhatsApp = () => {
+    setWaFeedback(null);
+
+    const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/settings` : 'https://crm.synqo.dev/settings';
+    const directOauthUrl = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${metaAppId}&config_id=${metaConfigId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+    // Re-intentar inicializar por si el SDK ya cargó en window
+    if (typeof window !== 'undefined' && (window as any).FB) {
+      try {
+        (window as any).FB.init({
+          appId: metaAppId,
+          cookie: true,
+          xfbml: true,
+          version: 'v21.0',
+        });
+      } catch {}
+    }
+
+    // Si window.FB no está disponible (ej. bloqueador de publicidad activo o error de red)
     if (typeof window === 'undefined' || !window.FB) {
-      setFeedback({
-        type: 'error',
-        message: 'El SDK de Meta todavía está cargando. Por favor espera unos segundos y vuelve a pulsar el botón.',
-      });
+      const popup = window.open(directOauthUrl, 'MetaOAuth', 'width=650,height=750,scrollbars=yes,status=yes');
+      if (!popup) {
+        setWaFeedback({
+          type: 'error',
+          message: 'Tu navegador bloqueó la ventana emergente. Por favor permite las ventanas emergentes en la barra de direcciones o usa el enlace directo de abajo.',
+        });
+      } else {
+        setConnectingWhatsApp(true);
+        setWaFeedback({
+          type: 'warning',
+          message: 'Ventana de Meta abierta. Completa el registro del número para finalizar la vinculación.',
+        });
+      }
       return;
     }
 
     setConnectingWhatsApp(true);
-    setFeedback(null);
 
-    // Watchdog de seguridad: Si la ventana de Meta se bloquea o el usuario la cierra, liberar el botón tras 15 segundos
     const watchdogTimer = setTimeout(() => {
       setConnectingWhatsApp(false);
-    }, 15000);
-
-    const handleFocusBack = () => {
-      setTimeout(() => {
-        setConnectingWhatsApp(false);
-        window.removeEventListener('focus', handleFocusBack);
-      }, 1500);
-    };
-    window.addEventListener('focus', handleFocusBack);
+    }, 25000);
 
     const loginOptions: Record<string, any> = {
       response_type: 'code',
@@ -462,62 +528,73 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
       loginOptions.scope = 'whatsapp_business_management,whatsapp_business_messaging';
     }
 
-    window.FB.login(async (response: any) => {
-      clearTimeout(watchdogTimer);
-      window.removeEventListener('focus', handleFocusBack);
+    try {
+      window.FB.login(async (response: any) => {
+        clearTimeout(watchdogTimer);
 
-      if (response.authResponse?.code) {
-        try {
-          const effectivePhoneId = capturedSessionRef.current.phoneId || capturedPhoneId || undefined;
-          const effectiveWabaId = capturedSessionRef.current.wabaId || capturedWabaId || undefined;
+        if (response.authResponse?.code) {
+          try {
+            const effectivePhoneId = capturedSessionRef.current.phoneId || capturedPhoneId || undefined;
+            const effectiveWabaId = capturedSessionRef.current.wabaId || capturedWabaId || undefined;
 
-          const res = await processEmbeddedSignup({
-            code: response.authResponse.code,
-            phoneNumberId: effectivePhoneId,
-            wabaId: effectiveWabaId,
-          });
-
-          if (res.success) {
-            setPhoneNumberId(res.phoneNumberId);
-            setHasToken(true);
-            setWaTestResult({
-              success: true,
-              message: `¡Conexión verificada! Número oficial: ${res.displayPhoneNumber || res.phoneNumberId}${
-                res.verifiedName ? ` (${res.verifiedName})` : ''
-              }`,
+            const res = await processEmbeddedSignup({
+              code: response.authResponse.code,
+              phoneNumberId: effectivePhoneId,
+              wabaId: effectiveWabaId,
             });
-            setFeedback({
-              type: 'success',
-              message: `¡WhatsApp Business conectado exitosamente con Meta! Número vinculado: ${
-                res.displayPhoneNumber || res.phoneNumberId
-              }`,
+
+            if (res.success) {
+              setPhoneNumberId(res.phoneNumberId);
+              setHasToken(true);
+              setWaTestResult({
+                success: true,
+                message: `¡Conexión verificada! Número oficial: ${res.displayPhoneNumber || res.phoneNumberId}${
+                  res.verifiedName ? ` (${res.verifiedName})` : ''
+                }`,
+              });
+              setWaFeedback({
+                type: 'success',
+                message: `¡WhatsApp Business conectado exitosamente con Meta! Número vinculado: ${
+                  res.displayPhoneNumber || res.phoneNumberId
+                }`,
+              });
+              router.refresh();
+            }
+          } catch (err: any) {
+            setWaFeedback({
+              type: 'error',
+              message: err?.message || 'Error vinculando con Meta Embedded Signup',
             });
-            router.refresh();
+          } finally {
+            setConnectingWhatsApp(false);
           }
-        } catch (err: any) {
-          setFeedback({
-            type: 'error',
-            message: err?.message || 'Error vinculando con Meta Embedded Signup',
-          });
-        } finally {
+        } else {
           setConnectingWhatsApp(false);
-        }
-      } else {
-        setConnectingWhatsApp(false);
-        const detailedErr =
-          response.error_message ||
-          response.error_description ||
-          response.status ||
-          (response.error ? (typeof response.error === 'string' ? response.error : response.error.message || JSON.stringify(response.error)) : null);
+          const detailedErr =
+            response.error_message ||
+            response.error_description ||
+            response.status ||
+            (response.error ? (typeof response.error === 'string' ? response.error : response.error.message || JSON.stringify(response.error)) : null);
 
-        setFeedback({
+          setWaFeedback({
+            type: 'error',
+            message: detailedErr && detailedErr !== 'connected'
+              ? `Meta canceló o rechazó la conexión: ${detailedErr}`
+              : 'La ventana de Meta fue cerrada o cancelada antes de completar la verificación.',
+          });
+        }
+      }, loginOptions);
+    } catch (err: any) {
+      clearTimeout(watchdogTimer);
+      setConnectingWhatsApp(false);
+      const popup = window.open(directOauthUrl, 'MetaOAuth', 'width=650,height=750,scrollbars=yes,status=yes');
+      if (!popup) {
+        setWaFeedback({
           type: 'error',
-          message: detailedErr && detailedErr !== 'connected'
-            ? `Meta canceló o rechazó la conexión: ${detailedErr}`
-            : 'Flujo de conexión cancelado o no completado en Meta.',
+          message: `Error al abrir la ventana de Facebook: ${err?.message || 'Ventana emergente bloqueada'}. Permite las ventanas emergentes o usa el enlace directo de abajo.`,
         });
       }
-    }, loginOptions);
+    }
   };
 
   /**
@@ -862,7 +939,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                       {/* BOTÓN OFICIAL AZUL PARA EMBEDDED SIGNUP CON FACEBOOK */}
                       <button
                         type="button"
@@ -887,6 +964,25 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                     </div>
                   </div>
 
+                  {waFeedback && (
+                    <div
+                      className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                        waFeedback.type === 'success'
+                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                          : waFeedback.type === 'warning'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : 'bg-rose-100 text-rose-900 border border-rose-300'
+                      }`}
+                    >
+                      {waFeedback.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-rose-700 flex-shrink-0" />
+                      )}
+                      <span>{waFeedback.message}</span>
+                    </div>
+                  )}
+
                   <div className="text-[11px] text-emerald-900 bg-emerald-100/60 rounded-lg p-2.5 border border-emerald-200/60 flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                     <span>
@@ -897,6 +993,27 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
               ) : (
                 // Estado: No conectado -> Hero Card con Botón Oficial Azul
                 <div className="bg-gradient-to-br from-blue-50/80 via-white to-slate-50 border-2 border-dashed border-[#1877F2]/30 rounded-2xl p-6 sm:p-7 space-y-5">
+                  {waFeedback && (
+                    <div
+                      className={`p-3.5 rounded-xl text-xs font-semibold flex items-start gap-2.5 transition ${
+                        waFeedback.type === 'success'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : waFeedback.type === 'warning'
+                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}
+                    >
+                      {waFeedback.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <p>{waFeedback.message}</p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
@@ -912,24 +1029,36 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                       </p>
                     </div>
 
-                    {/* BOTÓN OFICIAL AZUL DE META EMBEDDED SIGNUP */}
-                    <button
-                      type="button"
-                      onClick={handleConnectWhatsApp}
-                      disabled={connectingWhatsApp}
-                      className="inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl font-bold text-sm text-white bg-[#1877F2] hover:bg-[#166FE5] active:bg-[#0C63D4] shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-60 shrink-0"
-                    >
-                      {connectingWhatsApp ? (
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                        </svg>
-                      )}
-                      <span>
-                        {connectingWhatsApp ? 'Conectando con Meta...' : 'Conectar con Facebook / WhatsApp'}
-                      </span>
-                    </button>
+                    {/* BOTÓN OFICIAL AZUL DE META EMBEDDED SIGNUP + ENLACE DIRECTO DE EMERGENCIA */}
+                    <div className="flex flex-col items-stretch sm:items-end gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleConnectWhatsApp}
+                        disabled={connectingWhatsApp}
+                        className="inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl font-bold text-sm text-white bg-[#1877F2] hover:bg-[#166FE5] active:bg-[#0C63D4] shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-60"
+                      >
+                        {connectingWhatsApp ? (
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                          </svg>
+                        )}
+                        <span>
+                          {connectingWhatsApp ? 'Conectando con Meta...' : 'Conectar con Facebook / WhatsApp'}
+                        </span>
+                      </button>
+
+                      <a
+                        href={`https://www.facebook.com/v21.0/dialog/oauth?client_id=${metaAppId}&config_id=${metaConfigId}&response_type=code&redirect_uri=${encodeURIComponent(typeof window !== 'undefined' ? `${window.location.origin}/settings` : 'https://crm.synqo.dev/settings')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-[#1877F2] hover:underline inline-flex items-center gap-1 font-medium cursor-pointer"
+                        title="Abre la ventana de autorización directamente en una pestaña nueva si tu navegador bloquea popups"
+                      >
+                        ¿No abre la ventana? Conectar en pestaña nueva &rarr;
+                      </a>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-blue-100/60 text-[11px] text-gray-600">
