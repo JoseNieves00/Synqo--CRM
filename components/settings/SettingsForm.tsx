@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import {
@@ -156,6 +156,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [disconnectingWhatsApp, setDisconnectingWhatsApp] = useState(false);
   const [capturedPhoneId, setCapturedPhoneId] = useState<string | null>(null);
   const [capturedWabaId, setCapturedWabaId] = useState<string | null>(null);
+  const capturedSessionRef = useRef<{ phoneId?: string; wabaId?: string }>({});
   const [showManualConfig, setShowManualConfig] = useState(!initialData.hasWhatsappToken && !initialData.whatsappPhoneNumberId);
 
   const metaAppId = initialData.metaAppId || process.env.NEXT_PUBLIC_META_APP_ID || '1628755725455108';
@@ -171,14 +172,23 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   // Inicialización del SDK de Meta y escucha de eventos de sesión (sessionInfoVersion: '2')
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.fbAsyncInit = function () {
-        window.FB?.init({
-          appId: metaAppId,
-          cookie: true,
-          xfbml: true,
-          version: 'v21.0',
-        });
+      const initFB = () => {
+        try {
+          window.FB?.init({
+            appId: metaAppId,
+            cookie: true,
+            xfbml: true,
+            version: 'v21.0',
+          });
+        } catch (err) {
+          console.warn('[FB INIT WARNING]', err);
+        }
       };
+
+      window.fbAsyncInit = initFB;
+      if (window.FB) {
+        initFB();
+      }
 
       if (!document.getElementById('facebook-jssdk')) {
         const js = document.createElement('script');
@@ -191,7 +201,11 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
     }
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== 'https://www.facebook.com' && event.origin !== 'https://web.facebook.com') {
+      // Permitir cualquier subdominio de facebook.com (web, business, developers, etc.)
+      if (
+        typeof event.origin !== 'string' ||
+        (!event.origin.endsWith('.facebook.com') && event.origin !== 'https://facebook.com')
+      ) {
         return;
       }
       try {
@@ -200,8 +214,14 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           if (data.event === 'FINISH') {
             const pId = data.data?.phone_number_id;
             const wId = data.data?.waba_id;
-            if (pId) setCapturedPhoneId(pId);
-            if (wId) setCapturedWabaId(wId);
+            if (pId) {
+              setCapturedPhoneId(pId);
+              capturedSessionRef.current.phoneId = pId;
+            }
+            if (wId) {
+              setCapturedWabaId(wId);
+              capturedSessionRef.current.wabaId = wId;
+            }
           } else if (data.event === 'CANCEL') {
             setConnectingWhatsApp(false);
           }
@@ -228,17 +248,8 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [calTestResult, setCalTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
   // Gestión dinámica de plantillas de WhatsApp (Meta)
-  const DEFAULT_SYSTEM_TEMPLATES = [
-    { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
-    { name: 'hello_world', label: 'Saludo de Prueba Meta' },
-    { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
-    { name: 'seguimiento_general', label: 'Seguimiento General' },
-  ];
-
   const [templates, setTemplates] = useState<Array<{ name: string; label: string }>>(
-    initialData.whatsappTemplates && initialData.whatsappTemplates.length > 0
-      ? initialData.whatsappTemplates
-      : DEFAULT_SYSTEM_TEMPLATES
+    initialData.whatsappTemplates || []
   );
   const [newTplName, setNewTplName] = useState('');
   const [newTplLabel, setNewTplLabel] = useState('');
@@ -457,10 +468,13 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
 
       if (response.authResponse?.code) {
         try {
+          const effectivePhoneId = capturedSessionRef.current.phoneId || capturedPhoneId || undefined;
+          const effectiveWabaId = capturedSessionRef.current.wabaId || capturedWabaId || undefined;
+
           const res = await processEmbeddedSignup({
             code: response.authResponse.code,
-            phoneNumberId: capturedPhoneId || undefined,
-            wabaId: capturedWabaId || undefined,
+            phoneNumberId: effectivePhoneId,
+            wabaId: effectiveWabaId,
           });
 
           if (res.success) {
@@ -478,6 +492,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
                 res.displayPhoneNumber || res.phoneNumberId
               }`,
             });
+            router.refresh();
           }
         } catch (err: any) {
           setFeedback({
@@ -489,12 +504,18 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
         }
       } else {
         setConnectingWhatsApp(false);
-        if (response.status !== 'connected') {
-          setFeedback({
-            type: 'error',
-            message: 'Flujo de conexión cancelado o no completado en Meta.',
-          });
-        }
+        const detailedErr =
+          response.error_message ||
+          response.error_description ||
+          response.status ||
+          (response.error ? (typeof response.error === 'string' ? response.error : response.error.message || JSON.stringify(response.error)) : null);
+
+        setFeedback({
+          type: 'error',
+          message: detailedErr && detailedErr !== 'connected'
+            ? `Meta canceló o rechazó la conexión: ${detailedErr}`
+            : 'Flujo de conexión cancelado o no completado en Meta.',
+        });
       }
     }, loginOptions);
   };

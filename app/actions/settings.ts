@@ -115,15 +115,6 @@ export async function addCustomTemplate(input: { name: string; label?: string })
     ? org.whatsapp_templates
     : [];
 
-  if (currentTemplates.length === 0) {
-    currentTemplates = [
-      { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
-      { name: 'hello_world', label: 'Saludo de Prueba Meta' },
-      { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
-      { name: 'seguimiento_general', label: 'Seguimiento General' },
-    ];
-  }
-
   const existingIdx = currentTemplates.findIndex((t) => t.name === cleanName);
   let updatedTemplates: Array<{ name: string; label: string }>;
   if (existingIdx >= 0) {
@@ -202,15 +193,6 @@ export async function updateCustomTemplate(input: {
     ? org.whatsapp_templates
     : [];
 
-  if (currentTemplates.length === 0) {
-    currentTemplates = [
-      { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
-      { name: 'hello_world', label: 'Saludo de Prueba Meta' },
-      { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
-      { name: 'seguimiento_general', label: 'Seguimiento General' },
-    ];
-  }
-
   const existingIdx = currentTemplates.findIndex((t) => t.name === input.oldName);
   if (existingIdx >= 0) {
     currentTemplates[existingIdx] = { name: cleanNewName, label };
@@ -280,15 +262,6 @@ export async function deleteCustomTemplate(input: string | { templateName: strin
   let currentTemplates: Array<{ name: string; label: string }> = Array.isArray(org?.whatsapp_templates)
     ? org.whatsapp_templates
     : [];
-
-  if (currentTemplates.length === 0) {
-    currentTemplates = [
-      { name: 'reactivacion_lead', label: 'Reactivación de Contacto' },
-      { name: 'hello_world', label: 'Saludo de Prueba Meta' },
-      { name: 'recordatorio_cita', label: 'Recordatorio de Cita' },
-      { name: 'seguimiento_general', label: 'Seguimiento General' },
-    ];
-  }
 
   const updatedTemplates = currentTemplates.filter((t) => t.name !== templateName);
 
