@@ -4,11 +4,20 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
 import { checkRateLimit } from '@/lib/security/rate-limiter';
+import {
+  checkAccountLockout,
+  recordFailedLogin,
+  recordSuccessfulLogin,
+  COOKIE_SESSION_CREATED_AT,
+  COOKIE_SESSION_LAST_ACTIVE,
+} from '@/lib/security/auth-protection';
 
 /**
  * Iniciar sesión con Email y Contraseña.
- * Incluye sanitización de entrada, validación estricta y protección anti-fuerza bruta.
+ * Incluye sanitización de entrada, validación estricta, bloqueo por intentos fallidos
+ * y gestión de ciclo de vida de la sesión (expiración e inactividad).
  */
 export async function signIn(formData: FormData) {
   const rawEmail = formData.get('email');
@@ -31,12 +40,20 @@ export async function signIn(formData: FormData) {
     return { error: 'La contraseña debe contener al menos 6 caracteres.' };
   }
 
-  // Protección Anti-Fuerza Bruta: máximo 5 intentos por minuto por cuenta de correo
+  // 1. Verificación de Bloqueo por Intentos Fallidos Excedidos (5 intentos = 15 min bloqueo)
+  const lockout = await checkAccountLockout(email);
+  if (lockout.locked) {
+    return {
+      error: `🚨 Tu cuenta ha sido bloqueada temporalmente por seguridad tras 5 intentos fallidos. Intenta nuevamente en ${lockout.minutesRemaining || 15} minutos o solicita el restablecimiento a tu administrador.`,
+    };
+  }
+
+  // 2. Protección Anti-Fuerza Bruta inmediata (máx 5 peticiones por minuto por IP/email)
   const rateLimitKey = `login_${email}`;
   const rateCheck = await checkRateLimit(rateLimitKey, 5);
   if (!rateCheck.success) {
     return {
-      error: 'Demasiados intentos fallidos de inicio de sesión. Por seguridad de tu cuenta, espera 1 minuto antes de volver a intentar.',
+      error: 'Demasiados intentos de inicio de sesión. Por seguridad de tu cuenta, espera 1 minuto antes de volver a intentar.',
     };
   }
 
@@ -47,19 +64,62 @@ export async function signIn(formData: FormData) {
   });
 
   if (error) {
-    return { error: 'Correo o contraseña incorrectos. Verifica tus credenciales.' };
+    // Registrar intento fallido y calcular advertencia o bloqueo
+    const failedStatus = await recordFailedLogin(email);
+    if (failedStatus.locked) {
+      return {
+        error:
+          '🚨 Has alcanzado el límite de 5 intentos fallidos de contraseña. Por seguridad, la cuenta ha sido bloqueada temporalmente por 15 minutos.',
+      };
+    }
+
+    return {
+      error: `Contraseña o correo incorrectos. Te quedan ${failedStatus.remainingAttempts} ${
+        failedStatus.remainingAttempts === 1 ? 'intento' : 'intentos'
+      } antes del bloqueo temporal de seguridad.`,
+    };
   }
+
+  // 3. Inicio de sesión exitoso: reiniciar contador de fallos y registrar ciclo de vida de sesión
+  await recordSuccessfulLogin(email);
+
+  const cookieStore = cookies();
+  const nowStr = Date.now().toString();
+
+  // Registrar fecha de creación de la sesión y última actividad
+  cookieStore.set(COOKIE_SESSION_CREATED_AT, nowStr, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 24 * 3600, // Duración máxima absoluta: 24 horas
+  });
+
+  cookieStore.set(COOKIE_SESSION_LAST_ACTIVE, nowStr, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 24 * 3600,
+  });
 
   revalidatePath('/', 'layout');
   redirect('/dashboard');
 }
 
 /**
- * Cerrar sesión y redirigir al login
+ * Cerrar sesión y limpiar cookies de sesión y seguridad
  */
 export async function signOut() {
   const supabase = createServerSupabaseClient();
   await supabase.auth.signOut();
+
+  try {
+    const cookieStore = cookies();
+    cookieStore.delete(COOKIE_SESSION_CREATED_AT);
+    cookieStore.delete(COOKIE_SESSION_LAST_ACTIVE);
+  } catch {}
+
   revalidatePath('/', 'layout');
   redirect('/login');
 }

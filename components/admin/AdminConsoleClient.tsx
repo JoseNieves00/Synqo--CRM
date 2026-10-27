@@ -24,7 +24,11 @@ import {
   DollarSign,
   Filter,
   Calendar,
+  LifeBuoy,
+  Sparkles,
 } from 'lucide-react';
+import { AdminTicketsTab } from './AdminTicketsTab';
+import { AdminCopilotTab } from './AdminCopilotTab';
 import {
   OrganizationRow,
   PlanType,
@@ -61,12 +65,15 @@ interface Metrics {
 interface AdminConsoleClientProps {
   initialMetrics: Metrics;
   initialOrganizations: OrganizationRow[];
+  initialTickets?: any[];
 }
 
 export default function AdminConsoleClient({
   initialMetrics,
   initialOrganizations,
+  initialTickets = [],
 }: AdminConsoleClientProps) {
+  const [mainTab, setMainTab] = useState<'companies' | 'tickets' | 'copilot'>('companies');
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [organizations, setOrganizations] = useState<OrganizationRow[]>(initialOrganizations);
   const [searchQuery, setSearchQuery] = useState('');
@@ -442,84 +449,137 @@ export default function AdminConsoleClient({
         </div>
       )}
 
-      {/* Tarjetas de Métricas de Plataforma */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-        <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+      {/* Pestañas Principales del Super Admin */}
+      <div className="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto scrollbar-none whitespace-nowrap -mx-3.5 px-3.5 sm:mx-0 sm:px-0">
+        <button
+          type="button"
+          onClick={() => setMainTab('companies')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+            mainTab === 'companies'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>
+            <span className="hidden sm:inline">Empresas & Facturación</span>
+            <span className="sm:hidden">Empresas</span> ({organizations.length})
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainTab('tickets')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+            mainTab === 'tickets'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <LifeBuoy className="w-4 h-4 text-rose-500" />
+          <span>
+            <span className="hidden sm:inline">Soporte & GitHub Issues</span>
+            <span className="sm:hidden">Tickets Soporte</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainTab('copilot')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+            mainTab === 'copilot'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-[#00D2FF]" />
+          <span>
+            <span className="hidden sm:inline">Admin Copilot (IA)</span>
+            <span className="sm:hidden">Copilot IA</span>
+          </span>
+        </button>
+      </div>
+
+      {mainTab === 'companies' && (
+        <>
+          {/* Tarjetas de Métricas de Plataforma */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5">
+        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
               Total Empresas
             </span>
-            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
-              <Building2 className="w-5 h-5" />
+            <div className="p-2 sm:p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+              <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">{metrics.totalOrganizations}</span>
-            <span className="text-xs text-emerald-600 font-semibold">
+          <div className="flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalOrganizations}</span>
+            <span className="text-[10px] sm:text-xs text-emerald-600 font-semibold truncate">
               ({metrics.activeOrganizations} activas)
             </span>
           </div>
         </div>
 
-        <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Usuarios del Equipo
+        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Usuarios Equipo
             </span>
-            <div className="p-2.5 bg-purple-50 text-purple-600 rounded-xl">
-              <Users className="w-5 h-5" />
+            <div className="p-2 sm:p-2.5 bg-purple-50 text-purple-600 rounded-xl">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">{metrics.totalProfiles}</span>
-            <span className="text-xs text-gray-500">en plataforma</span>
+          <div className="flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalProfiles}</span>
+            <span className="text-[10px] sm:text-xs text-gray-500 truncate">en plataforma</span>
           </div>
         </div>
 
-        <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
               Leads Totales
             </span>
-            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+              <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">{metrics.totalContacts}</span>
-            <span className="text-xs text-emerald-600 font-medium">WhatsApp Leads</span>
+          <div className="flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalContacts}</span>
+            <span className="text-[10px] sm:text-xs text-emerald-600 font-medium truncate">WhatsApp</span>
           </div>
         </div>
 
-        <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Mensajes Procesados
+        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Mensajes
             </span>
-            <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl">
-              <MessageSquare className="w-5 h-5" />
+            <div className="p-2 sm:p-2.5 bg-amber-50 text-amber-600 rounded-xl">
+              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">{metrics.totalMessages}</span>
-            <span className="text-xs text-amber-600 font-medium">IA & Agentes</span>
+          <div className="flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalMessages}</span>
+            <span className="text-[10px] sm:text-xs text-amber-600 font-medium truncate">IA & Agentes</span>
           </div>
         </div>
 
-        <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm col-span-2 lg:col-span-1">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
               Tokens OpenAI
             </span>
-            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-              <Zap className="w-5 h-5" />
+            <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+              <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">
+          <div className="flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-gray-900">
               {metrics.totalAiTokensUsed ? (metrics.totalAiTokensUsed > 1000000 ? `${(metrics.totalAiTokensUsed / 1000000).toFixed(1)}M` : `${Math.round(metrics.totalAiTokensUsed / 1000)}k`) : '0'}
             </span>
-            <span className="text-xs text-emerald-600 font-medium">Consumo Total</span>
+            <span className="text-[10px] sm:text-xs text-emerald-600 font-medium truncate">Consumo Total</span>
           </div>
         </div>
       </div>
@@ -869,6 +929,16 @@ export default function AdminConsoleClient({
           </table>
         </div>
       </div>
+    </>
+  )}
+
+  {mainTab === 'tickets' && (
+    <AdminTicketsTab initialTickets={initialTickets} />
+  )}
+
+  {mainTab === 'copilot' && (
+    <AdminCopilotTab />
+  )}
 
       {/* Modal: Aprovisionar Empresa */}
       {isProvisionOpen && (

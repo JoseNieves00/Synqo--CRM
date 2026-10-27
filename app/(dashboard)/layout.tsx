@@ -1,5 +1,6 @@
 import React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { getCurrentUserAndOrg, signOut } from '@/app/actions/auth';
 import {
   Bot,
@@ -12,6 +13,7 @@ import { MustChangePasswordModal } from '@/components/profile/MustChangePassword
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
 import { SuspendedOrganizationModal } from '@/components/billing/SuspendedOrganizationModal';
+import { SupportModal } from '@/components/support/SupportModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +38,10 @@ export default async function DashboardLayout({
     (current?.organization?.is_active === false ||
       subStatus === 'past_due' ||
       subStatus === 'canceled');
+  const isWhatsappConnected = Boolean(
+    current?.organization?.whatsapp_phone_number_id &&
+    current?.organization?.whatsapp_access_token
+  );
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-slate-50">
@@ -129,16 +135,36 @@ export default async function DashboardLayout({
             <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
             <span className="font-semibold text-gray-900 truncate max-w-[200px] sm:max-w-xs">{orgName}</span>
             <span className="text-gray-300">/</span>
-            <span className="text-[#0052FF] bg-[#0052FF]/10 px-2.5 py-0.5 rounded-full text-xs font-medium border border-[#0052FF]/20 flex items-center gap-1.5 font-mono">
-              <Bot className="w-3.5 h-3.5 text-[#0052FF]" /> WhatsApp Cloud Activo
-            </span>
+            <Link
+              href="/settings"
+              prefetch={true}
+              title={
+                isWhatsappConnected
+                  ? 'WhatsApp Cloud API activo y sincronizado. Clic para ver configuración.'
+                  : 'Aún no has vinculado tu línea de WhatsApp. Clic para conectar.'
+              }
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer border ${
+                isWhatsappConnected
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isWhatsappConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                }`}
+              />
+              <span className="hidden sm:inline">
+                {isWhatsappConnected ? 'WhatsApp Conectado' : 'Sin WhatsApp (Conectar)'}
+              </span>
+              <span className="sm:hidden">
+                {isWhatsappConnected ? 'Conectado' : 'Conectar'}
+              </span>
+            </Link>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-emerald-600 font-medium">
-            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-md hidden sm:inline-flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Línea Conectada
-            </span>
+          <div className="flex items-center gap-3">
+            {/* Espacio limpio para futuras acciones o botón de ayuda */}
           </div>
         </header>
 
@@ -146,6 +172,9 @@ export default async function DashboardLayout({
         <main className="flex-1 overflow-y-auto p-6 sm:p-8">
           {children}
         </main>
+
+        {/* Modal y Botón Flotante de Ayuda & Reporte de Fallas */}
+        <SupportModal />
       </div>
     </div>
   );
