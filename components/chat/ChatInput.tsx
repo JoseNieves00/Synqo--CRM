@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Send, AlertTriangle, FileText, Lock } from 'lucide-react';
-import { META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
 
 interface ChatInputProps {
   contactId: string;
@@ -28,10 +28,10 @@ export function ChatInput({
   const [message, setMessage] = useState('');
   const availableTemplates = customTemplates && customTemplates.length > 0
     ? customTemplates
-    : Object.values(META_TEMPLATES);
+    : [];
 
   const [selectedTemplate, setSelectedTemplate] = useState<string>(
-    availableTemplates[0]?.name || 'reactivacion_lead'
+    availableTemplates[0]?.name || ''
   );
   const [loading, setLoading] = useState(false);
 
@@ -87,36 +87,42 @@ export function ChatInput({
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-          <select
-            value={selectedTemplate}
-            onChange={(e) => setSelectedTemplate(e.target.value)}
-            className="flex-1 bg-white border border-amber-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
-          >
-            {customTemplates && customTemplates.length > 0 ? (
-              customTemplates.map((tpl) => (
+        {availableTemplates.length > 0 ? (
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+            <select
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value)}
+              className="flex-1 bg-white border border-amber-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-sm"
+            >
+              {availableTemplates.map((tpl) => (
                 <option key={tpl.name} value={tpl.name}>
                   {tpl.label || tpl.name} ({tpl.name})
                 </option>
-              ))
-            ) : (
-              Object.entries(META_TEMPLATES).map(([key, item]) => (
-                <option key={key} value={item.name}>
-                  {item.label} ({item.name})
-                </option>
-              ))
-            )}
-          </select>
+              ))}
+            </select>
 
-          <button
-            onClick={handleSendTemplate}
-            disabled={loading}
-            className="flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md text-sm font-medium transition shadow-sm disabled:opacity-50"
-          >
-            <FileText className="w-4 h-4" />
-            {loading ? 'Enviando...' : 'Enviar Plantilla Oficial'}
-          </button>
-        </div>
+            <button
+              onClick={handleSendTemplate}
+              disabled={loading}
+              className="flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md text-sm font-medium transition shadow-sm disabled:opacity-50 cursor-pointer"
+            >
+              <FileText className="w-4 h-4" />
+              {loading ? 'Enviando...' : 'Enviar Plantilla Oficial'}
+            </button>
+          </div>
+        ) : (
+          <div className="bg-amber-100/80 border border-amber-300 rounded-xl p-3 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span>
+              Tu empresa no tiene plantillas oficiales registradas. Configura tus plantillas aprobadas en Ajustes para poder contactar prospectos fuera de la ventana de 24 horas.
+            </span>
+            <Link
+              href="/settings"
+              className="inline-flex items-center font-bold text-amber-950 hover:underline shrink-0"
+            >
+              Configurar en Ajustes &rarr;
+            </Link>
+          </div>
+        )}
       </div>
     );
   }
