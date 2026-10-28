@@ -139,6 +139,7 @@ interface SettingsFormProps {
     aiTokensUsed?: number;
     aiTokensLimit?: number;
     maxUsers?: number;
+    industryPreset?: string | null;
   };
   teamData?: {
     organization: {
@@ -186,6 +187,9 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
   );
   const [structuredPromptData, setStructuredPromptData] = useState<any>(
     initialData.structuredPromptData || null
+  );
+  const [industryPreset, setIndustryPreset] = useState<string>(
+    initialData.industryPreset || 'services'
   );
 
   // Inicialización del SDK de Meta y escucha de eventos de sesión (sessionInfoVersion: '2')
@@ -675,6 +679,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
         whatsappAppSecret: appSecret || undefined,
         systemPrompt: systemPrompt || undefined,
         structuredPromptData: structuredPromptData || undefined,
+        industryPreset: industryPreset || undefined,
       });
 
       setFeedback({
@@ -865,89 +870,67 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                   </div>
                 </div>
 
-                {/* Descripción y Resumen del Plan */}
-                <div className="space-y-3 pt-1">
-                  <p className="text-xs text-gray-700 leading-relaxed font-medium">
-                    {currentPlan.description}
-                  </p>
-
-                  {/* Cuotas del Plan: Usuarios y Tokens Dinámicos desde Base de Datos */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
-                          <Users className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
-                            Capacidad de Asesores (Base de Datos)
-                          </span>
-                          <span className="text-xs font-bold text-gray-900">
-                            {activeUsersCount} de {maxUsersCount} usuarios activos
-                          </span>
-                        </div>
+                {/* Cuotas del Plan: Usuarios y Tokens Dinámicos desde Base de Datos */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
+                        <Users className="w-4 h-4" />
                       </div>
-                      <div className="text-[11px] text-gray-600 flex items-center justify-between pt-1.5 border-t border-slate-200/70 font-medium">
-                        <span>{remainingSeats > 0 ? `${remainingSeats} ${remainingSeats === 1 ? 'cupo disponible' : 'cupos disponibles'}` : 'Límite alcanzado'}</span>
-                        <span className="font-semibold text-slate-700 font-mono">Máx: {maxUsersCount}</span>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
-                          <Zap className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
-                              Cuota de Tokens IA en Tiempo Real
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-700 font-mono">
-                              {tokenPercent}%
-                            </span>
-                          </div>
-                          <span className="text-xs font-bold text-gray-900 font-mono">
-                            {effectiveUsed.toLocaleString()} / {effectiveLimit.toLocaleString()} tokens
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Barra de progreso de consumo de tokens */}
-                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-300 ${
-                            tokenPercent >= 90
-                              ? 'bg-rose-500'
-                              : tokenPercent >= 75
-                              ? 'bg-amber-500'
-                              : 'bg-emerald-500'
-                          }`}
-                          style={{ width: `${tokenPercent}%` }}
-                        />
-                      </div>
-
-                      <div className="text-[11px] text-gray-600 flex items-center justify-between pt-0.5 font-medium">
-                        <span>~{minEstimatedChats.toLocaleString()} a {maxEstimatedChats.toLocaleString()} chats/mes</span>
-                        <span className="text-emerald-700 font-semibold font-mono">
-                          ~{remainingEstimatedChats.toLocaleString()} chats restantes
+                      <div>
+                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
+                          Capacidad de Asesores
+                        </span>
+                        <span className="text-xs font-bold text-gray-900">
+                          {activeUsersCount} de {maxUsersCount} usuarios activos
                         </span>
                       </div>
                     </div>
+                    <div className="text-[11px] text-gray-600 flex items-center justify-between pt-1.5 border-t border-slate-200/70 font-medium">
+                      <span>{remainingSeats > 0 ? `${remainingSeats} ${remainingSeats === 1 ? 'cupo disponible' : 'cupos disponibles'}` : 'Límite alcanzado'}</span>
+                      <span className="font-semibold text-slate-700 font-mono">Máx: {maxUsersCount}</span>
+                    </div>
                   </div>
 
-                  {/* Lista Oficial de Beneficios */}
-                  <div className="pt-2">
-                    <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider block mb-2">
-                      Beneficios Incluidos en tu Plan:
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      {currentPlan.features.map((feature, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-gray-600">
-                          <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                          <span>{feature}</span>
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
+                            Cuota de Tokens IA en Tiempo Real
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-700 font-mono">
+                            {tokenPercent}%
+                          </span>
                         </div>
-                      ))}
+                        <span className="text-xs font-bold text-gray-900 font-mono">
+                          {effectiveUsed.toLocaleString()} / {effectiveLimit.toLocaleString()} tokens
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Barra de progreso de consumo de tokens */}
+                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          tokenPercent >= 90
+                            ? 'bg-rose-500'
+                            : tokenPercent >= 75
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${tokenPercent}%` }}
+                      />
+                    </div>
+
+                    <div className="text-[11px] text-gray-600 flex items-center justify-between pt-0.5 font-medium">
+                      <span>~{minEstimatedChats.toLocaleString()} a {maxEstimatedChats.toLocaleString()} chats/mes</span>
+                      <span className="text-emerald-700 font-semibold font-mono">
+                        ~{remainingEstimatedChats.toLocaleString()} chats restantes
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -957,6 +940,52 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">
+            {/* Tipo de Negocio / Especialidad del Nicho */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
+              <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
+                <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] rounded-xl">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Tipo de Negocio & Nicho de tu Empresa</h2>
+                  <p className="text-xs text-gray-500">
+                    Adapta automáticamente la terminología y campos del Calendario, Citas e IA al nicho de tu empresa.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { id: 'services', label: 'Barbería, Spa & Belleza', icon: '✂️', desc: 'Atención presencial por turnos con profesionales' },
+                  { id: 'health', label: 'Salud & Consultorios', icon: '🦷', desc: 'Médicos, Odontología, Terapias y Consultorios' },
+                  { id: 'academy', label: 'Academias & Cursos', icon: '🥋', desc: 'Clases, Fitness, Danza, Salones y Alumnos' },
+                  { id: 'b2b', label: 'B2B & Consultoría', icon: '💼', desc: 'Reuniones virtuales (Meet/Zoom) y Demos' },
+                  { id: 'ecommerce', label: 'E-Commerce & Retail', icon: '🛍️', desc: 'Venta de productos y envíos a domicilio' },
+                  { id: 'custom', label: 'A Medida / General', icon: '⚙️', desc: 'Configuración modular libre' },
+                ].map((niche) => {
+                  const isSelected = industryPreset === niche.id;
+                  return (
+                    <button
+                      key={niche.id}
+                      type="button"
+                      onClick={() => setIndustryPreset(niche.id)}
+                      className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-blue-50/80 border-[#0052FF] ring-2 ring-[#0052FF]/20 shadow-xs'
+                          : 'bg-slate-50/50 border-gray-200 hover:border-gray-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div>
+                        <span className="text-lg block mb-1">{niche.icon}</span>
+                        <div className="text-xs font-bold text-gray-900 leading-tight">{niche.label}</div>
+                        <div className="text-[10px] text-gray-500 mt-1 leading-snug line-clamp-2">{niche.desc}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Meta WhatsApp Cloud API */}
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">

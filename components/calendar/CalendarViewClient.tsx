@@ -24,7 +24,6 @@ import {
   ShieldCheck,
   Check,
   X,
-  Zap,
   MapPin,
 } from 'lucide-react';
 import {
@@ -92,6 +91,7 @@ interface CalendarViewClientProps {
     id: string;
     name: string;
     company_code: string;
+    industry_preset?: string | null;
     enabled_modules?: {
       native_calendar?: boolean;
       physical_rooms?: boolean;
@@ -102,6 +102,113 @@ interface CalendarViewClientProps {
   };
 }
 
+const NICHE_CONFIG: Record<string, {
+  label: string;
+  clientLabel: string;
+  clientPlaceholder: string;
+  specialistLabel: string;
+  specialistPlaceholder: string;
+  showRooms: boolean;
+  roomLabel: string;
+  showStudentName: boolean;
+  studentLabel: string;
+  showRecurrence: boolean;
+  recurrenceLabel: string;
+  defaultModality: 'presencial' | 'virtual' | 'domicilio';
+  allowedModalities: Array<'presencial' | 'virtual' | 'domicilio'>;
+}> = {
+  services: {
+    label: 'Barbería, Spa & Belleza',
+    clientLabel: 'Nombre del Cliente',
+    clientPlaceholder: 'Ej. Juan Pérez',
+    specialistLabel: 'Especialista / Profesional',
+    specialistPlaceholder: 'Cualquiera disponible (Auto)',
+    showRooms: false,
+    roomLabel: 'Cabina / Espacio',
+    showStudentName: false,
+    studentLabel: '',
+    showRecurrence: false,
+    recurrenceLabel: '',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'domicilio'],
+  },
+  health: {
+    label: 'Salud & Consultorios Médicos',
+    clientLabel: 'Nombre del Titular',
+    clientPlaceholder: 'Ej. María Rodríguez',
+    specialistLabel: 'Doctor / Terapeuta',
+    specialistPlaceholder: 'Médico de turno (Auto)',
+    showRooms: true,
+    roomLabel: 'Consultorio / Cabina Médica',
+    showStudentName: true,
+    studentLabel: 'Nombre del Paciente / Dependiente',
+    showRecurrence: true,
+    recurrenceLabel: 'Sesiones de Tratamiento Continuo',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'virtual', 'domicilio'],
+  },
+  academy: {
+    label: 'Academias & Cursos',
+    clientLabel: 'Nombre del Titular / Acudiente',
+    clientPlaceholder: 'Ej. Andrea Gómez (Mamá)',
+    specialistLabel: 'Profesor / Instructor',
+    specialistPlaceholder: 'Instructor de turno (Auto)',
+    showRooms: true,
+    roomLabel: 'Salón / Aula de Clase',
+    showStudentName: true,
+    studentLabel: 'Nombre del Alumno',
+    showRecurrence: true,
+    recurrenceLabel: 'Frecuencia de Clases Semanales',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'virtual'],
+  },
+  b2b: {
+    label: 'B2B & Consultoría',
+    clientLabel: 'Prospecto / Empresa',
+    clientPlaceholder: 'Ej. Andrés Castro (Acme Corp)',
+    specialistLabel: 'Asesor Comercial / Consultor',
+    specialistPlaceholder: 'Cualquier asesor (Auto)',
+    showRooms: false,
+    roomLabel: 'Sala de Reunión',
+    showStudentName: false,
+    studentLabel: '',
+    showRecurrence: false,
+    recurrenceLabel: '',
+    defaultModality: 'virtual',
+    allowedModalities: ['virtual', 'presencial'],
+  },
+  ecommerce: {
+    label: 'E-commerce & Retail',
+    clientLabel: 'Nombre del Cliente',
+    clientPlaceholder: 'Ej. Carlos Sánchez',
+    specialistLabel: 'Asesor de Envíos',
+    specialistPlaceholder: 'Asesor (Auto)',
+    showRooms: false,
+    roomLabel: 'Bodega',
+    showStudentName: false,
+    studentLabel: '',
+    showRecurrence: false,
+    recurrenceLabel: '',
+    defaultModality: 'domicilio',
+    allowedModalities: ['domicilio'],
+  },
+  custom: {
+    label: 'A Medida / General',
+    clientLabel: 'Nombre del Cliente',
+    clientPlaceholder: 'Ej. Juan Pérez',
+    specialistLabel: 'Colaborador / Especialista',
+    specialistPlaceholder: 'Cualquiera disponible (Auto)',
+    showRooms: true,
+    roomLabel: 'Salón / Cabina',
+    showStudentName: true,
+    studentLabel: 'Nombre de Alumno o Paciente',
+    showRecurrence: true,
+    recurrenceLabel: 'Frecuencia de Citas',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'virtual', 'domicilio'],
+  },
+};
+
 export function CalendarViewClient({
   initialAppointments,
   specialists,
@@ -109,7 +216,9 @@ export function CalendarViewClient({
   services,
   organization,
 }: CalendarViewClientProps) {
-  const hasPhysicalRooms = Boolean(organization?.enabled_modules?.physical_rooms);
+  const rawPreset = (organization as any)?.industry_preset || 'services';
+  const currentNiche = NICHE_CONFIG[rawPreset] || NICHE_CONFIG.services;
+  const effectiveShowRooms = Boolean(organization?.enabled_modules?.physical_rooms && currentNiche.showRooms);
   const [appointments, setAppointments] = useState<AppointmentItem[]>(initialAppointments);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'list' | 'team'>('day');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -117,30 +226,17 @@ export function CalendarViewClient({
   const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isPending, startTransition] = useTransition();
-  const [isRunningCheck, setIsRunningCheck] = useState(false);
 
   // Modales
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
-
-  const handleRunCheck = async () => {
-    setIsRunningCheck(true);
-    try {
-      const res = await triggerManualReminderCheck();
-      alert(`⚡ Verificación completada:\n• Recordatorios enviados: ${res.remindersSent}\n• Citas auto-canceladas (sin confirmación 8h): ${res.autoCancelledCount}\n• Citas procesadas: ${res.processedCount}`);
-    } catch (err: any) {
-      alert(`Error al verificar recordatorios: ${err.message}`);
-    } finally {
-      setIsRunningCheck(false);
-    }
-  };
 
   // Formulario de nueva cita rápida adaptable al nicho
   const [formData, setFormData] = useState({
     contactName: '',
     contactPhone: '',
     studentName: '',
-    modality: 'presencial' as 'presencial' | 'virtual' | 'domicilio',
+    modality: currentNiche.defaultModality,
     meetingUrl: '',
     locationAddress: '',
     recurringWeeks: 1,
@@ -225,7 +321,7 @@ export function CalendarViewClient({
           roomId: formData.roomId,
           startTime: startIso,
           notes: formData.notes,
-          studentName: hasPhysicalRooms ? formData.studentName : undefined,
+          studentName: currentNiche.showStudentName ? formData.studentName : undefined,
           recurringWeeks: Number(formData.recurringWeeks) || 1,
           modality: formData.modality,
           meetingUrl: formData.meetingUrl,
@@ -254,8 +350,8 @@ export function CalendarViewClient({
             amountPaid: 0,
             client: {
               id: res.appointment.contact_id || '',
-              name: (hasPhysicalRooms && formData.studentName)
-                ? `${formData.studentName} (${formData.contactName || 'Acudiente'})` 
+              name: (currentNiche.showStudentName && formData.studentName)
+                ? `${formData.studentName} (${formData.contactName || 'Titular'})` 
                 : (formData.contactName || 'Cliente Mostrador'),
               phone: formData.contactPhone,
             },
@@ -269,7 +365,7 @@ export function CalendarViewClient({
             contactName: '',
             contactPhone: '',
             studentName: '',
-            modality: 'presencial',
+            modality: currentNiche.defaultModality,
             meetingUrl: '',
             locationAddress: '',
             recurringWeeks: 1,
@@ -580,17 +676,6 @@ export function CalendarViewClient({
             </button>
           </div>
 
-          {/* Botón Verificación 8h / Recordatorios */}
-          <button
-            onClick={handleRunCheck}
-            disabled={isRunningCheck}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#131722] hover:bg-[#1A2030] border border-[#232A3B] text-slate-300 hover:text-white text-xs font-semibold rounded-lg transition disabled:opacity-50"
-            title="Verificar y enviar recordatorios con curfew 20:00 y auto-cancelar citas a las 8 horas"
-          >
-            <Zap className={`w-3.5 h-3.5 text-amber-400 ${isRunningCheck ? 'animate-spin' : ''}`} />
-            <span>{isRunningCheck ? 'Verificando...' : 'Verificar 8h / Recordatorios'}</span>
-          </button>
-
           {/* Botón Nueva Cita Rápida */}
           <button
             onClick={() => setIsNewModalOpen(true)}
@@ -656,7 +741,7 @@ export function CalendarViewClient({
               onChange={(e) => setSelectedSpecialistId(e.target.value)}
               className="px-2.5 py-1.5 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
             >
-              <option value="all">Todos los Especialistas ({specialists.length})</option>
+              <option value="all">Todos: {currentNiche.specialistLabel} ({specialists.length})</option>
               {specialists.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} ({s.specialty || 'General'})
@@ -677,14 +762,14 @@ export function CalendarViewClient({
             )}
           </div>
 
-          {/* Filtro Salón */}
-          {rooms.length > 0 && (
+          {/* Filtro Salón / Espacio (Solo si el nicho y módulo lo requieren) */}
+          {effectiveShowRooms && rooms.length > 0 && (
             <select
               value={selectedRoomId}
               onChange={(e) => setSelectedRoomId(e.target.value)}
               className="px-2.5 py-1.5 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
             >
-              <option value="all">Todos los Salones ({rooms.length})</option>
+              <option value="all">Todos: {currentNiche.roomLabel} ({rooms.length})</option>
               {rooms.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name} (Aforo: {r.capacity})
@@ -1068,44 +1153,48 @@ export function CalendarViewClient({
 
             <form onSubmit={handleCreateAppointment} className="space-y-4 text-xs">
               {/* 1. Selector de Modalidad */}
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1.5">
-                  Modalidad de Atención
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'presencial', label: 'En Sede', icon: '🏢' },
-                    { id: 'virtual', label: 'Virtual', icon: '💻' },
-                    { id: 'domicilio', label: 'A Domicilio', icon: '📍' },
-                  ].map((m) => {
-                    const isSelected = formData.modality === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, modality: m.id as any })}
-                        className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
-                          isSelected
-                            ? 'bg-[#00D2FF]/15 border-[#00D2FF] text-[#00D2FF] font-bold shadow-xs'
-                            : 'bg-[#131722] border-[#232A3B] text-slate-400 hover:text-slate-200 hover:bg-[#1A2030]'
-                        }`}
-                      >
-                        <span className="text-base mb-0.5">{m.icon}</span>
-                        <span className="text-xs">{m.label}</span>
-                      </button>
-                    );
-                  })}
+              {currentNiche.allowedModalities.length > 1 && (
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1.5">
+                    Modalidad de Atención
+                  </label>
+                  <div className={`grid grid-cols-${currentNiche.allowedModalities.length} gap-2`}>
+                    {[
+                      { id: 'presencial', label: 'En Sede', icon: '🏢' },
+                      { id: 'virtual', label: 'Virtual', icon: '💻' },
+                      { id: 'domicilio', label: 'A Domicilio', icon: '📍' },
+                    ]
+                      .filter((m) => currentNiche.allowedModalities.includes(m.id as any))
+                      .map((m) => {
+                        const isSelected = formData.modality === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, modality: m.id as any })}
+                            className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                              isSelected
+                                ? 'bg-[#00D2FF]/15 border-[#00D2FF] text-[#00D2FF] font-bold shadow-xs'
+                                : 'bg-[#131722] border-[#232A3B] text-slate-400 hover:text-slate-200 hover:bg-[#1A2030]'
+                            }`}
+                          >
+                            <span className="text-base mb-0.5">{m.icon}</span>
+                            <span className="text-xs">{m.label}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* 2. Datos del Cliente */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Nombre del Cliente *</label>
+                  <label className="block text-slate-300 font-medium mb-1">{currentNiche.clientLabel} *</label>
                   <input
                     type="text"
                     required
-                    placeholder="Ej. Juan Pérez"
+                    placeholder={currentNiche.clientPlaceholder}
                     value={formData.contactName}
                     onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
                     className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
@@ -1124,11 +1213,11 @@ export function CalendarViewClient({
                 </div>
               </div>
 
-              {/* Campo Alumno / Paciente: SOLO si la empresa tiene salones/aforos físicos (Academias / Salud) */}
-              {hasPhysicalRooms && (
+              {/* Campo Alumno / Paciente / Dependiente: según nicho */}
+              {currentNiche.showStudentName && (
                 <div>
                   <label className="block text-slate-300 font-medium mb-1 flex items-center justify-between">
-                    <span>Nombre de Alumno / Paciente</span>
+                    <span>{currentNiche.studentLabel}</span>
                     <span className="text-[10px] text-slate-500 font-normal">Opcional si es distinto al titular</span>
                   </label>
                   <input
@@ -1190,15 +1279,15 @@ export function CalendarViewClient({
                 </select>
               </div>
 
-              <div className={`grid gap-3 ${formData.modality === 'presencial' && hasPhysicalRooms ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              <div className={`grid gap-3 ${formData.modality === 'presencial' && effectiveShowRooms ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Colaborador / Especialista</label>
+                  <label className="block text-slate-300 font-medium mb-1">{currentNiche.specialistLabel}</label>
                   <select
                     value={formData.specialistId}
                     onChange={(e) => setFormData({ ...formData, specialistId: e.target.value })}
                     className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
                   >
-                    <option value="auto">Cualquiera disponible (Auto)</option>
+                    <option value="auto">{currentNiche.specialistPlaceholder}</option>
                     {specialists.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name} ({s.specialty || 'General'})
@@ -1208,9 +1297,9 @@ export function CalendarViewClient({
                 </div>
 
                 {/* Salón / Espacio Físico: SOLO si es presencial Y la empresa tiene salones habilitados */}
-                {formData.modality === 'presencial' && hasPhysicalRooms && (
+                {formData.modality === 'presencial' && effectiveShowRooms && (
                   <div>
-                    <label className="block text-slate-300 font-medium mb-1">Salón / Cabina Física</label>
+                    <label className="block text-slate-300 font-medium mb-1">{currentNiche.roomLabel}</label>
                     <select
                       value={formData.roomId}
                       onChange={(e) => setFormData({ ...formData, roomId: e.target.value })}
@@ -1251,11 +1340,11 @@ export function CalendarViewClient({
                 </div>
               </div>
 
-              {/* Frecuencia / Clases Semanales (Solo relevante para Academias o Salud con salones) */}
-              {hasPhysicalRooms && (
+              {/* Frecuencia / Recurrencia (según nicho) */}
+              {currentNiche.showRecurrence && (
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Frecuencia de Clases / Sesiones
+                    {currentNiche.recurrenceLabel}
                   </label>
                   <select
                     value={formData.recurringWeeks}
@@ -1263,8 +1352,8 @@ export function CalendarViewClient({
                     className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
                   >
                     <option value={1}>Sesión Única (1 cita)</option>
-                    <option value={4}>Recurrente: 4 Semanas (1 mes de clases semanales)</option>
-                    <option value={8}>Recurrente: 8 Semanas (2 meses de clases semanales)</option>
+                    <option value={4}>Recurrente: 4 Semanas (1 mes regular)</option>
+                    <option value={8}>Recurrente: 8 Semanas (2 meses)</option>
                     <option value={12}>Recurrente: 12 Semanas (Trimestre completo)</option>
                   </select>
                 </div>

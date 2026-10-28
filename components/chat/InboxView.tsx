@@ -18,6 +18,7 @@ import {
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
+import { getUnattendedHandoffs } from '@/app/actions/chat';
 
 interface ContactItem {
   id: string;
@@ -84,6 +85,30 @@ export function InboxView({
 
   // Filtro por agente específico (solo visible para Admins y Supervisores)
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string>('all');
+
+  // Conjunto de IDs de contactos con relevo pendiente no contestado
+  const [unattendedIds, setUnattendedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUnattended = async () => {
+      try {
+        const list = await getUnattendedHandoffs();
+        if (isMounted) {
+          setUnattendedIds(new Set(list.map((u) => u.id)));
+        }
+      } catch {
+        // Red o micro-corte silencioso
+      }
+    };
+
+    fetchUnattended();
+    const interval = setInterval(fetchUnattended, 6000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     setContactList(contacts);
@@ -385,6 +410,7 @@ export function InboxView({
               const isActive = activeContact?.id === c.id;
               const isMine = c.assigned_to === currentUserId;
               const assignedUser = teamMembers.find((m) => m.id === c.assigned_to);
+              const isUnattended = unattendedIds.has(c.id);
 
               const dateStr = new Date(c.last_interaction_at).toLocaleTimeString('es-ES', {
                 hour: '2-digit',
@@ -395,15 +421,28 @@ export function InboxView({
                 <Link
                   key={c.id}
                   href={`/inbox/${c.id}`}
-                  className={`p-3 block transition cursor-pointer ${
+                  className={`p-3 block transition cursor-pointer relative ${
                     isActive
-                      ? 'bg-[#0052FF]/5 border-l-4 border-l-[#0052FF]'
+                      ? 'bg-[#0052FF]/8 border-l-4 border-l-[#0052FF]'
+                      : isUnattended
+                      ? 'bg-rose-50/70 border-l-4 border-l-rose-500 hover:bg-rose-100/60 ring-1 ring-rose-200/50'
                       : 'hover:bg-slate-50'
                   }`}
                 >
+                  {/* Badge Relevo Pendiente Destacado (Anti-Visto) */}
+                  {isUnattended && (
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-black bg-rose-600 text-white shadow-xs animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                        🚨 RELEVO PENDIENTE
+                      </span>
+                      <span className="text-[10px] font-bold text-rose-600">Esperando asesor</span>
+                    </div>
+                  )}
+
                   {/* Fila 1: Nombre y Hora */}
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-gray-900 truncate mr-2">
+                    <span className={`font-bold text-xs truncate mr-2 ${isUnattended ? 'text-rose-950 font-black' : 'text-gray-900'}`}>
                       {c.name || 'Prospecto sin nombre'}
                     </span>
                     <span suppressHydrationWarning className="text-[10px] text-gray-400 font-mono flex-shrink-0">

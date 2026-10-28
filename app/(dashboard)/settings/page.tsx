@@ -88,6 +88,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         aiTokensUsed: Number(org?.ai_tokens_used || 0),
         aiTokensLimit: Number(org?.ai_tokens_limit || 0),
         maxUsers: Number(org?.max_users || 2),
+        industryPreset: (org as any)?.industry_preset || 'services',
       }}
       teamData={teamData || undefined}
       specialistsData={specialists}

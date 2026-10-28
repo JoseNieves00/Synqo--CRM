@@ -31,7 +31,7 @@ async function requireAuthOrgUser() {
   }
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, company_code, enabled_modules, appointment_settings')
+    .select('id, name, company_code, enabled_modules, appointment_settings, industry_preset')
     .eq('id', profile.organization_id)
     .single();
 

@@ -90,6 +90,9 @@ export function ChatWindow({
 
   const assignedMember = teamMembers.find((m) => m.id === contact.assigned_to);
 
+  const lastMessage = messages[messages.length - 1];
+  const isWaitingForHuman = !contact.is_ai_active && lastMessage && lastMessage.sender_type === 'lead';
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
@@ -361,6 +364,22 @@ export function ChatWindow({
           <span>
             <strong>{otherTyping}</strong> está respondiendo este chat en este momento...
           </span>
+        </div>
+      )}
+
+      {/* Banner de Relevo Humano Pendiente (Anti-Visto) */}
+      {isWaitingForHuman && (
+        <div className="mx-4 mt-2.5 p-3 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-300 rounded-xl text-xs text-rose-950 flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+            </span>
+            <div>
+              <span className="font-extrabold text-rose-800">🚨 Relevo pendiente:</span>{' '}
+              <span className="text-gray-700">El cliente está esperando la respuesta de un asesor humano. Escribe tu respuesta abajo para continuar la conversación.</span>
+            </div>
+          </div>
         </div>
       )}
 
