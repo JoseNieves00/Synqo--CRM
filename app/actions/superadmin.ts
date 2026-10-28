@@ -242,6 +242,8 @@ const ProvisionSchema = z.object({
   maxUsers: z.number().int().min(1).max(100).default(3),
   firstBillingMonth: z.string().optional(),
   calComEnabled: z.boolean().default(false),
+  enabledModules: z.any().optional(),
+  companyCode: z.string().optional(),
 });
 
 /**
@@ -256,6 +258,8 @@ export async function provisionCompany(input: {
   maxUsers?: number;
   firstBillingMonth?: string;
   calComEnabled?: boolean;
+  enabledModules?: EnabledModules;
+  companyCode?: string;
 }) {
   await requireSuperAdmin();
 
@@ -265,6 +269,17 @@ export async function provisionCompany(input: {
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   // Opción A: Días de cortesía si entra a mitad de mes. Por defecto cubre el mes actual.
   const paidUntilMonth = validated.firstBillingMonth || currentMonthStr;
+
+  const defaultModules: EnabledModules = validated.enabledModules || {
+    native_calendar: true,
+    physical_rooms: false,
+    staff_mobile_portal: false,
+    quick_pay: false,
+    anti_no_show: true,
+  };
+
+  const generatedCode = validated.companyCode?.trim().toUpperCase() ||
+    `EMPR${Math.floor(1000 + Math.random() * 9000)}`;
 
   // 1. Crear Organización (intenta con el plan seleccionado y fallback a 'core' si la BD aún tiene el constraint original)
   let planToInsert = validated.planType;
@@ -277,6 +292,8 @@ export async function provisionCompany(input: {
     cal_com_enabled: validated.calComEnabled,
     paid_until_month: paidUntilMonth,
     billing_due_day: 5,
+    company_code: generatedCode,
+    enabled_modules: defaultModules,
     system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
   };
 
