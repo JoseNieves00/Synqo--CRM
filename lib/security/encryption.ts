@@ -73,3 +73,42 @@ export function decryptSecret(cipherPayload: string): string {
   return decrypted;
 }
 
+/**
+ * Genera un hash seguro para contraseñas de colaboradores usando PBKDF2 con Salt aleatorio.
+ * Formato: "pbkdf2:<salt_hex>:<hash_hex>"
+ */
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+  return `pbkdf2:${salt}:${hash}`;
+}
+
+/**
+ * Verifica si una contraseña coincide con el hash almacenado con protección anti-timing attacks.
+ */
+export function verifyPassword(password: string, storedHash: string): boolean {
+  if (!storedHash || !storedHash.startsWith('pbkdf2:')) return false;
+  const parts = storedHash.split(':');
+  if (parts.length !== 3) return false;
+  const [, salt, originalHash] = parts;
+  const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(originalHash, 'hex'), Buffer.from(verifyHash, 'hex'));
+}
+
+/**
+ * Genera un token aleatorio criptoseguro para invitaciones y su hash SHA-256 para la base de datos.
+ */
+export function generateInviteToken(): { rawToken: string; tokenHash: string } {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  return { rawToken, tokenHash };
+}
+
+/**
+ * Hashea un token para buscar en la base de datos sin almacenar el token original en plano.
+ */
+export function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token.trim()).digest('hex');
+}
+
+

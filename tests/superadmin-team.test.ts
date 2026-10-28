@@ -86,6 +86,35 @@ async function runTests() {
     console.log('   ℹ️ No hay contactos para la org demo; omitiendo mutación.');
   }
 
+  // 5. Probar persistencia de módulos y código de empresa (Fase 2)
+  console.log('5️⃣  Probando persistencia de Módulos (enabled_modules) y Código de Empresa...');
+  const testModules = {
+    native_calendar: true,
+    physical_rooms: true,
+    staff_mobile_portal: true,
+    quick_pay: false,
+    anti_no_show: true,
+  };
+
+  const { error: modUpdateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      enabled_modules: testModules,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', org.id);
+
+  assert(!modUpdateErr, 'No debe haber error al guardar enabled_modules en organizations');
+
+  const { data: updatedOrg, error: fetchOrgErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('company_code, enabled_modules')
+    .eq('id', org.id)
+    .single();
+
+  assert(!fetchOrgErr && updatedOrg, 'Debe leerse la organización actualizada');
+  assert.strictEqual(updatedOrg.enabled_modules?.physical_rooms, true, 'physical_rooms debe ser true');
+  assert.strictEqual(updatedOrg.enabled_modules?.staff_mobile_portal, true, 'staff_mobile_portal debe ser true');
+  console.log(`   ✅ Módulos activos validados en Supabase. Código Empresa: ${updatedOrg.company_code || 'AUTOGEN'}`);
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SUPER ADMIN Y EQUIPO PASARON CON ÉXITO!');
 }
 

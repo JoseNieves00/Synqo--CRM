@@ -79,6 +79,63 @@ export class WhatsAppService {
   }
 
   /**
+   * Envía un mensaje interactivo con botones de respuesta rápida (Quick Reply Buttons).
+   * Ideal para confirmación de citas con un solo toque: [✓ Confirmar] o [↻ Reprogramar].
+   */
+  static async sendInteractiveButtonsMessage({
+    phoneNumberId,
+    accessToken,
+    to,
+    bodyText,
+    buttons,
+  }: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    bodyText: string;
+    buttons: Array<{ id: string; title: string }>;
+  }): Promise<string> {
+    const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
+
+    const replyButtons = buttons.slice(0, 3).map((btn) => ({
+      type: 'reply',
+      reply: {
+        id: btn.id,
+        title: btn.title.slice(0, 20), // Límite de Meta: 20 caracteres por título de botón
+      },
+    }));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: cleanTo,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText },
+          action: { buttons: replyButtons },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[WHATSAPP INTERACTIVE BUTTONS ERROR]', errorData);
+      throw new Error(`WhatsApp Interactive Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.messages?.[0]?.id || '';
+  }
+
+  /**
    * Envía una plantilla oficial de WhatsApp Business (requerida cuando expiró la ventana de 24h).
    */
   static async sendTemplateMessage({

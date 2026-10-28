@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   try {
     // E. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, cal_api_key, cal_event_type_id, system_prompt')
+      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, cal_api_key, cal_event_type_id, system_prompt, handoff_mode, after_hours_message, business_hours')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 
@@ -277,6 +277,59 @@ export async function POST(request: NextRequest) {
               await WhatsAppService.markAsRead(phoneNumberId, decryptedWhatsAppToken, metaMessageId);
             }
 
+            // 🛡️ REGLA OPERATIVA ANTI-NO-SHOW: Detección Determinística de Confirmación de Cita
+            const isConfirmButton = rawContent.includes('btn_confirm_appt') || rawContent.includes('Confirmar Cita');
+            const confirmationPattern = /\b(s[ií]|confirmo|confirmad[ao]|confirmar|all[aá]\s+(estoy|nos\s+vemos|estar[eé])|asistir[eé]|listo\s+confirmo)\b/i;
+            const isConfirmationText = confirmationPattern.test(sanitizedContent);
+
+            if (isConfirmButton || isConfirmationText) {
+              const nowIso = new Date().toISOString();
+              const twoDaysFromNow = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+
+              const { data: pendingAppt } = await (supabaseAdmin.from('appointments') as any)
+                .select('id, service_name, start_time, specialist_id, confirmation_status')
+                .eq('contact_id', contactId)
+                .eq('organization_id', orgId)
+                .eq('status', 'confirmed')
+                .eq('confirmation_status', 'unconfirmed')
+                .gte('start_time', nowIso)
+                .lte('start_time', twoDaysFromNow)
+                .order('start_time', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+
+              if (pendingAppt) {
+                // Actualizar estado de confirmación a confirmed
+                await (supabaseAdmin.from('appointments') as any)
+                  .update({
+                    confirmation_status: 'confirmed',
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('id', pendingAppt.id);
+
+                const startFormatted = new Date(pendingAppt.start_time).toLocaleTimeString('es-CO', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true,
+                });
+
+                // Notificar en el chat interno al especialista
+                if (pendingAppt.specialist_id) {
+                  try {
+                    await (supabaseAdmin.from('internal_chat_messages') as any).insert({
+                      organization_id: orgId,
+                      specialist_id: pendingAppt.specialist_id,
+                      sender_type: 'admin',
+                      sender_name: 'Sistema Synqo',
+                      content: `✅ Asistencia confirmada: ${leadName} confirmó su cita de las ${startFormatted} (${pendingAppt.service_name}).`,
+                    });
+                  } catch (chatErr) {
+                    console.warn('[WEBHOOK] Error notificando confirmación a colaborador:', chatErr);
+                  }
+                }
+              }
+            }
+
             // Detección Determinística de Solicitud de Asesor Humano (Cero Fuga)
             const humanHandoffPatterns = [
               /\b(asesor|humano|persona\s+real|agente\s+humano|operador)\b/i,
@@ -311,10 +364,28 @@ export async function POST(request: NextRequest) {
                 content: '[🚨 Relevo Silencioso Activado: Cliente solicita atención personalizada]',
               });
 
-              // Respuesta 100% humanizada y natural hacia WhatsApp (cero fricción)
-              aiResponseText =
-                '¡Hola! Claro que sí, con mucho gusto. Ya mismo te atiendo por aquí con todo detalle, dame un momento.';
+              if (organization.handoff_mode === 'message') {
+                aiResponseText =
+                  '¡Hola! Claro que sí, con mucho gusto. Ya mismo te atiendo por aquí con todo detalle, dame un momento.';
+              } else {
+                // Silencio total: el humano atiende directamente sin mensaje artificial
+                aiResponseText = '';
+              }
             } else {
+              // Calcular si está fuera de horario laboral (hora Colombia)
+              let isAfterHours = false;
+              const bHours = organization.business_hours as any;
+              if (bHours?.enabled) {
+                try {
+                  const nowBogota = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+                  const currentHourMin = `${String(nowBogota.getHours()).padStart(2, '0')}:${String(nowBogota.getMinutes()).padStart(2, '0')}`;
+                  const currentDay = nowBogota.getDay() === 0 ? 7 : nowBogota.getDay();
+                  const dayAllowed = Array.isArray(bHours.days) ? bHours.days.includes(currentDay) : true;
+                  const timeAllowed = currentHourMin >= (bHours.start || '00:00') && currentHourMin <= (bHours.end || '23:59');
+                  isAfterHours = !dayAllowed || !timeAllowed;
+                } catch {}
+              }
+
               // 2. Procesar con OpenAI y herramientas (Cal.com + Pipeline Stage)
               aiResponseText = await OpenAIService.processLeadMessage({
                 contactId,
@@ -324,11 +395,14 @@ export async function POST(request: NextRequest) {
                 systemPromptConfig: organization.system_prompt,
                 calApiKey: decryptedCalApiKey,
                 calEventTypeId: organization.cal_event_type_id,
+                handoffMode: organization.handoff_mode || 'silent',
+                afterHoursMessage: organization.after_hours_message || null,
+                isAfterHours,
               });
             }
 
-            // 3. Enviar respuesta por WhatsApp
-            if (decryptedWhatsAppToken && aiResponseText) {
+            // 3. Enviar respuesta por WhatsApp (solo si hay texto para enviar; el relevo silencioso no manda nada)
+            if (decryptedWhatsAppToken && aiResponseText && aiResponseText.trim() !== '') {
               try {
                 const outboundMetaId = await WhatsAppService.sendTextMessage({
                   phoneNumberId,

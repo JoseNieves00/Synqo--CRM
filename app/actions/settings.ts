@@ -14,6 +14,11 @@ interface UpdateSettingsInput {
   calApiKey?: string;
   calEventTypeId?: string;
   systemPrompt?: string;
+  structuredPromptData?: any;
+  industryPreset?: string;
+  handoffMode?: string;
+  afterHoursMessage?: string;
+  businessHours?: any;
 }
 
 type OrgUpdate = Database['public']['Tables']['organizations']['Update'];
@@ -71,6 +76,26 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 
   if (input.systemPrompt !== undefined) {
     updatePayload.system_prompt = input.systemPrompt.trim();
+  }
+
+  if (input.structuredPromptData !== undefined) {
+    updatePayload.structured_prompt_data = input.structuredPromptData;
+  }
+
+  if (input.industryPreset !== undefined) {
+    updatePayload.industry_preset = input.industryPreset as any;
+  }
+
+  if (input.handoffMode !== undefined) {
+    updatePayload.handoff_mode = input.handoffMode as any;
+  }
+
+  if (input.afterHoursMessage !== undefined) {
+    updatePayload.after_hours_message = input.afterHoursMessage ? input.afterHoursMessage.trim() : null;
+  }
+
+  if (input.businessHours !== undefined) {
+    updatePayload.business_hours = input.businessHours;
   }
 
   const { error: updateError } = await supabaseAdmin

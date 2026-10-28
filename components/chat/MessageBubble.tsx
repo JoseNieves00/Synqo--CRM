@@ -16,11 +16,26 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
   });
 
   if (senderType === 'system') {
+    const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado');
     return (
-      <div className="flex justify-center my-2">
-        <span className="text-xs bg-gray-100 text-gray-500 px-3 py-1 rounded-full border border-gray-200">
+      <div className="flex flex-col items-center justify-center my-2.5 gap-1.5">
+        <span
+          className={`text-xs px-3.5 py-1 rounded-full border text-center ${
+            isHandoff
+              ? 'bg-amber-500/10 border-amber-300 text-amber-950 font-medium'
+              : 'bg-gray-100 text-gray-500 border-gray-200'
+          }`}
+        >
           {content}
         </span>
+        {isHandoff && (
+          <a
+            href="/settings"
+            className="text-[10px] text-amber-700 hover:text-amber-900 font-bold hover:underline flex items-center gap-1 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 transition"
+          >
+            💡 ¿La IA no supo responder? Entrénala en Ajustes →
+          </a>
+        )}
       </div>
     );
   }

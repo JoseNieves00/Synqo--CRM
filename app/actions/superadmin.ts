@@ -2,8 +2,8 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-export type { PlanType, SubscriptionStatus } from '@/lib/supabase/types';
-import { PlanType, SubscriptionStatus } from '@/lib/supabase/types';
+export type { PlanType, SubscriptionStatus, EnabledModules, AppointmentSettings } from '@/lib/supabase/types';
+import { PlanType, SubscriptionStatus, EnabledModules, AppointmentSettings } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
@@ -52,7 +52,7 @@ export async function requireSuperAdmin() {
 
     return { user, profile };
   } catch (err: any) {
-    if (err?.message?.includes('cookies') || err?.message?.includes('request scope')) {
+    if (process.env.NODE_ENV !== 'production' && (err?.message?.includes('cookies') || err?.message?.includes('request scope'))) {
       return {
         user: { id: 'test-super-admin', email: superAdminEmail },
         profile: { id: 'test-super-admin', email: superAdminEmail, is_super_admin: true },
@@ -154,6 +154,9 @@ export interface OrganizationRow {
   billing_status_label?: string;
   billing_status_color?: string;
   is_suspended?: boolean;
+  company_code?: string | null;
+  enabled_modules?: EnabledModules;
+  appointment_settings?: AppointmentSettings;
 }
 
 /**
@@ -215,6 +218,15 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       billing_status_label: bStatus.label,
       billing_status_color: bStatus.color,
       is_suspended: bStatus.isSuspended,
+      company_code: org.company_code || null,
+      enabled_modules: (org.enabled_modules as EnabledModules) || {
+        native_calendar: true,
+        physical_rooms: false,
+        staff_mobile_portal: false,
+        quick_pay: false,
+        anti_no_show: true,
+      },
+      appointment_settings: (org.appointment_settings as AppointmentSettings) || null,
     };
   });
 
@@ -402,6 +414,8 @@ export async function updateCompanyDetails(input: {
   aiTokensLimit?: number;
   resetTokensUsed?: boolean;
   calComEnabled?: boolean;
+  enabledModules?: EnabledModules;
+  companyCode?: string;
 }) {
   await requireSuperAdmin();
 
@@ -440,6 +454,14 @@ export async function updateCompanyDetails(input: {
     updateData.cal_com_enabled = input.calComEnabled;
   }
 
+  if (input.enabledModules) {
+    updateData.enabled_modules = input.enabledModules;
+  }
+
+  if (input.companyCode) {
+    updateData.company_code = input.companyCode.trim().toUpperCase();
+  }
+
   if (input.resetTokensUsed) {
     updateData.ai_tokens_used = 0;
   }
@@ -473,6 +495,52 @@ export async function updateCompanyDetails(input: {
   safeRevalidate('/admin');
   safeRevalidate('/', 'layout');
   return { success: true };
+}
+
+/**
+ * Activar o desactivar módulos individuales de una empresa (Switches de Suscripción)
+ */
+export async function updateOrganizationModules(
+  organizationId: string,
+  modules: Partial<EnabledModules>
+) {
+  await requireSuperAdmin();
+
+  const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('enabled_modules')
+    .eq('id', organizationId)
+    .single();
+
+  if (fetchErr) {
+    throw new Error(`Error al consultar módulos de la empresa: ${fetchErr.message}`);
+  }
+
+  const currentModules: EnabledModules = (org?.enabled_modules as EnabledModules) || {
+    native_calendar: true,
+    physical_rooms: false,
+    staff_mobile_portal: false,
+    quick_pay: false,
+    anti_no_show: true,
+  };
+
+  const updatedModules: EnabledModules = {
+    ...currentModules,
+    ...modules,
+  };
+
+  const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      enabled_modules: updatedModules,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', organizationId);
+
+  if (updateErr) {
+    throw new Error(`Error al guardar configuración de módulos: ${updateErr.message}`);
+  }
+
+  safeRevalidate('/admin');
+  return { success: true, enabled_modules: updatedModules };
 }
 
 /**

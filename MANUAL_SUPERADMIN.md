@@ -1,19 +1,22 @@
 # 📘 Manual de Operaciones & Consola Super Admin — Synqo CRM
 
 > **Documento Confidencial para el Propietario / Operador de Synqo (synqo.dev)**  
-> Versión: 1.0 (Producción Comercial)
+> Versión: 2.0 (Arquitectura Multinicho & Agendamiento Nativo)
 
 ---
 
 ## 1. Visión General de la Arquitectura
 
-Synqo CRM es una plataforma **SaaS B2B Multi-Tenant (Multi-Inquilino)** diseñada para la captación, cualificación y cierre de prospectos a través de WhatsApp con Inteligencia Artificial autónoma (OpenAI GPT-4o) y agendamiento sincronizado con Cal.com.
+Synqo CRM es una plataforma **SaaS B2B Multi-Tenant (Multi-Inquilino)** diseñada para la captación, cualificación y cierre de prospectos a través de WhatsApp con Inteligencia Artificial autónoma (OpenAI GPT-4o), agendamiento nativo multi-profesional sin fricción, portal móvil para especialistas y gestión integral de ventas y pagos.
 
 ### Principios Fundamentales de la Plataforma
-1. **Aislamiento Multi-Tenant:** Cada empresa (inquilino) cuenta con su propio espacio aislado en la base de datos PostgreSQL. Ninguna empresa puede ver o acceder a los prospectos, conversaciones ni ajustes de otra.
-2. **IA Centralizada con Control de Costos:** Tú operas y pagas una única cuenta en OpenAI. El CRM monitorea el consumo de tokens en tiempo real de cada cliente y corta el bot preventivamente si un cliente agota su cuota mensual, garantizando un margen bruto del **75% al 90%**.
-3. **Credenciales Cifradas en Reposo:** Los tokens de WhatsApp y las API Keys de Cal.com ingresados por cada empresa se almacenan cifrados con **AES-256-GCM** en Supabase.
-4. **Registro Privado Asistido:** No existe auto-registro público en la web. Solo tú, como Super Administrador, puedes crear empresas, asignarles cupos de asesores y activarlas tras confirmar su pago.
+1. **Aislamiento Multi-Tenant Estricto:** Cada empresa (inquilino) cuenta con su propio espacio aislado en la base de datos PostgreSQL respaldado por Row Level Security (RLS). Ninguna empresa puede ver, modificar o acceder a los prospectos, conversaciones, citas o configuración de otra.
+2. **Arquitectura Modular Multinicho (`enabled_modules`):** Cada empresa solo ve las funciones que su modelo de negocio requiere (servicios presenciales, academias, consultorios, e-commerce o venta B2B). Los módulos se activan selectivamente desde `/admin` o por base de datos sin duplicar código ni bifurcar proyectos.
+3. **IA Centralizada con Control de Costos:** Tú operas y pagas una única cuenta en OpenAI. El CRM monitorea el consumo de tokens en tiempo real de cada cliente y corta el bot preventivamente si un cliente agota su cuota mensual, garantizando un margen bruto del **75% al 90%**.
+4. **Credenciales Cifradas en Reposo:** Los tokens de WhatsApp, credenciales externas y secretos de webhook ingresados por cada empresa se almacenan cifrados con **AES-256-GCM** en Supabase.
+5. **Cero Doble Reserva (Anti-Race Condition a Nivel DB):** El calendario nativo utiliza la extensión `btree_gist` de PostgreSQL con restricciones de exclusión temporal a nivel de base de datos. Es físicamente imposible que dos clientes reserven el mismo minuto con el mismo especialista o en la misma sala física, sin importar la concurrencia.
+6. **Filosofía Hands-Free para Colaboradores:** Los especialistas (barberos, médicos, instructores) trabajan con sus manos y a menudo no pueden o no quieren tocar pantallas. La recepcionista mantiene el control total del flujo desde el CRM web y el portal móvil de colaborador se actualiza pasivamente en tiempo real.
+7. **Protocolo Anti-Fraude en Pagos:** La IA tiene estrictamente prohibido dar por válido un pago o transferencia (Nequi, Daviplata, Bancolombia). Ante un comprobante, responde con naturalidad humana y realiza un relevo silencioso a un agente humano para verificar los extractos bancarios antes de confirmar la compra.
 
 ---
 
@@ -32,11 +35,12 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
 
 ### Funciones Principales de la Consola:
 1. **Aprovisionamiento de Nuevas Empresas ("+ Nueva Empresa"):**
-   - Nombre de la empresa (ej. *Inmobiliaria Horizonte*).
-   - Nombre y correo del Administrador del cliente (ej. *gerencia@horizonte.com*).
+   - Nombre de la empresa (ej. *Barbería Elite Club*, *Academia de Baile Ritmo Latino*).
+   - Nombre y correo del Administrador del cliente (ej. *gerencia@empresa.com*).
    - Contraseña inicial del cliente.
    - Plan comercial asignado: `Starter` (Validación comercial - 2 usuarios), `Pro` (Comercial recomendado - 5 usuarios) o `Enterprise` (Corporativo - 12 usuarios).
    - Límite de Usuarios autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (2 para Starter, 5 para Pro, 12 para Enterprise, o el cupo negociado).
+   - **Código de Empresa Autogenerado (`company_code`):** El sistema asigna un código mnemotécnico alfanumérico único (ej. `EMPR1457`) que sirve de identificador rápido para el portal de colaboradores.
 2. **Edición Integral de Empresa (Modal de Tenant & Upgrades):**
    - **Nombre de la empresa:** Corrección de razón social, marca o erratas ortográficas.
    - **Upgrades y Downgrades de Plan:** Cambiar en caliente entre `Starter`, `Pro` y `Enterprise` con botón de 1 clic para *sincronizar los cupos recomendados del plan* (usuarios y tokens).
@@ -45,15 +49,23 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
    - **Paquetes de Tokens Extra (Boosters Mensuales):** Botones rápidos de 1 clic `[ ⭐ +1M Tokens (Booster) ]` y `[ +500k Tokens ]` para recargar saldo de WhatsApp IA ante campañas de alta demanda sin forzar un upgrade de plan.
    - **Regla de Negocio de Boosters:** Los tokens extra aplican **únicamente para el mes en curso**. Al registrar el pago de renovación mensual en `/admin`, el sistema reinicia el consumo a 0 y **restablece automáticamente el límite a la cuota base del plan** (`500k`, `2.5M` o `7.5M`), evitando que el cliente conserve saldo extra de por vida de forma gratuita.
    - **Cortesía Técnica de Soporte:** Opción para reiniciar el consumo acumulado de tokens a 0 en cualquier momento sin esperar a fin de mes.
-3. **Suspensión Inmediata por Morosidad (Toggle de Estado):**
+3. **Gestión de Módulos Habilitados (`enabled_modules`):**
+   - Permite activar o desactivar módulos en caliente por empresa según el nicho contratado:
+     - `native_calendar`: Habilita la pestaña y motor de citas propio.
+     - `physical_rooms`: Activa la gestión de salones, cabinas o espacios físicos.
+     - `staff_mobile_portal`: Permite acceso de especialistas a `/colaborador`.
+     - `anti_no_show`: Activa recordatorios automáticos por WhatsApp a 24 horas y cancelación a 8 horas.
+     - `quick_pay`: Generación de órdenes rápidas y verificación humana de pagos.
+     - `ad_attribution`: Rastreo de campañas de Meta Ads (CTWA).
+4. **Suspensión Inmediata por Morosidad (Toggle de Estado):**
    - Si un cliente se atrasa en el pago, haz clic en el botón de pausa.
    - **Efecto Inmediato:** Suspendes el acceso al CRM para todos los asesores de esa empresa **y** el webhook corta automáticamente las respuestas de IA para ese número de WhatsApp, impidiendo que consuman saldo en OpenAI.
-4. **Monitor Global de Tokens:**
+5. **Monitor Global de Tokens:**
    - Visualizas en la tabla el consumo exacto de tokens de cada cliente, su barra de porcentaje y badges de advertencia (*"80%+"* o *"Agotado"*).
-5. **Regeneración de Contraseña para Administradores (Icono de Llave):**
+6. **Regeneración de Contraseña para Administradores (Icono de Llave):**
    - Si un dueño o administrador de empresa olvida su contraseña, pulsa el botón de llave en la fila de su empresa.
    - El sistema generará una nueva contraseña temporal segura con forzado de cambio de clave al iniciar sesión y botón de copiado rápido.
-6. **Seguridad y Reseteo del Super Admin (Exclusivo por Terminal):**
+7. **Seguridad y Reseteo del Super Admin (Exclusivo por Terminal):**
    - Por protocolo de máxima seguridad, la contraseña del **Super Administrador** (`admin@synqo.dev`) está bloqueada en la web y el botón de llave está desactivado para su propia cuenta, evitando bloqueos accidentales.
    - Si requieres cambiar la contraseña del Super Admin, se realiza exclusivamente desde la consola del servidor:
      ```bash
@@ -76,7 +88,7 @@ Dado que la facturación inicial es **manual (asistida)**:
 2. **Aprovisionamiento con "Opción A" (Cortesía de Bienvenida) o Pago Anual:** 
    - **Plan Mensual:** Si el cliente inicia a mitad de mes (ej. día 20), el sistema fija el mes en curso como **cubierto por cortesía/setup**. Su primera mensualidad regular se programará para cobrarse entre el **1 y el 5 del mes siguiente**.
    - **Plan Anual:** Puedes pulsar el botón rápido **`⭐ Pago Anual (1 Año)`** en el modal de aprovisionamiento. Esto establece la cobertura inicial por 12 meses exactos (ej. hasta `2027-10`), aplicando la bonificación de 2 meses gratis contemplada en las Condiciones de Servicio.
-3. **Entrega de Credenciales:** Le entregas el correo y la contraseña temporal al dueño de la empresa.
+3. **Entrega de Credenciales:** Le entregas el correo, la contraseña temporal y el **Código de Empresa** al dueño de la empresa.
 4. **Ciclo Mensual de Cobranza (Día 1 al 5):**
    - **Día 1 al 5:** Período ordinario de pago. En `/admin` verás a la empresa en estado `Cobro Pendiente`.
    - **Día 6 al 9 (Período de Gracia):** Si no ha pagado, el CRM lo resalta en ámbar `Período Gracia` para que le recuerdes el pago.
@@ -100,30 +112,19 @@ Dado que la facturación inicial es **manual (asistida)**:
 
 | Característica | 🟢 Starter (Validación) | 🚀 Pro (Recomendado) | 🏢 Enterprise (Escala) |
 | :--- | :--- | :--- | :--- |
-| **Identificador en BD** | `starter` *(o `core` por compatibilidad)* | `pro` | `enterprise` |
+| **Identificador en BD** | `starter` *(o `core`)* | `pro` | `enterprise` |
 | **Precio sugerido** | **$49 - $69 USD / mes** | **$99 - $129 USD / mes** | **$249 - $299 USD / mes** |
-| **Público objetivo** | Negocio unipersonal o 1-2 asesores validando canal. | Empresa con equipo de ventas activo (3-5 personas). | Operación consolidada con turnos o equipo comercial grande. |
+| **Público objetivo** | Profesional independiente o 1-2 asesores. | Empresa con equipo de ventas (3-5 personas). | Operación consolidada, turnos o multinicho. |
 | **Usuarios / Asesores** | **Hasta 2 usuarios** | **Hasta 5 usuarios** | **Hasta 12 usuarios** |
 | **Volumen de Tokens IA** | **500,000 tokens/mes** *(~350 - 500 chats)* | **2,500,000 tokens/mes** *(~1,800 - 2,500 chats)* | **7,500,000 tokens/mes** *(~5,000 - 7,500 chats)* |
 | **Costo real de API para ti** | ~$0.85 USD | ~$4.20 USD | ~$12.50 USD |
 | **Margen bruto para ti** | **> 98%** | **> 95%** | **> 95%** |
-| **Prompt de IA** | 100% Editable y personalizable | 100% Editable y personalizable | 100% Editable y personalizable |
-| **Cal.com / Agendamiento** | Incluido | Incluido | Incluido |
+| **Calendario Nativo Propio** | Incluido (hasta 2 especialistas) | Incluido (hasta 5 especialistas) | Incluido (ilimitados según plan) |
+| **Portal Móvil Colaborador** | Incluido | Incluido | Incluido |
+| **Anti-No-Show WhatsApp** | Manual | **Automatizado (Cron 24h/8h)** | **Automatizado (Cron 24h/8h)** |
 | **Kanban & Bandeja Realtime** | Incluido | Incluido | Incluido |
-| **Alertas Sonoras y Push** | Incluido | Incluido | Incluido |
-| **Exportación CSV / Excel** | — | **Incluido** *(Descarga directa de leads filtrados)* | **Incluido** *(Historial masivo completo)* |
-| **Soporte & Atención** | Soporte por ticket y correo estándar | Soporte por email prioritario comercial | • **Grupo VIP de WhatsApp con SLA < 2h**<br>• **Sesión de Capacitación en Vivo (45 min)** para asesores<br>• Facturación corporativa anual / local |
-
-#### Detalle de Planes para el Cliente (según `/settings`):
-- **Plan Starter (Validación):**
-  - **Ideal para:** Profesionales independientes o startups validando su primer canal de atención y captación en WhatsApp.
-  - **Incluye:** 2 usuarios de equipo, 500k tokens IA, prompt 100% personalizable, agendamiento Cal.com, alertas push y soporte técnico estándar.
-- **Plan Pro (Comercial — Recomendado):**
-  - **Ideal para:** Empresas en crecimiento con 3 a 5 vendedores activos que requieren exportar prospectos y responder con mayor volumen de mensajes sin interrupciones.
-  - **Incluye:** 5 usuarios de equipo, 2.5M tokens IA, exportación de contactos a CSV / Excel, agendamiento Cal.com y soporte prioritario.
-- **Plan Enterprise (Corporativo):**
-  - **Ideal para:** Operaciones comerciales consolidadas, múltiples turnos o agencias con más de 10 asesores.
-  - **Incluye:** 12 usuarios de equipo, 7.5M tokens IA, exportación masiva completa, canal VIP exclusivo de WhatsApp con atención inmediata (< 2 horas) y sesión de onboarding personalizada de 45 minutos.
+| **Exportación CSV / Excel** | — | **Incluido** | **Incluido** |
+| **Soporte & Atención** | Correo estándar | Email prioritario comercial | • **Canal VIP WhatsApp (< 2h)**<br>• **Sesión de Onboarding (45 min)** |
 
 ---
 
@@ -150,6 +151,9 @@ OPENAI_API_KEY=sk-proj-...
 # Meta WhatsApp Webhook
 META_APP_SECRET=tu_app_secret_de_meta
 META_WEBHOOK_VERIFY_TOKEN=synqo_secure_verify_token_2026
+
+# Cron Secret para Tareas en Segundo Plano (Anti-No-Show)
+CRON_SECRET=synqo_cron_secure_token_produccion_2026
 ```
 
 ---
@@ -165,94 +169,145 @@ META_WEBHOOK_VERIFY_TOKEN=synqo_secure_verify_token_2026
 
 ---
 
-## 6. Vinculación de Cal.com (Agendamiento Autónomo con API v2)
+## 6. Vinculación de Cal.com (Opcional — Agendamiento Externo)
 
-Synqo CRM se conecta nativamente con **Cal.com API v2** para permitir que la IA autónoma consulte disponibilidad en tiempo real y reserve citas directamente en el calendario del cliente:
-
+Para empresas que utilicen Cal.com en lugar del motor nativo:
 1. **Credenciales Requeridas:**
-   - **Cal.com API Key:** Clave de desarrollador generada en *Settings* $\rightarrow$ *Developer* $\rightarrow$ *API Keys* (inicia con `cal_live_`). Se almacena cifrada con **AES-256-GCM** en la base de datos.
-   - **Tipo de Evento (Event Type):**
-     - El cliente puede ingresar el **slug** del evento (ej. `cita-comercial`).
-     - O pegar el enlace público o privado completo (ej. `https://cal.com/d/token/cita-comercial`).
-     - O dejarlo en blanco: al presionar **"Probar Conexión"**, el sistema consulta `/v2/event-types` y **auto-detecta y completa el ID numérico oficial** automáticamente.
-2. **Arquitectura y Versionado de la API v2:**
-   - Cal.com API v2 exige cabeceras de versionado por endpoint (`cal-api-version`):
-     - Catálogo de eventos: `2026-06-12` (`/v2/event-types`)
-     - Consulta de slots: `2024-09-04` (`/v2/slots`)
-     - Creación de reservas: `2026-05-01` (`/v2/bookings`)
-   - `CalService` (`services/cal.service.ts`) encapsula esta lógica y maneja automáticamente la resolución de slugs a IDs numéricos de forma transparente.
+   - **Cal.com API Key:** Generada en *Settings* $\rightarrow$ *Developer* $\rightarrow$ *API Keys*. Almacenada con cifrado AES-256-GCM.
+   - **Tipo de Evento:** Slug o URL completa. El CRM auto-resuelve el ID mediante API v2 (`services/cal.service.ts`).
 
 ---
 
-## 7. Comandos de Mantenimiento y Verificación
+## 7. Arquitectura Modular Multinicho (`enabled_modules`)
+
+Synqo permite atender múltiples verticales sin fragmentar la base de código mediante el campo JSON `enabled_modules` en la tabla `organizations`:
+
+```json
+{
+  "native_calendar": true,
+  "physical_rooms": true,
+  "staff_mobile_portal": true,
+  "anti_no_show": true,
+  "quick_pay": true,
+  "ad_attribution": true
+}
+```
+
+### Blueprints Recomendados por Nicho:
+1. **Servicios con Cita Presencial (Barberías, Salones de Belleza, Spas, Tatuadores):**
+   - Habilitados: `native_calendar`, `staff_mobile_portal`, `anti_no_show`, `quick_pay`.
+   - Deshabilitado: `physical_rooms` (a menos que tengan cabinas privadas exclusivas).
+2. **Academias, Cursos y Talleres (Música, Baile, Artes Marciales, Fitness):**
+   - Habilitados: `native_calendar`, `physical_rooms` (control de aforo por salón), `anti_no_show`.
+3. **Salud y Consultorios (Médicos, Odontólogos, Psicólogos, Nutricionistas):**
+   - Habilitados: `native_calendar`, `staff_mobile_portal`, `anti_no_show`, `physical_rooms` (consultorios).
+4. **Venta de Productos y E-Commerce por WhatsApp:**
+   - Habilitados: `quick_pay`, `ad_attribution`.
+   - Deshabilitados: `native_calendar`, `physical_rooms`, `staff_mobile_portal`.
+5. **Consultorías B2B e Inmobiliarias:**
+   - Habilitados: `native_calendar`, `ad_attribution`.
+
+---
+
+## 8. Identificación Rápida y Portal de Colaboradores (`company_code` y PIN)
+
+Para erradicar la fricción técnica con el personal operativo:
+1. **Generación Automática del Código:** Toda empresa creada recibe un `company_code` único (ej. `EMPR1457`) generado deterministamente sin colisiones.
+2. **Portal Móvil (`/colaborador`):**
+   - El colaborador ingresa directamente con:
+     - **Opción A:** Teléfono móvil registrado y contraseña personal.
+     - **Opción B (Sin correo):** Código de Empresa (`EMPR1457`) + PIN personal de 4 dígitos.
+3. **Mantenimiento del PIN:** Los administradores y superadministradores pueden restablecer el PIN de cualquier especialista en 1 clic desde la pestaña *Equipo & Usuarios*.
+
+---
+
+## 9. Motor de Agendamiento Nativo & Protección Contra Condiciones de Carrera (`btree_gist`)
+
+El motor de agendamiento nativo de Synqo (`app/actions/calendar-admin.ts`, `services/appointment.service.ts`) no depende de servicios de terceros y está blindado contra sobreventa concurrente:
+
+### Aislamiento GiST a Nivel de Base de Datos:
+En `supabase/migrations/20261027050000_enable_btree_gist_and_anti_race_constraints.sql` se implementa la extensión `btree_gist`:
+```sql
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+-- Exclusión de colisión simultánea de especialista:
+ALTER TABLE appointments ADD CONSTRAINT appointments_specialist_no_overlap
+  EXCLUDE USING gist (
+    organization_id WITH =,
+    specialist_id WITH =,
+    tstzrange(start_time, end_time) WITH &&
+  ) WHERE (status NOT IN ('cancelled', 'no_show'));
+```
+**Resultado:** Si dos clientes intentan reservar exactamente la misma fracción de segundo con el mismo barbero o doctor, el motor de PostgreSQL acepta la primera transacción y rechaza la segunda atómicamente, garantizando integridad absoluta.
+
+---
+
+## 10. Motor de Notificaciones Anti-No-Show y Cron Worker
+
+El endpoint `/api/cron/appointment-reminders` opera como worker automatizado en segundo plano (invocado cada 15 o 30 minutos por Vercel Cron o cronjob externo).
+
+### Configuración en `vercel.json`:
+```json
+{
+  "crons": [
+    {
+      "path": "/api/cron/appointment-reminders",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
+```
+
+### Reglas de Negocio del Motor Cron:
+1. **Seguridad:** Requiere cabecera `Authorization: Bearer <CRON_SECRET>`.
+2. **Ventana de 24 Horas:** Detecta citas pendientes entre las 23 y 25 horas siguientes y envía recordatorio interactivo por WhatsApp con botones `[Confirmar]` y `[Reagendar/Cancelar]`.
+3. **Toque de Queda Nocturno de Cortesía (20:00 - 08:00):** Si el recordatorio de 24h cae en horas de la madrugada (ej. para una cita a las 09:00 AM del día siguiente), el cron anticipa el envío antes de las 20:00 para no perturbar al cliente.
+4. **Cancelación Automática a 8 Horas:** Si una cita permanece en estado `pending_confirmation` a menos de 8 horas de su inicio, el motor la marca como `cancelled_unconfirmed`, libera el espacio en el calendario y notifica a la empresa para que otro cliente pueda tomar el turno.
+
+---
+
+## 11. Detección de Vacíos de Conocimiento de IA (`ai_knowledge_gaps`)
+
+Para evitar que los bots alucinen o queden desactualizados:
+1. **Detección Automática:** Cuando la IA recibe una pregunta que no figura en las instrucciones de la empresa, llama a la función interna `log_knowledge_gap`.
+2. **Registro en BD:** Se guarda la pregunta exacta del cliente, el contexto del chat y la categoría tentativa en `ai_knowledge_gaps`.
+3. **Visualización para el Cliente:** En `/settings` (pestaña *Dudas Detectadas*), el cliente ve las preguntas no respondidas y con 1 clic puede ingresar la respuesta oficial, la cual se anexa instantáneamente al prompt del asistente.
+
+---
+
+## 12. Cómputo Determinista de Festivos Colombianos (`lib/calendar/holidays.ts`)
+
+Synqo incorpora un algoritmo matemático determinista con cero dependencias externas para bloquear automáticamente días feriados:
+- **Festivos Fijos:** 1 de Enero, 1 de Mayo, 20 de Julio, 7 de Agosto, 8 de Diciembre, 25 de Diciembre.
+- **Pascua y Semana Santa:** Algoritmo del Cómputo Eclesiástico de Gauss para Jueves y Viernes Santo.
+- **Ley Emiliani (Ley 51 de 1983):** Traslado automático de festivos al lunes siguiente (Reyes Magos, San José, San Pedro y San Pablo, Asunción, Día de la Raza, Todos los Santos, Independencia de Cartagena, etc.).
+- **Control:** Cada empresa puede activar o desactivar la bandera `block_holidays` según si opera en días festivos.
+
+---
+
+## 13. Comandos de Mantenimiento y Verificación
 
 Desde la terminal del proyecto puedes ejecutar:
 
-- **Ejecutar Suite de Pruebas Automatizadas:**
+- **Ejecutar Suite Completa de Pruebas Automatizadas:**
   ```bash
   npm test
   ```
-  *(Verifica criptografía, seguridad HMAC, RLS, límites de usuarios, tokens y perfiles).*
+  *(Verifica criptografía, seguridad HMAC, RLS, límites de usuarios, tokens, portal de colaboradores y validaciones).*
 
-- **Simular Conversación en Tiempo Real (Prueba Local):**
+- **Verificar Compilación y Tipado TypeScript:**
   ```bash
-  npm run simulate "Mensaje del prospecto para probar la IA"
+  npx tsc --noEmit
+  npm run build
   ```
 
 - **Aprovisionar Empresa desde la Terminal:**
   ```bash
-  npx tsx scripts/create-company.ts --company="Nombre Empresa" --name="Nombre Admin" --email="admin@cliente.com" --password="Password123!" --plan=starter
+  npx tsx scripts/create-company.ts --company="Nombre Empresa" --name="Nombre Admin" --email="admin@cliente.com" --password="Password123!" --plan=pro
   ```
-  *(Planes admitidos en `--plan`: `starter`, `pro`, `enterprise`)*.
 
-- **Verificar Compilación y Tipado:**
+- **Simular Cron de Recordatorios Anti-No-Show en Local:**
   ```bash
-  npm run typecheck
-  npm run build
+  curl -X POST http://localhost:3000/api/cron/appointment-reminders \
+    -H "Authorization: Bearer synqo_cron_secure_token_produccion_2026"
   ```
-
----
-
-## 8. Sincronización de Base de Datos (Migración de Planes)
-
-Si deseas sincronizar el enum de la base de datos de Supabase para que admita `starter` de forma nativa además de `core`:
-
-1. Abre el **SQL Editor** en tu panel de Supabase.
-2. Ejecuta el script ubicado en `supabase/migrations/20261021000000_allow_starter_plan_type.sql`:
-   ```sql
-   ALTER TABLE organizations DROP CONSTRAINT IF EXISTS organizations_plan_type_check;
-   ALTER TABLE organizations ADD CONSTRAINT organizations_plan_type_check 
-     CHECK (plan_type IN ('starter', 'core', 'pro', 'enterprise'));
-
-   UPDATE organizations SET plan_type = 'starter' WHERE plan_type = 'core';
-   ALTER TABLE organizations ALTER COLUMN plan_type SET DEFAULT 'starter';
-   ```
-*(Nota: El sistema en el código ya cuenta con fallback automático, por lo que las funciones siguen operando con total estabilidad aun antes de ejecutar este script).*
-
----
-
-## 9. Sincronización de Base de Datos (Cobranza Manual y Pagos)
-
-Para habilitar las columnas de ciclo de facturación y el libro contable de pagos manuales en Supabase:
-
-1. Abre el **SQL Editor** en Supabase.
-2. Ejecuta el script ubicado en `supabase/migrations/20261021010000_add_manual_billing_and_mora_system.sql`:
-   ```sql
-   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS paid_until_month TEXT DEFAULT TO_CHAR(NOW(), 'YYYY-MM');
-   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS billing_due_day INT DEFAULT 5;
-   ALTER TABLE organizations ADD COLUMN IF NOT EXISTS past_due_since TIMESTAMPTZ;
-
-   CREATE TABLE IF NOT EXISTS organization_payments (
-       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-       organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-       amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
-       currency TEXT NOT NULL DEFAULT 'USD',
-       period_month TEXT NOT NULL,
-       payment_method TEXT NOT NULL DEFAULT 'transferencia',
-       notes TEXT,
-       registered_by UUID REFERENCES auth.users(id),
-       created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-   );
-   ```
-*(Nota: El código cuenta con protección y fallbacks activos, por lo que todas las funciones de `/admin` y el CRM operan de manera segura con o sin la migración ejecutada).*
-

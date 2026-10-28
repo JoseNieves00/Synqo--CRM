@@ -32,11 +32,13 @@ import { AdminCopilotTab } from './AdminCopilotTab';
 import {
   OrganizationRow,
   PlanType,
+  EnabledModules,
   provisionCompany,
   updateCompanySeats,
   toggleCompanyStatus,
   updateCompanyPlan,
   updateCompanyDetails,
+  updateOrganizationModules,
   regenerateCompanyAdminPassword,
   registerCompanyPayment,
 } from '@/app/actions/superadmin';
@@ -85,6 +87,14 @@ export default function AdminConsoleClient({
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
   const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
   const [editCalCom, setEditCalCom] = useState<boolean>(false);
+  const [editModules, setEditModules] = useState<EnabledModules>({
+    native_calendar: true,
+    physical_rooms: false,
+    staff_mobile_portal: false,
+    quick_pay: false,
+    anti_no_show: true,
+  });
+  const [editCompanyCode, setEditCompanyCode] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -277,6 +287,14 @@ export default function AdminConsoleClient({
     setEditTokensLimit(org.ai_tokens_limit || defaultLimit);
     setEditResetTokens(false);
     setEditCalCom(Boolean(org.cal_com_enabled));
+    setEditModules(org.enabled_modules || {
+      native_calendar: true,
+      physical_rooms: false,
+      staff_mobile_portal: false,
+      quick_pay: false,
+      anti_no_show: true,
+    });
+    setEditCompanyCode(org.company_code || '');
   };
 
   const handlePlanChange = (newPlan: PlanType) => {
@@ -311,6 +329,8 @@ export default function AdminConsoleClient({
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
         calComEnabled: editCalCom,
+        enabledModules: editModules,
+        companyCode: editCompanyCode,
       });
 
       setOrganizations((prev) =>
@@ -324,6 +344,8 @@ export default function AdminConsoleClient({
                 ai_tokens_limit: editTokensLimit,
                 ai_tokens_used: editResetTokens ? 0 : o.ai_tokens_used,
                 cal_com_enabled: editCalCom,
+                enabled_modules: editModules,
+                company_code: editCompanyCode,
               }
             : o
         )
@@ -728,10 +750,30 @@ export default function AdminConsoleClient({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                           <span className="text-[11px] text-gray-400 font-mono">ID: {org.id.slice(0, 8)}...</span>
+                          {org.company_code && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200" title="Código de empresa para acceso móvil de colaboradores">
+                              🔑 {org.company_code}
+                            </span>
+                          )}
+                          {org.enabled_modules?.native_calendar && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Calendario Nativo multi-colaborador activo">
+                              📅 Calendario
+                            </span>
+                          )}
+                          {org.enabled_modules?.physical_rooms && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200" title="Salones y Espacios físicos habilitados">
+                              🏢 Salones
+                            </span>
+                          )}
+                          {org.enabled_modules?.staff_mobile_portal && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title="Portal Móvil para Colaboradores">
+                              📱 Móvil
+                            </span>
+                          )}
                           {org.cal_com_enabled && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-50 text-slate-700 border border-slate-200">
                               <Calendar className="w-2.5 h-2.5" /> Cal.com
                             </span>
                           )}
@@ -1376,6 +1418,124 @@ export default function AdminConsoleClient({
                       💡 Los boosters expiran al renovar el mes y vuelven a la base de {formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}.
                     </p>
                   </div>
+                </div>
+              </div>
+
+              {/* Sección de Módulos Activos (Por Empresa / Plan) */}
+              <div className="pt-4 border-t border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
+                      Módulos Habilitados en la Empresa (Control Modular)
+                    </h4>
+                    <p className="text-[11px] text-gray-500">
+                      Activa o desactiva funcionalidades según el plan de suscripción acordado.
+                    </p>
+                  </div>
+                  {/* Código de Empresa para Colaboradores */}
+                  <div className="flex items-center gap-1.5 bg-purple-50 px-2.5 py-1 rounded-xl border border-purple-200">
+                    <span className="text-[10px] font-bold text-purple-700">Código Equipo:</span>
+                    <input
+                      type="text"
+                      value={editCompanyCode}
+                      onChange={(e) => setEditCompanyCode(e.target.value.toUpperCase())}
+                      placeholder="CÓDIGO"
+                      className="w-24 text-xs font-mono font-black text-purple-900 bg-transparent uppercase border-b border-purple-300 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* 1. Calendario Nativo */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    editModules.native_calendar ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={editModules.native_calendar}
+                      onChange={(e) => setEditModules(prev => ({ ...prev, native_calendar: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Agendamiento nativo multi-especialista en Supabase sin depender de Cal.com.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* 2. Salones y Espacios Físicos */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    editModules.physical_rooms ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={editModules.physical_rooms}
+                      onChange={(e) => setEditModules(prev => ({ ...prev, physical_rooms: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">🏢 Salones y Espacios Físicos</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Control de cupos por sala, acústica y clases individuales o grupales.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* 3. Portal Móvil Colaboradores */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    editModules.staff_mobile_portal ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={editModules.staff_mobile_portal}
+                      onChange={(e) => setEditModules(prev => ({ ...prev, staff_mobile_portal: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">📱 Portal Móvil Colaboradores</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Acceso con PIN para barberos/profes: agenda de hoy, bloqueos y chat con sede.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* 4. Pagos Rápidos */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    editModules.quick_pay ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={editModules.quick_pay}
+                      onChange={(e) => setEditModules(prev => ({ ...prev, quick_pay: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">💳 Pagos Rápidos y Cobro</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Registro opcional de método de pago (Efectivo, Nequi, Datáfono).
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* 5. Protocolo Anti-No-Show */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition sm:col-span-2 ${
+                    editModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={editModules.anti_no_show}
+                      onChange={(e) => setEditModules(prev => ({ ...prev, anti_no_show: e.target.checked }))}
+                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">🛡️ Protocolo Anti-No-Show (Confirmación 8h)</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Recordatorio automático diurno (máx 8pm) y liberación de cupo si no confirman 8h antes.
+                      </span>
+                    </div>
+                  </label>
                 </div>
               </div>
 
