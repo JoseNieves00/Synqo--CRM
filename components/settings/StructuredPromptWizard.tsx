@@ -40,6 +40,20 @@ export function StructuredPromptWizard({
   companyName = 'Mi Empresa',
   onPromptCompiled,
 }: StructuredPromptWizardProps) {
+  // Detectar si la empresa ya tiene un prompt previo en texto libre (sin XML ni structured_data)
+  const isExistingCustomText = Boolean(
+    initialPrompt &&
+    initialPrompt.trim().length > 0 &&
+    !initialStructuredData &&
+    !initialPrompt.includes('<identidad_y_rol>')
+  );
+
+  // Modo principal: 'custom_text' (texto libre previo), 'wizard' (asistente guiado), 'xml' (avanzado)
+  const [topMode, setTopMode] = useState<'custom_text' | 'wizard' | 'xml'>(() => {
+    if (isExistingCustomText) return 'custom_text';
+    return 'wizard';
+  });
+
   // Inicializar con datos guardados o blueprint por defecto
   const [data, setData] = useState<StructuredPromptData>(() => {
     if (initialStructuredData && initialStructuredData.identity) {
@@ -49,19 +63,18 @@ export function StructuredPromptWizard({
   });
 
   const [activeTab, setActiveTab] = useState<'identity' | 'catalog' | 'funnel' | 'policies' | 'handoff' | 'preview'>('identity');
-  const [isAdvancedMode, setIsAdvancedMode] = useState(false);
   const [manualXmlPrompt, setManualXmlPrompt] = useState<string>(() => {
     return initialPrompt || compileStructuredPrompt(data);
   });
 
-  // Re-compilar cuando cambian los datos estructurados
+  // Re-compilar únicamente cuando se está utilizando activamente el Asistente Guiado
   useEffect(() => {
-    if (!isAdvancedMode) {
+    if (topMode === 'wizard') {
       const compiled = compileStructuredPrompt(data);
       setManualXmlPrompt(compiled);
       onPromptCompiled(compiled, data);
     }
-  }, [data, isAdvancedMode, onPromptCompiled]);
+  }, [data, topMode, onPromptCompiled]);
 
   // Cambiar de plantilla de industria
   const handleSelectPreset = (preset: IndustryPreset) => {
@@ -69,9 +82,11 @@ export function StructuredPromptWizard({
     if (blueprintGenerator) {
       const newData = blueprintGenerator(companyName);
       setData(newData);
-      const compiled = compileStructuredPrompt(newData);
-      setManualXmlPrompt(compiled);
-      onPromptCompiled(compiled, newData);
+      if (topMode === 'wizard') {
+        const compiled = compileStructuredPrompt(newData);
+        setManualXmlPrompt(compiled);
+        onPromptCompiled(compiled, newData);
+      }
     }
   };
 
@@ -133,60 +148,106 @@ export function StructuredPromptWizard({
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden space-y-4 p-5 sm:p-6">
-      {/* Selector de Industria (Multinicho) */}
-      <div className="space-y-2 border-b border-gray-100 pb-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#0052FF]" />
-              Plantillas Modelo por Industria (Cero Código)
-            </h3>
-            <p className="text-[11px] text-gray-500">
-              Carga una estructura optimizada en 1 clic para tu tipo de negocio.
-            </p>
-          </div>
+      {/* Barra Superior con Selector de Modo de Edición */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+        <div>
+          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#0052FF]" />
+            Entrenamiento & Instrucciones del Asistente IA
+          </h3>
+          <p className="text-[11px] text-gray-500">
+            Configura el conocimiento comercial, catálogo, precios y políticas con las que responde la IA en WhatsApp.
+          </p>
+        </div>
+
+        {/* Selector de Modos */}
+        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setTopMode('wizard');
+              const compiled = compileStructuredPrompt(data);
+              setManualXmlPrompt(compiled);
+              onPromptCompiled(compiled, data);
+            }}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+              topMode === 'wizard'
+                ? 'bg-white text-[#0052FF] shadow-xs'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Asistente Visual</span>
+          </button>
 
           <button
             type="button"
-            onClick={() => setIsAdvancedMode(!isAdvancedMode)}
-            className={`text-[11px] font-bold px-3 py-1.5 rounded-xl border transition cursor-pointer flex items-center gap-1.5 ${
-              isAdvancedMode
-                ? 'bg-purple-50 text-purple-700 border-purple-200'
-                : 'text-gray-500 hover:text-gray-800 border-gray-200'
+            onClick={() => setTopMode('custom_text')}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+              topMode === 'custom_text'
+                ? 'bg-white text-gray-900 shadow-xs'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <span>📝 Texto Libre</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTopMode('xml')}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+              topMode === 'xml'
+                ? 'bg-white text-purple-700 shadow-xs'
+                : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             <Code2 className="w-3.5 h-3.5" />
-            <span>{isAdvancedMode ? 'Volver al Asistente' : 'Modo Avanzado (XML)'}</span>
+            <span>XML</span>
           </button>
-        </div>
-
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none whitespace-nowrap pt-1">
-          {[
-            { id: 'services', label: '💼 Servicios & B2B' },
-            { id: 'ecommerce', label: '🛍️ E-commerce & Retail' },
-            { id: 'health', label: '🦷 Salud & Estética' },
-            { id: 'real_estate', label: '🏡 Inmobiliaria' },
-            { id: 'gastronomy', label: '🍽️ Gastronomía' },
-          ].map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => handleSelectPreset(preset.id as IndustryPreset)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex-shrink-0 border ${
-                data.preset === preset.id
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-2xs font-bold'
-                  : 'bg-slate-50 hover:bg-slate-100 text-gray-600 border-gray-200'
-              }`}
-            >
-              {preset.label}
-            </button>
-          ))}
         </div>
       </div>
 
-      {isAdvancedMode ? (
-        /* Modo Avanzado XML */
-        <div className="space-y-3">
+      {topMode === 'custom_text' ? (
+        /* Modo 1: Texto Libre (Prompt Personalizado Intacto) */
+        <div className="space-y-3 animate-in fade-in duration-150">
+          <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-blue-900 flex items-center gap-2">
+                <span>📝 Modo Texto Libre (Prompt Personalizado)</span>
+              </div>
+              <p className="text-[11px] text-blue-700 mt-0.5">
+                La IA está respondiendo con este texto exacto. Puedes editar tus instrucciones libremente o pulsar &quot;Migrar a Asistente Visual&quot; si deseas estructurarlo por pestañas de catálogo y políticas.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setTopMode('wizard');
+                const compiled = compileStructuredPrompt(data);
+                setManualXmlPrompt(compiled);
+                onPromptCompiled(compiled, data);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-[#0052FF] text-white text-xs font-bold shadow-xs hover:bg-[#0047E0] transition cursor-pointer shrink-0 flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Migrar a Asistente Visual</span>
+            </button>
+          </div>
+
+          <textarea
+            rows={15}
+            value={manualXmlPrompt}
+            onChange={(e) => {
+              setManualXmlPrompt(e.target.value);
+              onPromptCompiled(e.target.value, data);
+            }}
+            placeholder="Escribe aquí las instrucciones de tu asistente..."
+            className="w-full text-xs font-sans leading-relaxed p-4 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white text-gray-900"
+          />
+        </div>
+      ) : topMode === 'xml' ? (
+        /* Modo 2: XML Avanzado */
+        <div className="space-y-3 animate-in fade-in duration-150">
           <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-purple-900 text-xs flex items-center gap-2">
             <Code2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
             <span>
@@ -194,7 +255,7 @@ export function StructuredPromptWizard({
             </span>
           </div>
           <textarea
-            rows={14}
+            rows={15}
             value={manualXmlPrompt}
             onChange={(e) => {
               setManualXmlPrompt(e.target.value);
@@ -204,8 +265,36 @@ export function StructuredPromptWizard({
           />
         </div>
       ) : (
-        /* Asistente Guiado Visual */
-        <div className="space-y-5">
+        /* Modo 3: Asistente Guiado Visual por Secciones */
+        <div className="space-y-5 animate-in fade-in duration-150">
+          {/* Selector de Industria */}
+          <div className="space-y-1.5 border-b border-gray-100 pb-3">
+            <div className="text-xs font-bold text-gray-700">
+              Plantilla de Industria:
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none whitespace-nowrap">
+              {[
+                { id: 'services', label: '💼 Servicios & B2B' },
+                { id: 'ecommerce', label: '🛍️ E-commerce & Retail' },
+                { id: 'health', label: '🦷 Salud & Estética' },
+                { id: 'real_estate', label: '🏡 Inmobiliaria' },
+                { id: 'gastronomy', label: '🍽️ Gastronomía' },
+              ].map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handleSelectPreset(preset.id as IndustryPreset)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex-shrink-0 border ${
+                    data.preset === preset.id
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-2xs font-bold'
+                      : 'bg-slate-50 hover:bg-slate-100 text-gray-600 border-gray-200'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {/* Sub-Pestañas del Asistente */}
           <div className="flex items-center gap-1.5 border-b border-gray-100 pb-2.5 overflow-x-auto scrollbar-none whitespace-nowrap">
             {[

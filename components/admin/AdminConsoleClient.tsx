@@ -116,6 +116,13 @@ export default function AdminConsoleClient({
   const [planType, setPlanType] = useState<PlanType>('starter');
   const [maxUsers, setMaxUsers] = useState<number>(2);
   const [provisionCalCom, setProvisionCalCom] = useState<boolean>(false);
+  const [provisionModules, setProvisionModules] = useState<EnabledModules>({
+    native_calendar: true,
+    physical_rooms: false,
+    staff_mobile_portal: false,
+    quick_pay: false,
+    anti_no_show: true,
+  });
   const [firstBillingMonth, setFirstBillingMonth] = useState<string>(currentMonthStr);
 
   // Filtro de cobranza
@@ -227,6 +234,7 @@ export default function AdminConsoleClient({
         maxUsers,
         firstBillingMonth,
         calComEnabled: provisionCalCom,
+        enabledModules: provisionModules,
       });
 
       if (res.success) {
@@ -249,6 +257,7 @@ export default function AdminConsoleClient({
           max_users: maxUsers,
           is_active: true,
           cal_com_enabled: provisionCalCom,
+          enabled_modules: provisionModules,
           is_exempt: false,
           whatsapp_phone_number_id: null,
           created_at: new Date().toISOString(),
@@ -920,13 +929,14 @@ export default function AdminConsoleClient({
                         )}
                       </td>
 
-                      <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
+                      <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => handleOpenEditModal(org)}
-                          className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
-                          title="Editar empresa (Plan, Usuarios, Tokens)"
+                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-[#0052FF] bg-[#0052FF]/10 hover:bg-[#0052FF]/20 border border-[#0052FF]/30 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          title="Configurar módulos activos (Calendario, Salas, Portal Móvil), código de equipo, plan y tokens"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Módulos & Plan</span>
                         </button>
 
                         {org.admin_email?.toLowerCase() === 'admin@synqo.dev' ? (
@@ -1119,13 +1129,13 @@ export default function AdminConsoleClient({
                 </p>
               </div>
 
-              {/* Módulo de Agendamiento Cal.com */}
+              {/* Módulo de Agendamiento Cal.com (Opcional) */}
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-gray-200 bg-gray-50/50">
                 <div className="flex items-center gap-2.5">
                   <Calendar className="w-4 h-4 text-blue-600" />
                   <div>
-                    <div className="text-xs font-semibold text-gray-800">Módulo de Agendamiento (Cal.com)</div>
-                    <div className="text-[10px] text-gray-500">Habilita o deshabilita la vista de agendamiento para este cliente</div>
+                    <div className="text-xs font-semibold text-gray-800">Cal.com Externo (Opcional)</div>
+                    <div className="text-[10px] text-gray-500">Solo si la empresa usa Cal.com en vez de la agenda propia</div>
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -1137,6 +1147,110 @@ export default function AdminConsoleClient({
                   />
                   <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
+              </div>
+
+              {/* Módulos Habilitados en la Empresa (Control Modular) */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="mb-2">
+                  <h4 className="text-xs font-bold text-gray-900">
+                    Módulos Activos Iniciales
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    Selecciona las herramientas que tendrá disponibles esta empresa.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* Calendario Nativo */}
+                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                    provisionModules.native_calendar ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={provisionModules.native_calendar}
+                      onChange={(e) => setProvisionModules(prev => ({ ...prev, native_calendar: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Agenda multi-especialista y citas propias.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Salones y Espacios Físicos */}
+                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                    provisionModules.physical_rooms ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={provisionModules.physical_rooms}
+                      onChange={(e) => setProvisionModules(prev => ({ ...prev, physical_rooms: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">🏢 Salones & Aforos</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Control de cupos por sala física o cabina.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Portal Móvil Colaboradores */}
+                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                    provisionModules.staff_mobile_portal ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={provisionModules.staff_mobile_portal}
+                      onChange={(e) => setProvisionModules(prev => ({ ...prev, staff_mobile_portal: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">📱 Portal Colaborador</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Acceso móvil con PIN para especialistas.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Pagos Rápidos */}
+                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                    provisionModules.quick_pay ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={provisionModules.quick_pay}
+                      onChange={(e) => setProvisionModules(prev => ({ ...prev, quick_pay: e.target.checked }))}
+                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">💳 Pagos Rápidos</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Registro y verificación de pagos.
+                      </span>
+                    </div>
+                  </label>
+
+                  {/* Protocolo Anti-No-Show */}
+                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition sm:col-span-2 ${
+                    provisionModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={provisionModules.anti_no_show}
+                      onChange={(e) => setProvisionModules(prev => ({ ...prev, anti_no_show: e.target.checked }))}
+                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 block">🛡️ Recordatorios WhatsApp (Anti-No-Show)</span>
+                      <span className="text-[10px] text-gray-500 block leading-tight">
+                        Recordatorio a 24h y cancelación preventiva si no confirman a 8h.
+                      </span>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
