@@ -4,6 +4,7 @@
  */
 
 export type IndustryPreset =
+  | 'custom'
   | 'services'
   | 'ecommerce'
   | 'health'
@@ -39,8 +40,16 @@ export interface SalesFunnel {
   objectionAnswers: Array<{ objection: string; answer: string }>;
 }
 
+export interface PaymentAccountDetails {
+  nequi?: string;
+  daviplata?: string;
+  bancolombia?: string;
+  other?: string;
+}
+
 export interface BusinessPolicies {
   paymentMethods: string[];
+  paymentDetails?: PaymentAccountDetails;
   shippingInfo: string;
   warrantyInfo: string;
   customFaqs: Array<{ question: string; answer: string }>;
@@ -70,6 +79,45 @@ export interface StructuredPromptData {
  * Plantillas modelo (Blueprints) pre-configuradas para las 5 industrias principales del 70% de PyMEs.
  */
 export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) => StructuredPromptData> = {
+  custom: (companyName = 'Mi Empresa') => ({
+    preset: 'custom',
+    identity: {
+      name: companyName,
+      oneLiner: '',
+      cityCoverage: '',
+      tone: 'friendly_whatsapp',
+      targetAudience: '',
+    },
+    catalog: [],
+    funnel: {
+      diagnosisQuestions: [
+        '¿En qué producto o servicio estás interesado hoy?',
+      ],
+      valuePropBullets: [
+        'Atención personalizada, rápida y de alta calidad.',
+      ],
+      closingGoal: 'book_cal',
+      objectionAnswers: [],
+    },
+    policies: {
+      paymentMethods: [],
+      paymentDetails: {
+        nequi: '',
+        daviplata: '',
+        bancolombia: '',
+        other: '',
+      },
+      shippingInfo: '',
+      warrantyInfo: '',
+      customFaqs: [],
+    },
+    handoff: {
+      mode: 'silent',
+      afterHoursEnabled: false,
+      afterHoursMessage: '¡Hola! En este momento estamos fuera de horario. Con gusto a primera hora te responderemos.',
+      businessHours: { start: '08:00', end: '19:00', days: [1, 2, 3, 4, 5, 6] },
+    },
+  }),
   services: (companyName = 'Tu Empresa de Servicios') => ({
     preset: 'services',
     identity: {
@@ -449,6 +497,24 @@ export function compileStructuredPrompt(data: StructuredPromptData): string {
       ? 'Cuando actives el relevo silencioso (request_human_handoff), NO agregues mensajes largos ni inventes datos. El asesor humano tomará el control directo de la conversación en silencio para atender al cliente sin fricción.'
       : 'Cuando actives el relevo silencioso, indícale al cliente de forma natural que vas a consultar el dato con el equipo y que en un instante le confirmas.';
 
+  const accountsList: string[] = [];
+  if (policies.paymentDetails?.nequi) {
+    accountsList.push(`* Nequi: ${policies.paymentDetails.nequi}`);
+  }
+  if (policies.paymentDetails?.daviplata) {
+    accountsList.push(`* Daviplata: ${policies.paymentDetails.daviplata}`);
+  }
+  if (policies.paymentDetails?.bancolombia) {
+    accountsList.push(`* Bancolombia: ${policies.paymentDetails.bancolombia}`);
+  }
+  if (policies.paymentDetails?.other) {
+    accountsList.push(`* Otros medios/Llaves: ${policies.paymentDetails.other}`);
+  }
+
+  const paymentAccountsFormatted = accountsList.length > 0
+    ? `\nCUENTAS_Y_DATOS_PARA_TRANSFERENCIA (Compártelos cuando el cliente pregunte cómo o a dónde transferir):\n${accountsList.join('\n')}\n* Recuerda siempre pedir el comprobante de pago tras enviar los datos de cuenta para que un asesor humano lo verifique.`
+    : '';
+
   return `
 <perfil_empresa>
 NOMBRE_COMERCIAL: "${identity.name}"
@@ -477,7 +543,7 @@ ${closingDirective}
 </ruta_de_compra>
 
 <politicas_y_faq>
-METODOS_DE_PAGO: ${policies.paymentMethods.join(', ') || 'Consultar con asesor comercial.'}
+METODOS_DE_PAGO: ${policies.paymentMethods.join(', ') || 'Consultar con asesor comercial.'}${paymentAccountsFormatted}
 POLITICA_ENVIOS_O_ENTREGA: ${policies.shippingInfo || 'Consultar cobertura.'}
 GARANTIAS_Y_CAMBIOS: ${policies.warrantyInfo || 'Garantía sujeta a términos del servicio.'}
 
