@@ -81,7 +81,6 @@ async function simulateIncomingLeadMessage() {
       leadPhone: contact.phone,
       leadName: contact.name,
       systemPromptConfig: org.system_prompt,
-      calEventTypeId: org.cal_event_type_id,
     });
   } catch (err: any) {
     console.warn('⚠️ Nota sobre OpenAI:', err.message);

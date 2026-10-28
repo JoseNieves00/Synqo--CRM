@@ -132,8 +132,8 @@ export default function PrivacyPage() {
                 <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs">
                   <h3 className="font-bold text-slate-900 mb-1.5">D. Datos de Agendamiento y Telemetría IA</h3>
                   <ul className="list-disc pl-4 space-y-1 text-slate-600">
-                    <li>Claves de API de agendamiento (Cal.com cifradas).</li>
-                    <li>Fechas, horarios y enlaces de videollamadas o reuniones agendadas.</li>
+                    <li>Disponibilidad de agenda, citas presenciales, virtuales o a domicilio.</li>
+                    <li>Fechas, horarios y notas de citas comerciales agendadas.</li>
                     <li>Métricas de consumo de tokens procesados con el motor de IA.</li>
                   </ul>
                 </div>
@@ -152,7 +152,7 @@ export default function PrivacyPage() {
                   <strong>Atención automatizada mediante Inteligencia Artificial:</strong> Analizar las consultas entrantes de prospectos a través de modelos de lenguaje natural (OpenAI GPT-4o) para formular respuestas orientativas y cualificar intenciones comerciales con base exclusiva en el prompt definido por la empresa.
                 </li>
                 <li>
-                  <strong>Sincronización de citas y agendas:</strong> Gestionar la disponibilidad y confirmación de reuniones a través de la integración tecnológica con Cal.com.
+                  <strong>Sincronización de citas y agendas:</strong> Gestionar la disponibilidad y confirmación de citas y turnos a través del sistema de agenda nativa de Synqo.
                 </li>
                 <li>
                   <strong>Seguridad, aislamiento y prevención de fraudes:</strong> Garantizar el aislamiento de datos entre organizaciones mediante políticas estrictas de seguridad por fila (RLS en PostgreSQL), mitigar ataques de denegación de servicio (Rate Limiting) y validar la autenticidad criptográfica de los webhooks mediante firmas HMAC-SHA256.
@@ -216,16 +216,6 @@ export default function PrivacyPage() {
                   </div>
                   <p className="text-slate-600 mt-1">
                     Plataforma de despliegue y cómputo distribuido sin servidor (Serverless Edge Network) con protección SSL/TLS 1.3 de extremo a extremo.
-                  </p>
-                </div>
-
-                <div className="border border-slate-200 rounded-lg p-3 bg-white">
-                  <div className="font-bold text-slate-900 flex items-center justify-between">
-                    <span>Cal.com, Inc.</span>
-                    <span className="text-[11px] font-normal text-slate-500">EE.UU.</span>
-                  </div>
-                  <p className="text-slate-600 mt-1">
-                    Infraestructura para sincronización de calendarios y disponibilidad para agendamiento de citas comerciales.
                   </p>
                 </div>
               </div>

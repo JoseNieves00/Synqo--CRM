@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
 } from 'lucide-react';
+import { getUnattendedHandoffs } from '@/app/actions/chat';
 
 interface SidebarNavProps {
   isSuperAdmin: boolean;
@@ -19,6 +20,26 @@ interface SidebarNavProps {
 
 export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
   const pathname = usePathname();
+  const [unattendedCount, setUnattendedCount] = useState<number>(0);
+
+  useEffect(() => {
+    // 1. Carga inicial del contador
+    getUnattendedHandoffs()
+      .then((list) => setUnattendedCount(list.length))
+      .catch((e) => console.warn('[SidebarNav] Error cargando relevos pendientes:', e));
+
+    // 2. Escucha de eventos de actualización emitidos por HandoffAlertNotifier
+    const handleCountUpdate = (e: any) => {
+      if (typeof e?.detail?.count === 'number') {
+        setUnattendedCount(e.detail.count);
+      }
+    };
+
+    window.addEventListener('synqo-unattended-count', handleCountUpdate);
+    return () => {
+      window.removeEventListener('synqo-unattended-count', handleCountUpdate);
+    };
+  }, []);
 
   const navItems = [
     {
@@ -88,6 +109,7 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
         const isActive = item.matchExact
           ? pathname === item.href
           : pathname.startsWith(item.href);
+        const isInbox = item.href === '/inbox';
 
         return (
           <Link
@@ -102,13 +124,20 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
           >
             <Icon className={`w-4 h-4 transition-colors ${isActive ? item.iconColor : 'text-slate-400'}`} />
             <span>{item.label}</span>
-            {isActive && (
+
+            {/* Badge de Relevos Pendientes en Inbox */}
+            {isInbox && unattendedCount > 0 ? (
+              <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white shadow-sm shadow-rose-500/40 animate-pulse">
+                🔴 {unattendedCount}
+              </span>
+            ) : isActive ? (
               <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#00D2FF] shadow-[0_0_8px_#00D2FF] animate-pulse" />
-            )}
+            ) : null}
           </Link>
         );
       })}
     </nav>
   );
 }
+
 

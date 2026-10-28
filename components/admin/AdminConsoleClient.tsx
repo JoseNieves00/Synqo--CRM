@@ -70,6 +70,57 @@ interface AdminConsoleClientProps {
   initialTickets?: any[];
 }
 
+const PROVISION_PRESETS = [
+  {
+    id: 'services',
+    label: 'Servicios Presenciales',
+    icon: '✂️',
+    subtitle: 'Barbería, Spa, Belleza',
+    description: 'Agenda con turnos, portal móvil para especialistas y recordatorio WhatsApp.',
+    modules: { native_calendar: true, physical_rooms: false, staff_mobile_portal: true, quick_pay: false, anti_no_show: true },
+  },
+  {
+    id: 'academy',
+    label: 'Academias & Cursos',
+    icon: '🥋',
+    subtitle: 'Clases, Fitness, Talleres',
+    description: 'Control de salones físicos, aforos de alumnos y recordatorio WhatsApp.',
+    modules: { native_calendar: true, physical_rooms: true, staff_mobile_portal: false, quick_pay: false, anti_no_show: true },
+  },
+  {
+    id: 'health',
+    label: 'Salud & Consultorios',
+    icon: '🦷',
+    subtitle: 'Médicos, Dentistas, Terapias',
+    description: 'Consultorios/cabinas físicas, turnos de doctores y recordatorios.',
+    modules: { native_calendar: true, physical_rooms: true, staff_mobile_portal: true, quick_pay: false, anti_no_show: true },
+  },
+  {
+    id: 'ecommerce',
+    label: 'E-commerce & Retail',
+    icon: '🛍️',
+    subtitle: 'Venta de productos, Envíos',
+    description: 'Cierre directo con Nequi/Bancolombia sin agenda ni salones.',
+    modules: { native_calendar: false, physical_rooms: false, staff_mobile_portal: false, quick_pay: true, anti_no_show: false },
+  },
+  {
+    id: 'b2b',
+    label: 'B2B & Consultoría',
+    icon: '💼',
+    subtitle: 'Demos virtuales, Asesoría',
+    description: 'Reuniones de Google Meet / Zoom con recordatorios automáticos.',
+    modules: { native_calendar: true, physical_rooms: false, staff_mobile_portal: false, quick_pay: false, anti_no_show: true },
+  },
+  {
+    id: 'custom',
+    label: 'A Medida / Libre',
+    icon: '⚙️',
+    subtitle: 'Personalizado a medida',
+    description: 'Configuración modular completamente libre sin restricciones.',
+    modules: { native_calendar: true, physical_rooms: false, staff_mobile_portal: false, quick_pay: false, anti_no_show: true },
+  },
+];
+
 export default function AdminConsoleClient({
   initialMetrics,
   initialOrganizations,
@@ -86,7 +137,6 @@ export default function AdminConsoleClient({
   const [editSeats, setEditSeats] = useState<number>(2);
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
   const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
-  const [editCalCom, setEditCalCom] = useState<boolean>(false);
   const [editModules, setEditModules] = useState<EnabledModules>({
     native_calendar: true,
     physical_rooms: false,
@@ -115,11 +165,11 @@ export default function AdminConsoleClient({
   const [adminPassword, setAdminPassword] = useState('');
   const [planType, setPlanType] = useState<PlanType>('starter');
   const [maxUsers, setMaxUsers] = useState<number>(2);
-  const [provisionCalCom, setProvisionCalCom] = useState<boolean>(false);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('services');
   const [provisionModules, setProvisionModules] = useState<EnabledModules>({
     native_calendar: true,
     physical_rooms: false,
-    staff_mobile_portal: false,
+    staff_mobile_portal: true,
     quick_pay: false,
     anti_no_show: true,
   });
@@ -233,7 +283,6 @@ export default function AdminConsoleClient({
         planType,
         maxUsers,
         firstBillingMonth,
-        calComEnabled: provisionCalCom,
         enabledModules: provisionModules,
       });
 
@@ -245,7 +294,6 @@ export default function AdminConsoleClient({
         setAdminEmail('');
         setAdminPassword('');
         setMaxUsers(2);
-        setProvisionCalCom(false);
         setIsProvisionOpen(false);
 
         // Actualizar lista local optimistamente
@@ -256,7 +304,6 @@ export default function AdminConsoleClient({
           plan_type: planType,
           max_users: maxUsers,
           is_active: true,
-          cal_com_enabled: provisionCalCom,
           enabled_modules: provisionModules,
           is_exempt: false,
           whatsapp_phone_number_id: null,
@@ -295,7 +342,6 @@ export default function AdminConsoleClient({
     const defaultLimit = PLAN_DEFAULTS[safePlan]?.aiTokensLimit || 500000;
     setEditTokensLimit(org.ai_tokens_limit || defaultLimit);
     setEditResetTokens(false);
-    setEditCalCom(Boolean(org.cal_com_enabled));
     setEditModules(org.enabled_modules || {
       native_calendar: true,
       physical_rooms: false,
@@ -337,7 +383,6 @@ export default function AdminConsoleClient({
         maxUsers: editSeats,
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
-        calComEnabled: editCalCom,
         enabledModules: editModules,
         companyCode: editCompanyCode,
       });
@@ -352,9 +397,8 @@ export default function AdminConsoleClient({
                 max_users: editSeats,
                 ai_tokens_limit: editTokensLimit,
                 ai_tokens_used: editResetTokens ? 0 : o.ai_tokens_used,
-                cal_com_enabled: editCalCom,
                 enabled_modules: editModules,
-                company_code: editCompanyCode,
+                companyCode: editCompanyCode,
               }
             : o
         )
@@ -969,268 +1013,338 @@ export default function AdminConsoleClient({
     <AdminCopilotTab />
   )}
 
-      {/* Modal: Aprovisionar Empresa */}
+      {/* Modal: Aprovisionar Empresa (Optimizado Horizontalmente para Desktop) */}
       {isProvisionOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-200">
-            <div className="p-6 border-b border-gray-200 bg-gray-50/50">
-              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-[#0052FF]" />
-                Aprovisionar Nueva Empresa (Tenant)
-              </h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Crea la organización y su usuario administrador con contraseña temporal segura.
-              </p>
-            </div>
-
-            <form onSubmit={handleProvisionSubmit} className="p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full overflow-hidden border border-gray-200 my-8">
+            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-blue-50/30 flex items-center justify-between">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Nombre de la Empresa *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Ej. Clínica Dental Sonrisas"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Nombre del Administrador *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={adminName}
-                    onChange={(e) => setAdminName(e.target.value)}
-                    placeholder="Ej. Dr. Carlos Mendoza"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Email de Acceso *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    placeholder="carlos@clinicasonrisas.com"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Contraseña Inicial / Temporal * (Mínimo 8 caracteres)
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="Contraseña robusta para el cliente"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Plan</label>
-                  <select
-                    value={planType}
-                    onChange={(e) => setPlanType(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
-                  >
-                    <option value="starter">Starter (Validación - 2 Usuarios)</option>
-                    <option value="pro">Pro (Comercial - 5 Usuarios)</option>
-                    <option value="enterprise">Enterprise (Corporativo - 12 Usuarios)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Límite de Usuarios
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={maxUsers}
-                    onChange={(e) => setMaxUsers(parseInt(e.target.value, 10) || 1)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {/* Primer mes cubierto (Mensual vs Anual) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Período Cubierto Inicial
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setFirstBillingMonth(currentMonthStr)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition cursor-pointer"
-                    >
-                      Mes Actual
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFirstBillingMonth(getNextYearStr())}
-                      className="text-[10px] px-2 py-0.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold transition cursor-pointer"
-                    >
-                      ⭐ Pago Anual (1 Año)
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="month"
-                  value={firstBillingMonth}
-                  onChange={(e) => setFirstBillingMonth(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono"
-                />
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Para cobros mensuales déjalo en el mes actual. Si el cliente pagó la anualidad por anticipado, pulsa <strong>Pago Anual</strong>.
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-[#0052FF]" />
+                  Aprovisionar Nueva Empresa (Tenant)
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Crea la organización, asigna su administrador y activa los módulos necesarios según su nicho de negocio.
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsProvisionOpen(false)}
+                className="text-gray-400 hover:text-gray-600 text-lg font-bold p-1 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
 
-              {/* Módulo de Agendamiento Cal.com (Opcional) */}
-              <div className="flex items-center justify-between p-3.5 rounded-xl border border-gray-200 bg-gray-50/50">
-                <div className="flex items-center gap-2.5">
-                  <Calendar className="w-4 h-4 text-blue-600" />
+            <form onSubmit={handleProvisionSubmit} className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Columna Izquierda: Datos del Tenant y Acceso (5 cols) */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="border-b border-gray-100 pb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                      1. Identidad & Credenciales
+                    </span>
+                  </div>
+
                   <div>
-                    <div className="text-xs font-semibold text-gray-800">Cal.com Externo (Opcional)</div>
-                    <div className="text-[10px] text-gray-500">Solo si la empresa usa Cal.com en vez de la agenda propia</div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Nombre de la Empresa *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="Ej. Barbería Clásica Bogotá o Centro Médico"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-gray-900 font-medium"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Nombre del Administrador *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={adminName}
+                        onChange={(e) => setAdminName(e.target.value)}
+                        placeholder="Ej. Carlos Mendoza"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-gray-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Email de Acceso *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={adminEmail}
+                        onChange={(e) => setAdminEmail(e.target.value)}
+                        placeholder="carlos@empresa.com"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-gray-900 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Contraseña Temporal * (Mínimo 8 caracteres)
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="Contraseña inicial robusta"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] text-gray-900 font-mono"
+                    />
+                  </div>
+
+                  <div className="border-b border-gray-100 pb-2 pt-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                      2. Plan & Facturación
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Plan Inicial</label>
+                      <select
+                        value={planType}
+                        onChange={(e) => setPlanType(e.target.value as any)}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-medium"
+                      >
+                        <option value="starter">Starter (2 Asesores)</option>
+                        <option value="pro">Pro (5 Asesores)</option>
+                        <option value="enterprise">Enterprise (12 Asesores)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Límite de Asesores
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={maxUsers}
+                        onChange={(e) => setMaxUsers(parseInt(e.target.value, 10) || 1)}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        Período Cubierto Inicial
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setFirstBillingMonth(currentMonthStr)}
+                          className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition cursor-pointer"
+                        >
+                          Mes Actual
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFirstBillingMonth(getNextYearStr())}
+                          className="text-[10px] px-2 py-0.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold transition cursor-pointer"
+                        >
+                          ⭐ Pago Anual
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="month"
+                      value={firstBillingMonth}
+                      onChange={(e) => setFirstBillingMonth(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono"
+                    />
                   </div>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={provisionCalCom}
-                    onChange={(e) => setProvisionCalCom(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
+
+                {/* Columna Derecha: Plantillas por Nicho & Módulos a Medida (7 cols) */}
+                <div className="lg:col-span-7 bg-slate-50/60 rounded-2xl p-4 border border-slate-200 space-y-4 flex flex-col justify-between">
+                  <div className="space-y-4">
+                    {/* Sección: Plantillas por Nicho */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
+                          Plantillas por Nicho (Aceleran la Configuración)
+                        </span>
+                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          Facilita pero no limita
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mb-2.5">
+                        Selecciona un nicho para precargar los módulos habituales. Podrás personalizar o desmarcar cualquier casilla según lo que necesite tu cliente.
+                      </p>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {PROVISION_PRESETS.map((preset) => {
+                          const isSelected = selectedPresetId === preset.id;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPresetId(preset.id);
+                                setProvisionModules({ ...preset.modules });
+                              }}
+                              className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'bg-blue-50/80 border-[#0052FF] ring-2 ring-[#0052FF]/20 shadow-xs'
+                                  : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
+                              }`}
+                            >
+                              <div>
+                                <span className="text-base block mb-0.5">{preset.icon}</span>
+                                <div className="text-xs font-bold text-gray-900 leading-tight">
+                                  {preset.label}
+                                </div>
+                                <div className="text-[10px] text-gray-500 mt-0.5 leading-tight line-clamp-1">
+                                  {preset.subtitle}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Sección: Módulos Activos Iniciales */}
+                    <div>
+                      <div className="border-t border-gray-200/80 pt-3 mb-2">
+                        <span className="text-xs font-bold text-gray-900 block">
+                          Módulos Habilitados a Medida
+                        </span>
+                        <p className="text-[11px] text-gray-500">
+                          Enciende o apaga herramientas individuales según el alcance contratado:
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Calendario Nativo */}
+                        <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                          provisionModules.native_calendar ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-white border-gray-200'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={provisionModules.native_calendar}
+                            onChange={(e) => setProvisionModules(prev => ({ ...prev, native_calendar: e.target.checked }))}
+                            className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
+                            <span className="text-[10px] text-gray-500 block leading-tight">
+                              Agenda multi-especialista y citas integradas con IA.
+                            </span>
+                          </div>
+                        </label>
+
+                        {/* Salones y Espacios Físicos */}
+                        <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                          provisionModules.physical_rooms ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-white border-gray-200'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={provisionModules.physical_rooms}
+                            onChange={(e) => setProvisionModules(prev => ({ ...prev, physical_rooms: e.target.checked }))}
+                            className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">🏢 Salones & Aforos</span>
+                            <span className="text-[10px] text-gray-500 block leading-tight">
+                              Control de cupos por aula física o cabina médica.
+                            </span>
+                          </div>
+                        </label>
+
+                        {/* Portal Móvil Colaboradores */}
+                        <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                          provisionModules.staff_mobile_portal ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-white border-gray-200'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={provisionModules.staff_mobile_portal}
+                            onChange={(e) => setProvisionModules(prev => ({ ...prev, staff_mobile_portal: e.target.checked }))}
+                            className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">📱 Portal Colaborador</span>
+                            <span className="text-[10px] text-gray-500 block leading-tight">
+                              Acceso móvil rápido por PIN sin cuenta corporativa.
+                            </span>
+                          </div>
+                        </label>
+
+                        {/* Pagos Rápidos */}
+                        <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                          provisionModules.quick_pay ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-white border-gray-200'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={provisionModules.quick_pay}
+                            onChange={(e) => setProvisionModules(prev => ({ ...prev, quick_pay: e.target.checked }))}
+                            className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">💳 Pagos Rápidos</span>
+                            <span className="text-[10px] text-gray-500 block leading-tight">
+                              Recepción y validación de transferencias bancarias.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Módulo Especial: Recordatorios de WhatsApp (Función Apagable con Nota de Costos) */}
+                    <div className={`p-3 rounded-xl border transition ${
+                      provisionModules.anti_no_show ? 'bg-emerald-50/70 border-emerald-300' : 'bg-white border-gray-200'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">🛡️</span>
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">
+                              Recordatorios WhatsApp (Anti-No-Show)
+                            </span>
+                            <span className="text-[10px] text-gray-600 block">
+                              Envía recordatorio a 24h y cancelación preventiva si no confirman a 8h.
+                            </span>
+                          </div>
+                        </div>
+
+                        <label className="relative inline-flex items-center cursor-pointer ml-3">
+                          <input
+                            type="checkbox"
+                            checked={provisionModules.anti_no_show}
+                            onChange={(e) => setProvisionModules(prev => ({ ...prev, anti_no_show: e.target.checked }))}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                      </div>
+
+                      <div className="mt-2 text-[10px] text-gray-500 bg-white/70 rounded-lg p-2 border border-gray-200/50 leading-relaxed">
+                        ℹ️ <strong>Función apagable:</strong> Los recordatorios automáticos usan plantillas aprobadas de WhatsApp Business (Meta) y generan cobro de conversación comercial estándar según las tarifas oficiales de Meta. Si la empresa no desea asumir costos de mensajería saliente de WhatsApp, puedes mantener esta casilla apagada.
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Módulos Habilitados en la Empresa (Control Modular) */}
-              <div className="pt-2 border-t border-gray-100">
-                <div className="mb-2">
-                  <h4 className="text-xs font-bold text-gray-900">
-                    Módulos Activos Iniciales
-                  </h4>
-                  <p className="text-[11px] text-gray-500">
-                    Selecciona las herramientas que tendrá disponibles esta empresa.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {/* Calendario Nativo */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.native_calendar ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.native_calendar}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, native_calendar: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Agenda multi-especialista y citas propias.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Salones y Espacios Físicos */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.physical_rooms ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.physical_rooms}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, physical_rooms: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">🏢 Salones & Aforos</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Control de cupos por sala física o cabina.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Portal Móvil Colaboradores */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.staff_mobile_portal ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.staff_mobile_portal}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, staff_mobile_portal: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">📱 Portal Colaborador</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Acceso móvil con PIN para especialistas.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Pagos Rápidos */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.quick_pay ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.quick_pay}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, quick_pay: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">💳 Pagos Rápidos</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Registro y verificación de pagos.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Protocolo Anti-No-Show */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition sm:col-span-2 ${
-                    provisionModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.anti_no_show}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, anti_no_show: e.target.checked }))}
-                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">🛡️ Recordatorios WhatsApp (Anti-No-Show)</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Recordatorio a 24h y cancelación preventiva si no confirman a 8h.
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              {/* Botones de acción inferiores */}
+              <div className="pt-5 mt-5 flex items-center justify-end gap-3 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={() => setIsProvisionOpen(false)}
@@ -1241,8 +1355,9 @@ export default function AdminConsoleClient({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                  className="px-6 py-2.5 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition cursor-pointer flex items-center gap-2"
                 >
+                  <Building2 className="w-4 h-4" />
                   {isSubmitting ? 'Aprovisionando...' : 'Crear y Habilitar Empresa'}
                 </button>
               </div>
@@ -1337,26 +1452,6 @@ export default function AdminConsoleClient({
                     <p className="text-[10px] text-gray-400 mt-1">
                       🛡️ Protección de integridad: No se puede reducir por debajo de {editingOrg.users_count} miembros activos.
                     </p>
-                  </div>
-
-                  {/* Módulo de Agendamiento Cal.com */}
-                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                    <div className="flex items-center gap-2.5">
-                      <Calendar className="w-4 h-4 text-blue-600" />
-                      <div>
-                        <div className="text-xs font-bold text-slate-800">Módulo de Agendamiento (Cal.com)</div>
-                        <div className="text-[10px] text-slate-500">Muestra u oculta la tarjeta de agendamiento para este cliente</div>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editCalCom}
-                        onChange={(e) => setEditCalCom(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
                   </div>
 
                   {/* Tarjeta de Resumen Rápido / Cortesía de soporte */}
@@ -1551,7 +1646,7 @@ export default function AdminConsoleClient({
                     <div>
                       <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
                       <span className="text-[10px] text-gray-500 block leading-tight">
-                        Agendamiento nativo multi-especialista en Supabase sin depender de Cal.com.
+                        Agendamiento nativo multi-especialista con Synqo AI y horarios propios.
                       </span>
                     </div>
                   </label>

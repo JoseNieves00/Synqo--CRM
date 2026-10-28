@@ -92,6 +92,13 @@ interface CalendarViewClientProps {
     id: string;
     name: string;
     company_code: string;
+    enabled_modules?: {
+      native_calendar?: boolean;
+      physical_rooms?: boolean;
+      staff_mobile_portal?: boolean;
+      quick_pay?: boolean;
+      anti_no_show?: boolean;
+    };
   };
 }
 
@@ -102,6 +109,7 @@ export function CalendarViewClient({
   services,
   organization,
 }: CalendarViewClientProps) {
+  const hasPhysicalRooms = Boolean(organization?.enabled_modules?.physical_rooms);
   const [appointments, setAppointments] = useState<AppointmentItem[]>(initialAppointments);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'list' | 'team'>('day');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -127,11 +135,14 @@ export function CalendarViewClient({
     }
   };
 
-  // Formulario de nueva cita rápida
+  // Formulario de nueva cita rápida adaptable al nicho
   const [formData, setFormData] = useState({
     contactName: '',
     contactPhone: '',
     studentName: '',
+    modality: 'presencial' as 'presencial' | 'virtual' | 'domicilio',
+    meetingUrl: '',
+    locationAddress: '',
     recurringWeeks: 1,
     serviceId: services[0]?.id || '',
     specialistId: 'auto',
@@ -214,8 +225,11 @@ export function CalendarViewClient({
           roomId: formData.roomId,
           startTime: startIso,
           notes: formData.notes,
-          studentName: formData.studentName,
+          studentName: hasPhysicalRooms ? formData.studentName : undefined,
           recurringWeeks: Number(formData.recurringWeeks) || 1,
+          modality: formData.modality,
+          meetingUrl: formData.meetingUrl,
+          locationAddress: formData.locationAddress,
         });
 
         if (res.appointment) {
@@ -240,7 +254,9 @@ export function CalendarViewClient({
             amountPaid: 0,
             client: {
               id: res.appointment.contact_id || '',
-              name: formData.studentName ? `${formData.studentName} (${formData.contactName || 'Acudiente'})` : (formData.contactName || 'Cliente Mostrador'),
+              name: (hasPhysicalRooms && formData.studentName)
+                ? `${formData.studentName} (${formData.contactName || 'Acudiente'})` 
+                : (formData.contactName || 'Cliente Mostrador'),
               phone: formData.contactPhone,
             },
             specialist: specObj ? { id: specObj.id, name: specObj.name, specialty: specObj.specialty } : null,
@@ -253,6 +269,9 @@ export function CalendarViewClient({
             contactName: '',
             contactPhone: '',
             studentName: '',
+            modality: 'presencial',
+            meetingUrl: '',
+            locationAddress: '',
             recurringWeeks: 1,
             serviceId: services[0]?.id || '',
             specialistId: 'auto',
@@ -452,6 +471,35 @@ export function CalendarViewClient({
           </span>
         );
     }
+  };
+
+  const getModalityBadge = (notes: string | null) => {
+    if (!notes) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-500/10 text-slate-300 border border-slate-500/30">
+          🏢 Sede
+        </span>
+      );
+    }
+    if (notes.includes('[💻 Virtual')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/10 text-[#00D2FF] border border-[#00D2FF]/30">
+          💻 Virtual
+        </span>
+      );
+    }
+    if (notes.includes('[📍 Domicilio')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+          📍 Domicilio
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-500/10 text-slate-300 border border-slate-500/30">
+        🏢 Sede
+      </span>
+    );
   };
 
   // Formato de hora legible
@@ -682,7 +730,10 @@ export function CalendarViewClient({
                           <span>{formatTime(appt.startTime)} - {formatTime(appt.endTime)}</span>
                           <span className="text-[10px] text-slate-400 font-mono">({appt.durationMinutes} min)</span>
                         </div>
-                        {getStatusBadge(appt.status)}
+                        <div className="flex items-center gap-1.5">
+                          {getModalityBadge(appt.notes)}
+                          {getStatusBadge(appt.status)}
+                        </div>
                       </div>
 
                       <h4 className="font-semibold text-white text-sm group-hover:text-[#00D2FF] transition truncate">
@@ -965,7 +1016,12 @@ export function CalendarViewClient({
                         <td className="py-3.5 px-4 text-slate-300">
                           {appt.room ? appt.room.name : <span className="text-slate-500">Sin salón</span>}
                         </td>
-                        <td className="py-3.5 px-4">{getStatusBadge(appt.status)}</td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-1.5">
+                            {getModalityBadge(appt.notes)}
+                            {getStatusBadge(appt.status)}
+                          </div>
+                        </td>
                         <td className="py-3.5 px-4 text-right">
                           <button
                             onClick={() => setSelectedAppointment(appt)}
@@ -984,18 +1040,21 @@ export function CalendarViewClient({
         )}
       </div>
 
-      {/* Modal Nueva Cita Rápida */}
+      {/* Modal Nueva Cita Rápida Adaptable al Nicho */}
       {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 my-8">
             <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#00D2FF]" />
-                <h3 className="text-base font-bold text-white">Agendar Cita Rápida</h3>
+                <div>
+                  <h3 className="text-base font-bold text-white">Agendar Cita</h3>
+                  <p className="text-[11px] text-slate-400">Personalizado según el nicho y modalidad de tu empresa</p>
+                </div>
               </div>
               <button
                 onClick={() => setIsNewModalOpen(false)}
-                className="text-slate-400 hover:text-white transition"
+                className="text-slate-400 hover:text-white transition p-1"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1007,10 +1066,42 @@ export function CalendarViewClient({
               </div>
             )}
 
-            <form onSubmit={handleCreateAppointment} className="space-y-3.5 text-xs">
+            <form onSubmit={handleCreateAppointment} className="space-y-4 text-xs">
+              {/* 1. Selector de Modalidad */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  Modalidad de Atención
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'presencial', label: 'En Sede', icon: '🏢' },
+                    { id: 'virtual', label: 'Virtual', icon: '💻' },
+                    { id: 'domicilio', label: 'A Domicilio', icon: '📍' },
+                  ].map((m) => {
+                    const isSelected = formData.modality === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, modality: m.id as any })}
+                        className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                          isSelected
+                            ? 'bg-[#00D2FF]/15 border-[#00D2FF] text-[#00D2FF] font-bold shadow-xs'
+                            : 'bg-[#131722] border-[#232A3B] text-slate-400 hover:text-slate-200 hover:bg-[#1A2030]'
+                        }`}
+                      >
+                        <span className="text-base mb-0.5">{m.icon}</span>
+                        <span className="text-xs">{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Datos del Cliente */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Nombre del Cliente</label>
+                  <label className="block text-slate-300 font-medium mb-1">Nombre del Cliente *</label>
                   <input
                     type="text"
                     required
@@ -1028,25 +1119,62 @@ export function CalendarViewClient({
                     placeholder="Ej. +573001234567"
                     value={formData.contactPhone}
                     onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })}
-                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] font-mono"
                   />
                 </div>
               </div>
 
-              {/* Nombre de Alumno / Paciente si es academia, clínica o menor de edad */}
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Nombre del Alumno o Paciente <span className="text-slate-500 font-normal">(Opcional si es distinto al titular de WhatsApp)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej. Samuel (Hijo - 8 años)"
-                  value={formData.studentName}
-                  onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
-                />
-              </div>
+              {/* Campo Alumno / Paciente: SOLO si la empresa tiene salones/aforos físicos (Academias / Salud) */}
+              {hasPhysicalRooms && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1 flex items-center justify-between">
+                    <span>Nombre de Alumno / Paciente</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Opcional si es distinto al titular</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Samuel (Hijo - 8 años)"
+                    value={formData.studentName}
+                    onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  />
+                </div>
+              )}
 
+              {/* Campo específico según Modalidad */}
+              {formData.modality === 'virtual' && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1 flex items-center justify-between">
+                    <span>Enlace de Videollamada (Meet / Zoom) o Nota de Llamada</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Opcional</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. https://meet.google.com/abc-defg-hij"
+                    value={formData.meetingUrl}
+                    onChange={(e) => setFormData({ ...formData, meetingUrl: e.target.value })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] font-mono"
+                  />
+                </div>
+              )}
+
+              {formData.modality === 'domicilio' && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Dirección de Visita / Inmueble *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Cra 15 # 93-60 Apto 402, Chico Norte"
+                    value={formData.locationAddress}
+                    onChange={(e) => setFormData({ ...formData, locationAddress: e.target.value })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  />
+                </div>
+              )}
+
+              {/* 3. Servicio & Asignación */}
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Servicio *</label>
                 <select
@@ -1062,7 +1190,7 @@ export function CalendarViewClient({
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={`grid gap-3 ${formData.modality === 'presencial' && hasPhysicalRooms ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">Colaborador / Especialista</label>
                   <select
@@ -1078,23 +1206,28 @@ export function CalendarViewClient({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Salón / Espacio</label>
-                  <select
-                    value={formData.roomId}
-                    onChange={(e) => setFormData({ ...formData, roomId: e.target.value })}
-                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
-                  >
-                    <option value="auto">Auto (Según aforo)</option>
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} (Capacidad: {r.capacity})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+
+                {/* Salón / Espacio Físico: SOLO si es presencial Y la empresa tiene salones habilitados */}
+                {formData.modality === 'presencial' && hasPhysicalRooms && (
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Salón / Cabina Física</label>
+                    <select
+                      value={formData.roomId}
+                      onChange={(e) => setFormData({ ...formData, roomId: e.target.value })}
+                      className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                    >
+                      <option value="auto">Auto (Según aforo)</option>
+                      {rooms.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name} (Capacidad: {r.capacity})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
+              {/* 4. Fecha y Hora */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">Fecha</label>
@@ -1118,28 +1251,30 @@ export function CalendarViewClient({
                 </div>
               </div>
 
-              {/* Frecuencia / Clases Semanales (Para Academias / Terapias) */}
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Modalidad de Agendamiento
-                </label>
-                <select
-                  value={formData.recurringWeeks}
-                  onChange={(e) => setFormData({ ...formData, recurringWeeks: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
-                >
-                  <option value={1}>Sesión Única (1 cita)</option>
-                  <option value={4}>Recurrente: 4 Semanas (1 mes de clases semanales)</option>
-                  <option value={8}>Recurrente: 8 Semanas (2 meses de clases semanales)</option>
-                  <option value={12}>Recurrente: 12 Semanas (Trimestre completo)</option>
-                </select>
-              </div>
+              {/* Frecuencia / Clases Semanales (Solo relevante para Academias o Salud con salones) */}
+              {hasPhysicalRooms && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Frecuencia de Clases / Sesiones
+                  </label>
+                  <select
+                    value={formData.recurringWeeks}
+                    onChange={(e) => setFormData({ ...formData, recurringWeeks: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  >
+                    <option value={1}>Sesión Única (1 cita)</option>
+                    <option value={4}>Recurrente: 4 Semanas (1 mes de clases semanales)</option>
+                    <option value={8}>Recurrente: 8 Semanas (2 meses de clases semanales)</option>
+                    <option value={12}>Recurrente: 12 Semanas (Trimestre completo)</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Notas u Observaciones</label>
                 <textarea
                   rows={2}
-                  placeholder="Detalles específicos para la sesión o requerimientos especiales"
+                  placeholder="Detalles específicos para la cita o indicaciones del cliente"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] resize-none"
@@ -1150,17 +1285,17 @@ export function CalendarViewClient({
                 <button
                   type="button"
                   onClick={() => setIsNewModalOpen(false)}
-                  className="px-3 py-2 rounded-lg bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition"
+                  className="px-3 py-2 rounded-lg bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="px-4 py-2 rounded-lg bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold flex items-center gap-2 transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
                 >
                   {isPending && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Confirmar y Bloquear Horario</span>
+                  <span>{isPending ? 'Agendando...' : 'Confirmar Cita'}</span>
                 </button>
               </div>
             </form>

@@ -6,7 +6,6 @@ import { createPortal } from 'react-dom';
 import {
   updateOrganizationSettings,
   testWhatsAppConnection,
-  testCalConnection,
   processEmbeddedSignup,
   disconnectWhatsApp,
   addCustomTemplate,
@@ -66,7 +65,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Agendamiento de citas sincronizado con Cal.com',
+      'Calendario y citas automatizadas nativas',
       'Alertas sonoras melódicas y notificaciones push al navegador',
       'Soporte técnico estándar por ticket y correo',
     ],
@@ -80,7 +79,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Agendamiento de citas sincronizado con Cal.com',
+      'Calendario y citas automatizadas nativas',
       'Alertas sonoras melódicas y notificaciones push al navegador',
       'Soporte técnico estándar por ticket y correo',
     ],
@@ -94,7 +93,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Agendamiento de citas sincronizado con Cal.com',
+      'Calendario y citas automatizadas nativas',
       'Exportación de Leads y contactos a archivo CSV / Excel',
       'Alertas sonoras melódicas y notificaciones push al navegador',
       'Soporte comercial prioritario por correo electrónico',
@@ -110,7 +109,7 @@ const PLAN_BENEFITS: Record<string, PlanDetails> = {
     features: [
       'IA autónoma con Prompt 100% editable y personalizable',
       'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Agendamiento de citas sincronizado con Cal.com',
+      'Calendario y citas automatizadas nativas',
       'Exportación Masiva de Leads & Historial completo a Excel',
       'Grupo VIP de WhatsApp dedicado con SLA de respuesta < 2h',
       'Sesión de Capacitación en Vivo (45 min) para asesores',
@@ -125,8 +124,6 @@ interface SettingsFormProps {
     whatsappPhoneNumberId?: string | null;
     hasWhatsappToken?: boolean;
     hasWhatsappAppSecret?: boolean;
-    calEventTypeId?: string | null;
-    calComEnabled?: boolean;
     systemPrompt?: string | null;
     structuredPromptData?: any;
     initialKnowledgeGaps?: any[];
@@ -183,11 +180,9 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
   const metaAppId = initialData.metaAppId || process.env.NEXT_PUBLIC_META_APP_ID || '1628755725455108';
   const metaConfigId = initialData.metaConfigId || process.env.NEXT_PUBLIC_META_CONFIG_ID || '1897459618280453';
 
-  const [calApiKey, setCalApiKey] = useState('');
-  const [calEventTypeId, setCalEventTypeId] = useState(initialData.calEventTypeId || '');
   const [systemPrompt, setSystemPrompt] = useState(
     initialData.systemPrompt ||
-      'Eres un asesor comercial experto y empático de Synqo. Responde con cortesía, resuelve dudas de servicios y orienta al prospecto a agendar una cita mediante Cal.com.'
+      'Eres un asesor comercial experto y empático de Synqo. Responde con cortesía, resuelve dudas de servicios y orienta al prospecto a agendar una cita.'
   );
   const [structuredPromptData, setStructuredPromptData] = useState<any>(
     initialData.structuredPromptData || null
@@ -314,9 +309,6 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
   // Estados para pruebas de conexión
   const [testingWhatsApp, setTestingWhatsApp] = useState(false);
   const [waTestResult, setWaTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
-
-  const [testingCal, setTestingCal] = useState(false);
-  const [calTestResult, setCalTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
   // Gestión dinámica de plantillas de WhatsApp (Meta)
   const [templates, setTemplates] = useState<Array<{ name: string; label: string }>>(
@@ -671,25 +663,6 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
     }
   };
 
-  const handleTestCal = async () => {
-    setTestingCal(true);
-    setCalTestResult(null);
-    try {
-      const res = await testCalConnection({
-        apiKey: calApiKey || undefined,
-        eventTypeId: calEventTypeId || undefined,
-      });
-      setCalTestResult(res);
-      if (res.success && (res as any).detectedEventId) {
-        setCalEventTypeId(String((res as any).detectedEventId));
-      }
-    } catch (err: any) {
-      setCalTestResult({ success: false, error: err.message || 'Error probando Cal.com' });
-    } finally {
-      setTestingCal(false);
-    }
-  };
-
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -700,8 +673,6 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
         whatsappPhoneNumberId: phoneNumberId || undefined,
         whatsappAccessToken: accessToken || undefined,
         whatsappAppSecret: appSecret || undefined,
-        calApiKey: calApiKey || undefined,
-        calEventTypeId: calEventTypeId || undefined,
         systemPrompt: systemPrompt || undefined,
         structuredPromptData: structuredPromptData || undefined,
       });
@@ -713,7 +684,6 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
       // Limpiar campos sensibles por seguridad
       setAccessToken('');
       setAppSecret('');
-      setCalApiKey('');
     } catch (err: any) {
       setFeedback({
         type: 'error',
@@ -1522,87 +1492,6 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                 </div>
               </div>
             </div>
-
-        {/* Cal.com Scheduling (Solo si el Super Admin lo habilitó para esta empresa) */}
-        {initialData.calComEnabled && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-purple-50 text-purple-600 rounded-lg">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Integración con Cal.com</h2>
-                  <p className="text-xs text-gray-500">Permite a Synqo AI consultar disponibilidad y agendar citas</p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleTestCal}
-                disabled={testingCal}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition cursor-pointer disabled:opacity-50"
-              >
-                <Zap className={`w-3.5 h-3.5 ${testingCal ? 'animate-spin' : ''}`} />
-                {testingCal ? 'Probando...' : 'Probar Conexión Cal.com'}
-              </button>
-            </div>
-
-            {calTestResult && (
-              <div
-                className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
-                  calTestResult.success
-                    ? 'bg-purple-50 text-purple-800 border border-purple-200'
-                    : 'bg-rose-50 text-rose-800 border border-rose-200'
-                }`}
-              >
-                {calTestResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                )}
-                <span>{calTestResult.success ? calTestResult.message : calTestResult.error}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
-                  <span>Cal.com API Key</span>
-                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> Almacenamiento Cifrado
-                  </span>
-                </label>
-                <input
-                  type="password"
-                  placeholder="cal_live_••••••••••••••••"
-                  value={calApiKey}
-                  onChange={(e) => setCalApiKey(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  Generada en Cal.com → Settings → Developer → API Keys (empieza con <code>cal_live_</code>).
-                </p>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1">
-                  Tipo de Evento o Enlace Cal.com (Opcional - Detección Automática)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej. cita-comercial (o déjalo vacío para auto-detectar)"
-                  value={calEventTypeId}
-                  onChange={(e) => setCalEventTypeId(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
-                />
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Puedes escribir el nombre de tu evento (ej. <strong className="text-purple-700">cita-comercial</strong>), pegar tu enlace completo, o dejarlo en blanco para que el botón <strong>"Probar Conexión"</strong> lo detecte y complete automáticamente.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Asistente Visual de IA Multinicho & Vacíos de Conocimiento */}
         <div className="space-y-6">

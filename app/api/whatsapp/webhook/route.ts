@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   try {
     // E. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, cal_api_key, cal_event_type_id, system_prompt, handoff_mode, after_hours_message, business_hours')
+      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 
@@ -270,7 +270,6 @@ export async function POST(request: NextRequest) {
         (async () => {
           try {
             const decryptedWhatsAppToken = decryptSecret(organization.whatsapp_access_token || '');
-            const decryptedCalApiKey = decryptSecret(organization.cal_api_key || '');
 
             // 1. Marcar como leído en WhatsApp (doble tilde azul)
             if (decryptedWhatsAppToken) {
@@ -386,15 +385,13 @@ export async function POST(request: NextRequest) {
                 } catch {}
               }
 
-              // 2. Procesar con OpenAI y herramientas (Cal.com + Pipeline Stage)
+              // 2. Procesar con OpenAI y herramientas (Agenda Nativa + Pipeline Stage)
               aiResponseText = await OpenAIService.processLeadMessage({
                 contactId,
                 organizationId: orgId,
                 leadPhone,
                 leadName,
                 systemPromptConfig: organization.system_prompt,
-                calApiKey: decryptedCalApiKey,
-                calEventTypeId: organization.cal_event_type_id,
                 handoffMode: organization.handoff_mode || 'silent',
                 afterHoursMessage: organization.after_hours_message || null,
                 isAfterHours,

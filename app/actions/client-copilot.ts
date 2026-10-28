@@ -22,10 +22,10 @@ GUÍA DE SOPORTE TÉCNICO Y PREGUNTAS FRECUENTES DE SYNQO CRM:
   2. Token Permanente de Usuario del Sistema: Ve a Usuarios del Sistema, crea un token con permisos 'whatsapp_business_messaging' y 'whatsapp_business_management'.
 - Nunca uses tokens temporales del Graph API Explorer porque vencen en 24 horas.
 
-3. CAL.COM Y AGENDAMIENTO AUTOMÁTICO:
-- ¿Cómo conectar Cal.com?: Ve a Configuración > Cal.com.
-- Ingresa tu clave de API de Cal.com y el ID del Evento (ej. 30min).
-- La IA ofrecerá el enlace o agendará automáticamente cuando un cliente muestre interés en una reunión o llamada.
+3. AGENDA Y CITAS AUTOMÁTICAS NATIVAS:
+- ¿Cómo funciona la agenda?: Ve al menú lateral "Agenda / Calendario".
+- Puedes configurar colaboradores, especialistas, salones o modalidades de atención (Presencial, Virtual o Visita a Domicilio).
+- La IA consulta en tiempo real los cupos y agenda citas automáticamente sin depender de herramientas externas.
 
 4. EQUIPO Y ASIGNACIÓN DE ASESORES:
 - ¿Cómo invitar asesores?: Ve a Configuración > Pestaña "Equipo & Usuarios". Ingresa el nombre, correo y contraseña temporal.

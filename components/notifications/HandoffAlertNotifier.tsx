@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Bell, BellRing, MessageSquare, X, UserCheck } from 'lucide-react';
+import { Bell, BellRing, MessageSquare, X, UserCheck, AlertCircle } from 'lucide-react';
+import { getUnattendedHandoffs } from '@/app/actions/chat';
 
 interface HandoffAlertNotifierProps {
   organizationId: string;
@@ -17,6 +18,33 @@ interface AlertData {
   phone: string;
   timestamp: number;
   type?: 'handoff' | 'assignment';
+}
+
+interface UnattendedItem {
+  id: string;
+  name: string;
+  phone: string;
+  lastMessage: string;
+  waitingSince: string;
+  assignedTo?: string | null;
+}
+
+/**
+ * Formatea tiempo relativo en español (ej. "Hace 3 min")
+ */
+function formatTimeAgo(isoString: string): string {
+  try {
+    const diffMs = Date.now() - new Date(isoString).getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Hace un momento';
+    if (diffMin === 1) return 'Hace 1 min';
+    if (diffMin < 60) return `Hace ${diffMin} min`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours === 1) return 'Hace 1 hora';
+    return `Hace ${diffHours} h`;
+  } catch {
+    return 'Pendiente';
+  }
 }
 
 /**
@@ -63,11 +91,18 @@ export function HandoffAlertNotifier({
 }: HandoffAlertNotifierProps) {
   const router = useRouter();
   const [activeAlerts, setActiveAlerts] = useState<AlertData[]>([]);
+  const [unattendedList, setUnattendedList] = useState<UnattendedItem[]>([]);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
 
+  const originalTitleRef = useRef<string>('');
+
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      setPermission(Notification.permission);
+    if (typeof window !== 'undefined') {
+      originalTitleRef.current = document.title;
+      if ('Notification' in window) {
+        setPermission(Notification.permission);
+      }
     }
   }, []);
 
@@ -78,18 +113,95 @@ export function HandoffAlertNotifier({
     }
   };
 
+  // Función para sincronizar la lista de relevos pendientes
+  const syncUnattended = async () => {
+    try {
+      const list = await getUnattendedHandoffs();
+      setUnattendedList(list);
+
+      // Notificar globalmente para actualizar badge del Sidebar
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('synqo-unattended-count', { detail: { count: list.length } })
+        );
+      }
+    } catch (err) {
+      console.warn('[Anti-Visto] Error al sincronizar relevos:', err);
+    }
+  };
+
+  // 1. Carga inicial y sondeo periódico de respaldo (cada 40s)
+  useEffect(() => {
+    if (!organizationId) return;
+
+    syncUnattended();
+    const interval = setInterval(syncUnattended, 40000);
+    return () => clearInterval(interval);
+  }, [organizationId]);
+
+  // 2. Campanada insistente periódica (cada 2.5 min si hay chats sin responder)
+  useEffect(() => {
+    if (unattendedList.length === 0) return;
+
+    const chimeInterval = setInterval(() => {
+      playChimeSound(true);
+    }, 150000); // 2.5 minutos
+
+    return () => clearInterval(chimeInterval);
+  }, [unattendedList.length]);
+
+  // 3. Título parpadeante en pestaña de navegador cuando la pestaña está en segundo plano
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let titleInterval: NodeJS.Timeout | null = null;
+    let isToggled = false;
+
+    const handleVisibilityOrState = () => {
+      if (unattendedList.length > 0 && document.hidden) {
+        if (!titleInterval) {
+          titleInterval = setInterval(() => {
+            isToggled = !isToggled;
+            document.title = isToggled
+              ? `(${unattendedList.length}) 🚨 Relevo pendiente — Synqo CRM`
+              : `💬 Cliente esperando respuesta — Synqo CRM`;
+          }, 1500);
+        }
+      } else {
+        if (titleInterval) {
+          clearInterval(titleInterval);
+          titleInterval = null;
+        }
+        if (originalTitleRef.current) {
+          document.title = originalTitleRef.current;
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrState);
+    handleVisibilityOrState();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrState);
+      if (titleInterval) clearInterval(titleInterval);
+      if (originalTitleRef.current) {
+        document.title = originalTitleRef.current;
+      }
+    };
+  }, [unattendedList.length]);
+
+  // 4. Suscripción Supabase Realtime a contacts y messages
   useEffect(() => {
     if (!organizationId) return;
 
     const supabase = createClient();
 
-    // Canal Realtime para monitorear relevo humano y nuevas asignaciones
     const channel = supabase
-      .channel(`handoff-alerts-${organizationId}`)
+      .channel(`anti-visto-${organizationId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'contacts',
           filter: `organization_id=eq.${organizationId}`,
@@ -98,9 +210,8 @@ export function HandoffAlertNotifier({
           const oldRecord = payload.old as any;
           const newRecord = payload.new as any;
 
-          // 1. Detección de Relevo Humano (is_ai_active cambió de true a false)
+          // Relevo humano activado
           if (oldRecord && oldRecord.is_ai_active === true && newRecord.is_ai_active === false) {
-            // Suena si el lead está asignado al usuario actual O si el usuario es Admin/Supervisor
             const isMyLead = newRecord.assigned_to === currentUserId;
             if (isMyLead || isAdmin) {
               triggerAlert({
@@ -113,7 +224,7 @@ export function HandoffAlertNotifier({
             }
           }
 
-          // 2. Detección de Nueva Asignación hacia este agente
+          // Asignación de lead
           if (
             currentUserId &&
             oldRecord &&
@@ -128,6 +239,19 @@ export function HandoffAlertNotifier({
               type: 'assignment',
             });
           }
+
+          syncUnattended();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        () => {
+          syncUnattended();
         }
       )
       .subscribe();
@@ -170,6 +294,8 @@ export function HandoffAlertNotifier({
     setActiveAlerts((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const latestUnattended = unattendedList[0];
+
   return (
     <>
       {/* Botón para solicitar permisos de notificación si están en 'default' */}
@@ -179,16 +305,16 @@ export function HandoffAlertNotifier({
           <span>¿Activar alertas sonoras y de escritorio para llamadas y asignaciones?</span>
           <button
             onClick={requestNotificationPermission}
-            className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg transition"
+            className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg transition cursor-pointer"
           >
             Activar
           </button>
         </div>
       )}
 
-      {/* Notificaciones Flotantes de Relevo Humano / Asignación */}
+      {/* 1. Alertas de Entrada Inmediata (Toast Transitorio) */}
       {activeAlerts.length > 0 && (
-        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full">
+        <div className="fixed bottom-24 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full">
           {activeAlerts.map((alert) => {
             const isHandoff = alert.type === 'handoff';
 
@@ -265,6 +391,88 @@ export function HandoffAlertNotifier({
           })}
         </div>
       )}
+
+      {/* 2. Banner Flotante Insistente Anti-Visto (Permanente mientras hayan clientes sin contestar) */}
+      {unattendedList.length > 0 && latestUnattended && (
+        <div className="fixed bottom-5 right-5 z-50 animate-in slide-in-from-bottom-5 duration-300">
+          {isMinimized ? (
+            <button
+              onClick={() => setIsMinimized(false)}
+              className="px-3.5 py-2.5 rounded-2xl bg-[#090A0F] border-2 border-rose-500 shadow-2xl text-white text-xs font-bold flex items-center gap-2.5 hover:bg-[#131722] transition cursor-pointer"
+            >
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+              </span>
+              <span>🚨 {unattendedList.length} {unattendedList.length === 1 ? 'Relevo Pendiente' : 'Relevos Pendientes'}</span>
+              <span className="text-[10px] text-slate-400 font-semibold bg-[#1E2433] px-2 py-0.5 rounded-md">Abrir ↗</span>
+            </button>
+          ) : (
+            <div className="bg-[#090A0F] text-white p-4 rounded-2xl border-2 border-rose-500 shadow-2xl max-w-sm w-full space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-[#1E2433]">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                  </span>
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-rose-400">
+                    {unattendedList.length === 1 ? '¡1 Chat en Visto (Relevo IA)!' : `¡${unattendedList.length} Chats en Visto (Relevo IA)!`}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  title="Minimizar aviso"
+                  className="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1A2030] transition cursor-pointer font-bold"
+                >
+                  Minimizar
+                </button>
+              </div>
+
+              {/* Tarjeta del cliente más reciente esperando */}
+              <div className="bg-[#131722] p-3 rounded-xl border border-[#232A3B] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-white truncate max-w-[190px]">
+                    {latestUnattended.name}
+                  </span>
+                  <span className="text-[10px] text-rose-400 font-mono font-semibold">
+                    {formatTimeAgo(latestUnattended.waitingSince)}
+                  </span>
+                </div>
+
+                <div className="text-[11px] text-slate-400 font-mono">
+                  {latestUnattended.phone}
+                </div>
+
+                {latestUnattended.lastMessage && (
+                  <p className="text-[11px] text-slate-200 italic line-clamp-2 mt-1 bg-[#090A0F]/80 p-2 rounded-lg border border-[#1E2433]">
+                    "{latestUnattended.lastMessage}"
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => router.push(`/inbox/${latestUnattended.id}`)}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-[#0052FF] hover:bg-[#0040CC] font-bold text-xs text-white rounded-xl shadow-lg shadow-[#0052FF]/25 transition cursor-pointer"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>⚡ Atender en Inbox</span>
+                </button>
+
+                {unattendedList.length > 1 && (
+                  <button
+                    onClick={() => router.push('/inbox')}
+                    className="px-3 py-2.5 text-xs font-semibold text-slate-300 hover:text-white bg-[#131722] hover:bg-[#1A2030] rounded-xl transition cursor-pointer border border-[#232A3B]"
+                  >
+                    Ver ({unattendedList.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
+

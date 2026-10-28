@@ -5,7 +5,7 @@ import { decryptSecret } from '../lib/security/encryption';
 
 /**
  * Script de diagnóstico y prueba en vivo de WhatsApp Cloud API (Meta Graph v20.0)
- * Sin requerir OpenAI ni Cal.com.
+ * Sin requerir OpenAI ni servicios externos.
  * 
  * Uso:
  *   npx tsx scripts/test-whatsapp.ts

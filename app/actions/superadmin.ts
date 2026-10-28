@@ -136,7 +136,6 @@ export interface OrganizationRow {
   plan_type: PlanType;
   max_users: number;
   is_active: boolean;
-  cal_com_enabled?: boolean;
   is_exempt?: boolean;
   whatsapp_phone_number_id: string | null;
   created_at: string;
@@ -200,7 +199,6 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       plan_type: org.plan_type || 'core',
       max_users: org.max_users ?? 3,
       is_active: org.is_active ?? true,
-      cal_com_enabled: Boolean(org.cal_com_enabled ?? Boolean(org.cal_api_key)),
       is_exempt: isSuperAdminOrg,
       whatsapp_phone_number_id: org.whatsapp_phone_number_id || null,
       created_at: org.created_at,
@@ -241,7 +239,6 @@ const ProvisionSchema = z.object({
   planType: z.enum(['starter', 'core', 'pro', 'enterprise']).default('starter'),
   maxUsers: z.number().int().min(1).max(100).default(3),
   firstBillingMonth: z.string().optional(),
-  calComEnabled: z.boolean().default(false),
   enabledModules: z.any().optional(),
   companyCode: z.string().optional(),
 });
@@ -257,7 +254,6 @@ export async function provisionCompany(input: {
   planType?: 'starter' | 'core' | 'pro' | 'enterprise';
   maxUsers?: number;
   firstBillingMonth?: string;
-  calComEnabled?: boolean;
   enabledModules?: EnabledModules;
   companyCode?: string;
 }) {
@@ -289,7 +285,6 @@ export async function provisionCompany(input: {
     plan_type: planToInsert,
     max_users: validated.maxUsers,
     is_active: true,
-    cal_com_enabled: validated.calComEnabled,
     paid_until_month: paidUntilMonth,
     billing_due_day: 5,
     company_code: generatedCode,
@@ -302,10 +297,9 @@ export async function provisionCompany(input: {
     .select('id, name')
     .single();
 
-  if (orgError && (orgError.message?.includes('paid_until_month') || orgError.message?.includes('cal_com_enabled') || orgError.message?.includes('column'))) {
+  if (orgError && (orgError.message?.includes('paid_until_month') || orgError.message?.includes('column'))) {
     delete insertPayload.paid_until_month;
     delete insertPayload.billing_due_day;
-    delete insertPayload.cal_com_enabled;
     const retry = await (supabaseAdmin.from('organizations') as any)
       .insert(insertPayload)
       .select('id, name')
@@ -430,7 +424,6 @@ export async function updateCompanyDetails(input: {
   maxUsers: number;
   aiTokensLimit?: number;
   resetTokensUsed?: boolean;
-  calComEnabled?: boolean;
   enabledModules?: EnabledModules;
   companyCode?: string;
 }) {
@@ -467,10 +460,6 @@ export async function updateCompanyDetails(input: {
     updated_at: new Date().toISOString(),
   };
 
-  if (typeof input.calComEnabled === 'boolean') {
-    updateData.cal_com_enabled = input.calComEnabled;
-  }
-
   if (input.enabledModules) {
     updateData.enabled_modules = input.enabledModules;
   }
@@ -486,15 +475,6 @@ export async function updateCompanyDetails(input: {
   let { error } = await (supabaseAdmin.from('organizations') as any)
     .update(updateData)
     .eq('id', input.organizationId);
-
-  // Fallback si la columna cal_com_enabled aún no existe en la BD
-  if (error && (error.message?.includes('cal_com_enabled') || error.message?.includes('column'))) {
-    delete updateData.cal_com_enabled;
-    const retry = await (supabaseAdmin.from('organizations') as any)
-      .update(updateData)
-      .eq('id', input.organizationId);
-    error = retry.error;
-  }
 
   // Fallback si la BD aún tiene constraint con 'core' en vez de 'starter'
   if (error && error.message?.includes('organizations_plan_type_check') && input.planType === 'starter') {

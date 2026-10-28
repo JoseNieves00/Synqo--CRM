@@ -1,12 +1,9 @@
 import OpenAI, { toFile } from 'openai';
-import { CalService } from './cal.service';
 import { AppointmentService } from './appointment.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { recordTokenUsage, checkTokenQuota } from '@/lib/monitoring/token-tracker';
 import {
   UpdateStageToolSchema,
-  CheckAvailabilityToolSchema,
-  BookAppointmentToolSchema,
   CheckNativeAvailabilityToolSchema,
   BookNativeAppointmentToolSchema,
   RescheduleNativeAppointmentToolSchema,
@@ -40,37 +37,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'check_available_slots',
-      description: 'Consulta los horarios disponibles en Cal.com para ofrecer opciones reales de reunión al prospecto.',
-      parameters: {
-        type: 'object',
-        properties: {
-          date_from: { type: 'string', description: 'Fecha de inicio (ej. 2026-10-21)' },
-          date_to: { type: 'string', description: 'Fecha final (ej. 2026-10-23)' },
-        },
-        required: ['date_from', 'date_to'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'book_appointment',
-      description: 'Confirma y agenda la cita en Cal.com cuando el cliente haya seleccionado explícitamente un horario disponible.',
-      parameters: {
-        type: 'object',
-        properties: {
-          start_iso_time: { type: 'string', description: 'Horario seleccionado en formato ISO 8601 (ej. 2026-10-21T10:00:00Z)' },
-          lead_name: { type: 'string', description: 'Nombre completo del cliente' },
-          lead_email: { type: 'string', description: 'Correo electrónico para la confirmación de la cita' },
-        },
-        required: ['start_iso_time', 'lead_name'],
-      },
-    },
-  },
+
   {
     type: 'function',
     function: {
@@ -183,8 +150,6 @@ interface ProcessLeadParams {
   leadPhone: string;
   leadName?: string;
   systemPromptConfig?: string | null;
-  calApiKey?: string;
-  calEventTypeId?: string | null;
   handoffMode?: 'silent' | 'message';
   afterHoursMessage?: string | null;
   isAfterHours?: boolean;
@@ -231,8 +196,6 @@ export class OpenAIService {
     leadPhone,
     leadName,
     systemPromptConfig,
-    calApiKey,
-    calEventTypeId,
     handoffMode = 'silent',
     afterHoursMessage,
     isAfterHours = false,
@@ -316,7 +279,6 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - Cuando el cliente elija el horario, ejecuta 'book_native_appointment' para confirmar su turno de inmediato.
    - Si el cliente necesita cambiar o mover su cita, usa 'reschedule_native_appointment'. Ten en cuenta que solo tiene 2 reprogramaciones permitidas; en la primera, infórmale amablemente que solo le queda 1 reprogramación disponible.
    - Si el cliente cancela formalmente su cita ("cancélamela", "no voy a poder ir"), usa 'cancel_native_appointment' para liberar el cupo de inmediato y confírmale educadamente.
-   - Fallback: Si la empresa usa Cal.com tradicional, puedes usar 'check_available_slots' y 'book_appointment'.
 
 6. CALIFICACIÓN INTELIGENTE (update_pipeline_stage):
    - Ejecuta update_pipeline_stage('calificado') cuando el lead cumpla al menos uno de los siguientes criterios:
@@ -405,48 +367,6 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               status: 'success',
               message: `Etapa actualizada a ${validated.new_stage}`,
             });
-          } else if (functionName === 'check_available_slots') {
-            const validated = CheckAvailabilityToolSchema.parse(functionArgs);
-            if (!calApiKey || !calEventTypeId) {
-              toolResult = JSON.stringify({
-                error: 'El calendario no ha sido configurado en los ajustes de la empresa.',
-              });
-            } else {
-              const slots = await CalService.getAvailableSlots(
-                calApiKey,
-                calEventTypeId,
-                validated.date_from,
-                validated.date_to
-              );
-              toolResult = JSON.stringify({ available_slots: slots });
-            }
-          } else if (functionName === 'book_appointment') {
-            const validated = BookAppointmentToolSchema.parse(functionArgs);
-            if (!calApiKey || !calEventTypeId) {
-              toolResult = JSON.stringify({
-                error: 'No se puede confirmar la cita porque las credenciales de Cal.com no están activas.',
-              });
-            } else {
-              const booking = await CalService.createBooking({
-                apiKey: calApiKey,
-                eventTypeId: calEventTypeId,
-                start: validated.start_iso_time,
-                name: validated.lead_name || leadName || 'Cliente WhatsApp',
-                email: validated.lead_email || `${leadPhone}@synqo.client`,
-                phone: leadPhone,
-              });
-
-              // Actualizar fase a cita_agendada
-              await supabaseAdmin
-                .from('contacts')
-                .update({
-                  pipeline_stage: 'cita_agendada',
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', contactId);
-
-              toolResult = JSON.stringify({ status: 'confirmed', booking });
-            }
           } else if (functionName === 'check_native_availability') {
             const validated = CheckNativeAvailabilityToolSchema.parse(functionArgs);
 

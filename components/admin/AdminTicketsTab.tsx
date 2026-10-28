@@ -149,7 +149,7 @@ export function AdminTicketsTab({ initialTickets }: AdminTicketsTabProps) {
             <option value="all">Todas las Categorías</option>
             <option value="whatsapp">Meta WhatsApp API</option>
             <option value="ai_assistant">Inteligencia Artificial</option>
-            <option value="calendar">Cal.com</option>
+            <option value="calendar">Agenda y Citas</option>
             <option value="billing">Facturación</option>
             <option value="bug">Bugs del Sistema</option>
             <option value="feature_request">Nuevas Funciones</option>

@@ -168,6 +168,9 @@ export async function createQuickAppointmentAdmin(input: {
   notes?: string;
   studentName?: string;
   recurringWeeks?: number;
+  modality?: 'presencial' | 'virtual' | 'domicilio';
+  meetingUrl?: string;
+  locationAddress?: string;
 }) {
   const { org, user } = await requireAuthOrgUser();
 
@@ -221,10 +224,25 @@ export async function createQuickAppointmentAdmin(input: {
 
   const rawNotes = input.notes?.trim() || '';
   const studentPrefix = input.studentName?.trim() ? `[Alumno: ${input.studentName.trim()}] ` : '';
-  const baseNotes = `${studentPrefix}${rawNotes}`.trim();
+  
+  let modalityPrefix = '';
+  if (input.modality === 'virtual') {
+    modalityPrefix = `[💻 Virtual${input.meetingUrl ? ': ' + input.meetingUrl.trim() : ''}] `;
+  } else if (input.modality === 'domicilio') {
+    modalityPrefix = `[📍 Domicilio${input.locationAddress ? ': ' + input.locationAddress.trim() : ''}] `;
+  } else if (input.modality === 'presencial') {
+    modalityPrefix = `[🏢 Presencial] `;
+  }
+
+  const baseNotes = `${modalityPrefix}${studentPrefix}${rawNotes}`.trim();
   const displayName = input.studentName?.trim() 
     ? `${input.studentName.trim()} (Acudiente: ${contact.name})`
     : contact.name;
+
+  // Si es virtual o domicilio, no se bloquea salón físico
+  const effectiveRoomId = (input.modality === 'virtual' || input.modality === 'domicilio')
+    ? undefined
+    : (input.roomId && input.roomId !== 'auto' ? input.roomId : undefined);
 
   for (let w = 0; w < totalWeeks; w++) {
     const currentStart = new Date(baseDate.getTime() + w * 7 * 24 * 60 * 60 * 1000);
@@ -236,7 +254,7 @@ export async function createQuickAppointmentAdmin(input: {
       organizationId: org.id,
       contactId: contact.id,
       specialistId: input.specialistId && input.specialistId !== 'auto' ? input.specialistId : undefined,
-      roomId: input.roomId && input.roomId !== 'auto' ? input.roomId : undefined,
+      roomId: effectiveRoomId,
       serviceId: input.serviceId,
       serviceName,
       durationMinutes,

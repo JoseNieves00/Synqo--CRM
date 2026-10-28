@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import assert from 'assert';
 import { checkTokenQuota } from '../lib/monitoring/token-tracker';
-import { testWhatsAppConnection, testCalConnection } from '../app/actions/settings';
+import { testWhatsAppConnection } from '../app/actions/settings';
 import { supabaseAdmin } from '../lib/supabase/admin';
 
 async function runTests() {
@@ -26,17 +26,8 @@ async function runTests() {
   assert(waInvalidTest.error, 'Debe devolver un mensaje de error explicativo');
   console.log('   ✅ Rechazo seguro de credenciales falsas en WhatsApp verificado:', waInvalidTest.error?.slice(0, 40) + '...');
 
-  // 3. Probar validación de parámetros en Test de Conexión de Cal.com
-  console.log('3️⃣  Probando Test de Conexión de Cal.com...');
-  const calInvalidTest = await testCalConnection({
-    apiKey: 'cal_live_invalid_key_123',
-    eventTypeId: '99999',
-  });
-  assert.strictEqual(calInvalidTest.success, false, 'API key falsa de Cal.com debe retornar success: false');
-  console.log('   ✅ Rechazo seguro de API Key falsa en Cal.com verificado.');
-
-  // 4. Verificar perfil de usuario y flags de contraseña
-  console.log('4️⃣  Verificando perfil de usuario y metadatos de Supabase Auth...');
+  // 3. Verificar perfil de usuario y flags de contraseña
+  console.log('3️⃣  Verificando perfil de usuario y metadatos de Supabase Auth...');
   const { data: superAdminUser } = await supabaseAdmin.auth.admin.listUsers();
   const admin = superAdminUser?.users.find((u) => u.email === 'admin@synqo.dev');
   assert(admin, 'Usuario admin@synqo.dev debe existir en Supabase Auth');

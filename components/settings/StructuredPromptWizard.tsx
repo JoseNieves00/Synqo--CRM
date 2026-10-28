@@ -563,7 +563,7 @@ export function StructuredPromptWizard({
                     {
                       id: 'book_cal',
                       title: '🗓️ Agendar Cita en Calendario',
-                      desc: 'La IA ofrece horarios de Cal.com y agenda automáticamente citas o demos.',
+                      desc: 'La IA ofrece horarios de la agenda nativa y reserva automáticamente citas.',
                     },
                     {
                       id: 'take_order',

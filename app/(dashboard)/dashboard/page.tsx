@@ -174,7 +174,7 @@ export default async function DashboardPage() {
             <CalendarCheck className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-2xl font-bold text-gray-900">{bookedAppointments}</div>
-          <span className="text-xs text-blue-600 font-medium">Vía Cal.com</span>
+          <span className="text-xs text-blue-600 font-medium">Agenda Synqo</span>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">

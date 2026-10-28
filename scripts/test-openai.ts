@@ -55,8 +55,8 @@ async function main() {
     {
       type: 'function',
       function: {
-        name: 'check_available_slots',
-        description: 'Consulta los horarios disponibles en Cal.com para ofrecer opciones reales de reunión al prospecto.',
+        name: 'check_native_availability',
+        description: 'Consulta los horarios disponibles en la agenda nativa para ofrecer opciones reales de cita al prospecto.',
         parameters: {
           type: 'object',
           properties: {
@@ -91,7 +91,7 @@ Reglas de frontera:
     console.log(`   ✅ Respuesta recibida en ${latency} ms: "${pingReply}"\n`);
 
     // FASE 2: Prueba de Tool Calling (Detección de intención de agendamiento)
-    console.log('2️⃣  Fase 2: Probando Function Calling para agendamiento de citas en Cal.com...');
+    console.log('2️⃣  Fase 2: Probando Function Calling para agendamiento de citas en la Agenda Synqo...');
     const bookingQuery = 'Hola, me gustaría agendar una reunión o demo comercial para mañana en la tarde.';
     console.log(`   💬 Mensaje del prospecto: "${bookingQuery}"`);
 

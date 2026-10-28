@@ -36,7 +36,7 @@ export function SupportModal() {
     {
       role: 'assistant',
       content:
-        '¡Hola! Soy tu asistente de soporte de Synqo. ¿En qué puedo ayudarte hoy? Puedes preguntarme sobre la conexión de WhatsApp, la ventana de 24 horas, Cal.com o reportar una falla técnica.',
+        '¡Hola! Soy tu asistente de soporte de Synqo. ¿En qué puedo ayudarte hoy? Puedes preguntarme sobre la conexión de WhatsApp, la ventana de 24 horas, la agenda y citas o reportar una falla técnica.',
     },
   ]);
 
@@ -259,7 +259,7 @@ export function SupportModal() {
                       {[
                         '¿Por qué dice ventana de 24h cerrada?',
                         '¿Cómo generar el Token Permanente?',
-                        '¿Cómo conectar Cal.com?',
+                        '¿Cómo configurar la Agenda de Citas?',
                         '¿Qué pasa si agoto los tokens?',
                       ].map((prompt, i) => (
                         <button
@@ -385,7 +385,7 @@ export function SupportModal() {
                       >
                         <option value="whatsapp">Meta WhatsApp Cloud API</option>
                         <option value="ai_assistant">Inteligencia Artificial / Prompt</option>
-                        <option value="calendar">Cal.com / Citas</option>
+                        <option value="calendar">Agenda y Citas</option>
                         <option value="billing">Facturación & Licencia</option>
                         <option value="bug">Error / Bug en el CRM</option>
                         <option value="feature_request">Sugerencia / Nueva Función</option>
