@@ -13,6 +13,7 @@ import {
   Users,
   Shield,
   Zap,
+  Sparkles,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
@@ -51,6 +52,7 @@ interface InboxViewProps {
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
+  pendingGapsCount?: number;
 }
 
 export function InboxView({
@@ -61,6 +63,7 @@ export function InboxView({
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
+  pendingGapsCount = 0,
 }: InboxViewProps) {
   const router = useRouter();
   const [contactList, setContactList] = useState<ContactItem[]>(contacts);
@@ -222,6 +225,25 @@ export function InboxView({
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
             />
           </div>
+
+          {/* Recordatorio Activo de Vacíos de Conocimiento en la IA */}
+          {pendingGapsCount > 0 && (
+            <Link
+              href="/settings"
+              className="flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 text-amber-950 text-xs hover:border-amber-400 transition group shadow-2xs"
+              title="Entrenar IA con las dudas recientes de tus clientes"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 animate-pulse flex-shrink-0" />
+                <span className="font-bold text-[11px] truncate">
+                  {pendingGapsCount === 1 ? '1 duda sin respuesta de IA' : `${pendingGapsCount} dudas sin respuesta de IA`}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-amber-700 group-hover:underline flex-shrink-0">
+                Entrenar →
+              </span>
+            </Link>
+          )}
 
           {/* Pestañas de Asignación */}
           <div className="flex items-center gap-1 bg-gray-200/70 p-1 rounded-xl text-xs font-semibold">

@@ -37,8 +37,14 @@ import {
   Pencil,
   Trash2,
   Save,
+  DoorOpen,
+  Smartphone,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
+import { SpecialistsTab } from './SpecialistsTab';
+import { RoomsTab } from './RoomsTab';
+import { StructuredPromptWizard } from './StructuredPromptWizard';
+import { KnowledgeGapsList } from './KnowledgeGapsList';
 
 interface PlanDetails {
   title: string;
@@ -122,9 +128,12 @@ interface SettingsFormProps {
     calEventTypeId?: string | null;
     calComEnabled?: boolean;
     systemPrompt?: string | null;
+    structuredPromptData?: any;
+    initialKnowledgeGaps?: any[];
     subscriptionStatus?: string | null;
     planType?: string | null;
     orgName?: string | null;
+    companyCode?: string;
     metaAppId?: string;
     metaConfigId?: string;
     whatsappTemplates?: Array<{ name: string; label: string }>;
@@ -145,6 +154,8 @@ interface SettingsFormProps {
     };
     members: any[];
   };
+  specialistsData?: any[];
+  roomsData?: any[];
 }
 
 // Bandera para Meta Embedded Signup:
@@ -152,9 +163,9 @@ interface SettingsFormProps {
 // En false, la conexión oficial se realiza mediante Phone Number ID y Token Permanente del Sistema.
 const SHOW_EMBEDDED_SIGNUP = false;
 
-export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
+export function SettingsForm({ initialData, teamData, specialistsData, roomsData }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'team'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms'>('integrations');
   const [phoneNumberId, setPhoneNumberId] = useState(initialData.whatsappPhoneNumberId || '');
   const [accessToken, setAccessToken] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -177,6 +188,9 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
   const [systemPrompt, setSystemPrompt] = useState(
     initialData.systemPrompt ||
       'Eres un asesor comercial experto y empático de Synqo. Responde con cortesía, resuelve dudas de servicios y orienta al prospecto a agendar una cita mediante Cal.com.'
+  );
+  const [structuredPromptData, setStructuredPromptData] = useState<any>(
+    initialData.structuredPromptData || null
   );
 
   // Inicialización del SDK de Meta y escucha de eventos de sesión (sessionInfoVersion: '2')
@@ -689,6 +703,7 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
         calApiKey: calApiKey || undefined,
         calEventTypeId: calEventTypeId || undefined,
         systemPrompt: systemPrompt || undefined,
+        structuredPromptData: structuredPromptData || undefined,
       });
 
       setFeedback({
@@ -752,9 +767,47 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
             Equipo & Usuarios ({teamData.members.length}/{teamData.organization.maxUsers})
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('specialists')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            activeTab === 'specialists'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <Smartphone className="w-4 h-4 text-[#00D2FF]" />
+          Colaboradores & Especialistas ({specialistsData?.length || 0})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('rooms')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            activeTab === 'rooms'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <DoorOpen className="w-4 h-4 text-emerald-500" />
+          Salones & Espacios ({roomsData?.length || 0})
+        </button>
       </div>
 
-      {activeTab === 'team' && teamData ? (
+      {activeTab === 'specialists' ? (
+        <SpecialistsTab
+          specialists={specialistsData || []}
+          organizationId={teamData?.organization.id || ''}
+          companyCode={initialData.companyCode || ''}
+          companyName={initialData.orgName || 'Mi Empresa'}
+        />
+      ) : activeTab === 'rooms' ? (
+        <RoomsTab
+          rooms={roomsData || []}
+          organizationId={teamData?.organization.id || ''}
+        />
+      ) : activeTab === 'team' && teamData ? (
         <TeamTab initialData={teamData} />
       ) : (
         <>
@@ -1551,28 +1604,36 @@ export function SettingsForm({ initialData, teamData }: SettingsFormProps) {
           </div>
         )}
 
-        {/* OpenAI System Prompt */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
-            <div className="p-2.5 bg-slate-100 text-slate-800 rounded-lg">
-              <KeyRound className="w-5 h-5" />
+        {/* Asistente Visual de IA Multinicho & Vacíos de Conocimiento */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 border-b border-gray-200 pb-3">
+            <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] rounded-xl">
+              <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Instrucciones y Objetivos del Asesor IA</h2>
-              <p className="text-xs text-gray-500">Define el tono, servicios de la empresa y objetivos comerciales</p>
+              <h2 className="text-base font-bold text-gray-900">
+                Asistente de Conocimiento & Ruta de Compra de la IA
+              </h2>
+              <p className="text-xs text-gray-500">
+                Estructura el catálogo, tono, embudo de ventas y entrena a tu IA con las dudas reales de tus clientes
+              </p>
             </div>
           </div>
 
-          <div>
-            <textarea
-              rows={4}
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              className="w-full text-sm border border-gray-300 rounded-md p-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black"
-            />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Las directrices de confidencialidad, cortesía y protección comercial se aplican automáticamente para garantizar un servicio profesional.
-            </p>
+          {/* Wizard Visual Guiado */}
+          <StructuredPromptWizard
+            initialPrompt={systemPrompt}
+            initialStructuredData={structuredPromptData}
+            companyName={initialData.orgName || 'Mi Empresa'}
+            onPromptCompiled={(compiledXml, newStructuredData) => {
+              setSystemPrompt(compiledXml);
+              setStructuredPromptData(newStructuredData);
+            }}
+          />
+
+          {/* Bucle de Aprendizaje: Vacíos de Conocimiento */}
+          <div className="pt-2">
+            <KnowledgeGapsList initialGaps={initialData.initialKnowledgeGaps || []} />
           </div>
         </div>
 

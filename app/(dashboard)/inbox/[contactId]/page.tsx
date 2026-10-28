@@ -1,6 +1,7 @@
 import React from 'react';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
+import { getKnowledgeGapsCount } from '@/app/actions/knowledge-gaps';
 import { redirect, notFound } from 'next/navigation';
 import { InboxView } from '@/components/chat/InboxView';
 
@@ -19,8 +20,8 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
     redirect('/login');
   }
 
-  // Consultar contactos, mensajes y miembros en paralelo para máxima velocidad
-  const [contactsRes, messagesRes, teamRes] = await Promise.all([
+  // Consultar contactos, mensajes, miembros y vacíos de IA en paralelo para máxima velocidad
+  const [contactsRes, messagesRes, teamRes, gapsCount] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to')
       .eq('organization_id', current.organization.id)
@@ -35,6 +36,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       .select('id, full_name, email, role')
       .eq('organization_id', current.organization.id)
       .order('full_name', { ascending: true }),
+    getKnowledgeGapsCount(),
   ]);
 
   const contactList = contactsRes.data || [];
@@ -68,6 +70,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       currentUserId={current.user.id}
       currentUserRole={current.profile?.role || 'agent'}
       teamMembers={teamMembers}
+      pendingGapsCount={gapsCount || 0}
     />
   );
 }

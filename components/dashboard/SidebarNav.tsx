@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Kanban,
+  Calendar,
   Settings,
   ShieldCheck,
 } from 'lucide-react';
@@ -43,6 +44,14 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
       activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
       iconColor: 'text-[#0052FF]',
       matchExact: true,
+    },
+    {
+      href: '/calendar',
+      label: 'Agenda & Citas',
+      icon: Calendar,
+      activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
+      iconColor: 'text-[#00D2FF]',
+      matchExact: false,
     },
   ];
 
