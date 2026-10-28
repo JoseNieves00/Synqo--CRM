@@ -200,60 +200,65 @@ export async function getUnattendedHandoffs(): Promise<Array<{
   waitingSince: string;
   assignedTo?: string | null;
 }>> {
-  const supabase = createServerSupabaseClient();
+  try {
+    const supabase = createServerSupabaseClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return [];
 
-  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id, role, is_super_admin')
-    .eq('id', user.id)
-    .single();
+    const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+      .select('organization_id, role, is_super_admin')
+      .eq('id', user.id)
+      .single();
 
-  const orgId = profile?.organization_id;
-  if (!orgId) return [];
+    const orgId = profile?.organization_id;
+    if (!orgId) return [];
 
-  // Obtener prospectos con IA apagada activos (no archivados ni ganados/perdidos)
-  const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, updated_at, last_interaction_at, assigned_to')
-    .eq('organization_id', orgId)
-    .eq('is_ai_active', false)
-    .not('pipeline_stage', 'in', '("ganado","perdido")')
-    .order('updated_at', { ascending: false })
-    .limit(20);
+    // Obtener prospectos con IA apagada activos (no archivados ni ganados/perdidos)
+    const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, updated_at, last_interaction_at, assigned_to')
+      .eq('organization_id', orgId)
+      .eq('is_ai_active', false)
+      .not('pipeline_stage', 'in', '("ganado","perdido")')
+      .order('updated_at', { ascending: false })
+      .limit(20);
 
-  if (!contacts || contacts.length === 0) return [];
+    if (!contacts || contacts.length === 0) return [];
 
-  const unattended: Array<{
-    id: string;
-    name: string;
-    phone: string;
-    lastMessage: string;
-    waitingSince: string;
-    assignedTo?: string | null;
-  }> = [];
+    const unattended: Array<{
+      id: string;
+      name: string;
+      phone: string;
+      lastMessage: string;
+      waitingSince: string;
+      assignedTo?: string | null;
+    }> = [];
 
-  for (const c of contacts) {
-    const { data: lastMsg } = await (supabaseAdmin.from('messages') as any)
-      .select('id, sender_type, content, created_at')
-      .eq('contact_id', c.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    for (const c of contacts) {
+      const { data: lastMsg } = await (supabaseAdmin.from('messages') as any)
+        .select('id, sender_type, content, created_at')
+        .eq('contact_id', c.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    // Si el último mensaje es del cliente o del sistema de relevo, el asesor aún no ha contestado
-    if (lastMsg && (lastMsg.sender_type === 'lead' || lastMsg.sender_type === 'system')) {
-      unattended.push({
-        id: c.id,
-        name: c.name || 'Prospecto WhatsApp',
-        phone: c.phone || '',
-        lastMessage: lastMsg.content || '',
-        waitingSince: lastMsg.created_at || c.updated_at,
-        assignedTo: c.assigned_to,
-      });
+      // Si el último mensaje es del cliente o del sistema de relevo, el asesor aún no ha contestado
+      if (lastMsg && (lastMsg.sender_type === 'lead' || lastMsg.sender_type === 'system')) {
+        unattended.push({
+          id: c.id,
+          name: c.name || 'Prospecto WhatsApp',
+          phone: c.phone || '',
+          lastMessage: lastMsg.content || '',
+          waitingSince: lastMsg.created_at || c.updated_at,
+          assignedTo: c.assigned_to,
+        });
+      }
     }
-  }
 
-  return unattended;
+    return unattended;
+  } catch (err: any) {
+    console.warn('[getUnattendedHandoffs] Red o conexión temporal con Supabase:', err?.message || err);
+    return [];
+  }
 }
 
