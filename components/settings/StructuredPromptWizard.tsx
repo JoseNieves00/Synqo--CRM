@@ -16,6 +16,9 @@ import {
   HelpCircle,
   VolumeX,
   Volume2,
+  CreditCard,
+  X,
+  FileText,
 } from 'lucide-react';
 import {
   StructuredPromptData,
@@ -54,12 +57,15 @@ export function StructuredPromptWizard({
     return 'wizard';
   });
 
-  // Inicializar con datos guardados o blueprint por defecto
+  // Modal para cargar plantillas de ejemplo (Opcional)
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+
+  // Inicializar con datos guardados o plantilla limpia (En Blanco) por defecto
   const [data, setData] = useState<StructuredPromptData>(() => {
     if (initialStructuredData && initialStructuredData.identity) {
       return initialStructuredData as StructuredPromptData;
     }
-    return INDUSTRY_BLUEPRINTS.services(companyName);
+    return INDUSTRY_BLUEPRINTS.custom(companyName);
   });
 
   const [activeTab, setActiveTab] = useState<'identity' | 'catalog' | 'funnel' | 'policies' | 'handoff' | 'preview'>('identity');
@@ -216,7 +222,7 @@ export function StructuredPromptWizard({
                 <span>📝 Modo Texto Libre (Prompt Personalizado)</span>
               </div>
               <p className="text-[11px] text-blue-700 mt-0.5">
-                La IA está respondiendo con este texto exacto. Puedes editar tus instrucciones libremente o pulsar &quot;Migrar a Asistente Visual&quot; si deseas estructurarlo por pestañas de catálogo y políticas.
+                La IA está respondiendo con este texto exacto. Puedes editar tus instrucciones libremente o probar el Asistente Visual para organizar tus servicios, precios y cuentas bancarias en pestañas interactivas.
               </p>
             </div>
             <button
@@ -230,7 +236,7 @@ export function StructuredPromptWizard({
               className="px-3.5 py-2 rounded-xl bg-[#0052FF] text-white text-xs font-bold shadow-xs hover:bg-[#0047E0] transition cursor-pointer shrink-0 flex items-center gap-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Migrar a Asistente Visual</span>
+              <span>Probar Asistente Visual</span>
             </button>
           </div>
 
@@ -267,61 +273,45 @@ export function StructuredPromptWizard({
       ) : (
         /* Modo 3: Asistente Guiado Visual por Secciones */
         <div className="space-y-5 animate-in fade-in duration-150">
-          {/* Selector de Industria */}
-          <div className="space-y-1.5 border-b border-gray-100 pb-3">
-            <div className="text-xs font-bold text-gray-700">
-              Plantilla de Industria:
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none whitespace-nowrap">
+          {/* Sub-Pestañas del Asistente y Botón Cargar Ejemplo */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none whitespace-nowrap">
               {[
-                { id: 'services', label: '💼 Servicios & B2B' },
-                { id: 'ecommerce', label: '🛍️ E-commerce & Retail' },
-                { id: 'health', label: '🦷 Salud & Estética' },
-                { id: 'real_estate', label: '🏡 Inmobiliaria' },
-                { id: 'gastronomy', label: '🍽️ Gastronomía' },
-              ].map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => handleSelectPreset(preset.id as IndustryPreset)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex-shrink-0 border ${
-                    data.preset === preset.id
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-2xs font-bold'
-                      : 'bg-slate-50 hover:bg-slate-100 text-gray-600 border-gray-200'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
+                { id: 'identity', label: '1. Identidad & Tono', icon: Building2 },
+                { id: 'catalog', label: `2. Catálogo (${data.catalog.length})`, icon: Package },
+                { id: 'funnel', label: '3. Ruta de Venta', icon: Target },
+                { id: 'policies', label: '4. Políticas & Pagos', icon: ShieldCheck },
+                { id: 'handoff', label: '5. Relevo Silencioso', icon: VolumeX },
+                { id: 'preview', label: '6. Vista Previa', icon: Code2 },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex-shrink-0 ${
+                      activeTab === tab.id
+                        ? 'bg-[#0052FF] text-white shadow-2xs font-bold'
+                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
-          </div>
-          {/* Sub-Pestañas del Asistente */}
-          <div className="flex items-center gap-1.5 border-b border-gray-100 pb-2.5 overflow-x-auto scrollbar-none whitespace-nowrap">
-            {[
-              { id: 'identity', label: '1. Identidad & Tono', icon: Building2 },
-              { id: 'catalog', label: `2. Catálogo (${data.catalog.length})`, icon: Package },
-              { id: 'funnel', label: '3. Ruta de Venta', icon: Target },
-              { id: 'policies', label: '4. Políticas & Pagos', icon: ShieldCheck },
-              { id: 'handoff', label: '5. Relevo Silencioso', icon: VolumeX },
-              { id: 'preview', label: '6. Vista Previa', icon: Code2 },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex-shrink-0 ${
-                    activeTab === tab.id
-                      ? 'bg-[#0052FF] text-white shadow-2xs font-bold'
-                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+
+            <button
+              type="button"
+              onClick={() => setIsPresetModalOpen(true)}
+              className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-[#0052FF] bg-gray-50 hover:bg-blue-50/60 border border-gray-200 hover:border-blue-200 rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0 self-end sm:self-auto"
+              title="Ver o cargar datos de muestra pre-configurados"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
+              <span>📂 Cargar Ejemplo (Opcional)</span>
+            </button>
           </div>
 
           {/* TAB 1: IDENTIDAD Y TONO */}
@@ -689,6 +679,121 @@ export function StructuredPromptWizard({
                 </div>
               </div>
 
+              {/* Cuentas y Datos para Transferencias (Nequi, Bancolombia, etc.) */}
+              <div className="p-4 bg-slate-50 border border-gray-200 rounded-2xl space-y-3">
+                <div>
+                  <h5 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                    <CreditCard className="w-4 h-4 text-[#0052FF]" />
+                    <span>Cuentas para Transferencias (Nequi, Bancolombia, Daviplata)</span>
+                  </h5>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Ingresa los números a los que tus clientes deben transferir. La IA los compartirá automáticamente cuando pregunten por datos de pago.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-600"></span>
+                      Número de Nequi y Titular
+                    </label>
+                    <input
+                      type="text"
+                      value={data.policies.paymentDetails?.nequi || ''}
+                      onChange={(e) =>
+                        setData((prev) => ({
+                          ...prev,
+                          policies: {
+                            ...prev.policies,
+                            paymentDetails: {
+                              ...prev.policies.paymentDetails,
+                              nequi: e.target.value,
+                            },
+                          },
+                        }))
+                      }
+                      placeholder="Ej. 310 123 4567 - Juan Pérez"
+                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      Cuenta Bancolombia (Tipo, Número y Titular)
+                    </label>
+                    <input
+                      type="text"
+                      value={data.policies.paymentDetails?.bancolombia || ''}
+                      onChange={(e) =>
+                        setData((prev) => ({
+                          ...prev,
+                          policies: {
+                            ...prev.policies,
+                            paymentDetails: {
+                              ...prev.policies.paymentDetails,
+                              bancolombia: e.target.value,
+                            },
+                          },
+                        }))
+                      }
+                      placeholder="Ej. Ahorros 123-456789-01 - Mi Empresa SAS"
+                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                      Número de Daviplata y Titular
+                    </label>
+                    <input
+                      type="text"
+                      value={data.policies.paymentDetails?.daviplata || ''}
+                      onChange={(e) =>
+                        setData((prev) => ({
+                          ...prev,
+                          policies: {
+                            ...prev.policies,
+                            paymentDetails: {
+                              ...prev.policies.paymentDetails,
+                              daviplata: e.target.value,
+                            },
+                          },
+                        }))
+                      }
+                      placeholder="Ej. 300 987 6543 - María Gómez"
+                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                      Otros Medios / Llave Transfiya / Bre-B
+                    </label>
+                    <input
+                      type="text"
+                      value={data.policies.paymentDetails?.other || ''}
+                      onChange={(e) =>
+                        setData((prev) => ({
+                          ...prev,
+                          policies: {
+                            ...prev.policies,
+                            paymentDetails: {
+                              ...prev.policies.paymentDetails,
+                              other: e.target.value,
+                            },
+                          },
+                        }))
+                      }
+                      placeholder="Ej. Llave Transfiya 3101234567 o Corriente Davivienda..."
+                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">
@@ -882,6 +987,127 @@ export function StructuredPromptWizard({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal: Cargar Plantillas de Ejemplo */}
+      {isPresetModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#0052FF]" />
+                  Plantillas de Ejemplo (Opcionales)
+                </h4>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Carga datos de muestra para ver cómo se estructura un catálogo, o empieza con campos limpios.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPresetModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* Opción 0: Plantilla en Blanco */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleSelectPreset('custom');
+                  setIsPresetModalOpen(false);
+                }}
+                className="w-full text-left p-3 rounded-xl border border-blue-200 bg-blue-50/50 hover:bg-blue-50 transition flex items-start gap-3 cursor-pointer group"
+              >
+                <div className="p-2 rounded-lg bg-blue-600 text-white shrink-0 mt-0.5">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900">
+                      🌱 Plantilla en Blanco (Desde Cero)
+                    </span>
+                    <span className="text-[10px] font-semibold text-blue-600 bg-blue-100/70 px-2 py-0.5 rounded-full">
+                      Recomendado
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-blue-700/80 mt-0.5 leading-relaxed">
+                    Formulario 100% limpio sin productos ni textos de prueba. Ideal para registrar tus datos propios.
+                  </p>
+                </div>
+              </button>
+
+              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider pt-1">
+                O inspírate con un ejemplo pre-llenado:
+              </div>
+
+              {[
+                {
+                  id: 'services',
+                  label: '💼 Servicios & Consultoría B2B',
+                  desc: 'Ejemplo con sesiones de diagnóstico, paquetes mensuales y agendamiento.',
+                },
+                {
+                  id: 'ecommerce',
+                  label: '🛍️ E-commerce & Tienda Virtual',
+                  desc: 'Ejemplo con productos de moda/accesorios, costo de envíos y pagos Nequi/contraentrega.',
+                },
+                {
+                  id: 'health',
+                  label: '🦷 Salud, Belleza & Spa',
+                  desc: 'Ejemplo con citas de valoración, tratamientos dentales y cuidados preventivos.',
+                },
+                {
+                  id: 'real_estate',
+                  label: '🏡 Inmobiliaria & Propiedades',
+                  desc: 'Ejemplo con visitas a apartamentos, canon de arrendamiento y requisitos.',
+                },
+                {
+                  id: 'gastronomy',
+                  label: '🍽️ Gastronomía & Restaurante',
+                  desc: 'Ejemplo con combos familiares, reservas en mesa y domicilios con empaque térmico.',
+                },
+              ].map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => {
+                    handleSelectPreset(preset.id as IndustryPreset);
+                    setIsPresetModalOpen(false);
+                  }}
+                  className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50 transition flex items-start gap-3 cursor-pointer group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-900 group-hover:text-[#0052FF] transition">
+                        {preset.label}
+                      </span>
+                      <span className="text-[10px] font-medium text-gray-400 group-hover:text-[#0052FF]">
+                        Cargar ejemplo →
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+                      {preset.desc}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="pt-2 flex justify-end border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setIsPresetModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

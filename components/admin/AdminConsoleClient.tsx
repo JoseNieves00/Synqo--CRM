@@ -759,32 +759,10 @@ export default function AdminConsoleClient({
                             </span>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                          <span className="text-[11px] text-gray-400 font-mono">ID: {org.id.slice(0, 8)}...</span>
+                        <div className="text-[11px] text-gray-400 font-mono flex items-center gap-2 mt-0.5">
+                          <span>{org.id.slice(0, 8)}...</span>
                           {org.company_code && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200" title="Código de empresa para acceso móvil de colaboradores">
-                              🔑 {org.company_code}
-                            </span>
-                          )}
-                          {org.enabled_modules?.native_calendar && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Calendario Nativo multi-colaborador activo">
-                              📅 Calendario
-                            </span>
-                          )}
-                          {org.enabled_modules?.physical_rooms && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200" title="Salones y Espacios físicos habilitados">
-                              🏢 Salones
-                            </span>
-                          )}
-                          {org.enabled_modules?.staff_mobile_portal && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title="Portal Móvil para Colaboradores">
-                              📱 Móvil
-                            </span>
-                          )}
-                          {org.cal_com_enabled && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-50 text-slate-700 border border-slate-200">
-                              <Calendar className="w-2.5 h-2.5" /> Cal.com
-                            </span>
+                            <span className="text-purple-700 font-bold">• 🔑 {org.company_code}</span>
                           )}
                         </div>
                       </td>
@@ -929,14 +907,13 @@ export default function AdminConsoleClient({
                         )}
                       </td>
 
-                      <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1.5">
+                      <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
                         <button
                           onClick={() => handleOpenEditModal(org)}
-                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-[#0052FF] bg-[#0052FF]/10 hover:bg-[#0052FF]/20 border border-[#0052FF]/30 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                          title="Configurar módulos activos (Calendario, Salas, Portal Móvil), código de equipo, plan y tokens"
+                          className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-[#0052FF] hover:bg-[#0052FF]/10 transition cursor-pointer"
+                          title="Editar empresa (Plan, Usuarios, Módulos y Tokens)"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          <span>Módulos & Plan</span>
+                          <Edit2 className="w-4 h-4" />
                         </button>
 
                         {org.admin_email?.toLowerCase() === 'admin@synqo.dev' ? (
