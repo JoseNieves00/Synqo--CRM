@@ -236,7 +236,7 @@ export function InboxView({
                 {contactList.length} conversaciones registradas
               </p>
             </div>
-            <NewLeadModal buttonLabel="+" className="px-2.5 py-1 text-xs" />
+            <NewLeadModal buttonLabel="" className="w-8 h-8 p-0 flex items-center justify-center rounded-xl shadow-xs" />
           </div>
 
           {/* Buscador */}
@@ -421,28 +421,28 @@ export function InboxView({
                 <Link
                   key={c.id}
                   href={`/inbox/${c.id}`}
-                  className={`p-3 block transition cursor-pointer relative ${
+                  className={`p-3 block transition cursor-pointer relative border-l-4 ${
                     isActive
-                      ? 'bg-[#0052FF]/8 border-l-4 border-l-[#0052FF]'
+                      ? 'bg-[#0052FF]/8 border-l-[#0052FF]'
                       : isUnattended
-                      ? 'bg-rose-50/70 border-l-4 border-l-rose-500 hover:bg-rose-100/60 ring-1 ring-rose-200/50'
-                      : 'hover:bg-slate-50'
+                      ? 'bg-rose-50/80 border-l-rose-500 hover:bg-rose-100/70'
+                      : 'border-l-transparent hover:bg-slate-50'
                   }`}
                 >
                   {/* Badge Relevo Pendiente Destacado (Anti-Visto) */}
                   {isUnattended && (
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-black bg-rose-600 text-white shadow-xs animate-pulse">
+                    <div className="mb-1.5 flex items-center justify-between gap-1">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-600 text-white shadow-xs animate-pulse">
                         <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
                         🚨 RELEVO PENDIENTE
                       </span>
-                      <span className="text-[10px] font-bold text-rose-600">Esperando asesor</span>
+                      <span className="text-[10px] font-bold text-rose-600 shrink-0">Esperando asesor</span>
                     </div>
                   )}
 
                   {/* Fila 1: Nombre y Hora */}
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`font-bold text-xs truncate mr-2 ${isUnattended ? 'text-rose-950 font-black' : 'text-gray-900'}`}>
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <span className={`font-bold text-xs truncate min-w-0 ${isUnattended ? 'text-rose-950 font-black' : 'text-gray-900'}`}>
                       {c.name || 'Prospecto sin nombre'}
                     </span>
                     <span suppressHydrationWarning className="text-[10px] text-gray-400 font-mono flex-shrink-0">

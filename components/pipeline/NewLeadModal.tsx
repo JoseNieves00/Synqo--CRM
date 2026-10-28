@@ -51,11 +51,13 @@ export function NewLeadModal({
   return (
     <>
       <button
+        type="button"
         onClick={() => setIsOpen(true)}
+        title="Registrar Nuevo Prospecto"
         className={`inline-flex items-center gap-1.5 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition shadow-md shadow-[#0052FF]/20 cursor-pointer ${className}`}
       >
         <Plus className="w-3.5 h-3.5" />
-        {buttonLabel}
+        {buttonLabel ? <span>{buttonLabel}</span> : null}
       </button>
 
       {isOpen && (

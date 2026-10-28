@@ -17,25 +17,36 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
 
   if (senderType === 'system') {
     const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado');
+
+    if (isHandoff) {
+      // Extraer motivo de forma limpia sin corchetes técnicos de log
+      let reason = '';
+      const match = content.match(/Motivo:\s*["']?([^"'\]]+)["']?/i);
+      if (match && match[1]) {
+        reason = match[1].trim();
+      }
+
+      return (
+        <div className="flex items-center justify-center my-4">
+          <div className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-500/10 border border-amber-300/70 rounded-full text-slate-700 text-xs shadow-2xs max-w-lg">
+            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+            <span className="font-bold text-amber-900">IA en pausa:</span>
+            <span className="text-slate-700 truncate">
+              {reason || 'Transferido a control humano'}
+            </span>
+            <span suppressHydrationWarning className="text-[10px] text-slate-400 font-mono ml-1 shrink-0">
+              {formattedTime}
+            </span>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex flex-col items-center justify-center my-2.5 gap-1.5">
-        <span
-          className={`text-xs px-3.5 py-1 rounded-full border text-center ${
-            isHandoff
-              ? 'bg-amber-500/10 border-amber-300 text-amber-950 font-medium'
-              : 'bg-gray-100 text-gray-500 border-gray-200'
-          }`}
-        >
+      <div className="flex items-center justify-center my-3">
+        <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200/80 font-medium text-center">
           {content}
         </span>
-        {isHandoff && (
-          <a
-            href="/settings"
-            className="text-[10px] text-amber-700 hover:text-amber-900 font-bold hover:underline flex items-center gap-1 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 transition"
-          >
-            💡 ¿La IA no supo responder? Entrénala en Ajustes →
-          </a>
-        )}
       </div>
     );
   }

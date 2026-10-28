@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Bell, BellRing, MessageSquare, X, UserCheck, AlertCircle } from 'lucide-react';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
 
@@ -90,6 +90,8 @@ export function HandoffAlertNotifier({
   isAdmin = false,
 }: HandoffAlertNotifierProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isInsideInbox = Boolean(pathname?.startsWith('/inbox'));
   const [activeAlerts, setActiveAlerts] = useState<AlertData[]>([]);
   const [unattendedList, setUnattendedList] = useState<UnattendedItem[]>([]);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -313,9 +315,9 @@ export function HandoffAlertNotifier({
       )}
 
       {/* 1. Alertas de Entrada Inmediata (Toast Transitorio) */}
-      {activeAlerts.length > 0 && (
+      {activeAlerts.filter((a) => pathname !== `/inbox/${a.id}`).length > 0 && (
         <div className="fixed bottom-24 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full">
-          {activeAlerts.map((alert) => {
+          {activeAlerts.filter((a) => pathname !== `/inbox/${a.id}`).map((alert) => {
             const isHandoff = alert.type === 'handoff';
 
             return (
@@ -392,8 +394,8 @@ export function HandoffAlertNotifier({
         </div>
       )}
 
-      {/* 2. Banner Flotante Insistente Anti-Visto (Permanente mientras hayan clientes sin contestar) */}
-      {unattendedList.length > 0 && latestUnattended && (
+      {/* 2. Banner Flotante Insistente Anti-Visto (Solo visible fuera del Inbox para no obstruir el chat) */}
+      {!isInsideInbox && unattendedList.length > 0 && latestUnattended && (
         <div className="fixed bottom-5 right-5 z-50 animate-in slide-in-from-bottom-5 duration-300">
           {isMinimized ? (
             <button
