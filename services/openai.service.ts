@@ -153,6 +153,51 @@ interface ProcessLeadParams {
   handoffMode?: 'silent' | 'message';
   afterHoursMessage?: string | null;
   isAfterHours?: boolean;
+  businessHours?: any;
+}
+
+/**
+ * Calcula de forma inteligente el próximo día y hora de apertura laboral con un margen prudente (+30 min)
+ * para que el asesor pueda responder con comodidad sin prometer inmediatez fuera de horario.
+ */
+export function calculateNextOpeningWindow(businessHours: any): string {
+  try {
+    const nowBogota = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    const currentDay = nowBogota.getDay() === 0 ? 7 : nowBogota.getDay(); // 1: Lunes ... 7: Domingo
+    const daysAllowed: number[] = Array.isArray(businessHours?.days) && businessHours.days.length > 0
+      ? businessHours.days
+      : [1, 2, 3, 4, 5, 6];
+    const startTimeStr: string = businessHours?.start || '08:00';
+
+    const [startH, startM] = startTimeStr.split(':').map(Number);
+    // Margen prudente de 30 minutos sobre la hora de apertura
+    let prudentH = !isNaN(startH) ? startH : 8;
+    let prudentM = (!isNaN(startM) ? startM : 0) + 30;
+    if (prudentM >= 60) {
+      prudentH += 1;
+      prudentM -= 60;
+    }
+    const period = prudentH >= 12 ? 'PM' : 'AM';
+    const displayH = prudentH > 12 ? prudentH - 12 : prudentH === 0 ? 12 : prudentH;
+    const displayM = prudentM > 0 ? `:${String(prudentM).padStart(2, '0')}` : ':00';
+    const prudentTimeText = `tipo ${displayH}${displayM} ${period}`;
+
+    const dayNames = ['', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    for (let offset = 1; offset <= 7; offset++) {
+      let checkDay = (currentDay + offset) % 7;
+      if (checkDay === 0) checkDay = 7;
+      if (daysAllowed.includes(checkDay)) {
+        if (offset === 1) {
+          return `mañana a primera hora (${prudentTimeText})`;
+        } else {
+          return `el ${dayNames[checkDay]} a primera hora (${prudentTimeText})`;
+        }
+      }
+    }
+    return `mañana a primera hora (${prudentTimeText})`;
+  } catch {
+    return 'mañana a primera hora (tipo 8:30 AM)';
+  }
 }
 
 export class OpenAIService {
@@ -196,9 +241,10 @@ export class OpenAIService {
     leadPhone,
     leadName,
     systemPromptConfig,
-    handoffMode = 'silent',
+    handoffMode = 'message',
     afterHoursMessage,
     isAfterHours = false,
+    businessHours,
   }: ProcessLeadParams): Promise<string> {
     // 0. Verificar cuota de tokens mensual de la empresa
     const quota = await checkTokenQuota(organizationId);
@@ -581,7 +627,9 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               console.warn('[AI KNOWLEDGE GAP INSERT WARN]', gapErr);
             }
 
-            const isSilent = handoffMode !== 'message';
+            const isSilent = handoffMode === 'silent';
+            const isExplicitHuman = /(asesor|humano|persona|agente|operador|alguien real|no quiero hablar con (un )?bot|con qui[eé]n hablo)/i.test(handoffReason);
+            const nextOpeningWindow = calculateNextOpeningWindow(businessHours);
 
             if (isSilent) {
               if (isAfterHours && afterHoursMessage) {
@@ -596,11 +644,23 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
                     'RELEVO EN SILENCIO TOTAL: El asesor humano atenderá al cliente directamente. Responde ÚNICAMENTE con la palabra "SILENT_HANDOFF" sin agregar ninguna otra palabra.',
                 });
               }
+            } else if (isExplicitHuman) {
+              toolResult = JSON.stringify({
+                status: 'handoff_explicit_human',
+                instructions_for_assistant:
+                  'RELEVO HUMANO SOLICITADO: El cliente solicitó hablar con un asesor. Responde de inmediato con amabilidad y naturalidad: "¡Claro que sí! Con gusto te comunico con uno de nuestros asesores para que te atienda personalmente. Ya mismo le paso tu conversación." NUNCA discutas ni digas que eres una IA.',
+              });
+            } else if (isAfterHours) {
+              toolResult = JSON.stringify({
+                status: 'handoff_after_hours',
+                instructions_for_assistant:
+                  `RELEVO FUERA DE HORARIO: La empresa está fuera de horario de atención. Responde como un miembro cálido del equipo, comprometiéndote a consultar la duda en el próximo horario laboral: ${nextOpeningWindow} para tenerle la respuesta lista y confirmada, y pregúntale amablemente: "¿Estás de acuerdo?" o "¿Te parece bien?". Ejemplo natural: "Déjame reviso ese dato con [bodega/el equipo según el nicho] ${nextOpeningWindow} y te tengo la respuesta lista, ¿te parece bien?". NUNCA digas que eres una IA ni uses frases corporativas acartonadas como 'fuera de turno'.`,
+              });
             } else {
               toolResult = JSON.stringify({
-                status: 'success',
+                status: 'handoff_business_hours',
                 instructions_for_assistant:
-                  'Relevo silencioso activado. IMPORTANTE: Responde al cliente con total naturalidad como un asesor de la tienda diciendo que estás validando el dato (con bodega, gerencia o despachos) y que en unos minutos le confirmas. NUNCA digas que eres una IA, que transferiste el caso ni que pausaste respuestas.',
+                  'RELEVO EN HORARIO LABORAL: Responde con total naturalidad como parte del equipo diciendo que vas a consultar el dato con el área respectiva (bodega, inventario, el especialista o el área técnica según el negocio) para confirmar la información con exactitud en unos minutos. Cierra preguntando "¿Te parece bien?" o "¿Estás de acuerdo?". NUNCA digas que eres una IA, ni que transferiste el caso ni que pausaste respuestas.',
               });
             }
           } else if (functionName === 'record_knowledge_gap') {

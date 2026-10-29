@@ -360,12 +360,12 @@ export async function POST(request: NextRequest) {
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
                 sender_type: 'system',
-                content: '[🚨 Relevo Silencioso Activado: Cliente solicita atención personalizada]',
+                content: '[🚨 Relevo: Cliente solicita atención personalizada]',
               });
 
-              if (organization.handoff_mode === 'message') {
+              if (organization.handoff_mode !== 'silent') {
                 aiResponseText =
-                  '¡Hola! Claro que sí, con mucho gusto. Ya mismo te atiendo por aquí con todo detalle, dame un momento.';
+                  '¡Claro que sí! Con gusto te comunico con uno de nuestros asesores para que te atienda personalmente. Ya mismo le paso tu conversación.';
               } else {
                 // Silencio total: el humano atiende directamente sin mensaje artificial
                 aiResponseText = '';
@@ -392,9 +392,10 @@ export async function POST(request: NextRequest) {
                 leadPhone,
                 leadName,
                 systemPromptConfig: organization.system_prompt,
-                handoffMode: organization.handoff_mode || 'silent',
+                handoffMode: organization.handoff_mode || 'message',
                 afterHoursMessage: organization.after_hours_message || null,
                 isAfterHours,
+                businessHours: organization.business_hours || null,
               });
             }
 
