@@ -1,6 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
+  darkMode: 'class',
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -22,10 +23,17 @@ const config: Config = {
         },
         background: 'var(--background)',
         foreground: 'var(--foreground)',
+        canvas: 'var(--bg-canvas)',
+        surface: 'var(--bg-surface)',
+        subsurface: 'var(--bg-subsurface)',
+        'subtle-border': 'var(--border-subtle)',
+        'focus-border': 'var(--border-focus)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-muted': 'var(--text-muted)',
       },
     },
   },
   plugins: [],
 };
 export default config;
-

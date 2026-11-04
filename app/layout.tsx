@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { ThemeProvider } from '@/components/theme/ThemeProvider';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://synqo.dev'),
@@ -27,9 +28,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es">
-      <body className="min-h-screen bg-slate-50 antialiased">{children}</body>
+    <html lang="es" suppressHydrationWarning>
+      <body className="min-h-screen bg-canvas text-foreground antialiased selection:bg-[#0052FF]/20">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem={true}>
+          {children}
+        </ThemeProvider>
+      </body>
     </html>
   );
 }
-

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { WhatsAppService } from '@/services/whatsapp.service';
+import { MessagingService } from '@/services/messaging.service';
 import { decryptSecret } from '@/lib/security/encryption';
 
 interface ProcessResult {
@@ -72,7 +72,7 @@ export class ReminderService {
         notes,
         contact:contacts(id, name, phone, last_interaction_at),
         specialist:specialists(id, name),
-        organization:organizations(id, name, whatsapp_phone_number_id, whatsapp_access_token, enabled_modules, appointment_settings)
+        organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
       .eq('status', 'confirmed')
       .eq('confirmation_status', 'unconfirmed')
@@ -132,13 +132,8 @@ export class ReminderService {
           }
 
           // 3. Avisar al cliente por WhatsApp de la liberación del cupo
-          if (
-            appt.organization?.whatsapp_phone_number_id &&
-            appt.organization?.whatsapp_access_token &&
-            appt.contact?.phone
-          ) {
+          if (appt.organization && appt.contact?.phone) {
             try {
-              const decryptedToken = decryptSecret(appt.organization.whatsapp_access_token);
               const startFormatted = new Date(appt.start_time).toLocaleTimeString('es-CO', {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -146,15 +141,14 @@ export class ReminderService {
               });
               const msg = `Hola ${appt.contact.name || ''}, tu cita para hoy a las ${startFormatted} (${appt.service_name}) fue liberada al no recibir confirmación con 8 horas de anticipación según nuestras políticas de asistencia. Si deseas agendar un nuevo horario, con gusto te atenderemos por este medio.`;
 
-              await WhatsAppService.sendTextMessage({
-                phoneNumberId: appt.organization.whatsapp_phone_number_id,
-                accessToken: decryptedToken,
+              await MessagingService.sendTextMessage({
+                organization: appt.organization,
                 to: appt.contact.phone,
                 body: msg,
+                simulateTyping: false,
               });
             } catch (waErr: any) {
-              // Si la ventana de 24h está cerrada en WhatsApp, es esperado que no entregue texto plano
-              console.warn('[REMINDER SERVICE] No se pudo enviar mensaje WhatsApp de cita liberada (ventana cerrada o error):', waErr.message);
+              console.warn('[REMINDER SERVICE] No se pudo enviar mensaje WhatsApp de cita liberada:', waErr.message);
             }
           }
         } catch (itemErr: any) {
@@ -181,7 +175,7 @@ export class ReminderService {
         booked_via,
         contact:contacts(id, name, phone, last_interaction_at),
         specialist:specialists(id, name),
-        organization:organizations(id, name, whatsapp_phone_number_id, whatsapp_access_token, enabled_modules, appointment_settings)
+        organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
       .eq('status', 'confirmed')
       .eq('confirmation_status', 'unconfirmed')
@@ -212,17 +206,12 @@ export class ReminderService {
           continue;
         }
 
-        // Validar credenciales de WhatsApp
-        if (
-          !appt.organization?.whatsapp_phone_number_id ||
-          !appt.organization?.whatsapp_access_token ||
-          !appt.contact?.phone
-        ) {
+        // Validar contacto y destinatario
+        if (!appt.organization || !appt.contact?.phone) {
           continue;
         }
 
         try {
-          const decryptedToken = decryptSecret(appt.organization.whatsapp_access_token);
           const startFormatted = new Date(appt.start_time).toLocaleTimeString('es-CO', {
             hour: '2-digit',
             minute: '2-digit',
@@ -234,9 +223,8 @@ export class ReminderService {
 
           // Intentar enviar con botones interactivos de 1-toque
           try {
-            await WhatsAppService.sendInteractiveButtonsMessage({
-              phoneNumberId: appt.organization.whatsapp_phone_number_id,
-              accessToken: decryptedToken,
+            await MessagingService.sendInteractiveButtonsMessage({
+              organization: appt.organization,
               to: appt.contact.phone,
               bodyText,
               buttons: [
@@ -245,12 +233,12 @@ export class ReminderService {
               ],
             });
           } catch (interactiveErr: any) {
-            // Si el envío interactivo falla (ej. ventana de 24h cerrada), fallback a texto plano
-            await WhatsAppService.sendTextMessage({
-              phoneNumberId: appt.organization.whatsapp_phone_number_id,
-              accessToken: decryptedToken,
+            // Si el envío interactivo falla, fallback a texto plano
+            await MessagingService.sendTextMessage({
+              organization: appt.organization,
               to: appt.contact.phone,
               body: `${bodyText}\n\nResponde *"Sí confirmo"* para validar tu asistencia o *"Reprogramar"* si necesitas cambiar de horario.`,
+              simulateTyping: false,
             });
           }
 

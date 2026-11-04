@@ -158,15 +158,15 @@ export async function getCurrentUserAndOrg() {
     // Leer organización con supabaseAdmin (con fallback si falta alguna columna opcional)
     let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data, whatsapp_provider, zapi_instance_id, zapi_token, zapi_client_token, zapi_status, zapi_phone_connected'
       )
       .eq('id', profile.organization_id)
       .single();
 
-    if (orgError && (orgError.message?.includes('whatsapp_templates') || orgError.message?.includes('cal_com_enabled') || orgError.message?.includes('ai_tokens'))) {
+    if (orgError && (orgError.message?.includes('whatsapp_templates') || orgError.message?.includes('cal_com_enabled') || orgError.message?.includes('ai_tokens') || orgError.message?.includes('whatsapp_provider'))) {
       const retry = await (supabaseAdmin.from('organizations') as any)
         .select(
-          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, ai_tokens_used, ai_tokens_limit'
+          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data'
         )
         .eq('id', profile.organization_id)
         .single();

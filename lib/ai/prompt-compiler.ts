@@ -112,7 +112,7 @@ export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) 
       customFaqs: [],
     },
     handoff: {
-      mode: 'silent',
+      mode: 'message',
       afterHoursEnabled: false,
       afterHoursMessage: '¡Hola! En este momento estamos fuera de horario. Con gusto a primera hora te responderemos.',
       businessHours: { start: '08:00', end: '19:00', days: [1, 2, 3, 4, 5, 6] },
@@ -180,7 +180,7 @@ export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) 
       ],
     },
     handoff: {
-      mode: 'silent',
+      mode: 'message',
       afterHoursEnabled: true,
       afterHoursMessage: '¡Hola! En este momento nuestro equipo consultor ha finalizado jornada. A primera hora de la mañana (8:00 AM) retomamos la conversación contigo para darte todos los detalles.',
       businessHours: { start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] },
@@ -249,7 +249,7 @@ export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) 
       ],
     },
     handoff: {
-      mode: 'silent',
+      mode: 'message',
       afterHoursEnabled: true,
       afterHoursMessage: '¡Hola! Nuestro equipo de bodega y despacho atiende de 8:00 AM a 7:00 PM. Tu mensaje queda en primer lugar para darte respuesta inmediata al iniciar el turno.',
       businessHours: { start: '08:00', end: '19:00', days: [1, 2, 3, 4, 5, 6] },
@@ -314,7 +314,7 @@ export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) 
       ],
     },
     handoff: {
-      mode: 'silent',
+      mode: 'message',
       afterHoursEnabled: true,
       afterHoursMessage: '¡Hola! Nuestra recepción médica atiende de 8:00 AM a 6:00 PM. Tu solicitud ha quedado registrada y mañana a primera hora te asignamos tu horario de consulta.',
       businessHours: { start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5, 6] },
@@ -370,7 +370,7 @@ export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) 
       ],
     },
     handoff: {
-      mode: 'silent',
+      mode: 'message',
       afterHoursEnabled: true,
       afterHoursMessage: '¡Hola! Nuestros asesores inmobiliarios se encuentran fuera de horario. A primera hora de la mañana te contactamos con las mejores opciones disponibles.',
       businessHours: { start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5, 6] },
@@ -435,7 +435,7 @@ export const INDUSTRY_BLUEPRINTS: Record<IndustryPreset, (companyName?: string) 
       ],
     },
     handoff: {
-      mode: 'silent',
+      mode: 'message',
       afterHoursEnabled: true,
       afterHoursMessage: '¡Hola! Nuestra cocina abre sus puertas a las 11:30 AM. Con gusto a primera hora confirmamos tu reserva o pedido.',
       businessHours: { start: '11:30', end: '22:30', days: [2, 3, 4, 5, 6, 7] },
@@ -495,7 +495,7 @@ export function compileStructuredPrompt(data: StructuredPromptData): string {
   const handoffDirective =
     handoff.mode === 'silent'
       ? 'Cuando actives el relevo silencioso (request_human_handoff), NO agregues mensajes largos ni inventes datos. El asesor humano tomará el control directo de la conversación en silencio para atender al cliente sin fricción.'
-      : 'Cuando actives el relevo silencioso, indícale al cliente de forma natural que vas a consultar el dato con el equipo y que en un instante le confirmas.';
+      : 'Cuando actives el relevo (request_human_handoff), indícale al cliente de forma natural que vas a consultar el dato con el equipo/bodega/especialista para confirmar la información en breve y pregúntale con amabilidad si está de acuerdo (ej: "¿Te parece bien?"). Si es fuera de horario comercial, comprométete a primera hora en el próximo turno con un margen prudente. NUNCA digas que eres una IA ni rompas el personaje.';
 
   const accountsList: string[] = [];
   if (policies.paymentDetails?.nequi) {

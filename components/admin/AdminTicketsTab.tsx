@@ -149,7 +149,7 @@ export function AdminTicketsTab({ initialTickets }: AdminTicketsTabProps) {
             <option value="all">Todas las Categorías</option>
             <option value="whatsapp">Meta WhatsApp API</option>
             <option value="ai_assistant">Inteligencia Artificial</option>
-            <option value="calendar">Cal.com</option>
+            <option value="calendar">Agenda y Citas</option>
             <option value="billing">Facturación</option>
             <option value="bug">Bugs del Sistema</option>
             <option value="feature_request">Nuevas Funciones</option>
@@ -291,7 +291,7 @@ export function AdminTicketsTab({ initialTickets }: AdminTicketsTabProps) {
                       >
                         <option value="open">Abierto (Pendiente)</option>
                         <option value="in_progress">En Progreso (Dev)</option>
-                        <option value="resolved">Resuelto ✅ (Cierra Issue)</option>
+                        <option value="resolved">Resuelto (Cierra Issue)</option>
                         <option value="closed">Cerrado Definitivo</option>
                       </select>
                       {isUpdating && <Loader2 className="w-3 h-3 animate-spin text-gray-500" />}

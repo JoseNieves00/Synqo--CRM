@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   try {
     // E. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, cal_api_key, cal_event_type_id, system_prompt, handoff_mode, after_hours_message, business_hours')
+      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 
@@ -257,20 +257,45 @@ export async function POST(request: NextRequest) {
     }
 
     // J. Persistir el Mensaje Entrante en Supabase de Inmediato
-    await supabaseAdmin.from('messages').insert({
-      contact_id: contactId,
-      sender_type: 'lead',
-      content: sanitizedContent,
-      meta_message_id: metaMessageId,
-    });
+    const { data: insertedMsg } = await supabaseAdmin
+      .from('messages')
+      .insert({
+        contact_id: contactId,
+        sender_type: 'lead',
+        content: sanitizedContent,
+        meta_message_id: metaMessageId,
+      })
+      .select('id, created_at')
+      .single();
 
     // K. Parche 2: Resolución de Timeout con waitUntil (Ejecución Asíncrona en Segundo Plano)
     if (isSubscriptionActive && isAiActive) {
       waitUntil(
         (async () => {
           try {
+            // 🛡️ ANTI-BURST BUFFER (Debounce 3.5s):
+            // Si el cliente envía varios mensajes seguidos ("Hola", "¿Cuánto cuesta?", "Para lavar mi auto"),
+            // esperamos 3500ms. Si ingresó un mensaje posterior de este mismo cliente, el worker actual se retira en silencio.
+            // Únicamente el worker del último mensaje procesará la conversación completa en una sola llamada de IA.
+            await new Promise((resolve) => setTimeout(resolve, 3500));
+
+            if (insertedMsg?.id) {
+              const { data: latestMsg } = await supabaseAdmin
+                .from('messages')
+                .select('id')
+                .eq('contact_id', contactId)
+                .eq('sender_type', 'lead')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (latestMsg && latestMsg.id !== insertedMsg.id) {
+                console.log(`[DEBOUNCE] Mensaje ${metaMessageId} omitido; worker posterior procesará la ráfaga.`);
+                return;
+              }
+            }
+
             const decryptedWhatsAppToken = decryptSecret(organization.whatsapp_access_token || '');
-            const decryptedCalApiKey = decryptSecret(organization.cal_api_key || '');
 
             // 1. Marcar como leído en WhatsApp (doble tilde azul)
             if (decryptedWhatsAppToken) {
@@ -361,12 +386,12 @@ export async function POST(request: NextRequest) {
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
                 sender_type: 'system',
-                content: '[🚨 Relevo Silencioso Activado: Cliente solicita atención personalizada]',
+                content: '[🚨 Relevo: Cliente solicita atención personalizada]',
               });
 
-              if (organization.handoff_mode === 'message') {
+              if (organization.handoff_mode !== 'silent') {
                 aiResponseText =
-                  '¡Hola! Claro que sí, con mucho gusto. Ya mismo te atiendo por aquí con todo detalle, dame un momento.';
+                  '¡Claro que sí! Con gusto te comunico con uno de nuestros asesores para que te atienda personalmente. Ya mismo le paso tu conversación.';
               } else {
                 // Silencio total: el humano atiende directamente sin mensaje artificial
                 aiResponseText = '';
@@ -386,18 +411,18 @@ export async function POST(request: NextRequest) {
                 } catch {}
               }
 
-              // 2. Procesar con OpenAI y herramientas (Cal.com + Pipeline Stage)
+              // 2. Procesar con OpenAI y herramientas (Agenda Nativa + Pipeline Stage)
               aiResponseText = await OpenAIService.processLeadMessage({
                 contactId,
                 organizationId: orgId,
                 leadPhone,
                 leadName,
                 systemPromptConfig: organization.system_prompt,
-                calApiKey: decryptedCalApiKey,
-                calEventTypeId: organization.cal_event_type_id,
-                handoffMode: organization.handoff_mode || 'silent',
+                handoffMode: organization.handoff_mode || 'message',
                 afterHoursMessage: organization.after_hours_message || null,
                 isAfterHours,
+                businessHours: organization.business_hours || null,
+                aiProvider: organization.ai_provider || null,
               });
             }
 

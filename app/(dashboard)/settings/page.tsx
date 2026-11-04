@@ -73,8 +73,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         whatsappPhoneNumberId: org?.whatsapp_phone_number_id,
         hasWhatsappToken: Boolean(org?.whatsapp_access_token),
         hasWhatsappAppSecret: Boolean(org?.whatsapp_app_secret),
-        calEventTypeId: org?.cal_event_type_id,
-        calComEnabled: Boolean(org?.cal_com_enabled),
         systemPrompt: org?.system_prompt,
         structuredPromptData: (org as any)?.structured_prompt_data || null,
         initialKnowledgeGaps: knowledgeGaps,
@@ -90,10 +88,35 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         aiTokensUsed: Number(org?.ai_tokens_used || 0),
         aiTokensLimit: Number(org?.ai_tokens_limit || 0),
         maxUsers: Number(org?.max_users || 2),
+        industryPreset: (org as any)?.industry_preset || 'services',
+        hasGoogleCalendarToken: Boolean(org?.google_calendar_token),
+        googleCalendarId: org?.google_calendar_id || '',
+        googleCalendarSyncEnabled: Boolean(org?.google_calendar_sync_enabled),
+        googleCalendarBlockBusy: Boolean(org?.google_calendar_block_busy),
+        instagramAccountId: org?.instagram_account_id || '',
+        hasInstagramToken: Boolean(org?.instagram_access_token),
+        whatsappProvider: (org as any)?.whatsapp_provider || 'meta',
+        zapiInstanceId: (org as any)?.zapi_instance_id || '',
+        hasZapiToken: Boolean((org as any)?.zapi_token),
+        hasZapiClientToken: Boolean((org as any)?.zapi_client_token),
+        zapiStatus: (org as any)?.zapi_status || 'disconnected',
+        zapiPhoneConnected: (org as any)?.zapi_phone_connected || '',
+        zapiAntiBanMode: (org as any)?.zapi_anti_ban_mode ?? true,
+        zapiMaxOutboundPerHour: Number((org as any)?.zapi_max_outbound_per_hour || 20),
+        specialistLabel: (org as any)?.specialist_label || 'Colaborador',
+        roomLabel: (org as any)?.room_label || 'Espacio',
+        enabledModules: (org as any)?.enabled_modules || {
+          native_calendar: true,
+          physical_rooms: false,
+          staff_mobile_portal: false,
+          quick_pay: false,
+          anti_no_show: true,
+        },
       }}
       teamData={teamData || undefined}
       specialistsData={specialists}
       roomsData={rooms}
+      isSuperAdmin={Boolean(current.profile.is_super_admin)}
     />
   );
 }

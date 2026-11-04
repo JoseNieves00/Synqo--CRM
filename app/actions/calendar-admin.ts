@@ -4,7 +4,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { AppointmentService } from '@/services/appointment.service';
 import { ReminderService } from '@/services/reminder.service';
-import { generateInviteToken, hashPassword } from '@/lib/security/encryption';
+import { WhatsAppService } from '@/services/whatsapp.service';
+import { MessagingService } from '@/services/messaging.service';
+import { generateInviteToken, hashPassword, decryptSecret } from '@/lib/security/encryption';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -31,7 +33,7 @@ async function requireAuthOrgUser() {
   }
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, company_code, enabled_modules, appointment_settings')
+    .select('id, name, company_code, enabled_modules, appointment_settings, industry_preset')
     .eq('id', profile.organization_id)
     .single();
 
@@ -70,6 +72,9 @@ export async function getCalendarData(options?: {
       booked_via,
       reschedule_count,
       notes,
+      reference_info,
+      meeting_link,
+      delay_minutes,
       client_notified_delay_at,
       confirmation_status,
       payment_status,
@@ -126,6 +131,9 @@ export async function getCalendarData(options?: {
     bookedVia: appt.booked_via,
     rescheduleCount: appt.reschedule_count || 0,
     notes: appt.notes,
+    referenceInfo: appt.reference_info,
+    meetingLink: appt.meeting_link,
+    delayMinutes: appt.delay_minutes,
     clientNotifiedDelayAt: appt.client_notified_delay_at,
     confirmationStatus: appt.confirmation_status,
     paymentStatus: appt.payment_status,
@@ -168,6 +176,9 @@ export async function createQuickAppointmentAdmin(input: {
   notes?: string;
   studentName?: string;
   recurringWeeks?: number;
+  modality?: 'presencial' | 'virtual' | 'domicilio';
+  meetingUrl?: string;
+  locationAddress?: string;
 }) {
   const { org, user } = await requireAuthOrgUser();
 
@@ -221,10 +232,25 @@ export async function createQuickAppointmentAdmin(input: {
 
   const rawNotes = input.notes?.trim() || '';
   const studentPrefix = input.studentName?.trim() ? `[Alumno: ${input.studentName.trim()}] ` : '';
-  const baseNotes = `${studentPrefix}${rawNotes}`.trim();
+  
+  let modalityPrefix = '';
+  if (input.modality === 'virtual') {
+    modalityPrefix = `[💻 Virtual${input.meetingUrl ? ': ' + input.meetingUrl.trim() : ''}] `;
+  } else if (input.modality === 'domicilio') {
+    modalityPrefix = `[📍 Domicilio${input.locationAddress ? ': ' + input.locationAddress.trim() : ''}] `;
+  } else if (input.modality === 'presencial') {
+    modalityPrefix = `[🏢 Presencial] `;
+  }
+
+  const baseNotes = `${modalityPrefix}${studentPrefix}${rawNotes}`.trim();
   const displayName = input.studentName?.trim() 
     ? `${input.studentName.trim()} (Acudiente: ${contact.name})`
     : contact.name;
+
+  // Si es virtual o domicilio, no se bloquea salón físico
+  const effectiveRoomId = (input.modality === 'virtual' || input.modality === 'domicilio')
+    ? undefined
+    : (input.roomId && input.roomId !== 'auto' ? input.roomId : undefined);
 
   for (let w = 0; w < totalWeeks; w++) {
     const currentStart = new Date(baseDate.getTime() + w * 7 * 24 * 60 * 60 * 1000);
@@ -236,7 +262,7 @@ export async function createQuickAppointmentAdmin(input: {
       organizationId: org.id,
       contactId: contact.id,
       specialistId: input.specialistId && input.specialistId !== 'auto' ? input.specialistId : undefined,
-      roomId: input.roomId && input.roomId !== 'auto' ? input.roomId : undefined,
+      roomId: effectiveRoomId,
       serviceId: input.serviceId,
       serviceName,
       durationMinutes,
@@ -317,6 +343,37 @@ export async function reportDelayAdmin(appointmentId: string, delayMinutes: numb
     appointmentId,
     delayMinutes,
   });
+
+  // Si se detectó el siguiente cliente del especialista, enviarle una cortesía por WhatsApp
+  if (res.nextContact && res.nextContact.phone) {
+    try {
+      const { data: fullOrg } = await (supabaseAdmin.from('organizations') as any)
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
+        .eq('id', org.id)
+        .single();
+
+      if (fullOrg) {
+        const contactName = res.nextContact.name || 'estimado cliente';
+        const serviceName = res.nextAppointment?.service_name || 'tu servicio';
+        const delayNotice = `Hola ${contactName}, te informamos de forma preventiva que el turno previo a tu cita de "${serviceName}" presenta una demora estimada de ${delayMinutes} minutos. Si deseas llegar un poco más tarde o prefieres reprogramar, por favor cuéntanos por aquí. ¡Agradecemos mucho tu comprensión!`;
+
+        await MessagingService.sendTextMessage({
+          organization: fullOrg,
+          to: res.nextContact.phone,
+          body: delayNotice,
+          simulateTyping: false,
+        });
+
+        await supabaseAdmin.from('messages').insert({
+          contact_id: res.nextContact.id,
+          sender_type: 'system',
+          content: `[Aviso preventivo de retraso (+${delayMinutes} min) enviado por WhatsApp al cliente]`,
+        });
+      }
+    } catch (delayErr) {
+      console.warn('[REPORT DELAY WHATSAPP DISPATCH WARN]', delayErr);
+    }
+  }
 
   revalidatePath('/calendar');
   return res;

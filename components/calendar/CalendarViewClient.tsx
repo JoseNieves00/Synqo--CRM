@@ -24,8 +24,11 @@ import {
   ShieldCheck,
   Check,
   X,
-  Zap,
   MapPin,
+  Building2,
+  Video,
+  Tag,
+  UserCheck,
 } from 'lucide-react';
 import {
   createQuickAppointmentAdmin,
@@ -74,6 +77,9 @@ interface AppointmentItem {
   bookedVia: string;
   rescheduleCount: number;
   notes: string | null;
+  referenceInfo?: string | null;
+  meetingLink?: string | null;
+  delayMinutes?: number | null;
   clientNotifiedDelayAt: string | null;
   confirmationStatus: string | null;
   paymentStatus: string | null;
@@ -92,8 +98,123 @@ interface CalendarViewClientProps {
     id: string;
     name: string;
     company_code: string;
+    industry_preset?: string | null;
+    enabled_modules?: {
+      native_calendar?: boolean;
+      physical_rooms?: boolean;
+      staff_mobile_portal?: boolean;
+      quick_pay?: boolean;
+      anti_no_show?: boolean;
+    };
   };
 }
+
+const NICHE_CONFIG: Record<string, {
+  label: string;
+  clientLabel: string;
+  clientPlaceholder: string;
+  specialistLabel: string;
+  specialistPlaceholder: string;
+  showRooms: boolean;
+  roomLabel: string;
+  showStudentName: boolean;
+  studentLabel: string;
+  showRecurrence: boolean;
+  recurrenceLabel: string;
+  defaultModality: 'presencial' | 'virtual' | 'domicilio';
+  allowedModalities: Array<'presencial' | 'virtual' | 'domicilio'>;
+}> = {
+  services: {
+    label: 'Barbería, Spa & Belleza',
+    clientLabel: 'Nombre del Cliente',
+    clientPlaceholder: 'Ej. Juan Pérez',
+    specialistLabel: 'Especialista / Profesional',
+    specialistPlaceholder: 'Cualquiera disponible (Auto)',
+    showRooms: false,
+    roomLabel: 'Cabina / Espacio',
+    showStudentName: false,
+    studentLabel: '',
+    showRecurrence: false,
+    recurrenceLabel: '',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'domicilio'],
+  },
+  health: {
+    label: 'Salud & Consultorios Médicos',
+    clientLabel: 'Nombre del Titular',
+    clientPlaceholder: 'Ej. María Rodríguez',
+    specialistLabel: 'Doctor / Terapeuta',
+    specialistPlaceholder: 'Médico de turno (Auto)',
+    showRooms: true,
+    roomLabel: 'Consultorio / Cabina Médica',
+    showStudentName: true,
+    studentLabel: 'Nombre del Paciente / Dependiente',
+    showRecurrence: true,
+    recurrenceLabel: 'Sesiones de Tratamiento Continuo',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'virtual', 'domicilio'],
+  },
+  academy: {
+    label: 'Academias & Cursos',
+    clientLabel: 'Nombre del Titular / Acudiente',
+    clientPlaceholder: 'Ej. Andrea Gómez (Mamá)',
+    specialistLabel: 'Profesor / Instructor',
+    specialistPlaceholder: 'Instructor de turno (Auto)',
+    showRooms: true,
+    roomLabel: 'Salón / Aula de Clase',
+    showStudentName: true,
+    studentLabel: 'Nombre del Alumno',
+    showRecurrence: true,
+    recurrenceLabel: 'Frecuencia de Clases Semanales',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'virtual'],
+  },
+  b2b: {
+    label: 'B2B & Consultoría',
+    clientLabel: 'Prospecto / Empresa',
+    clientPlaceholder: 'Ej. Andrés Castro (Acme Corp)',
+    specialistLabel: 'Asesor Comercial / Consultor',
+    specialistPlaceholder: 'Cualquier asesor (Auto)',
+    showRooms: false,
+    roomLabel: 'Sala de Reunión',
+    showStudentName: false,
+    studentLabel: '',
+    showRecurrence: false,
+    recurrenceLabel: '',
+    defaultModality: 'virtual',
+    allowedModalities: ['virtual', 'presencial'],
+  },
+  ecommerce: {
+    label: 'E-commerce & Retail',
+    clientLabel: 'Nombre del Cliente',
+    clientPlaceholder: 'Ej. Carlos Sánchez',
+    specialistLabel: 'Asesor de Envíos',
+    specialistPlaceholder: 'Asesor (Auto)',
+    showRooms: false,
+    roomLabel: 'Bodega',
+    showStudentName: false,
+    studentLabel: '',
+    showRecurrence: false,
+    recurrenceLabel: '',
+    defaultModality: 'domicilio',
+    allowedModalities: ['domicilio'],
+  },
+  custom: {
+    label: 'A Medida / General',
+    clientLabel: 'Nombre del Cliente',
+    clientPlaceholder: 'Ej. Juan Pérez',
+    specialistLabel: 'Colaborador / Especialista',
+    specialistPlaceholder: 'Cualquiera disponible (Auto)',
+    showRooms: true,
+    roomLabel: 'Salón / Cabina',
+    showStudentName: true,
+    studentLabel: 'Nombre de Alumno o Paciente',
+    showRecurrence: true,
+    recurrenceLabel: 'Frecuencia de Citas',
+    defaultModality: 'presencial',
+    allowedModalities: ['presencial', 'virtual', 'domicilio'],
+  },
+};
 
 export function CalendarViewClient({
   initialAppointments,
@@ -102,6 +223,9 @@ export function CalendarViewClient({
   services,
   organization,
 }: CalendarViewClientProps) {
+  const rawPreset = (organization as any)?.industry_preset || 'services';
+  const currentNiche = NICHE_CONFIG[rawPreset] || NICHE_CONFIG.services;
+  const effectiveShowRooms = Boolean(organization?.enabled_modules?.physical_rooms && currentNiche.showRooms);
   const [appointments, setAppointments] = useState<AppointmentItem[]>(initialAppointments);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'list' | 'team'>('day');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -109,29 +233,19 @@ export function CalendarViewClient({
   const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isPending, startTransition] = useTransition();
-  const [isRunningCheck, setIsRunningCheck] = useState(false);
 
   // Modales
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentItem | null>(null);
 
-  const handleRunCheck = async () => {
-    setIsRunningCheck(true);
-    try {
-      const res = await triggerManualReminderCheck();
-      alert(`⚡ Verificación completada:\n• Recordatorios enviados: ${res.remindersSent}\n• Citas auto-canceladas (sin confirmación 8h): ${res.autoCancelledCount}\n• Citas procesadas: ${res.processedCount}`);
-    } catch (err: any) {
-      alert(`Error al verificar recordatorios: ${err.message}`);
-    } finally {
-      setIsRunningCheck(false);
-    }
-  };
-
-  // Formulario de nueva cita rápida
+  // Formulario de nueva cita rápida adaptable al nicho
   const [formData, setFormData] = useState({
     contactName: '',
     contactPhone: '',
     studentName: '',
+    modality: currentNiche.defaultModality,
+    meetingUrl: '',
+    locationAddress: '',
     recurringWeeks: 1,
     serviceId: services[0]?.id || '',
     specialistId: 'auto',
@@ -214,8 +328,11 @@ export function CalendarViewClient({
           roomId: formData.roomId,
           startTime: startIso,
           notes: formData.notes,
-          studentName: formData.studentName,
+          studentName: currentNiche.showStudentName ? formData.studentName : undefined,
           recurringWeeks: Number(formData.recurringWeeks) || 1,
+          modality: formData.modality,
+          meetingUrl: formData.meetingUrl,
+          locationAddress: formData.locationAddress,
         });
 
         if (res.appointment) {
@@ -240,7 +357,9 @@ export function CalendarViewClient({
             amountPaid: 0,
             client: {
               id: res.appointment.contact_id || '',
-              name: formData.studentName ? `${formData.studentName} (${formData.contactName || 'Acudiente'})` : (formData.contactName || 'Cliente Mostrador'),
+              name: (currentNiche.showStudentName && formData.studentName)
+                ? `${formData.studentName} (${formData.contactName || 'Titular'})` 
+                : (formData.contactName || 'Cliente Mostrador'),
               phone: formData.contactPhone,
             },
             specialist: specObj ? { id: specObj.id, name: specObj.name, specialty: specObj.specialty } : null,
@@ -253,6 +372,9 @@ export function CalendarViewClient({
             contactName: '',
             contactPhone: '',
             studentName: '',
+            modality: currentNiche.defaultModality,
+            meetingUrl: '',
+            locationAddress: '',
             recurringWeeks: 1,
             serviceId: services[0]?.id || '',
             specialistId: 'auto',
@@ -454,6 +576,35 @@ export function CalendarViewClient({
     }
   };
 
+  const getModalityBadge = (notes: string | null) => {
+    if (!notes) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+          <Building2 className="w-3 h-3 text-slate-400" /> Sede
+        </span>
+      );
+    }
+    if (notes.includes('[💻 Virtual') || notes.includes('[Virtual')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#0052FF]/10 text-[#00D2FF] border border-[#00D2FF]/20">
+          <Video className="w-3 h-3 text-[#00D2FF]" /> Virtual
+        </span>
+      );
+    }
+    if (notes.includes('[📍 Domicilio') || notes.includes('[Domicilio')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+          <MapPin className="w-3 h-3 text-amber-400" /> Domicilio
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+        <Building2 className="w-3 h-3 text-slate-400" /> Sede
+      </span>
+    );
+  };
+
   // Formato de hora legible
   const formatTime = (isoString: string) => {
     try {
@@ -469,17 +620,17 @@ export function CalendarViewClient({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0B0E14] text-slate-100">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 dark:bg-[#0B0E14] text-slate-900 dark:text-slate-100 transition-colors">
       {/* Header Superior del Calendario */}
-      <div className="border-b border-[#1E2433] bg-[#0E121B] px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="border-b border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#00D2FF]/10 border border-[#00D2FF]/30 flex items-center justify-center text-[#00D2FF]">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-[#00D2FF]/10 border border-blue-200 dark:border-[#00D2FF]/30 flex items-center justify-center text-[#0052FF] dark:text-[#00D2FF]">
               <CalendarIcon className="w-4 h-4" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">Agenda & Calendario Nativo</h1>
-              <p className="text-xs text-slate-400">
+              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Agenda & Calendario Nativo</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Gestión multi-especialista y salones sin colisiones
               </p>
             </div>
@@ -488,7 +639,7 @@ export function CalendarViewClient({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Switcher de Vista */}
-          <div className="flex items-center bg-[#131722] border border-[#232A3B] rounded-lg p-1 text-xs font-medium">
+          <div className="flex items-center bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg p-1 text-xs font-medium">
             <button
               onClick={() => setViewMode('day')}
               className={`px-3 py-1.5 rounded-md transition ${
@@ -532,21 +683,10 @@ export function CalendarViewClient({
             </button>
           </div>
 
-          {/* Botón Verificación 8h / Recordatorios */}
-          <button
-            onClick={handleRunCheck}
-            disabled={isRunningCheck}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#131722] hover:bg-[#1A2030] border border-[#232A3B] text-slate-300 hover:text-white text-xs font-semibold rounded-lg transition disabled:opacity-50"
-            title="Verificar y enviar recordatorios con curfew 20:00 y auto-cancelar citas a las 8 horas"
-          >
-            <Zap className={`w-3.5 h-3.5 text-amber-400 ${isRunningCheck ? 'animate-spin' : ''}`} />
-            <span>{isRunningCheck ? 'Verificando...' : 'Verificar 8h / Recordatorios'}</span>
-          </button>
-
           {/* Botón Nueva Cita Rápida */}
           <button
             onClick={() => setIsNewModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#0052FF] to-[#00D2FF] text-white text-xs font-semibold rounded-lg shadow-md shadow-[#0052FF]/20 hover:opacity-95 transition"
+            className="flex items-center gap-2 px-4 py-2 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Agendar Cita Rápida</span>
@@ -608,7 +748,7 @@ export function CalendarViewClient({
               onChange={(e) => setSelectedSpecialistId(e.target.value)}
               className="px-2.5 py-1.5 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
             >
-              <option value="all">Todos los Especialistas ({specialists.length})</option>
+              <option value="all">Todos: {currentNiche.specialistLabel} ({specialists.length})</option>
               {specialists.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} ({s.specialty || 'General'})
@@ -629,14 +769,14 @@ export function CalendarViewClient({
             )}
           </div>
 
-          {/* Filtro Salón */}
-          {rooms.length > 0 && (
+          {/* Filtro Salón / Espacio (Solo si el nicho y módulo lo requieren) */}
+          {effectiveShowRooms && rooms.length > 0 && (
             <select
               value={selectedRoomId}
               onChange={(e) => setSelectedRoomId(e.target.value)}
               className="px-2.5 py-1.5 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
             >
-              <option value="all">Todos los Salones ({rooms.length})</option>
+              <option value="all">Todos: {currentNiche.roomLabel} ({rooms.length})</option>
               {rooms.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name} (Aforo: {r.capacity})
@@ -682,12 +822,35 @@ export function CalendarViewClient({
                           <span>{formatTime(appt.startTime)} - {formatTime(appt.endTime)}</span>
                           <span className="text-[10px] text-slate-400 font-mono">({appt.durationMinutes} min)</span>
                         </div>
-                        {getStatusBadge(appt.status)}
+                        <div className="flex items-center gap-1.5">
+                          {getModalityBadge(appt.notes)}
+                          {getStatusBadge(appt.status)}
+                        </div>
                       </div>
 
-                      <h4 className="font-semibold text-white text-sm group-hover:text-[#00D2FF] transition truncate">
-                        {appt.serviceName}
-                      </h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-semibold text-white text-sm group-hover:text-[#00D2FF] transition truncate">
+                          {appt.serviceName}
+                        </h4>
+                        {appt.referenceInfo && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+                            <Tag className="w-2.5 h-2.5 text-slate-400" />
+                            <span>{appt.referenceInfo}</span>
+                          </span>
+                        )}
+                        {appt.meetingLink && (
+                          <a
+                            href={appt.meetingLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#0052FF]/10 text-[#00D2FF] border border-[#00D2FF]/20 hover:bg-[#0052FF]/20 transition"
+                          >
+                            <Video className="w-3 h-3 text-[#00D2FF]" />
+                            <span>Unirse a Meet</span>
+                          </a>
+                        )}
+                      </div>
 
                       <div className="mt-2 space-y-1 text-xs text-slate-300">
                         <div className="flex items-center gap-1.5">
@@ -865,8 +1028,13 @@ export function CalendarViewClient({
                                       <div className="font-semibold text-white truncate text-[11px]">
                                         {appt.client?.name || 'Cliente'}
                                       </div>
-                                      <div className="text-[10px] text-slate-400 truncate">
-                                        {appt.serviceName} {appt.room?.name ? `• ${appt.room.name}` : ''}
+                                      <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
+                                        <span>{appt.serviceName} {appt.room?.name ? `• ${appt.room.name}` : ''}</span>
+                                        {appt.referenceInfo && (
+                                          <span className="text-[9px] font-bold text-amber-300 font-mono">
+                                            [{appt.referenceInfo}]
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                     <span className="font-mono text-[10px] font-semibold text-slate-300 flex-shrink-0">
@@ -956,7 +1124,26 @@ export function CalendarViewClient({
                           <div className="text-[11px] text-slate-400 font-mono">{appt.client?.phone}</div>
                         </td>
                         <td className="py-3.5 px-4 font-medium text-slate-200">
-                          {appt.serviceName}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{appt.serviceName}</span>
+                            {appt.referenceInfo && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+                                <Tag className="w-2.5 h-2.5 text-slate-400" />
+                                <span>{appt.referenceInfo}</span>
+                              </span>
+                            )}
+                            {appt.meetingLink && (
+                              <a
+                                href={appt.meetingLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-[#0052FF]/10 text-[#00D2FF] border border-[#00D2FF]/20 hover:bg-[#0052FF]/20 transition"
+                              >
+                                <Video className="w-3 h-3 text-[#00D2FF]" />
+                                <span>Meet</span>
+                              </a>
+                            )}
+                          </div>
                           <span className="block text-[10px] text-slate-400">{appt.durationMinutes} min</span>
                         </td>
                         <td className="py-3.5 px-4 text-slate-300">
@@ -965,7 +1152,12 @@ export function CalendarViewClient({
                         <td className="py-3.5 px-4 text-slate-300">
                           {appt.room ? appt.room.name : <span className="text-slate-500">Sin salón</span>}
                         </td>
-                        <td className="py-3.5 px-4">{getStatusBadge(appt.status)}</td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-1.5">
+                            {getModalityBadge(appt.notes)}
+                            {getStatusBadge(appt.status)}
+                          </div>
+                        </td>
                         <td className="py-3.5 px-4 text-right">
                           <button
                             onClick={() => setSelectedAppointment(appt)}
@@ -984,18 +1176,21 @@ export function CalendarViewClient({
         )}
       </div>
 
-      {/* Modal Nueva Cita Rápida */}
+      {/* Modal Nueva Cita Rápida Adaptable al Nicho */}
       {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 my-8">
             <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#00D2FF]" />
-                <h3 className="text-base font-bold text-white">Agendar Cita Rápida</h3>
+                <div>
+                  <h3 className="text-base font-bold text-white">Agendar Cita</h3>
+                  <p className="text-[11px] text-slate-400">Personalizado según el nicho y modalidad de tu empresa</p>
+                </div>
               </div>
               <button
                 onClick={() => setIsNewModalOpen(false)}
-                className="text-slate-400 hover:text-white transition"
+                className="text-slate-400 hover:text-white transition p-1"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1007,14 +1202,51 @@ export function CalendarViewClient({
               </div>
             )}
 
-            <form onSubmit={handleCreateAppointment} className="space-y-3.5 text-xs">
+            <form onSubmit={handleCreateAppointment} className="space-y-4 text-xs">
+              {/* 1. Selector de Modalidad */}
+              {currentNiche.allowedModalities.length > 1 && (
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1.5">
+                    Modalidad de Atención
+                  </label>
+                  <div className={`grid grid-cols-${currentNiche.allowedModalities.length} gap-2`}>
+                    {[
+                      { id: 'presencial', label: 'En Sede', icon: Building2 },
+                      { id: 'virtual', label: 'Virtual', icon: Video },
+                      { id: 'domicilio', label: 'A Domicilio', icon: MapPin },
+                    ]
+                      .filter((m) => currentNiche.allowedModalities.includes(m.id as any))
+                      .map((m) => {
+                        const IconComponent = m.icon;
+                        const isSelected = formData.modality === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, modality: m.id as any })}
+                            className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
+                              isSelected
+                                ? 'bg-[#00D2FF]/15 border-[#00D2FF] text-[#00D2FF] font-bold shadow-xs'
+                                : 'bg-[#131722] border-[#232A3B] text-slate-400 hover:text-slate-200 hover:bg-[#1A2030]'
+                            }`}
+                          >
+                            <IconComponent className="w-4 h-4" />
+                            <span className="text-xs">{m.label}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. Datos del Cliente */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Nombre del Cliente</label>
+                  <label className="block text-slate-300 font-medium mb-1">{currentNiche.clientLabel} *</label>
                   <input
                     type="text"
                     required
-                    placeholder="Ej. Juan Pérez"
+                    placeholder={currentNiche.clientPlaceholder}
                     value={formData.contactName}
                     onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
                     className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
@@ -1028,25 +1260,62 @@ export function CalendarViewClient({
                     placeholder="Ej. +573001234567"
                     value={formData.contactPhone}
                     onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })}
-                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] font-mono"
                   />
                 </div>
               </div>
 
-              {/* Nombre de Alumno / Paciente si es academia, clínica o menor de edad */}
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Nombre del Alumno o Paciente <span className="text-slate-500 font-normal">(Opcional si es distinto al titular de WhatsApp)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej. Samuel (Hijo - 8 años)"
-                  value={formData.studentName}
-                  onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
-                />
-              </div>
+              {/* Campo Alumno / Paciente / Dependiente: según nicho */}
+              {currentNiche.showStudentName && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1 flex items-center justify-between">
+                    <span>{currentNiche.studentLabel}</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Opcional si es distinto al titular</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Samuel (Hijo - 8 años)"
+                    value={formData.studentName}
+                    onChange={(e) => setFormData({ ...formData, studentName: e.target.value })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  />
+                </div>
+              )}
 
+              {/* Campo específico según Modalidad */}
+              {formData.modality === 'virtual' && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1 flex items-center justify-between">
+                    <span>Enlace de Videollamada (Meet / Zoom) o Nota de Llamada</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Opcional</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. https://meet.google.com/abc-defg-hij"
+                    value={formData.meetingUrl}
+                    onChange={(e) => setFormData({ ...formData, meetingUrl: e.target.value })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] font-mono"
+                  />
+                </div>
+              )}
+
+              {formData.modality === 'domicilio' && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Dirección de Visita / Inmueble *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Cra 15 # 93-60 Apto 402, Chico Norte"
+                    value={formData.locationAddress}
+                    onChange={(e) => setFormData({ ...formData, locationAddress: e.target.value })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  />
+                </div>
+              )}
+
+              {/* 3. Servicio & Asignación */}
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Servicio *</label>
                 <select
@@ -1062,15 +1331,15 @@ export function CalendarViewClient({
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={`grid gap-3 ${formData.modality === 'presencial' && effectiveShowRooms ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Colaborador / Especialista</label>
+                  <label className="block text-slate-300 font-medium mb-1">{currentNiche.specialistLabel}</label>
                   <select
                     value={formData.specialistId}
                     onChange={(e) => setFormData({ ...formData, specialistId: e.target.value })}
                     className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
                   >
-                    <option value="auto">Cualquiera disponible (Auto)</option>
+                    <option value="auto">{currentNiche.specialistPlaceholder}</option>
                     {specialists.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name} ({s.specialty || 'General'})
@@ -1078,23 +1347,28 @@ export function CalendarViewClient({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Salón / Espacio</label>
-                  <select
-                    value={formData.roomId}
-                    onChange={(e) => setFormData({ ...formData, roomId: e.target.value })}
-                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
-                  >
-                    <option value="auto">Auto (Según aforo)</option>
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} (Capacidad: {r.capacity})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+
+                {/* Salón / Espacio Físico: SOLO si es presencial Y la empresa tiene salones habilitados */}
+                {formData.modality === 'presencial' && effectiveShowRooms && (
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">{currentNiche.roomLabel}</label>
+                    <select
+                      value={formData.roomId}
+                      onChange={(e) => setFormData({ ...formData, roomId: e.target.value })}
+                      className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                    >
+                      <option value="auto">Auto (Según aforo)</option>
+                      {rooms.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name} (Capacidad: {r.capacity})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
+              {/* 4. Fecha y Hora */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">Fecha</label>
@@ -1118,28 +1392,30 @@ export function CalendarViewClient({
                 </div>
               </div>
 
-              {/* Frecuencia / Clases Semanales (Para Academias / Terapias) */}
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Modalidad de Agendamiento
-                </label>
-                <select
-                  value={formData.recurringWeeks}
-                  onChange={(e) => setFormData({ ...formData, recurringWeeks: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
-                >
-                  <option value={1}>Sesión Única (1 cita)</option>
-                  <option value={4}>Recurrente: 4 Semanas (1 mes de clases semanales)</option>
-                  <option value={8}>Recurrente: 8 Semanas (2 meses de clases semanales)</option>
-                  <option value={12}>Recurrente: 12 Semanas (Trimestre completo)</option>
-                </select>
-              </div>
+              {/* Frecuencia / Recurrencia (según nicho) */}
+              {currentNiche.showRecurrence && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    {currentNiche.recurrenceLabel}
+                  </label>
+                  <select
+                    value={formData.recurringWeeks}
+                    onChange={(e) => setFormData({ ...formData, recurringWeeks: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  >
+                    <option value={1}>Sesión Única (1 cita)</option>
+                    <option value={4}>Recurrente: 4 Semanas (1 mes regular)</option>
+                    <option value={8}>Recurrente: 8 Semanas (2 meses)</option>
+                    <option value={12}>Recurrente: 12 Semanas (Trimestre completo)</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Notas u Observaciones</label>
                 <textarea
                   rows={2}
-                  placeholder="Detalles específicos para la sesión o requerimientos especiales"
+                  placeholder="Detalles específicos para la cita o indicaciones del cliente"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] resize-none"
@@ -1150,17 +1426,17 @@ export function CalendarViewClient({
                 <button
                   type="button"
                   onClick={() => setIsNewModalOpen(false)}
-                  className="px-3 py-2 rounded-lg bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition"
+                  className="px-3 py-2 rounded-lg bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="px-4 py-2 rounded-lg bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold flex items-center gap-2 transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
                 >
                   {isPending && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Confirmar y Bloquear Horario</span>
+                  <span>{isPending ? 'Agendando...' : 'Confirmar Cita'}</span>
                 </button>
               </div>
             </form>
@@ -1237,10 +1513,10 @@ export function CalendarViewClient({
               <div className="pt-2 border-t border-[#1E2433]">
                 <button
                   onClick={() => handleMarkArrival(selectedAppointment.id)}
-                  className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-2 transition"
+                  className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center justify-center gap-2 transition"
                 >
-                  <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                  <span>📍 Llegó a Recepción (Notificar al Colaborador)</span>
+                  <UserCheck className="w-4 h-4 text-amber-400" />
+                  <span>Llegó a Recepción (Notificar)</span>
                 </button>
               </div>
 
@@ -1283,27 +1559,31 @@ export function CalendarViewClient({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => handleUpdateStatus(selectedAppointment.id, 'in_progress')}
-                    className="px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ▶ En Atención
+                    <PlayCircle className="w-3.5 h-3.5" />
+                    <span>En Atención</span>
                   </button>
                   <button
                     onClick={() => handleUpdateStatus(selectedAppointment.id, 'completed')}
-                    className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ✓ Finalizada
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Finalizada</span>
                   </button>
                   <button
                     onClick={() => handleUpdateStatus(selectedAppointment.id, 'no_show')}
-                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ⚠ No Asistió
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>No Asistió</span>
                   </button>
                   <button
                     onClick={() => handleCancelAppointment(selectedAppointment.id)}
-                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ✕ Cancelar Cita
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Cancelar Cita</span>
                   </button>
                 </div>
               </div>

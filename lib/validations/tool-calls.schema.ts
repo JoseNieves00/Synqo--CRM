@@ -19,14 +19,16 @@ export const BookAppointmentToolSchema = z.object({
 export const CheckNativeAvailabilityToolSchema = z.object({
   date: z.string().describe('Fecha en formato YYYY-MM-DD'),
   service_name: z.string().optional(),
+  duration_minutes: z.number().int().positive().optional().describe('Duración total acumulada en minutos si es un combo de servicios'),
   specialist_name: z.string().optional(),
 });
 
 export const BookNativeAppointmentToolSchema = z.object({
-  start_time: z.string().describe('Horario seleccionado'),
+  start_time: z.string().describe('Horario seleccionado en formato ISO o YYYY-MM-DDTHH:mm:ss'),
   service_name: z.string().min(2),
   duration_minutes: z.number().int().positive().optional(),
   specialist_name: z.string().optional(),
+  reference_info: z.string().optional().describe('Placa del vehículo, nombre del alumno, mascota o documento'),
   notes: z.string().optional(),
 });
 

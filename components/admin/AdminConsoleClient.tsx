@@ -21,19 +21,26 @@ import {
   Check,
   Receipt,
   CreditCard,
-  DollarSign,
-  Filter,
   Calendar,
   LifeBuoy,
   Sparkles,
+  Info,
+  QrCode,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  CheckCheck,
+  User,
+  Mail,
 } from 'lucide-react';
 import { AdminTicketsTab } from './AdminTicketsTab';
 import { AdminCopilotTab } from './AdminCopilotTab';
+import { ProvisionWizard } from './ProvisionWizard';
 import {
   OrganizationRow,
   PlanType,
   EnabledModules,
-  provisionCompany,
+  listAllOrganizations,
   updateCompanySeats,
   toggleCompanyStatus,
   updateCompanyPlan,
@@ -86,7 +93,6 @@ export default function AdminConsoleClient({
   const [editSeats, setEditSeats] = useState<number>(2);
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
   const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
-  const [editCalCom, setEditCalCom] = useState<boolean>(false);
   const [editModules, setEditModules] = useState<EnabledModules>({
     native_calendar: true,
     physical_rooms: false,
@@ -95,6 +101,14 @@ export default function AdminConsoleClient({
     anti_no_show: true,
   });
   const [editCompanyCode, setEditCompanyCode] = useState<string>('');
+  const [editWaProvider, setEditWaProvider] = useState<'meta' | 'zapi'>('meta');
+  const [editZapiInstanceId, setEditZapiInstanceId] = useState('');
+  const [editZapiToken, setEditZapiToken] = useState('');
+  const [editZapiClientToken, setEditZapiClientToken] = useState('');
+  const [editZapiAntiBan, setEditZapiAntiBan] = useState(true);
+  const [editZapiMaxOutbound, setEditZapiMaxOutbound] = useState(50);
+  const [editSpecialistLabel, setEditSpecialistLabel] = useState('Colaborador');
+  const [editRoomLabel, setEditRoomLabel] = useState('Espacio');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -108,25 +122,14 @@ export default function AdminConsoleClient({
 
   const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
-  // Formulario de nueva empresa (Opción A: mes actual como cortesía/setup)
-  const [companyName, setCompanyName] = useState('');
-  const [adminName, setAdminName] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [planType, setPlanType] = useState<PlanType>('starter');
-  const [maxUsers, setMaxUsers] = useState<number>(2);
-  const [provisionCalCom, setProvisionCalCom] = useState<boolean>(false);
-  const [provisionModules, setProvisionModules] = useState<EnabledModules>({
-    native_calendar: true,
-    physical_rooms: false,
-    staff_mobile_portal: false,
-    quick_pay: false,
-    anti_no_show: true,
-  });
-  const [firstBillingMonth, setFirstBillingMonth] = useState<string>(currentMonthStr);
+  const handleOpenProvisionModal = () => {
+    setIsProvisionOpen(true);
+  };
 
   // Filtro de cobranza
   const [billingFilter, setBillingFilter] = useState<'all' | 'al_dia' | 'pendiente' | 'mora'>('all');
+  // Filtro de alta demanda / consumo de IA
+  const [usageFilter, setUsageFilter] = useState<'all' | 'warning_80'>('all');
 
   // Estado para modal de actualización de cobertura/pago
   const [payingOrg, setPayingOrg] = useState<OrganizationRow | null>(null);
@@ -167,8 +170,21 @@ export default function AdminConsoleClient({
         !org.is_active
       );
     }
+
+    if (usageFilter === 'warning_80') {
+      const used = org.ai_tokens_used || 0;
+      const limit = org.ai_tokens_limit || 100000;
+      if (used / limit < 0.8) return false;
+    }
+
     return true;
   });
+
+  const highUsageCount = organizations.filter((org) => {
+    const used = org.ai_tokens_used || 0;
+    const limit = org.ai_tokens_limit || 100000;
+    return used / limit >= 0.8;
+  }).length;
 
   const handleOpenPayModal = (org: OrganizationRow) => {
     setPayingOrg(org);
@@ -218,74 +234,6 @@ export default function AdminConsoleClient({
     }
   };
 
-  const handleProvisionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    try {
-      const res = await provisionCompany({
-        companyName,
-        adminName,
-        adminEmail,
-        adminPassword,
-        planType,
-        maxUsers,
-        firstBillingMonth,
-        calComEnabled: provisionCalCom,
-        enabledModules: provisionModules,
-      });
-
-      if (res.success) {
-        setSuccessMsg(`Empresa "${companyName}" aprovisionada exitosamente. Admin: ${adminEmail}`);
-        // Limpiar formulario y cerrar modal
-        setCompanyName('');
-        setAdminName('');
-        setAdminEmail('');
-        setAdminPassword('');
-        setMaxUsers(2);
-        setProvisionCalCom(false);
-        setIsProvisionOpen(false);
-
-        // Actualizar lista local optimistamente
-        const newOrgRow: OrganizationRow = {
-          id: res.organization.id,
-          name: res.organization.name,
-          subscription_status: 'active',
-          plan_type: planType,
-          max_users: maxUsers,
-          is_active: true,
-          cal_com_enabled: provisionCalCom,
-          enabled_modules: provisionModules,
-          is_exempt: false,
-          whatsapp_phone_number_id: null,
-          created_at: new Date().toISOString(),
-          users_count: 1,
-          contacts_count: 0,
-          admin_email: adminEmail,
-          admin_name: adminName,
-          paid_until_month: firstBillingMonth,
-          billing_status: 'al_dia',
-          billing_status_label: `Al día (${firstBillingMonth})`,
-          billing_status_color: 'emerald',
-          ai_tokens_used: 0,
-        };
-        setOrganizations([newOrgRow, ...organizations]);
-        setMetrics((prev) => ({
-          ...prev,
-          totalOrganizations: prev.totalOrganizations + 1,
-          activeOrganizations: prev.activeOrganizations + 1,
-          totalProfiles: prev.totalProfiles + 1,
-        }));
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error al aprovisionar la empresa.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleOpenEditModal = (org: OrganizationRow) => {
     setEditingOrg(org);
     setEditName(org.name);
@@ -295,7 +243,6 @@ export default function AdminConsoleClient({
     const defaultLimit = PLAN_DEFAULTS[safePlan]?.aiTokensLimit || 500000;
     setEditTokensLimit(org.ai_tokens_limit || defaultLimit);
     setEditResetTokens(false);
-    setEditCalCom(Boolean(org.cal_com_enabled));
     setEditModules(org.enabled_modules || {
       native_calendar: true,
       physical_rooms: false,
@@ -304,6 +251,14 @@ export default function AdminConsoleClient({
       anti_no_show: true,
     });
     setEditCompanyCode(org.company_code || '');
+    setEditWaProvider(org.whatsapp_provider || (org.zapi_instance_id ? 'zapi' : 'meta'));
+    setEditZapiInstanceId(org.zapi_instance_id || '');
+    setEditZapiToken('');
+    setEditZapiClientToken('');
+    setEditZapiAntiBan(org.zapi_anti_ban_mode ?? true);
+    setEditZapiMaxOutbound(org.zapi_max_outbound_per_hour ?? 50);
+    setEditSpecialistLabel(org.specialist_label || 'Colaborador');
+    setEditRoomLabel(org.room_label || 'Espacio');
   };
 
   const handlePlanChange = (newPlan: PlanType) => {
@@ -337,9 +292,16 @@ export default function AdminConsoleClient({
         maxUsers: editSeats,
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
-        calComEnabled: editCalCom,
         enabledModules: editModules,
         companyCode: editCompanyCode,
+        whatsappProvider: editWaProvider,
+        zapiInstanceId: editZapiInstanceId.trim() || undefined,
+        zapiToken: editZapiToken.trim() || undefined,
+        zapiClientToken: editZapiClientToken.trim() || undefined,
+        zapiAntiBanMode: editZapiAntiBan,
+        zapiMaxOutboundPerHour: editZapiMaxOutbound,
+        specialistLabel: editSpecialistLabel,
+        roomLabel: editRoomLabel,
       });
 
       setOrganizations((prev) =>
@@ -352,9 +314,14 @@ export default function AdminConsoleClient({
                 max_users: editSeats,
                 ai_tokens_limit: editTokensLimit,
                 ai_tokens_used: editResetTokens ? 0 : o.ai_tokens_used,
-                cal_com_enabled: editCalCom,
                 enabled_modules: editModules,
-                company_code: editCompanyCode,
+                companyCode: editCompanyCode,
+                whatsapp_provider: editWaProvider,
+                zapi_instance_id: editZapiInstanceId.trim() || null,
+                zapi_anti_ban_mode: editZapiAntiBan,
+                zapi_max_outbound_per_hour: editZapiMaxOutbound,
+                specialist_label: editSpecialistLabel,
+                room_label: editRoomLabel,
               }
             : o
         )
@@ -617,7 +584,7 @@ export default function AdminConsoleClient({
 
       {/* Barra de Control de Cobranza Mensual & Alertas */}
       {metrics.billingSummary && (
-        <div className="p-5 bg-gradient-to-r from-slate-900 to-[#131722] rounded-2xl border border-slate-800 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+        <div className="p-5 bg-[#131722] rounded-2xl border border-[#232A3B] text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3.5">
             <div className="p-3 bg-[#0052FF]/20 text-[#00D2FF] rounded-2xl border border-[#00D2FF]/20 flex-shrink-0">
               <CreditCard className="w-5 h-5" />
@@ -674,12 +641,35 @@ export default function AdminConsoleClient({
               <span>{metrics.billingSummary.moraCount} En Mora (10d+)</span>
             </button>
 
-            {billingFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => {
+                setUsageFilter(usageFilter === 'warning_80' ? 'all' : 'warning_80');
+                if (billingFilter !== 'all') setBillingFilter('all');
+              }}
+              className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 font-medium transition cursor-pointer ${
+                usageFilter === 'warning_80'
+                  ? 'bg-amber-500 text-white border-amber-400 font-bold shadow-xs'
+                  : highUsageCount > 0
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                  : 'bg-slate-800/60 border-slate-700/60 text-slate-500'
+              }`}
+              title="Filtrar empresas que han alcanzado el 80% o más de su capacidad de IA"
+            >
+              <span className={`w-2 h-2 rounded-full ${highUsageCount > 0 ? 'bg-amber-400 animate-ping' : 'bg-slate-500'}`} />
+              <span>🔥 {highUsageCount} Alta Demanda (80%+)</span>
+            </button>
+
+            {(billingFilter !== 'all' || usageFilter !== 'all') && (
               <button
-                onClick={() => setBillingFilter('all')}
+                type="button"
+                onClick={() => {
+                  setBillingFilter('all');
+                  setUsageFilter('all');
+                }}
                 className="px-2.5 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white transition cursor-pointer"
               >
-                Limpiar filtro
+                Limpiar filtros
               </button>
             )}
           </div>
@@ -711,7 +701,7 @@ export default function AdminConsoleClient({
 
             {/* Botón Provisionar */}
             <button
-              onClick={() => setIsProvisionOpen(true)}
+              onClick={handleOpenProvisionModal}
               className="px-4 py-2 bg-[#0052FF] hover:bg-[#0047E0] text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 flex-shrink-0 cursor-pointer shadow-[#0052FF]/20"
             >
               <Plus className="w-4 h-4" />
@@ -747,24 +737,70 @@ export default function AdminConsoleClient({
                 filteredOrgs.map((org) => {
                   const seatsFull = org.users_count >= org.max_users;
                   const seatPercentage = Math.min(100, (org.users_count / org.max_users) * 100);
+                  const tokenUsed = org.ai_tokens_used || 0;
+                  const tokenLimit = org.ai_tokens_limit || 100000;
+                  const tokenPct = Math.min(100, Math.round((tokenUsed / tokenLimit) * 100));
+                  const isHighUsage = tokenPct >= 80;
+                  const isExceeded = tokenPct >= 100;
 
                   return (
-                    <tr key={org.id} className="hover:bg-gray-50/50 transition">
+                    <tr
+                      key={org.id}
+                      className={`transition ${
+                        isExceeded
+                          ? 'bg-rose-50/50 hover:bg-rose-50/80 border-l-4 border-l-rose-500'
+                          : isHighUsage
+                          ? 'bg-amber-50/50 hover:bg-amber-50/80 border-l-4 border-l-amber-500'
+                          : 'hover:bg-gray-50/50'
+                      }`}
+                    >
                       <td className="py-3.5 px-5">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-gray-900 text-sm">{org.name}</span>
                           {org.is_exempt && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              👑 Super Admin
+                              <ShieldCheck className="w-3 h-3 text-amber-600" />
+                              Super Admin
                             </span>
                           )}
+                          {isExceeded ? (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200"
+                              title="Capacidad de IA completada (100%)"
+                            >
+                              🚨 Límite
+                            </span>
+                          ) : isHighUsage ? (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200"
+                              title="Alta Demanda (80%+ de capacidad utilizada)"
+                            >
+                              🔥 {tokenPct}%
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-[11px] text-gray-400 font-mono flex items-center gap-2 mt-0.5">
                           <span>{org.id.slice(0, 8)}...</span>
                           {org.company_code && (
-                            <span className="text-purple-700 font-bold">• 🔑 {org.company_code}</span>
+                            <span className="text-purple-700 font-semibold font-mono flex items-center gap-1">
+                              • <KeyRound className="w-3 h-3 text-purple-500" /> {org.company_code}
+                            </span>
                           )}
                         </div>
+                        {(org.specialist_label || org.room_label) && (
+                          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-500 flex-wrap">
+                            {org.specialist_label && (
+                              <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
+                                👥 {org.specialist_label}s
+                              </span>
+                            )}
+                            {org.room_label && (
+                              <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
+                                🏠 {org.room_label}s
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-5">
@@ -806,7 +842,7 @@ export default function AdminConsoleClient({
                         </button>
                       </td>
 
-                      <td className="py-3.5 px-5 min-w-[140px]">
+                      <td className="py-3.5 px-5 min-w-[155px]">
                         {(() => {
                           const used = org.ai_tokens_used || 0;
                           const limit = org.ai_tokens_limit || 100000;
@@ -814,12 +850,17 @@ export default function AdminConsoleClient({
                           const isWarn = pct >= 80 && pct < 100;
                           const isOver = pct >= 100;
 
+                          const googleUsed = org.ai_tokens_google_used ?? (org.ai_tokens_used ? Math.max(0, org.ai_tokens_used - (org.ai_tokens_openai_used || 0)) : 0);
+                          const openaiUsed = org.ai_tokens_openai_used || 0;
+                          const openaiLimit = org.ai_tokens_openai_backup_limit || (org.plan_type === 'enterprise' ? 150000 : org.plan_type === 'pro' ? 75000 : 25000);
+                          const hasUsedBackup = openaiUsed > 0;
+
                           return (
-                            <div>
-                              <div className="flex items-center justify-between mb-1 text-[11px]">
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
                                 <span
                                   className={`font-mono font-semibold ${isOver ? 'text-rose-600' : isWarn ? 'text-amber-600' : 'text-gray-700'}`}
-                                  title={`${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}
+                                  title={`Total acumulado: ${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}
                                 >
                                   {formatTokenQuota(used)} / {formatTokenQuota(limit)}
                                 </span>
@@ -836,6 +877,29 @@ export default function AdminConsoleClient({
                                   }`}
                                   style={{ width: `${pct}%` }}
                                 />
+                              </div>
+
+                              {/* Trazabilidad Dual: Google (Costo $0) vs OpenAI (Backup Emergencia) */}
+                              <div className="flex items-center gap-1.5 text-[10px] pt-0.5">
+                                <span
+                                  className="inline-flex items-center gap-1 text-emerald-700 font-medium"
+                                  title={`Google Gemini Flash (Costo $0): ${googleUsed.toLocaleString()} tokens consumidos`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  G: {formatTokenQuota(googleUsed)}
+                                </span>
+
+                                <span
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded ${
+                                    hasUsedBackup
+                                      ? 'bg-amber-100 text-amber-800 font-semibold border border-amber-200'
+                                      : 'text-gray-400'
+                                  }`}
+                                  title={`OpenAI Backup (Emergencia): ${openaiUsed.toLocaleString()} / ${openaiLimit.toLocaleString()} tokens`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${hasUsedBackup ? 'bg-amber-500 animate-pulse' : 'bg-gray-300'}`} />
+                                  OpenAI: {formatTokenQuota(openaiUsed)}
+                                </span>
                               </div>
                             </div>
                           );
@@ -908,6 +972,20 @@ export default function AdminConsoleClient({
                       </td>
 
                       <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
+                        {isHighUsage && (
+                          <a
+                            href={`https://wa.me/?text=${encodeURIComponent(
+                              `Hola ${org.admin_name || 'Admin'} de ${org.name}, te escribo de Synqo CRM. Vemos que tu negocio ha tenido alta demanda este mes (${tokenPct}% de capacidad de IA alcanzada). ¿Deseas activar un paquete de expansión de conversaciones para no pausar la IA?`
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-lg text-xs font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer"
+                            title="Contactar al Administrador por WhatsApp para ofrecer Paquete de Expansión (Upsell)"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </a>
+                        )}
+
                         <button
                           onClick={() => handleOpenEditModal(org)}
                           className="p-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-[#0052FF] hover:bg-[#0052FF]/10 transition cursor-pointer"
@@ -969,286 +1047,20 @@ export default function AdminConsoleClient({
     <AdminCopilotTab />
   )}
 
-      {/* Modal: Aprovisionar Empresa */}
+      {/* Wizard: Aprovisionar Nueva Empresa */}
       {isProvisionOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-200">
-            <div className="p-6 border-b border-gray-200 bg-gray-50/50">
-              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-[#0052FF]" />
-                Aprovisionar Nueva Empresa (Tenant)
-              </h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Crea la organización y su usuario administrador con contraseña temporal segura.
-              </p>
-            </div>
-
-            <form onSubmit={handleProvisionSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Nombre de la Empresa *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Ej. Clínica Dental Sonrisas"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Nombre del Administrador *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={adminName}
-                    onChange={(e) => setAdminName(e.target.value)}
-                    placeholder="Ej. Dr. Carlos Mendoza"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Email de Acceso *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    placeholder="carlos@clinicasonrisas.com"
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Contraseña Inicial / Temporal * (Mínimo 8 caracteres)
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="Contraseña robusta para el cliente"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Plan</label>
-                  <select
-                    value={planType}
-                    onChange={(e) => setPlanType(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
-                  >
-                    <option value="starter">Starter (Validación - 2 Usuarios)</option>
-                    <option value="pro">Pro (Comercial - 5 Usuarios)</option>
-                    <option value="enterprise">Enterprise (Corporativo - 12 Usuarios)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Límite de Usuarios
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={maxUsers}
-                    onChange={(e) => setMaxUsers(parseInt(e.target.value, 10) || 1)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {/* Primer mes cubierto (Mensual vs Anual) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Período Cubierto Inicial
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setFirstBillingMonth(currentMonthStr)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition cursor-pointer"
-                    >
-                      Mes Actual
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFirstBillingMonth(getNextYearStr())}
-                      className="text-[10px] px-2 py-0.5 rounded bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold transition cursor-pointer"
-                    >
-                      ⭐ Pago Anual (1 Año)
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="month"
-                  value={firstBillingMonth}
-                  onChange={(e) => setFirstBillingMonth(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono"
-                />
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Para cobros mensuales déjalo en el mes actual. Si el cliente pagó la anualidad por anticipado, pulsa <strong>Pago Anual</strong>.
-                </p>
-              </div>
-
-              {/* Módulo de Agendamiento Cal.com (Opcional) */}
-              <div className="flex items-center justify-between p-3.5 rounded-xl border border-gray-200 bg-gray-50/50">
-                <div className="flex items-center gap-2.5">
-                  <Calendar className="w-4 h-4 text-blue-600" />
-                  <div>
-                    <div className="text-xs font-semibold text-gray-800">Cal.com Externo (Opcional)</div>
-                    <div className="text-[10px] text-gray-500">Solo si la empresa usa Cal.com en vez de la agenda propia</div>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={provisionCalCom}
-                    onChange={(e) => setProvisionCalCom(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-
-              {/* Módulos Habilitados en la Empresa (Control Modular) */}
-              <div className="pt-2 border-t border-gray-100">
-                <div className="mb-2">
-                  <h4 className="text-xs font-bold text-gray-900">
-                    Módulos Activos Iniciales
-                  </h4>
-                  <p className="text-[11px] text-gray-500">
-                    Selecciona las herramientas que tendrá disponibles esta empresa.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {/* Calendario Nativo */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.native_calendar ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.native_calendar}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, native_calendar: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Agenda multi-especialista y citas propias.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Salones y Espacios Físicos */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.physical_rooms ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.physical_rooms}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, physical_rooms: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">🏢 Salones & Aforos</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Control de cupos por sala física o cabina.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Portal Móvil Colaboradores */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.staff_mobile_portal ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.staff_mobile_portal}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, staff_mobile_portal: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">📱 Portal Colaborador</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Acceso móvil con PIN para especialistas.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Pagos Rápidos */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
-                    provisionModules.quick_pay ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.quick_pay}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, quick_pay: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">💳 Pagos Rápidos</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Registro y verificación de pagos.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Protocolo Anti-No-Show */}
-                  <label className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition sm:col-span-2 ${
-                    provisionModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={provisionModules.anti_no_show}
-                      onChange={(e) => setProvisionModules(prev => ({ ...prev, anti_no_show: e.target.checked }))}
-                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">🛡️ Recordatorios WhatsApp (Anti-No-Show)</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Recordatorio a 24h y cancelación preventiva si no confirman a 8h.
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setIsProvisionOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
-                >
-                  {isSubmitting ? 'Aprovisionando...' : 'Crear y Habilitar Empresa'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <ProvisionWizard
+          onSuccess={async () => {
+            setIsProvisionOpen(false);
+            try {
+              const updated = await listAllOrganizations();
+              setOrganizations(updated);
+            } catch {
+              window.location.reload();
+            }
+          }}
+          onCancel={() => setIsProvisionOpen(false)}
+        />
       )}
 
       {/* Modal: Editar Empresa (Plan, Usuarios, Tokens) — Diseño Horizontal Adaptativo */}
@@ -1286,7 +1098,7 @@ export default function AdminConsoleClient({
                 {/* Columna Izquierda: Información de Empresa & Equipo */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
                       Nombre Comercial de la Empresa *
                     </label>
                     <input
@@ -1295,30 +1107,30 @@ export default function AdminConsoleClient({
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       placeholder="Ej. Clínica Dental Sonrisas"
-                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold text-gray-900"
+                      className="w-full h-10 px-3.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 font-medium transition shadow-xs"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Plan Comercial
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                      Capacidad de Conversaciones & Tokens
                     </label>
                     <select
                       value={editPlan}
                       onChange={(e) => handlePlanChange(e.target.value as PlanType)}
-                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-medium text-gray-800"
+                      className="w-full h-10 px-3.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 font-medium transition shadow-xs"
                     >
-                      <option value="starter">Starter (Validación - 2 Usuarios / 500k Tokens)</option>
-                      <option value="pro">Pro (Comercial - 5 Usuarios / 2.5M Tokens)</option>
-                      <option value="enterprise">Enterprise (Corporativo - 12 Usuarios / 7.5M Tokens)</option>
+                      <option value="starter">Capacidad Base (~400 chats / 500k Tokens)</option>
+                      <option value="pro">Capacidad Comercial (~1,200 chats / 1.5M Tokens)</option>
+                      <option value="enterprise">Capacidad Alta Demanda (~3,000 chats / 4M Tokens)</option>
                     </select>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      💡 Al cambiar de plan, los cupos recomendados de usuarios y tokens se ajustan automáticamente.
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Ajusta la capacidad y activa o desactiva módulos abajo según lo acordado con la empresa.
                     </p>
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-semibold text-gray-700">
                         Límite de Usuarios
                       </label>
@@ -1332,32 +1144,57 @@ export default function AdminConsoleClient({
                       max={500}
                       value={editSeats}
                       onChange={(e) => setEditSeats(parseInt(e.target.value, 10) || 1)}
-                      className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] font-semibold text-gray-900"
+                      className="w-full h-10 px-3.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 font-medium transition shadow-xs"
                     />
-                    <p className="text-[10px] text-gray-400 mt-1">
-                      🛡️ Protección de integridad: No se puede reducir por debajo de {editingOrg.users_count} miembros activos.
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Protección de integridad: No se puede reducir por debajo de {editingOrg.users_count} miembros activos.
                     </p>
                   </div>
 
-                  {/* Módulo de Agendamiento Cal.com */}
-                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-                    <div className="flex items-center gap-2.5">
-                      <Calendar className="w-4 h-4 text-blue-600" />
-                      <div>
-                        <div className="text-xs font-bold text-slate-800">Módulo de Agendamiento (Cal.com)</div>
-                        <div className="text-[10px] text-slate-500">Muestra u oculta la tarjeta de agendamiento para este cliente</div>
+                  {/* Nomenclatura Personalizada (Multi-Nicho - Condicionada por módulos) */}
+                  {(editModules.native_calendar || editModules.staff_mobile_portal || editModules.physical_rooms) ? (
+                    <div className="p-3.5 rounded-2xl bg-blue-50/50 border border-blue-100 space-y-3 animate-in fade-in">
+                      <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Nomenclatura y Roles Personalizados
+                      </span>
+                      <div className={`grid gap-3 ${(editModules.native_calendar || editModules.staff_mobile_portal) && editModules.physical_rooms ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                        {(editModules.native_calendar || editModules.staff_mobile_portal) && (
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                              Nombre Colaboradores
+                            </label>
+                            <input
+                              type="text"
+                              value={editSpecialistLabel}
+                              onChange={(e) => setEditSpecialistLabel(e.target.value)}
+                              placeholder="Doctor, Barbero, etc."
+                              className="w-full h-9 px-3 text-xs rounded-xl border border-blue-200 bg-white focus:outline-none focus:border-[#0052FF] focus:ring-2 focus:ring-[#0052FF]/20 font-semibold text-slate-800 transition"
+                            />
+                          </div>
+                        )}
+                        {editModules.physical_rooms && (
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                              Nombre Espacios
+                            </label>
+                            <input
+                              type="text"
+                              value={editRoomLabel}
+                              onChange={(e) => setEditRoomLabel(e.target.value)}
+                              placeholder="Consultorio, Cabina, etc."
+                              className="w-full h-9 px-3 text-xs rounded-xl border border-blue-200 bg-white focus:outline-none focus:border-[#0052FF] focus:ring-2 focus:ring-[#0052FF]/20 font-semibold text-slate-800 transition"
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editCalCom}
-                        onChange={(e) => setEditCalCom(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-[11px] text-slate-500 flex items-center gap-2">
+                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>Sin módulos de agenda o espacios activos. Nomenclatura no requerida.</span>
+                    </div>
+                  )}
 
                   {/* Tarjeta de Resumen Rápido / Cortesía de soporte */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
@@ -1373,14 +1210,31 @@ export default function AdminConsoleClient({
                       />
                       <span>Reiniciar tokens consumidos a 0 ahora</span>
                     </label>
-                    <p className="text-[10px] text-slate-500">
-                      Consumo acumulado actual: <strong className="text-slate-800">{(editingOrg.ai_tokens_used || 0).toLocaleString()}</strong> tokens.
-                    </p>
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1.5 mt-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          Google Gemini (Primario • $0):
+                        </span>
+                        <strong className="font-mono text-slate-800">
+                          {((editingOrg.ai_tokens_google_used ?? (editingOrg.ai_tokens_used ? Math.max(0, editingOrg.ai_tokens_used - (editingOrg.ai_tokens_openai_used || 0)) : 0))).toLocaleString()} tokens
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${editingOrg.ai_tokens_openai_used ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
+                          OpenAI Backup (Emergencia):
+                        </span>
+                        <strong className="font-mono text-slate-800">
+                          {(editingOrg.ai_tokens_openai_used || 0).toLocaleString()} / {(editingOrg.ai_tokens_openai_backup_limit || 25000).toLocaleString()} tokens
+                        </strong>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Columna Derecha: Gestión de Tokens IA y Boosters */}
-                <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/70 border border-slate-200 flex flex-col justify-between space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-3">
                   <div className="space-y-3">
                     {/* Cabecera con consumo actual y porcentaje */}
                     <div className="flex items-center justify-between">
@@ -1461,7 +1315,7 @@ export default function AdminConsoleClient({
                           className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
                           title="Suma 1 Millón de tokens (1M) al límite del mes actual"
                         >
-                          ⭐ +1M Booster
+                          +1M Booster
                         </button>
 
                         <button
@@ -1506,7 +1360,7 @@ export default function AdminConsoleClient({
                     </div>
 
                     <p className="text-[10px] text-slate-500 italic">
-                      💡 Los boosters expiran al renovar el mes y vuelven a la base de {formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}.
+                      Los boosters expiran al renovar el mes y vuelven a la base de {formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}.
                     </p>
                   </div>
                 </div>
@@ -1549,9 +1403,12 @@ export default function AdminConsoleClient({
                       className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
                     />
                     <div>
-                      <span className="text-xs font-bold text-gray-900 block">📅 Calendario Nativo</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
-                        Agendamiento nativo multi-especialista en Supabase sin depender de Cal.com.
+                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Calendario Nativo
+                      </span>
+                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
+                        Agendamiento nativo multi-especialista con Synqo AI y horarios propios.
                       </span>
                     </div>
                   </label>
@@ -1567,8 +1424,11 @@ export default function AdminConsoleClient({
                       className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
                     />
                     <div>
-                      <span className="text-xs font-bold text-gray-900 block">🏢 Salones y Espacios Físicos</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
+                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Salones y Espacios Físicos
+                      </span>
+                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
                         Control de cupos por sala, acústica y clases individuales o grupales.
                       </span>
                     </div>
@@ -1585,8 +1445,11 @@ export default function AdminConsoleClient({
                       className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
                     />
                     <div>
-                      <span className="text-xs font-bold text-gray-900 block">📱 Portal Móvil Colaboradores</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
+                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Portal Móvil Colaboradores
+                      </span>
+                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
                         Acceso con PIN para barberos/profes: agenda de hoy, bloqueos y chat con sede.
                       </span>
                     </div>
@@ -1603,14 +1466,18 @@ export default function AdminConsoleClient({
                       className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
                     />
                     <div>
-                      <span className="text-xs font-bold text-gray-900 block">💳 Pagos Rápidos y Cobro</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
+                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Pagos Rápidos y Cobro
+                      </span>
+                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
                         Registro opcional de método de pago (Efectivo, Nequi, Datáfono).
                       </span>
                     </div>
                   </label>
 
-                  {/* 5. Protocolo Anti-No-Show */}
+                  {/* 5. Protocolo Anti-No-Show (Solo si Calendario Nativo está activo) */}
+                  {editModules.native_calendar && (
                   <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition sm:col-span-2 ${
                     editModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
                   }`}>
@@ -1621,12 +1488,157 @@ export default function AdminConsoleClient({
                       className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
                     />
                     <div>
-                      <span className="text-xs font-bold text-gray-900 block">🛡️ Protocolo Anti-No-Show (Confirmación 8h)</span>
-                      <span className="text-[10px] text-gray-500 block leading-tight">
+                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        Protocolo Anti-No-Show (Confirmación 8h)
+                        {editWaProvider === 'zapi' && (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-semibold">
+                            Z-API (Sin costo por mensaje)
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
                         Recordatorio automático diurno (máx 8pm) y liberación de cupo si no confirman 8h antes.
                       </span>
                     </div>
                   </label>
+                  )}
+                </div>
+
+                {/* Módulo WhatsApp Engine en Edición: Meta vs Z-API */}
+                <div className="border-t border-gray-100 pt-3 space-y-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                      <QrCode className="w-3.5 h-3.5 text-[#0052FF]" />
+                      Motor de Mensajería WhatsApp Asignado
+                    </h4>
+                    <p className="text-[11px] text-gray-500">
+                      Configurado exclusivamente desde esta consola de Super Admin. Si activas Z-API, el cliente solo verá el QR para escanear en sus Ajustes.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label
+                      className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
+                        editWaProvider === 'meta'
+                          ? 'bg-blue-50/70 border-[#0052FF] ring-2 ring-[#0052FF]/20'
+                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="editWaProvider"
+                        value="meta"
+                        checked={editWaProvider === 'meta'}
+                        onChange={() => setEditWaProvider('meta')}
+                        className="text-[#0052FF] focus:ring-[#0052FF]"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">
+                          Meta Cloud API
+                        </span>
+                        <span className="text-[10px] text-gray-500 block">
+                          Oficial Meta • WABA & Ventana 24h
+                        </span>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
+                        editWaProvider === 'zapi'
+                          ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20'
+                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="editWaProvider"
+                        value="zapi"
+                        checked={editWaProvider === 'zapi'}
+                        onChange={() => setEditWaProvider('zapi')}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">
+                          Z-API (QR Instantáneo)
+                        </span>
+                        <span className="text-[10px] text-emerald-700 block font-medium">
+                          Sin burocracia • Escaneo QR en 2 min
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {editWaProvider === 'zapi' && (
+                    <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-3">
+                      <p className="text-[11px] text-emerald-950 font-medium">
+                        Credenciales Z-API (Deja los campos de token en blanco para conservar los existentes):
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                            Instance ID <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="ej: 3CX..."
+                            value={editZapiInstanceId}
+                            onChange={(e) => setEditZapiInstanceId(e.target.value)}
+                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                            Nuevo Instance Token
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Dejar en blanco para mantener..."
+                            value={editZapiToken}
+                            onChange={(e) => setEditZapiToken(e.target.value)}
+                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                            Nuevo Client Token
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Dejar en blanco para mantener..."
+                            value={editZapiClientToken}
+                            onChange={(e) => setEditZapiClientToken(e.target.value)}
+                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-emerald-200/60 text-xs">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editZapiAntiBan}
+                            onChange={(e) => setEditZapiAntiBan(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span className="text-[11px] font-semibold text-emerald-950">
+                            Heurística Anti-Ban (Jitter humano y demoras realistas)
+                          </span>
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-500">Tope/hora:</span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={500}
+                            value={editZapiMaxOutbound}
+                            onChange={(e) => setEditZapiMaxOutbound(parseInt(e.target.value, 10) || 50)}
+                            className="w-16 px-1.5 py-0.5 text-xs text-right font-mono border border-gray-300 rounded bg-white text-gray-800"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1708,12 +1720,12 @@ export default function AdminConsoleClient({
                   onClick={() => setPayMonth(getNextYearStr())}
                   className={`w-full py-2.5 px-3 mb-3 text-xs rounded-xl border font-bold transition cursor-pointer flex items-center justify-between ${
                     payMonth === getNextYearStr()
-                      ? 'bg-gradient-to-r from-purple-500/10 to-indigo-500/10 text-purple-700 border-purple-500 ring-2 ring-purple-500/20'
+                      ? 'bg-purple-500/10 text-purple-700 border-purple-500 ring-2 ring-purple-500/20'
                       : 'bg-purple-50/50 text-purple-700 border-purple-200 hover:bg-purple-50'
                   }`}
                 >
                   <span className="flex items-center gap-1.5">
-                    <span>⭐ Pago Anual Anticipado</span>
+                    <span>Pago Anual Anticipado</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-mono font-normal">12 meses</span>
                   </span>
                   <span className="font-mono text-[11px] text-purple-600 font-bold">({getNextYearStr()})</span>

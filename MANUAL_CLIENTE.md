@@ -28,10 +28,38 @@ Bienvenido a **Synqo CRM**. Para garantizar la privacidad de tus conversaciones 
 
 Como Administrador de tu empresa, puedes configurar tus canales de atención, la inteligencia del asistente y la agenda propia:
 
-### A. Conectar tu Línea Comercial de WhatsApp (Meta Cloud API)
+### A. Conectar tu Línea Comercial de WhatsApp
+
+Synqo soporta dos modalidades de conexión según lo acordado con tu proveedor:
+
+#### Opción 1: Conexión Express Z-API (Código QR o Código Telefónico)
+Si tu empresa tiene asignada conexión express, en la pestaña **Integraciones & IA** de Ajustes verás la tarjeta de WhatsApp Z-API con dos métodos rápidos:
+
+- **Método A: Escanear Código QR (Tradicional)**
+  1. Pulsa el botón **«Vincular WhatsApp»**.
+  2. En la pestaña **Código QR**, abre WhatsApp en tu teléfono móvil $\rightarrow$ **Ajustes / Configuración $\rightarrow$ Dispositivos vinculados $\rightarrow$ Vincular un dispositivo**.
+  3. Apunta la cámara de tu celular a la pantalla y escanea el código QR (se refresca cada 20 segundos por seguridad).
+  4. En 5 a 10 segundos, el modal se cerrará automáticamente confirmando la conexión con tu número.
+
+- **Método B: Vincular con Número de Teléfono (Pairing Code — Sin Cámara)**
+  1. Pulsa el botón **«Vincular WhatsApp»** y selecciona la pestaña **Código de Teléfono**.
+  2. Escribe tu número de WhatsApp con código de país (ej. `573001234567`) y pulsa **"Generar Código de 8 Dígitos"**.
+  3. Verás un código alfanumérico destacado (ej. `WXYZ-1234`) con botón para copiarlo en 1 clic.
+  4. Abre WhatsApp en tu celular $\rightarrow$ **Ajustes $\rightarrow$ Dispositivos vinculados $\rightarrow$ Vincular un dispositivo**.
+  5. En la parte inferior, toca **"Vincular con el número de teléfono"** (o responde a la notificación push que te llegó al celular) y digita los 8 caracteres.
+  6. ¡Listo! La plataforma detectará el emparejamiento en tiempo real y activará tu línea de inmediato.
+
+- **Sincronización de Chats Previos (Modelo C):**
+  Una vez conectado tu WhatsApp, dispones del botón **«Sincronizar Últimos Chats»** en Ajustes y en el encabezado del Inbox. Este botón importa tus 50 conversaciones más recientes para que puedas continuar atendiéndolas desde el CRM. Por privacidad y seguridad, **la IA se mantendrá en pausa** en estos chats antiguos para que no responda accidentalmente a clientes pasados, amigos o familiares.
+
+- **Ventajas de esta conexión:**
+  - Sin ventana de 24 horas restrictiva de Meta.
+  - **Relevo Humano Silencioso:** Si tú o tu equipo responden directamente desde la app de WhatsApp del celular, el CRM detecta el mensaje, lo sincroniza en vivo en el Inbox y **pausa automáticamente la IA en esa conversación durante 45 minutos** para darte el control total sin interferencias del bot.
+
+#### Opción 2: Conexión Oficial Meta Cloud API (WABA)
 1. Ingresa a la pestaña **Integraciones & IA** en Ajustes.
 2. **Configurar el Webhook en Meta (30 segundos):**
-   - En la tarjeta oscura superior verás tu **URL de Webhook** y tu **Token de Verificación** con botones de copiado rápido en 1 clic.
+   - En la tarjeta oscura superior verás tu **URL de Webhook** (`https://tudominio.com/api/whatsapp/webhook`) y tu **Token de Verificación** con botones de copiado rápido en 1 clic.
    - En tu app de [developers.facebook.com](https://developers.facebook.com/) ve a **WhatsApp $\rightarrow$ Configuración**.
    - Haz clic en **Editar Webhook**, pega la URL y el Token y pulsa *Verificar y Guardar*.
    - En la lista de campos de Webhook, haz clic en **Administrar** y activa la casilla `messages`.

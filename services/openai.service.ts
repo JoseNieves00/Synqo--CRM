@@ -1,12 +1,9 @@
 import OpenAI, { toFile } from 'openai';
-import { CalService } from './cal.service';
 import { AppointmentService } from './appointment.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { recordTokenUsage, checkTokenQuota } from '@/lib/monitoring/token-tracker';
+import { recordTokenUsage, checkTokenQuota, checkBackupTokenQuota } from '@/lib/monitoring/token-tracker';
 import {
   UpdateStageToolSchema,
-  CheckAvailabilityToolSchema,
-  BookAppointmentToolSchema,
   CheckNativeAvailabilityToolSchema,
   BookNativeAppointmentToolSchema,
   RescheduleNativeAppointmentToolSchema,
@@ -15,6 +12,97 @@ import {
 
 const openaiApiKey = process.env.OPENAI_API_KEY || 'placeholder-key';
 const openai = new OpenAI({ apiKey: openaiApiKey });
+
+// Google AI Studio OpenAI-compatible endpoint para modelos Gemini Flash
+const geminiApiKey = process.env.GEMINI_API_KEY || '';
+const gemini = geminiApiKey
+  ? new OpenAI({
+      apiKey: geminiApiKey,
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    })
+  : null;
+
+/**
+ * Ejecuta la llamada de inferencia respetando la preferencia de proveedor (Gemini Flash vs OpenAI)
+ * con conmutación automática (failover imperceptible) ante cuotas, latencia o fallos.
+ */
+async function createChatCompletionWithFallback(params: {
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
+  toolChoice?: 'auto' | 'none';
+  temperature?: number;
+  aiProvider?: string | null;
+  organizationId?: string;
+  contactId?: string;
+}): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; modelUsed: string }> {
+  const prefersGemini = params.aiProvider === 'gemini' || (!params.aiProvider && Boolean(geminiApiKey));
+
+  if (prefersGemini && gemini) {
+    try {
+      const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+      const response = await gemini.chat.completions.create({
+        model: geminiModel,
+        messages: params.messages,
+        tools: params.tools,
+        tool_choice: params.toolChoice || 'auto',
+        temperature: params.temperature ?? 0.3,
+      });
+
+      if (response.usage && params.organizationId && params.contactId) {
+        await recordTokenUsage({
+          organizationId: params.organizationId,
+          contactId: params.contactId,
+          promptTokens: response.usage.prompt_tokens,
+          completionTokens: response.usage.completion_tokens,
+          totalTokens: response.usage.total_tokens,
+          model: geminiModel,
+          provider: 'google',
+        });
+      }
+
+      return { response, modelUsed: geminiModel };
+    } catch (geminiError: any) {
+      console.warn(`[GEMINI FLASH FALLBACK] Gemini error (${geminiError?.message || geminiError}), conmutando automáticamente a OpenAI...`);
+    }
+  }
+
+  // Validación de cuota de contingencia antes de conmutar a OpenAI (Respaldo)
+  if (params.organizationId) {
+    const backupQuota = await checkBackupTokenQuota(params.organizationId);
+    if (!backupQuota.allowed) {
+      console.warn(
+        `[OPENAI BACKUP EXCEEDED] Org ${params.organizationId} ha agotado su bolsa mensual de emergencia de OpenAI (${backupQuota.used}/${backupQuota.limit}). Protegiendo saldo del Super Admin.`
+      );
+      throw new Error(
+        'La cuota de emergencia mensual de IA de respaldo ha sido completada para esta empresa. Por favor comunícate con soporte para recargar o atiende directamente desde la bandeja.'
+      );
+    }
+  }
+
+  // OpenAI Primary o Fallback de Respaldo
+  const openAiModel = 'gpt-4o-mini';
+  const response = await openai.chat.completions.create({
+    model: openAiModel,
+    messages: params.messages,
+    tools: params.tools,
+    tool_choice: params.toolChoice || 'auto',
+    temperature: params.temperature ?? 0.3,
+  });
+
+  if (response.usage && params.organizationId && params.contactId) {
+    await recordTokenUsage({
+      organizationId: params.organizationId,
+      contactId: params.contactId,
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens,
+      model: openAiModel,
+      provider: 'openai',
+    });
+  }
+
+  return { response, modelUsed: openAiModel };
+}
 
 // Definición de Herramientas (OpenAI Function / Tool Calling)
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -40,37 +128,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'check_available_slots',
-      description: 'Consulta los horarios disponibles en Cal.com para ofrecer opciones reales de reunión al prospecto.',
-      parameters: {
-        type: 'object',
-        properties: {
-          date_from: { type: 'string', description: 'Fecha de inicio (ej. 2026-10-21)' },
-          date_to: { type: 'string', description: 'Fecha final (ej. 2026-10-23)' },
-        },
-        required: ['date_from', 'date_to'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'book_appointment',
-      description: 'Confirma y agenda la cita en Cal.com cuando el cliente haya seleccionado explícitamente un horario disponible.',
-      parameters: {
-        type: 'object',
-        properties: {
-          start_iso_time: { type: 'string', description: 'Horario seleccionado en formato ISO 8601 (ej. 2026-10-21T10:00:00Z)' },
-          lead_name: { type: 'string', description: 'Nombre completo del cliente' },
-          lead_email: { type: 'string', description: 'Correo electrónico para la confirmación de la cita' },
-        },
-        required: ['start_iso_time', 'lead_name'],
-      },
-    },
-  },
+
   {
     type: 'function',
     function: {
@@ -80,7 +138,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         type: 'object',
         properties: {
           date: { type: 'string', description: 'Fecha a consultar en formato YYYY-MM-DD (ej. 2026-10-28)' },
-          service_name: { type: 'string', description: 'Nombre del servicio solicitado (ej. Corte de cabello, Clase de acordeón)' },
+          service_name: { type: 'string', description: 'Nombre del servicio solicitado (ej. Corte de cabello, Clase de acordeón, Lavado de auto)' },
+          duration_minutes: { type: 'number', description: 'Duración total requerida en minutos (opcional; si pide varios servicios o combo, suma sus minutos).' },
           specialist_name: { type: 'string', description: 'Nombre del colaborador o especialista solicitado si el cliente pidió a alguien específico.' },
         },
         required: ['date'],
@@ -97,7 +156,9 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           start_time: { type: 'string', description: 'Horario seleccionado en formato ISO o YYYY-MM-DDTHH:mm:ss' },
           service_name: { type: 'string', description: 'Nombre del servicio o clase a agendar' },
+          duration_minutes: { type: 'number', description: 'Duración en minutos (opcional si es combo o personalizada)' },
           specialist_name: { type: 'string', description: 'Nombre del especialista o colaborador (opcional)' },
+          reference_info: { type: 'string', description: 'Identificador clave según el negocio: Placa del vehículo (ej. TXL-842), nombre del alumno, mascota o motivo' },
           notes: { type: 'string', description: 'Detalles, observaciones o instrumento (opcional)' },
         },
         required: ['start_time', 'service_name'],
@@ -183,11 +244,55 @@ interface ProcessLeadParams {
   leadPhone: string;
   leadName?: string;
   systemPromptConfig?: string | null;
-  calApiKey?: string;
-  calEventTypeId?: string | null;
   handoffMode?: 'silent' | 'message';
   afterHoursMessage?: string | null;
   isAfterHours?: boolean;
+  businessHours?: any;
+  aiProvider?: string | null;
+}
+
+/**
+ * Calcula de forma inteligente el próximo día y hora de apertura laboral con un margen prudente (+30 min)
+ * para que el asesor pueda responder con comodidad sin prometer inmediatez fuera de horario.
+ */
+export function calculateNextOpeningWindow(businessHours: any): string {
+  try {
+    const nowBogota = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    const currentDay = nowBogota.getDay() === 0 ? 7 : nowBogota.getDay(); // 1: Lunes ... 7: Domingo
+    const daysAllowed: number[] = Array.isArray(businessHours?.days) && businessHours.days.length > 0
+      ? businessHours.days
+      : [1, 2, 3, 4, 5, 6];
+    const startTimeStr: string = businessHours?.start || '08:00';
+
+    const [startH, startM] = startTimeStr.split(':').map(Number);
+    // Margen prudente de 30 minutos sobre la hora de apertura
+    let prudentH = !isNaN(startH) ? startH : 8;
+    let prudentM = (!isNaN(startM) ? startM : 0) + 30;
+    if (prudentM >= 60) {
+      prudentH += 1;
+      prudentM -= 60;
+    }
+    const period = prudentH >= 12 ? 'PM' : 'AM';
+    const displayH = prudentH > 12 ? prudentH - 12 : prudentH === 0 ? 12 : prudentH;
+    const displayM = prudentM > 0 ? `:${String(prudentM).padStart(2, '0')}` : ':00';
+    const prudentTimeText = `tipo ${displayH}${displayM} ${period}`;
+
+    const dayNames = ['', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    for (let offset = 1; offset <= 7; offset++) {
+      let checkDay = (currentDay + offset) % 7;
+      if (checkDay === 0) checkDay = 7;
+      if (daysAllowed.includes(checkDay)) {
+        if (offset === 1) {
+          return `mañana a primera hora (${prudentTimeText})`;
+        } else {
+          return `el ${dayNames[checkDay]} a primera hora (${prudentTimeText})`;
+        }
+      }
+    }
+    return `mañana a primera hora (${prudentTimeText})`;
+  } catch {
+    return 'mañana a primera hora (tipo 8:30 AM)';
+  }
 }
 
 export class OpenAIService {
@@ -231,11 +336,11 @@ export class OpenAIService {
     leadPhone,
     leadName,
     systemPromptConfig,
-    calApiKey,
-    calEventTypeId,
-    handoffMode = 'silent',
+    handoffMode = 'message',
     afterHoursMessage,
     isAfterHours = false,
+    businessHours,
+    aiProvider,
   }: ProcessLeadParams): Promise<string> {
     // 0. Verificar cuota de tokens mensual de la empresa
     const quota = await checkTokenQuota(organizationId);
@@ -316,7 +421,6 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - Cuando el cliente elija el horario, ejecuta 'book_native_appointment' para confirmar su turno de inmediato.
    - Si el cliente necesita cambiar o mover su cita, usa 'reschedule_native_appointment'. Ten en cuenta que solo tiene 2 reprogramaciones permitidas; en la primera, infórmale amablemente que solo le queda 1 reprogramación disponible.
    - Si el cliente cancela formalmente su cita ("cancélamela", "no voy a poder ir"), usa 'cancel_native_appointment' para liberar el cupo de inmediato y confírmale educadamente.
-   - Fallback: Si la empresa usa Cal.com tradicional, puedes usar 'check_available_slots' y 'book_appointment'.
 
 6. CALIFICACIÓN INTELIGENTE (update_pipeline_stage):
    - Ejecuta update_pipeline_stage('calificado') cuando el lead cumpla al menos uno de los siguientes criterios:
@@ -352,25 +456,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       }
     }
 
-    // 3. Primera llamada a OpenAI con gpt-4o-mini (ultra veloz y altamente rentable)
-    const response = await openai.chat.completions.create({
-      model: this.MODEL,
+    // 3. Primera llamada de inferencia con Dual-Provider (Gemini Flash con Failover OpenAI)
+    const { response } = await createChatCompletionWithFallback({
       messages: conversationHistory,
       tools,
-      tool_choice: 'auto',
-      temperature: 0.3, // Baja temperatura para consistencia comercial y seguridad
+      toolChoice: 'auto',
+      temperature: 0.3,
+      aiProvider,
+      organizationId,
+      contactId,
     });
-
-    if (response.usage) {
-      await recordTokenUsage({
-        organizationId,
-        contactId,
-        promptTokens: response.usage.prompt_tokens,
-        completionTokens: response.usage.completion_tokens,
-        totalTokens: response.usage.total_tokens,
-        model: this.MODEL,
-      });
-    }
 
     const choice = response.choices[0];
     const message = choice.message;
@@ -405,48 +500,6 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               status: 'success',
               message: `Etapa actualizada a ${validated.new_stage}`,
             });
-          } else if (functionName === 'check_available_slots') {
-            const validated = CheckAvailabilityToolSchema.parse(functionArgs);
-            if (!calApiKey || !calEventTypeId) {
-              toolResult = JSON.stringify({
-                error: 'El calendario no ha sido configurado en los ajustes de la empresa.',
-              });
-            } else {
-              const slots = await CalService.getAvailableSlots(
-                calApiKey,
-                calEventTypeId,
-                validated.date_from,
-                validated.date_to
-              );
-              toolResult = JSON.stringify({ available_slots: slots });
-            }
-          } else if (functionName === 'book_appointment') {
-            const validated = BookAppointmentToolSchema.parse(functionArgs);
-            if (!calApiKey || !calEventTypeId) {
-              toolResult = JSON.stringify({
-                error: 'No se puede confirmar la cita porque las credenciales de Cal.com no están activas.',
-              });
-            } else {
-              const booking = await CalService.createBooking({
-                apiKey: calApiKey,
-                eventTypeId: calEventTypeId,
-                start: validated.start_iso_time,
-                name: validated.lead_name || leadName || 'Cliente WhatsApp',
-                email: validated.lead_email || `${leadPhone}@synqo.client`,
-                phone: leadPhone,
-              });
-
-              // Actualizar fase a cita_agendada
-              await supabaseAdmin
-                .from('contacts')
-                .update({
-                  pipeline_stage: 'cita_agendada',
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', contactId);
-
-              toolResult = JSON.stringify({ status: 'confirmed', booking });
-            }
           } else if (functionName === 'check_native_availability') {
             const validated = CheckNativeAvailabilityToolSchema.parse(functionArgs);
 
@@ -465,9 +518,9 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               }
             }
 
-            // Buscar duración estimada del servicio si fue especificado
-            let durationMinutes = 45;
-            if (validated.service_name) {
+            // Buscar duración estimada del servicio si fue especificado o vino duration_minutes explícito
+            let durationMinutes = validated.duration_minutes || 45;
+            if (!validated.duration_minutes && validated.service_name) {
               const { data: svc } = await supabaseAdmin
                 .from('services_catalog')
                 .select('duration_minutes')
@@ -520,18 +573,47 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               if (spec) specialistId = spec.id;
             }
 
-            const duration = validated.duration_minutes || 45;
+            let duration = validated.duration_minutes || 45;
+            let isVirtualService = false;
+            let serviceCatalogId: string | null = null;
+
+            if (validated.service_name) {
+              const { data: svc } = await supabaseAdmin
+                .from('services_catalog')
+                .select('id, duration_minutes, is_virtual')
+                .eq('organization_id', organizationId)
+                .ilike('name', `%${validated.service_name.trim()}%`)
+                .limit(1)
+                .maybeSingle();
+              if (svc) {
+                serviceCatalogId = svc.id;
+                if (!validated.duration_minutes && svc.duration_minutes) {
+                  duration = svc.duration_minutes;
+                }
+                isVirtualService = Boolean(svc.is_virtual);
+              }
+            }
+
+            // Si es un servicio virtual (ej. Asesoría B2B, Consulta Online, Clase Remota), autogenerar enlace de Google Meet
+            let virtualMeetingLink: string | null = null;
+            if (isVirtualService) {
+              const meetingCode = `${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
+              virtualMeetingLink = `https://meet.google.com/${meetingCode}`;
+            }
 
             const appt = await AppointmentService.createAppointment({
               organizationId,
               contactId,
               specialistId,
+              serviceId: serviceCatalogId,
               serviceName: validated.service_name,
               durationMinutes: duration,
               startTime: validated.start_time,
               bookedVia: 'ai_whatsapp',
               notes: validated.notes || null,
               clientName: leadName,
+              referenceInfo: validated.reference_info || null,
+              meetingLink: virtualMeetingLink,
             });
 
             toolResult = JSON.stringify({
@@ -539,7 +621,11 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               appointment_id: appt.id,
               start_time: appt.start_time,
               service_name: appt.service_name,
-              message: 'Cita reservada y confirmada exitosamente en el calendario de la empresa.',
+              reference_info: appt.reference_info || undefined,
+              meeting_link: appt.meeting_link || undefined,
+              message: appt.meeting_link
+                ? `Cita virtual confirmada. Enlace de Google Meet generado: ${appt.meeting_link}. Debes compartir este enlace al cliente en tu respuesta de WhatsApp.`
+                : 'Cita reservada y confirmada exitosamente en el calendario de la empresa.',
             });
           } else if (functionName === 'reschedule_native_appointment') {
             const validated = RescheduleNativeAppointmentToolSchema.parse(functionArgs);
@@ -661,7 +747,9 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               console.warn('[AI KNOWLEDGE GAP INSERT WARN]', gapErr);
             }
 
-            const isSilent = handoffMode !== 'message';
+            const isSilent = handoffMode === 'silent';
+            const isExplicitHuman = /(asesor|humano|persona|agente|operador|alguien real|no quiero hablar con (un )?bot|con qui[eé]n hablo)/i.test(handoffReason);
+            const nextOpeningWindow = calculateNextOpeningWindow(businessHours);
 
             if (isSilent) {
               if (isAfterHours && afterHoursMessage) {
@@ -676,11 +764,23 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
                     'RELEVO EN SILENCIO TOTAL: El asesor humano atenderá al cliente directamente. Responde ÚNICAMENTE con la palabra "SILENT_HANDOFF" sin agregar ninguna otra palabra.',
                 });
               }
+            } else if (isExplicitHuman) {
+              toolResult = JSON.stringify({
+                status: 'handoff_explicit_human',
+                instructions_for_assistant:
+                  'RELEVO HUMANO SOLICITADO: El cliente solicitó hablar con un asesor. Responde de inmediato con amabilidad y naturalidad: "¡Claro que sí! Con gusto te comunico con uno de nuestros asesores para que te atienda personalmente. Ya mismo le paso tu conversación." NUNCA discutas ni digas que eres una IA.',
+              });
+            } else if (isAfterHours) {
+              toolResult = JSON.stringify({
+                status: 'handoff_after_hours',
+                instructions_for_assistant:
+                  `RELEVO FUERA DE HORARIO: La empresa está fuera de horario de atención. Responde como un miembro cálido del equipo, comprometiéndote a consultar la duda en el próximo horario laboral: ${nextOpeningWindow} para tenerle la respuesta lista y confirmada, y pregúntale amablemente: "¿Estás de acuerdo?" o "¿Te parece bien?". Ejemplo natural: "Déjame reviso ese dato con [bodega/el equipo según el nicho] ${nextOpeningWindow} y te tengo la respuesta lista, ¿te parece bien?". NUNCA digas que eres una IA ni uses frases corporativas acartonadas como 'fuera de turno'.`,
+              });
             } else {
               toolResult = JSON.stringify({
-                status: 'success',
+                status: 'handoff_business_hours',
                 instructions_for_assistant:
-                  'Relevo silencioso activado. IMPORTANTE: Responde al cliente con total naturalidad como un asesor de la tienda diciendo que estás validando el dato (con bodega, gerencia o despachos) y que en unos minutos le confirmas. NUNCA digas que eres una IA, que transferiste el caso ni que pausaste respuestas.',
+                  'RELEVO EN HORARIO LABORAL: Responde con total naturalidad como parte del equipo diciendo que vas a consultar el dato con el área respectiva (bodega, inventario, el especialista o el área técnica según el negocio) para confirmar la información con exactitud en unos minutos. Cierra preguntando "¿Te parece bien?" o "¿Estás de acuerdo?". NUNCA digas que eres una IA, ni que transferiste el caso ni que pausaste respuestas.',
               });
             }
           } else if (functionName === 'record_knowledge_gap') {
@@ -715,23 +815,14 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         });
       }
 
-      // 5. Segunda llamada a OpenAI para redactar la respuesta final en lenguaje natural
-      const followUp = await openai.chat.completions.create({
-        model: this.MODEL,
+      // 5. Segunda llamada de inferencia para redactar la respuesta final en lenguaje natural
+      const { response: followUp } = await createChatCompletionWithFallback({
         messages: conversationHistory,
         temperature: 0.3,
+        aiProvider,
+        organizationId,
+        contactId,
       });
-
-      if (followUp.usage) {
-        await recordTokenUsage({
-          organizationId,
-          contactId,
-          promptTokens: followUp.usage.prompt_tokens,
-          completionTokens: followUp.usage.completion_tokens,
-          totalTokens: followUp.usage.total_tokens,
-          model: this.MODEL,
-        });
-      }
 
       const finalResponse = followUp.choices[0].message.content || '¡Hola! Con gusto, déjame consultar el dato exacto y en unos minutos te confirmo.';
 

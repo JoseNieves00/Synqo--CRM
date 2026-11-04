@@ -56,7 +56,7 @@ export class NotificationService {
   }
 
   /**
-   * Alerta cuando Synqo AI confirma una nueva cita comercial en Cal.com
+   * Alerta cuando Synqo AI confirma una nueva cita comercial en la Agenda Synqo
    */
   static async sendAppointmentBookedAlert({ adminEmail, leadName, leadPhone, bookingTime }: SendBookingEmailParams): Promise<void> {
     if (!resend) {

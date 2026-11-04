@@ -13,6 +13,8 @@ import {
   X,
   Clock,
   ShieldAlert,
+  User,
+  Building2,
 } from 'lucide-react';
 
 function SessionReasonNotice() {
@@ -233,7 +235,8 @@ export default function LoginPage() {
               <div className="space-y-2.5">
                 <div className="p-3 rounded-xl bg-[#090A0F] border border-[#232A3B]">
                   <p className="font-semibold text-white flex items-center gap-1.5 mb-1 text-xs">
-                    👤 Asesor o Agente Comercial
+                    <User className="w-3.5 h-3.5 text-[#00D2FF]" />
+                    <span>Asesor o Agente Comercial</span>
                   </p>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
                     Solicita al <strong>Administrador de tu empresa</strong> que regenere tu contraseña temporal desde el CRM (<code className="text-slate-300">Ajustes &gt; Equipo</code>).
@@ -242,7 +245,8 @@ export default function LoginPage() {
 
                 <div className="p-3 rounded-xl bg-[#090A0F] border border-[#232A3B]">
                   <p className="font-semibold text-white flex items-center gap-1.5 mb-1 text-xs">
-                    🏢 Administrador de Empresa
+                    <Building2 className="w-3.5 h-3.5 text-[#0052FF]" />
+                    <span>Administrador de Empresa</span>
                   </p>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
                     Comunícate con el <strong>Super Administrador</strong> de Synqo (<code className="text-[#00D2FF]">admin@synqo.dev</code>) para solicitar la reasignación de una nueva clave temporal.
@@ -251,7 +255,8 @@ export default function LoginPage() {
 
                 <div className="p-3 rounded-xl bg-[#090A0F] border border-[#232A3B]">
                   <p className="font-semibold text-white flex items-center gap-1.5 mb-1 text-xs">
-                    🛡️ Super Administrador
+                    <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Super Administrador</span>
                   </p>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
                     Acceso de infraestructura central mediante variables criptográficas maestras.

@@ -3,6 +3,8 @@
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { AppointmentService } from '@/services/appointment.service';
+import { WhatsAppService } from '@/services/whatsapp.service';
+import { MessagingService } from '@/services/messaging.service';
 import { revalidatePath } from 'next/cache';
 import {
   encryptSecret,
@@ -40,6 +42,8 @@ export interface StaffAppointmentItem {
   clientPhone: string;
   roomName?: string | null;
   notes?: string | null;
+  referenceInfo?: string | null;
+  meetingLink?: string | null;
   bookedVia: string;
   delayNotifiedAt?: string | null;
 }
@@ -210,6 +214,8 @@ export async function getStaffTodayAgenda(): Promise<{
       end_time,
       status,
       notes,
+      reference_info,
+      meeting_link,
       booked_via,
       client_notified_delay_at,
       contact_id,
@@ -249,6 +255,12 @@ export async function getStaffTodayAgenda(): Promise<{
 
   const items: StaffAppointmentItem[] = (appts || []).map(a => {
     const contact = a.contact_id ? contactsMap.get(a.contact_id) : null;
+    const rawPhone = contact?.phone || '';
+    // 🛡️ BLINDAJE DE PII: Enmascarar teléfono de cliente para proteger la cartera del negocio
+    const maskedPhone = rawPhone.length >= 6
+      ? `${rawPhone.slice(0, Math.min(5, Math.floor(rawPhone.length / 2)))} *** ${rawPhone.slice(-3)}`
+      : rawPhone ? '***' : '';
+
     return {
       id: a.id,
       serviceName: a.service_name,
@@ -257,9 +269,11 @@ export async function getStaffTodayAgenda(): Promise<{
       endTime: a.end_time,
       status: a.status as any,
       clientName: contact?.name || 'Cliente en sala',
-      clientPhone: contact?.phone || '',
+      clientPhone: maskedPhone,
       roomName: a.room_id ? roomsMap.get(a.room_id) || null : null,
       notes: a.notes,
+      referenceInfo: a.reference_info,
+      meetingLink: a.meeting_link,
       bookedVia: a.booked_via,
       delayNotifiedAt: a.client_notified_delay_at,
     };
@@ -306,6 +320,37 @@ export async function staffReportDelay(appointmentId: string, delayMinutes: numb
     appointmentId,
     delayMinutes,
   });
+
+  // Si se encontró el siguiente cliente, despachar aviso preventivo por WhatsApp
+  if (res.nextContact?.phone) {
+    try {
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
+        .eq('id', session.organizationId)
+        .single();
+
+      if (org) {
+        const contactName = res.nextContact.name || 'estimado cliente';
+        const serviceName = res.nextAppointment?.service_name || 'tu servicio';
+        const delayNotice = `Hola ${contactName}, te informamos de forma preventiva que el turno previo a tu cita de "${serviceName}" presenta una demora estimada de ${delayMinutes} minutos. Si deseas llegar un poco más tarde o prefieres reprogramar, por favor cuéntanos por aquí. ¡Agradecemos mucho tu comprensión!`;
+
+        await MessagingService.sendTextMessage({
+          organization: org,
+          to: res.nextContact.phone,
+          body: delayNotice,
+          simulateTyping: false,
+        });
+
+        await supabaseAdmin.from('messages').insert({
+          contact_id: res.nextContact.id,
+          sender_type: 'system',
+          content: `[Aviso preventivo de retraso (+${delayMinutes} min) enviado por WhatsApp desde la app de colaborador]`,
+        });
+      }
+    } catch (delayErr) {
+      console.warn('[STAFF REPORT DELAY WHATSAPP DISPATCH WARN]', delayErr);
+    }
+  }
 
   revalidatePath('/colaborador');
   return res;

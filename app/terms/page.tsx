@@ -75,10 +75,10 @@ export default function TermsPage() {
               </p>
               <ul className="list-disc pl-5 space-y-2 text-xs text-slate-700 mb-3">
                 <li>
-                  <strong>Plan Starter (Validación Comercial):</strong> Hasta 2 usuarios o agentes simultáneos, cuota mensual de 500.000 tokens de IA, prompt personalizable, integración Cal.com y soporte estándar.
+                  <strong>Plan Starter (Validación Comercial):</strong> Hasta 2 usuarios o agentes simultáneos, cuota mensual de 500.000 tokens de IA, prompt personalizable, agenda y citas nativas y soporte estándar.
                 </li>
                 <li>
-                  <strong>Plan Pro (Comercial Recomendado):</strong> Hasta 5 usuarios o agentes simultáneos, cuota mensual de 2.500.000 tokens de IA, exportación de contactos a formato CSV / Excel, agendamiento Cal.com y soporte prioritario.
+                  <strong>Plan Pro (Comercial Recomendado):</strong> Hasta 5 usuarios o agentes simultáneos, cuota mensual de 2.500.000 tokens de IA, exportación de contactos a formato CSV / Excel, agenda y citas nativas y soporte prioritario.
                 </li>
                 <li>
                   <strong>Plan Enterprise (Corporativo):</strong> Hasta 12 usuarios o agentes simultáneos, cuota mensual de 7.500.000 tokens de IA, exportación masiva completa, canal VIP exclusivo de soporte por WhatsApp y sesión de inducción personalizada.

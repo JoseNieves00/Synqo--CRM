@@ -25,6 +25,10 @@ interface CreateCompanyOptions {
   adminPassword: string;
   planType?: 'starter' | 'core' | 'pro' | 'enterprise';
   subscriptionStatus?: 'active' | 'trialing';
+  whatsappProvider?: 'meta' | 'zapi';
+  zapiInstanceId?: string;
+  zapiToken?: string;
+  zapiClientToken?: string;
 }
 
 export async function provisionCompany({
@@ -34,20 +38,27 @@ export async function provisionCompany({
   adminPassword,
   planType = 'starter',
   subscriptionStatus = 'active',
+  whatsappProvider = 'meta',
+  zapiInstanceId,
+  zapiToken,
+  zapiClientToken,
 }: CreateCompanyOptions) {
   console.log(`\n🏢 [SUPER ADMIN] Provisionando organización: "${companyName}"...`);
 
   // 1. Crear Organización en la base de datos (con fallback a 'core' si la BD aún no tiene migrada la restricción)
   let planToInsert = planType;
-  let { data: org, error: orgError } = await supabase
-    .from('organizations')
+  let { data: org, error: orgError } = await (supabase.from('organizations') as any)
     .insert({
       name: companyName.trim(),
       subscription_status: subscriptionStatus,
       plan_type: planToInsert,
+      whatsapp_provider: whatsappProvider,
+      zapi_instance_id: zapiInstanceId?.trim() || null,
+      zapi_token: zapiToken?.trim() || null,
+      zapi_client_token: zapiClientToken?.trim() || null,
       system_prompt: `Eres un asesor comercial experto y empático de ${companyName}. Responde con cortesía en español, resuelve dudas sobre nuestros servicios y guía al cliente a agendar una cita mediante el calendario.`,
     })
-    .select('id, name, subscription_status, plan_type')
+    .select('id, name, subscription_status, plan_type, whatsapp_provider')
     .single();
 
   if (orgError && orgError.message?.includes('organizations_plan_type_check') && planToInsert === 'starter') {
