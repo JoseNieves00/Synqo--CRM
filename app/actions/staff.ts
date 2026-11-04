@@ -1,6 +1,7 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import crypto from 'node:crypto';
+import { cookies, headers } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { AppointmentService } from '@/services/appointment.service';
 import { WhatsAppService } from '@/services/whatsapp.service';
@@ -13,6 +14,7 @@ import {
   verifyPassword,
   generateInviteToken,
   hashToken,
+  safeCompare,
 } from '@/lib/security/encryption';
 import { checkRateLimit } from '@/lib/security/rate-limiter';
 
@@ -75,8 +77,15 @@ export async function staffLogin(companyCode: string, accessPin: string) {
     throw new Error('Debes ingresar el Código de Empresa y tu PIN de acceso.');
   }
 
-  // 🛡️ BLINDAJE ANTI-FUERZA BRUTA: Máximo 5 intentos por minuto
-  const rateLimitRes = await checkRateLimit(`staff_pin_login_${cleanCode}`, 5);
+  // 🛡️ BLINDAJE ANTI-FUERZA BRUTA: Máximo 5 intentos por minuto por cliente/IP y empresa
+  let clientIp = 'unknown';
+  try {
+    const headerStore = headers();
+    clientIp = headerStore.get('x-forwarded-for')?.split(',')[0]?.trim() || headerStore.get('x-real-ip') || 'unknown';
+  } catch {
+    clientIp = 'unknown';
+  }
+  const rateLimitRes = await checkRateLimit(`staff_pin_login_${cleanCode}_${clientIp}`, 5);
   if (!rateLimitRes.success) {
     throw new Error('Demasiados intentos fallidos de acceso. Por seguridad, espera 1 minuto antes de reintentar.');
   }
@@ -678,7 +687,7 @@ export async function staffRegisterWithInvitation(input: {
       name,
       phone,
       specialty: specialty || 'Colaborador',
-      access_pin: phone.slice(-4), // PIN de respaldo automático (últimos 4 dígitos)
+      access_pin: crypto.randomInt(1000, 10000).toString(), // PIN seguro aleatorio de 4 dígitos
       password_hash: passwordHash,
       approval_status: 'pending',
       is_active: true,
@@ -772,12 +781,12 @@ export async function staffLoginWithPhone(input: {
     throw new Error('El acceso de esta cuenta ha sido denegado por la administración.');
   }
 
-  // Validar contraseña (o PIN como fallback)
+  // Validar contraseña (o PIN como fallback con comparación anti-timing attacks)
   let isValidPassword = false;
   if (spec.password_hash) {
     isValidPassword = verifyPassword(password, spec.password_hash);
   } else if (spec.access_pin) {
-    isValidPassword = spec.access_pin === password;
+    isValidPassword = safeCompare(spec.access_pin, password);
   }
 
   if (!isValidPassword) {

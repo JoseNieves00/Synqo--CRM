@@ -20,8 +20,12 @@ async function handleCron(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const isVercelCron = request.headers.get('x-vercel-cron') === '1';
 
-  // Si existe CRON_SECRET configurado, exigir cabecera Bearer (a menos que sea Vercel Cron oficial)
-  if (cronSecret && !isVercelCron) {
+  // 🛡️ PROTECCIÓN DE RUTA CRON: Exigir Bearer CRON_SECRET o Vercel Cron oficial
+  if (!isVercelCron) {
+    if (!cronSecret) {
+      console.warn('[CRON SECURITY ALERT] CRON_SECRET no está configurado en el servidor.');
+      return NextResponse.json({ error: 'Unauthorized: CRON_SECRET not configured' }, { status: 401 });
+    }
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized: Invalid CRON_SECRET' }, { status: 401 });

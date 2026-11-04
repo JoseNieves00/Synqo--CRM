@@ -191,11 +191,16 @@ export function ChatWindow({
     } catch (err: any) {
       console.error('[SEND MESSAGE ERROR]', err);
       const msg = err?.message || '';
-      if (msg.includes('Session has expired') || msg.includes('access token')) {
+      if (msg.includes('Session has expired') || msg.includes('access token') || msg.includes('OAuthException') || msg.includes('190')) {
         setErrorMessage('El token de acceso de WhatsApp ha expirado en Meta. Por favor actualízalo en Configuración.');
+      } else if (msg.includes('131047') || msg.includes('24 hours') || msg.includes('24h')) {
+        setErrorMessage('La ventana de 24 horas de Meta ha vencido para este cliente. Debes enviar una Plantilla Oficial para reanudar la conversación.');
+      } else if (msg.includes('Disconnected') || msg.includes('desconectad') || msg.includes('405')) {
+        setErrorMessage('El teléfono o la instancia de WhatsApp (Z-API) está desconectada. Revisa la vinculación en Configuración.');
       } else {
         setErrorMessage(`Error al enviar mensaje: ${msg || 'Error de conexión con WhatsApp'}`);
       }
+      throw err; // Permite a ChatInput preservar el texto escrito en el borrador
     } finally {
       router.refresh();
     }

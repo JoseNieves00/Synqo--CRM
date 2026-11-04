@@ -74,35 +74,12 @@ export async function createLead(input: CreateLeadInput) {
 }
 
 /**
- * Elimina un lead de la organización
+ * @deprecated Utiliza deleteContactWithPassword para confirmar la eliminación de leads de forma segura con contraseña y RBAC.
  */
 export async function deleteLead(contactId: string) {
-  const supabase = createServerSupabaseClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('No autorizado');
-
-  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile?.organization_id) throw new Error('Organización no encontrada');
-
-  const { error } = await (supabaseAdmin.from('contacts') as any)
-    .delete()
-    .eq('id', contactId)
-    .eq('organization_id', profile.organization_id);
-
-  if (error) {
-    throw new Error(`Error al eliminar: ${error.message}`);
-  }
-
-  revalidatePath('/pipeline');
-  revalidatePath('/inbox');
-  revalidatePath('/dashboard');
-
-  return { success: true };
+  throw new Error(
+    'Por seguridad y protección contra borrado accidental, la eliminación directa de prospectos ha sido deshabilitada. Utiliza deleteContactWithPassword con confirmación de contraseña del administrador.'
+  );
 }
 
 /**
@@ -125,7 +102,7 @@ export async function updateContactDetails(
   if (!user) throw new Error('No autorizado');
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
 
@@ -204,12 +181,17 @@ export async function deleteContactWithPassword(contactId: string, password: str
 
   // 3. Obtener organización del usuario
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
 
   if (!profile?.organization_id) {
     throw new Error('Organización no encontrada para este usuario.');
+  }
+
+  // 🛡️ CONTROL DE ACCESO RBAC: Solo administradores o supervisores pueden eliminar prospectos
+  if (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin) {
+    throw new Error('Permisos insuficientes: Solo administradores pueden eliminar prospectos del CRM.');
   }
 
   // 4. Verificar pertenencia del contacto (Anti-IDOR)
@@ -223,19 +205,27 @@ export async function deleteContactWithPassword(contactId: string, password: str
     throw new Error('Contacto no encontrado o no tienes permisos sobre él.');
   }
 
-  // 5. Eliminar mensajes asociados
-  await (supabaseAdmin.from('messages') as any)
-    .delete()
-    .eq('contact_id', contactId);
-
-  // 6. Eliminar el contacto
-  const { error: deleteError } = await (supabaseAdmin.from('contacts') as any)
-    .delete()
+  // 5. Intentar borrado lógico (Soft delete con deleted_at) si la columna existe
+  const nowIso = new Date().toISOString();
+  const { error: softDeleteError } = await (supabaseAdmin.from('contacts') as any)
+    .update({ deleted_at: nowIso, updated_at: nowIso })
     .eq('id', contactId)
     .eq('organization_id', profile.organization_id);
 
-  if (deleteError) {
-    throw new Error(`Error al eliminar el prospecto: ${deleteError.message}`);
+  if (softDeleteError) {
+    // Si la columna deleted_at no está presente aún en la base de datos, proceder con borrado seguro estándar
+    await (supabaseAdmin.from('messages') as any)
+      .delete()
+      .eq('contact_id', contactId);
+
+    const { error: deleteError } = await (supabaseAdmin.from('contacts') as any)
+      .delete()
+      .eq('id', contactId)
+      .eq('organization_id', profile.organization_id);
+
+    if (deleteError) {
+      throw new Error(`Error al eliminar el prospecto: ${deleteError.message}`);
+    }
   }
 
   revalidatePath('/inbox');

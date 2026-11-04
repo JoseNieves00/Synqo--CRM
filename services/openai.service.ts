@@ -1,6 +1,8 @@
 import OpenAI, { toFile } from 'openai';
 import { AppointmentService } from './appointment.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { NotificationService } from '@/lib/notifications/resend';
+import { checkRateLimit } from '@/lib/security/rate-limiter';
 import { recordTokenUsage, checkTokenQuota, checkBackupTokenQuota } from '@/lib/monitoring/token-tracker';
 import {
   UpdateStageToolSchema,
@@ -357,7 +359,54 @@ export class OpenAIService {
         })
         .eq('id', contactId);
 
+      // 🛡️ ALERTA PROACTIVA AL ADMINISTRADOR (Resend)
+      try {
+        const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
+          .select('email, organizations:organization_id(name)')
+          .eq('organization_id', organizationId)
+          .eq('role', 'admin')
+          .maybeSingle();
+
+        if (adminProfile?.email) {
+          NotificationService.sendTokenQuotaExhaustedAlert({
+            adminEmail: adminProfile.email,
+            companyName: (adminProfile.organizations as any)?.name || 'Empresa Synqo',
+            usedTokens: quota.used,
+            limitTokens: quota.limit,
+            percentage: quota.percentage,
+          }).catch((e) => console.warn('[QUOTA ALERT RESEND WARN]', e));
+        }
+      } catch (err) {
+        console.warn('[QUOTA ALERT FETCH WARN]', err);
+      }
+
       return 'Hola, en este momento nuestros canales de atención automática han alcanzado el límite mensual. Un asesor comercial humano se comunicará contigo directamente.';
+    }
+
+    // 0.1 Alerta proactiva preventiva cuando se alcanza el 80% de la cuota mensual
+    if (quota.percentage >= 80) {
+      try {
+        const rateCheck = await checkRateLimit(`quota_warning_80_${organizationId}`, 1);
+        if (rateCheck.success) {
+          const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
+            .select('email, organizations:organization_id(name)')
+            .eq('organization_id', organizationId)
+            .eq('role', 'admin')
+            .maybeSingle();
+
+          if (adminProfile?.email) {
+            NotificationService.sendTokenQuotaExhaustedAlert({
+              adminEmail: adminProfile.email,
+              companyName: (adminProfile.organizations as any)?.name || 'Empresa Synqo',
+              usedTokens: quota.used,
+              limitTokens: quota.limit,
+              percentage: quota.percentage,
+            }).catch((e) => console.warn('[QUOTA 80% ALERT RESEND WARN]', e));
+          }
+        }
+      } catch (warnErr) {
+        console.warn('[QUOTA 80% ALERT FETCH WARN]', warnErr);
+      }
     }
 
     // 1. Obtener historial reciente de mensajes para contexto conversacional (últimos 10 mensajes)

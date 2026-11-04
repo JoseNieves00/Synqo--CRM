@@ -1,5 +1,6 @@
 'use server';
 
+import crypto from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { AppointmentService } from '@/services/appointment.service';
@@ -38,6 +39,17 @@ async function requireAuthOrgUser() {
     .single();
 
   return { user, profile, org };
+}
+
+/**
+ * 🛡️ CONTROL DE ACCESO RBAC: Exige rol de Admin, Supervisor o Super Administrador
+ */
+async function requireAdminOrSupervisor() {
+  const auth = await requireAuthOrgUser();
+  if (auth.profile.role !== 'admin' && auth.profile.role !== 'supervisor' && !auth.profile.is_super_admin) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden gestionar la configuración del calendario y recursos.');
+  }
+  return auth;
 }
 
 /**
@@ -417,7 +429,7 @@ export async function reassignAppointmentAdmin(appointmentId: string, newSpecial
  * Generar enlace de auto-registro e invitación segura con TTL de 24 horas y QR
  */
 export async function generateStaffInviteAdmin() {
-  const { org, user } = await requireAuthOrgUser();
+  const { org, user } = await requireAdminOrSupervisor();
 
   const { rawToken, tokenHash } = generateInviteToken();
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -460,7 +472,7 @@ export async function createSpecialistAdmin(input: {
   accessPin?: string;
   password?: string;
 }) {
-  const { org } = await requireAuthOrgUser();
+  const { org } = await requireAdminOrSupervisor();
 
   const name = input.name.trim();
   const phone = input.phone.trim();
@@ -469,8 +481,8 @@ export async function createSpecialistAdmin(input: {
   if (!name) throw new Error('El nombre del colaborador es requerido.');
   if (!phone) throw new Error('El número telefónico es requerido.');
 
-  // PIN de 4 dígitos (si no lo asignan, usar últimos 4 de su celular)
-  const pin = input.accessPin?.trim() || phone.slice(-4);
+  // PIN de 4 dígitos seguro aleatorio si no es especificado explícitamente
+  const pin = input.accessPin?.trim() || crypto.randomInt(1000, 10000).toString();
   const passwordHash = input.password ? hashPassword(input.password) : null;
 
   const { data: newSpec, error } = await (supabaseAdmin.from('specialists') as any)
@@ -513,7 +525,7 @@ export async function updateSpecialistAdmin(
     approvalStatus?: 'pending' | 'approved' | 'rejected';
   }
 ) {
-  const { org } = await requireAuthOrgUser();
+  const { org } = await requireAdminOrSupervisor();
 
   const updatePayload: any = {
     updated_at: new Date().toISOString(),
@@ -544,7 +556,7 @@ export async function updateSpecialistAdmin(
  * Desactivar o eliminar colaborador con protección de citas activas
  */
 export async function deleteSpecialistAdmin(specialistId: string) {
-  const { org } = await requireAuthOrgUser();
+  const { org } = await requireAdminOrSupervisor();
 
   // 🛡️ REGLA OPERATIVA: Evitar dejar citas huérfanas
   const { count: futureAppts } = await (supabaseAdmin.from('appointments') as any)
@@ -581,7 +593,7 @@ export async function createRoomAdmin(input: {
   capacity?: number;
   description?: string;
 }) {
-  const { org } = await requireAuthOrgUser();
+  const { org } = await requireAdminOrSupervisor();
 
   const name = input.name.trim();
   if (!name) throw new Error('El nombre del salón o estación es obligatorio.');
@@ -620,7 +632,7 @@ export async function updateRoomAdmin(
     isActive?: boolean;
   }
 ) {
-  const { org } = await requireAuthOrgUser();
+  const { org } = await requireAdminOrSupervisor();
 
   const updatePayload: any = {
     updated_at: new Date().toISOString(),
@@ -649,7 +661,7 @@ export async function updateRoomAdmin(
  * Eliminar Salón con protección de citas activas
  */
 export async function deleteRoomAdmin(roomId: string) {
-  const { org } = await requireAuthOrgUser();
+  const { org } = await requireAdminOrSupervisor();
 
   // 🛡️ REGLA OPERATIVA: Evitar dejar citas huérfanas de salón
   const { count: futureAppts } = await (supabaseAdmin.from('appointments') as any)

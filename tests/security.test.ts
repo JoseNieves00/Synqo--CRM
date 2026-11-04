@@ -1,9 +1,21 @@
 import assert from 'node:assert';
 import crypto from 'node:crypto';
-import { verifyMetaSignature } from '../lib/security/verify-webhook';
-import { encryptSecret, decryptSecret } from '../lib/security/encryption';
+import {
+  verifyMetaSignature,
+  verifyZapiWebhook,
+  generateZapiWebhookSecret,
+  isValidMediaUrl,
+} from '../lib/security/verify-webhook';
+import {
+  encryptSecret,
+  decryptSecret,
+  hashPassword,
+  verifyPassword,
+  safeCompare,
+} from '../lib/security/encryption';
 import { checkRateLimit } from '../lib/security/rate-limiter';
 import { sanitizeLeadMessage, sanitizeHtmlText } from '../lib/security/sanitize';
+import { sanitizeCsvField } from '../lib/pipeline/csv-helpers';
 import { isWithin24HourWindow, getRemainingHoursInWindow } from '../services/contact.service';
 
 // Configurar variables para pruebas
@@ -127,6 +139,117 @@ console.log('🧪 Iniciando Suite de Pruebas Automatizadas de Seguridad & Lógic
   assert.strictEqual(getRemainingHoursInWindow(expiredTime), 0, 'Horas restantes deben ser 0');
 
   console.log('   ✅ Lógica de ventana de 24h aprobada.');
+}
+
+// 6. Autenticación Criptográfica de Webhooks Z-API
+{
+  console.log('6️⃣  Probando Autenticación Criptográfica de Z-API (verifyZapiWebhook)...');
+  const instanceId = 'ZAPI_INSTANCE_TEST_9988';
+  const expectedSecret = generateZapiWebhookSecret(instanceId);
+
+  // Validación mediante query secret (?secret=...)
+  assert.strictEqual(
+    verifyZapiWebhook({ instanceId, providedSecret: expectedSecret }),
+    true,
+    'El secret generado por HMAC debe ser aceptado'
+  );
+
+  // Validación mediante Client-Token en header
+  const configuredClientToken = 'ClientTokenSecure123456';
+  assert.strictEqual(
+    verifyZapiWebhook({
+      instanceId,
+      providedClientToken: configuredClientToken,
+      decryptedClientToken: configuredClientToken,
+    }),
+    true,
+    'Client-Token válido debe ser aceptado'
+  );
+
+  // Rechazo de petición anónima
+  assert.strictEqual(
+    verifyZapiWebhook({ instanceId, providedSecret: null, providedClientToken: null }),
+    false,
+    'Petición sin secret ni token debe ser rechazada'
+  );
+
+  // Rechazo de secret erróneo / manipulado
+  assert.strictEqual(
+    verifyZapiWebhook({ instanceId, providedSecret: 'wrong_secret_attack' }),
+    false,
+    'Secret manipulado debe ser rechazado'
+  );
+
+  console.log('   ✅ Autenticación de Z-API aprobada.');
+}
+
+// 7. Neutralización de SSRF en Descarga de Multimedia / Whisper
+{
+  console.log('7️⃣  Probando Neutralización de SSRF (isValidMediaUrl)...');
+
+  // Dominios permitidos en HTTPS
+  assert.strictEqual(isValidMediaUrl('https://api.z-api.io/instances/123/audio.ogg'), true);
+  assert.strictEqual(isValidMediaUrl('https://media.whatsapp.net/v/t62.7118-24/audio.opus'), true);
+  assert.strictEqual(isValidMediaUrl('https://lookaside.fbsbx.com/whatsapp_business/audio.mp3'), true);
+
+  // Bloqueo de rangos privados / metadatos de nube / loopback
+  assert.strictEqual(isValidMediaUrl('http://169.254.169.254/latest/meta-data/'), false, 'AWS metadata debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('https://169.254.169.254/secret'), false, 'AWS metadata IP debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('http://127.0.0.1:3000/api/admin'), false, 'Loopback IPv4 debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('http://localhost:8080/data'), false, 'Localhost debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('https://10.0.0.1/internal'), false, 'IP privada 10.x debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('https://192.168.1.1/router'), false, 'IP privada 192.168.x debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('https://attacker.com/malicious.ogg'), false, 'Dominio arbitrario externo debe bloquearse');
+  assert.strictEqual(isValidMediaUrl('file:///etc/passwd'), false, 'Protocolo file:// debe bloquearse');
+
+  console.log('   ✅ Neutralización de SSRF aprobada.');
+}
+
+// 8. Hashing Criptográfico PBKDF2 v2 (100,000 iteraciones) & Retrocompatibilidad
+{
+  console.log('8️⃣  Probando Hasheo PBKDF2 v2 y Retrocompatibilidad (hashPassword / verifyPassword)...');
+  const password = 'SuperSecureStaffPassword2026!';
+  const hashedPassword = hashPassword(password);
+
+  assert.ok(hashedPassword.startsWith('pbkdf2:v2:100000:'), 'Debe utilizar formato v2 con 100,000 iteraciones');
+  assert.strictEqual(verifyPassword(password, hashedPassword), true, 'Debe verificar la contraseña correcta');
+  assert.strictEqual(verifyPassword('WrongPassword123', hashedPassword), false, 'Debe rechazar una contraseña errónea');
+
+  // Retrocompatibilidad con v1 (10,000 iteraciones)
+  const legacySalt = '0123456789abcdef0123456789abcdef';
+  const legacyHash = crypto.pbkdf2Sync(password, legacySalt, 10000, 64, 'sha512').toString('hex');
+  const legacyFormat = `pbkdf2:${legacySalt}:${legacyHash}`;
+
+  assert.strictEqual(verifyPassword(password, legacyFormat), true, 'Debe validar contraseñas v1 heredadas');
+  assert.strictEqual(verifyPassword('WrongPassword', legacyFormat), false, 'Debe rechazar contraseñas v1 erróneas');
+
+  console.log('   ✅ PBKDF2 v2 y retrocompatibilidad aprobadas.');
+}
+
+// 9. Comparación Criptográfica Anti-Timing Attacks (safeCompare)
+{
+  console.log('9️⃣  Probando Comparación Anti-Timing Attacks (safeCompare)...');
+  const secretPin = '8492';
+
+  assert.strictEqual(safeCompare(secretPin, '8492'), true, 'Cadenas iguales deben retornar true');
+  assert.strictEqual(safeCompare(secretPin, '8493'), false, 'Cadenas distintas de igual longitud deben retornar false');
+  assert.strictEqual(safeCompare(secretPin, '849'), false, 'Cadenas de longitud distinta deben retornar false');
+  assert.strictEqual(safeCompare(secretPin, ''), false, 'Cadena vacía debe retornar false');
+
+  console.log('   ✅ safeCompare anti-timing attacks aprobado.');
+}
+
+// 10. Sanitización Anti-CSV Formula Injection
+{
+  console.log('🔟  Probando Sanitización Anti-CSV Injection (sanitizeCsvField)...');
+
+  assert.strictEqual(sanitizeCsvField('=SUM(A1:A10)'), "'=SUM(A1:A10)", 'Fórmula = debe prefijarse con apóstrofe');
+  assert.strictEqual(sanitizeCsvField('+cmd|/c calc'), "'+cmd|/c calc", 'Fórmula + debe prefijarse con apóstrofe');
+  assert.strictEqual(sanitizeCsvField('-1+1'), "'-1+1", 'Fórmula - debe prefijarse con apóstrofe');
+  assert.strictEqual(sanitizeCsvField('@IMPORTXML("url")'), "'@IMPORTXML(\"url\")", 'Fórmula @ debe prefijarse con apóstrofe');
+  assert.strictEqual(sanitizeCsvField('Juan Perez'), 'Juan Perez', 'Texto normal no debe alterarse');
+
+  console.log('   ✅ Sanitización Anti-CSV Injection aprobada.');
 }
 
 console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SEGURIDAD Y LÓGICA DE NEGOCIO PASARON EXITOSAMENTE!');

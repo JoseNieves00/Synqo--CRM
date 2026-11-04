@@ -263,19 +263,27 @@ ALTER TABLE appointments ADD CONSTRAINT appointments_specialist_no_overlap
 
 ## 10. Motor de Notificaciones Anti-No-Show y Cron Worker
 
-El endpoint `/api/cron/appointment-reminders` opera como worker automatizado en segundo plano (invocado cada 15 o 30 minutos por Vercel Cron o cronjob externo).
+El endpoint `/api/cron/appointment-reminders` opera como worker automatizado en segundo plano (invocado periódicamente por Vercel Cron o un cronjob externo).
 
-### Configuración en `vercel.json`:
+### Configuración en `vercel.json` (Compatibilidad con Vercel Hobby y Pro):
+- En cuentas **Vercel Hobby (Gratis)**, Vercel restringe los Cron Jobs a **1 ejecución diaria**. La configuración predeterminada en `vercel.json` se fija a las 13:00 UTC (08:00 AM Colombia):
 ```json
 {
   "crons": [
     {
       "path": "/api/cron/appointment-reminders",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 13 * * *"
     }
   ]
 }
 ```
+- **Para ejecutar recordatorios cada 15 minutos en Vercel Hobby (Sin costo adicional):**
+  Puedes usar un servicio externo gratuito como **cron-job.org** o **Upstash QStash**:
+  1. URL: `https://crm.synqo.dev/api/cron/appointment-reminders`
+  2. Método: `GET` o `POST`
+  3. Cabecera (Header): `Authorization: Bearer <TU_CRON_SECRET>`
+  4. Frecuencia: Cada 15 minutos.
+- Si en el futuro actualizas a **Vercel Pro**, puedes cambiar `"schedule": "*/15 * * * *"` directamente en `vercel.json`.
 
 ### Reglas de Negocio del Motor Cron:
 1. **Seguridad:** Requiere cabecera `Authorization: Bearer <CRON_SECRET>`.

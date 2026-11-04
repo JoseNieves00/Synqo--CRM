@@ -51,3 +51,94 @@ export function verifyMetaSignature(
   }
 }
 
+/**
+ * Genera un secreto HMAC-SHA256 determinista para autenticar webhooks de Z-API de una instancia.
+ */
+export function generateZapiWebhookSecret(instanceId: string): string {
+  const masterKey = process.env.ENCRYPTION_KEY || 'synqo_zapi_master_secret';
+  return crypto.createHmac('sha256', masterKey).update(instanceId.trim()).digest('hex').slice(0, 32);
+}
+
+/**
+ * Valida si el secreto o el Client-Token provisto coincide con las credenciales de la instancia Z-API.
+ */
+export function verifyZapiWebhook(params: {
+  instanceId: string;
+  providedSecret?: string | null;
+  providedClientToken?: string | null;
+  decryptedClientToken?: string | null;
+  decryptedInstanceToken?: string | null;
+}): boolean {
+  const { instanceId, providedSecret, providedClientToken, decryptedClientToken, decryptedInstanceToken } = params;
+
+  // 1. Validar por secreto HMAC en query string
+  if (providedSecret && providedSecret.trim()) {
+    const expectedSecret = generateZapiWebhookSecret(instanceId);
+    const expectedBuf = Buffer.from(expectedSecret, 'utf8');
+    const providedBuf = Buffer.from(providedSecret.trim(), 'utf8');
+    if (expectedBuf.length === providedBuf.length && crypto.timingSafeEqual(expectedBuf, providedBuf)) {
+      return true;
+    }
+  }
+
+  // 2. Validar por Client-Token en header
+  if (providedClientToken && providedClientToken.trim()) {
+    const cleanProvided = providedClientToken.trim();
+    if (decryptedClientToken && decryptedClientToken.trim()) {
+      const expBuf = Buffer.from(decryptedClientToken.trim(), 'utf8');
+      const provBuf = Buffer.from(cleanProvided, 'utf8');
+      if (expBuf.length === provBuf.length && crypto.timingSafeEqual(expBuf, provBuf)) {
+        return true;
+      }
+    }
+    if (decryptedInstanceToken && decryptedInstanceToken.trim()) {
+      const expBuf = Buffer.from(decryptedInstanceToken.trim(), 'utf8');
+      const provBuf = Buffer.from(cleanProvided, 'utf8');
+      if (expBuf.length === provBuf.length && crypto.timingSafeEqual(expBuf, provBuf)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Valida que una URL multimedia (audio/imagen/documento) provenga de un host seguro y autorizado
+ * Bloquea Server-Side Request Forgery (SSRF) hacia IPs internas o servicios de metadatos de nube.
+ */
+export function isValidMediaUrl(urlString?: string | null): boolean {
+  if (!urlString || typeof urlString !== 'string') return false;
+  try {
+    const parsed = new URL(urlString.trim());
+    if (parsed.protocol !== 'https:') return false;
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Bloquear localhost, loopbacks e IPs privadas
+    if (
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      hostname === '169.254.169.254' ||
+      /^127\./.test(hostname) ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
+    ) {
+      return false;
+    }
+
+    // Permitir exclusivamente dominios autorizados de Z-API y WhatsApp/Meta
+    const allowedSuffixes = [
+      'z-api.io',
+      'whatsapp.net',
+      'fbcdn.net',
+      'fbsbx.com',
+    ];
+
+    return allowedSuffixes.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`));
+  } catch {
+    return false;
+  }
+}
+

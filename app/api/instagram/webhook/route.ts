@@ -102,7 +102,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (secretToVerify && signature) {
+    if (secretToVerify) {
+      if (!signature) {
+        console.error(`[SECURITY ALERT] Webhook de Instagram rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
+        return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
+      }
       const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
       if (!isValidSignature) {
         console.error(`[SECURITY ALERT] Firma HMAC inválida en Instagram webhook para org "${organization.name}".`);

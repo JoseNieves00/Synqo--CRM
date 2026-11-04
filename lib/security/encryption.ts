@@ -73,26 +73,51 @@ export function decryptSecret(cipherPayload: string): string {
   return decrypted;
 }
 
+const DEFAULT_PBKDF2_ITERATIONS = 100000; // Estándar de seguridad OWASP para PBKDF2-SHA512
+
 /**
- * Genera un hash seguro para contraseñas de colaboradores usando PBKDF2 con Salt aleatorio.
- * Formato: "pbkdf2:<salt_hex>:<hash_hex>"
+ * Genera un hash seguro para contraseñas de colaboradores usando PBKDF2 con Salt aleatorio y 100,000 iteraciones.
+ * Formato v2: "pbkdf2:v2:<iterations>:<salt_hex>:<hash_hex>"
  */
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return `pbkdf2:${salt}:${hash}`;
+  const hash = crypto.pbkdf2Sync(password, salt, DEFAULT_PBKDF2_ITERATIONS, 64, 'sha512').toString('hex');
+  return `pbkdf2:v2:${DEFAULT_PBKDF2_ITERATIONS}:${salt}:${hash}`;
 }
 
 /**
  * Verifica si una contraseña coincide con el hash almacenado con protección anti-timing attacks.
+ * Soporta formato v2 (100,000 iteraciones) y retrocompatibilidad v1 (10,000 iteraciones).
  */
 export function verifyPassword(password: string, storedHash: string): boolean {
   if (!storedHash || !storedHash.startsWith('pbkdf2:')) return false;
   const parts = storedHash.split(':');
-  if (parts.length !== 3) return false;
-  const [, salt, originalHash] = parts;
-  const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(originalHash, 'hex'), Buffer.from(verifyHash, 'hex'));
+
+  // Formato v2: "pbkdf2:v2:<iterations>:<salt>:<hash>"
+  if (parts.length === 5 && parts[1] === 'v2') {
+    const iterations = parseInt(parts[2], 10);
+    const salt = parts[3];
+    const originalHash = parts[4];
+    if (isNaN(iterations) || !salt || !originalHash) return false;
+    const verifyHash = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
+    const origBuf = Buffer.from(originalHash, 'hex');
+    const verBuf = Buffer.from(verifyHash, 'hex');
+    if (origBuf.length !== verBuf.length) return false;
+    return crypto.timingSafeEqual(origBuf, verBuf);
+  }
+
+  // Formato legacy v1: "pbkdf2:<salt>:<hash>" (10,000 iteraciones)
+  if (parts.length === 3) {
+    const [, salt, originalHash] = parts;
+    if (!salt || !originalHash) return false;
+    const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+    const origBuf = Buffer.from(originalHash, 'hex');
+    const verBuf = Buffer.from(verifyHash, 'hex');
+    if (origBuf.length !== verBuf.length) return false;
+    return crypto.timingSafeEqual(origBuf, verBuf);
+  }
+
+  return false;
 }
 
 /**
@@ -110,5 +135,17 @@ export function generateInviteToken(): { rawToken: string; tokenHash: string } {
 export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token.trim()).digest('hex');
 }
+
+/**
+ * Compara dos cadenas de forma segura previniendo ataques de temporización (timing attacks).
+ */
+export function safeCompare(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 
 

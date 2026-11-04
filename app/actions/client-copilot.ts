@@ -2,6 +2,7 @@
 
 import OpenAI from 'openai';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { checkRateLimit } from '@/lib/security/rate-limiter';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -47,6 +48,16 @@ export async function askClientCopilot(question: string, history: ChatMessage[] 
   const cleanQuestion = question.trim();
   if (!cleanQuestion) {
     return { success: false, answer: 'Por favor escribe una consulta.' };
+  }
+
+  // 🛡️ BLINDAJE ANTI-ABUSO (Protección de presupuesto OpenAI): Máximo 10 preguntas por minuto
+  const rateLimitKey = `client_copilot_${user.id}`;
+  const rateCheck = await checkRateLimit(rateLimitKey, 10);
+  if (!rateCheck.success) {
+    return {
+      success: false,
+      answer: 'Has alcanzado el límite de consultas por minuto con el Asistente. Por favor espera unos momentos antes de preguntar de nuevo.',
+    };
   }
 
   const apiKey = process.env.OPENAI_API_KEY;

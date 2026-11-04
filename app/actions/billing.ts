@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { sanitizeCsvField } from '@/lib/pipeline/csv-helpers';
 
 /**
  * Permite al Administrador de una empresa suspendida descargar un respaldo completo
@@ -53,9 +54,12 @@ export async function exportSuspendedCompanyDataAction() {
     throw new Error(`Error obteniendo prospectos: ${error.message}`);
   }
 
-  // 4. Formatear como CSV con Excel UTF-8 BOM
+  // 4. Formatear como CSV con Excel UTF-8 BOM y sanitización anti-fórmulas
   const headers = ['Nombre', 'WhatsApp / Teléfono', 'Etapa Pipeline', 'Control', 'Fecha Creación', 'Última Interacción'];
-  const escapeCsv = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
+  const escapeCsv = (val: string) => {
+    const sanitized = sanitizeCsvField(val || '');
+    return `"${sanitized.replace(/"/g, '""')}"`;
+  };
 
   const rows = (contacts || []).map((c) => [
     escapeCsv(c.name || 'Sin nombre'),

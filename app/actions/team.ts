@@ -1,5 +1,6 @@
 'use server';
 
+import crypto from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { UserRole } from '@/lib/supabase/types';
@@ -239,9 +240,9 @@ export async function regenerateTeamMemberPassword(memberId: string) {
     throw new Error('El usuario no pertenece a tu organización.');
   }
 
-  // 2. Generar una contraseña temporal segura (ej. Synqo_x8a92!42)
-  const randomSuffix = Math.random().toString(36).slice(-6);
-  const randomPin = Math.floor(10 + Math.random() * 90);
+  // 2. Generar una contraseña temporal criptográficamente segura (ej. Synqo_a8f93c12!42)
+  const randomSuffix = crypto.randomBytes(4).toString('hex');
+  const randomPin = crypto.randomInt(10, 100);
   const tempPassword = `Synqo_${randomSuffix}!${randomPin}`;
 
   // 3. Actualizar contraseña y forzar cambio en Supabase Auth

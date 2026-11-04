@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { WhatsAppService } from '@/services/whatsapp.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
+import { NotificationService } from '@/lib/notifications/resend';
 
 /**
  * 1. GET: Handshake de verificación inicial de Meta WhatsApp Webhook.
@@ -120,6 +121,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (secretToVerify) {
+      if (!signature) {
+        console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
+        return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
+      }
       const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
       if (!isValidSignature) {
         console.error(`[SECURITY ALERT] Firma HMAC inválida rechazada para org "${organization.name}".`);
@@ -452,6 +457,26 @@ export async function POST(request: NextRequest) {
                     sender_type: 'system',
                     content: '⚠️ No se pudo enviar la respuesta de la IA porque el token de WhatsApp de Meta expiró. Reconecta la cuenta en Configuración.',
                   });
+
+                  // 🛡️ ALERTA INMEDIATA AL ADMINISTRADOR (Resend)
+                  try {
+                    const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
+                      .select('email')
+                      .eq('organization_id', orgId)
+                      .eq('role', 'admin')
+                      .maybeSingle();
+
+                    if (adminProfile?.email) {
+                      NotificationService.sendChannelDisconnectedAlert({
+                        adminEmail: adminProfile.email,
+                        companyName: organization.name || 'Empresa Synqo',
+                        provider: 'meta',
+                        reason: 'El token de Meta WhatsApp Cloud API expiró o fue revocado (Error 190 OAuthException).',
+                      }).catch((e) => console.warn('[META DISCONNECT RESEND WARN]', e));
+                    }
+                  } catch (alertErr) {
+                    console.warn('[META DISCONNECT ALERT WARN]', alertErr);
+                  }
                 }
               }
             }
