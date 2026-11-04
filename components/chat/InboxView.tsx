@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -45,7 +45,157 @@ interface TeamMember {
   role: string;
 }
 
+interface ContactListItemProps {
+  contact: ContactItem;
+  isActive: boolean;
+  isMine: boolean;
+  assignedUserName?: string;
+  isUnattended: boolean;
+  onSelect: (id: string) => void;
+}
+
+/**
+ * Componente de tarjeta de conversación memoizado para garantizar 60 FPS en el Inbox.
+ * Previene re-renderizados innecesarios de los 50 contactos cuando cambia el chat activo o se escribe.
+ */
+const ContactListItem = React.memo(
+  function ContactListItem({
+    contact: c,
+    isActive,
+    isMine,
+    assignedUserName,
+    isUnattended,
+    onSelect,
+  }: ContactListItemProps) {
+    const dateStr = useMemo(() => {
+      try {
+        return new Date(c.last_interaction_at).toLocaleTimeString('es-ES', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch {
+        return '';
+      }
+    }, [c.last_interaction_at]);
+
+    return (
+      <a
+        href={`/inbox/${c.id}`}
+        onClick={(e) => {
+          if (!e.metaKey && !e.ctrlKey && e.button === 0) {
+            e.preventDefault();
+            onSelect(c.id);
+          }
+        }}
+        className={`p-3 block transition cursor-pointer relative border-l-2 select-none ${
+          isActive
+            ? 'bg-blue-50/70 dark:bg-[#0052FF]/10 border-l-[#0052FF]'
+            : isUnattended
+            ? 'bg-rose-50 dark:bg-rose-500/10 border-l-rose-500 hover:bg-rose-100/60 dark:hover:bg-rose-500/15'
+            : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
+        }`}
+      >
+        {/* Badge de Atención Pendiente */}
+        {isUnattended && (
+          <div className="mb-1.5 flex items-center justify-between gap-1">
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400 animate-pulse" />
+              Pendiente de atención
+            </span>
+            <span className="text-[10px] text-rose-700 dark:text-rose-300 shrink-0 font-medium">Requiere asesor</span>
+          </div>
+        )}
+
+        {/* Fila 1: Nombre y Hora */}
+        <div className="flex items-center justify-between mb-1 gap-2">
+          <span className={`font-semibold text-xs truncate min-w-0 ${isUnattended ? 'text-rose-700 dark:text-rose-200' : 'text-slate-900 dark:text-white'}`}>
+            {c.name || 'Prospecto sin nombre'}
+          </span>
+          <span suppressHydrationWarning className="text-[10px] text-slate-400 dark:text-slate-400 font-mono flex-shrink-0">
+            {dateStr}
+          </span>
+        </div>
+
+        {/* Fila 2: Canal, Identificador y Estado IA */}
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono mb-1.5 gap-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {c.channel === 'instagram' ? (
+              <>
+                <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-pink-50 dark:bg-pink-500/10 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/20 shrink-0 font-sans">
+                  IG
+                </span>
+                <span className="text-[11px] truncate text-pink-700 dark:text-pink-300 font-medium">
+                  {c.instagram_username ? `@${c.instagram_username}` : c.phone}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 shrink-0 font-sans">
+                  WA
+                </span>
+                <span className="text-[11px] truncate text-slate-600 dark:text-slate-300">{c.phone}</span>
+              </>
+            )}
+          </div>
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono shrink-0 ${
+              c.is_ai_active
+                ? 'bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20'
+                : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20'
+            }`}
+          >
+            {c.is_ai_active ? 'AI' : 'HUMAN'}
+          </span>
+        </div>
+
+        {/* Fila 3: Pipeline Stage & Chip de Asignación */}
+        <div className="flex items-center justify-between gap-1 text-[10px]">
+          <span className="font-mono uppercase bg-slate-100 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] px-1.5 py-0.5 rounded">
+            {c.pipeline_stage}
+          </span>
+
+          {/* Chip de Agente Asignado */}
+          {c.assigned_to ? (
+            <span
+              className={`font-medium px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                isMine
+                  ? 'bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] font-semibold border border-blue-200 dark:border-[#00D2FF]/20'
+                  : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B]'
+              }`}
+            >
+              <User className="w-2.5 h-2.5 text-slate-400" />
+              {isMine ? 'Tú' : assignedUserName || 'Asignado'}
+            </span>
+          ) : (
+            <span className="font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
+              <User className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400" />
+              Sin Asignar
+            </span>
+          )}
+        </div>
+      </a>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.isActive === next.isActive &&
+      prev.isUnattended === next.isUnattended &&
+      prev.isMine === next.isMine &&
+      prev.assignedUserName === next.assignedUserName &&
+      prev.contact.id === next.contact.id &&
+      prev.contact.last_interaction_at === next.contact.last_interaction_at &&
+      prev.contact.is_ai_active === next.contact.is_ai_active &&
+      prev.contact.pipeline_stage === next.contact.pipeline_stage &&
+      prev.contact.name === next.contact.name &&
+      prev.contact.phone === next.contact.phone &&
+      prev.contact.channel === next.contact.channel &&
+      prev.contact.instagram_username === next.contact.instagram_username
+    );
+  }
+);
+
 interface InboxViewProps {
+  organizationId?: string;
   contacts: ContactItem[];
   activeContact: ContactItem | null;
   messages: MessageItem[];
@@ -58,6 +208,7 @@ interface InboxViewProps {
 }
 
 export function InboxView({
+  organizationId,
   contacts,
   activeContact,
   messages,
@@ -71,6 +222,7 @@ export function InboxView({
   const router = useRouter();
   const [contactList, setContactList] = useState<ContactItem[]>(contacts);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
 
   // Contacto activo y caché de mensajes local para transiciones 0ms ultra-suaves
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
@@ -327,6 +479,7 @@ export function InboxView({
           event: '*',
           schema: 'public',
           table: 'contacts',
+          filter: organizationId ? `organization_id=eq.${organizationId}` : undefined,
         },
         (payload) => {
           if (payload.eventType === 'DELETE') {
@@ -345,7 +498,7 @@ export function InboxView({
             }
           } else if (payload.eventType === 'INSERT') {
             const inserted = payload.new as any;
-            if (!inserted.deleted_at) {
+            if (!inserted.deleted_at && (!organizationId || inserted.organization_id === organizationId)) {
               setContactList((prev) => [inserted, ...prev]);
             }
           }
@@ -356,52 +509,56 @@ export function InboxView({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [organizationId]);
 
-  // Conteo de chats por pestañas
-  const myChatsCount = contactList.filter((c) => c.assigned_to === currentUserId).length;
-  const unassignedCount = contactList.filter((c) => !c.assigned_to).length;
+  // Conteo de chats por pestañas memoizado
+  const myChatsCount = useMemo(
+    () => contactList.filter((c) => c.assigned_to === currentUserId).length,
+    [contactList, currentUserId]
+  );
+  const unassignedCount = useMemo(
+    () => contactList.filter((c) => !c.assigned_to).length,
+    [contactList]
+  );
 
-  // Filtrado compuesto
-  const filteredContacts = contactList.filter((c) => {
-    // 1. Filtro de búsqueda por texto
-    const q = search.toLowerCase();
-    const matchesSearch =
-      (c.name?.toLowerCase() || '').includes(q) ||
-      c.phone.includes(q) ||
-      (c.instagram_username?.toLowerCase() || '').includes(q);
+  // Filtrado compuesto no bloqueante a 60 FPS usando deferredSearch
+  const filteredContacts = useMemo(() => {
+    const q = deferredSearch.toLowerCase().trim();
 
-    if (!matchesSearch) return false;
-
-    // 2. Filtro por canal omnicanal
-    if (channelFilter === 'whatsapp') {
-      if (c.channel === 'instagram') return false;
-    } else if (channelFilter === 'instagram') {
-      if (c.channel !== 'instagram') return false;
-    }
-
-    // 3. Filtro por Pestaña de Asignación
-    if (activeTab === 'mine') {
-      if (c.assigned_to !== currentUserId) return false;
-    } else if (activeTab === 'unassigned') {
-      if (c.assigned_to) return false;
-    }
-
-    // 4. Filtro por Agente Específico (Admin/Supervisor)
-    if (isAdmin && selectedAgentFilter !== 'all') {
-      if (selectedAgentFilter === 'unassigned') {
-        if (c.assigned_to) return false;
-      } else {
-        if (c.assigned_to !== selectedAgentFilter) return false;
+    return contactList.filter((c) => {
+      // 1. Filtro de búsqueda por texto diferido (permite tipeo fluido sin bloquear el input)
+      if (q) {
+        const matchesSearch =
+          (c.name?.toLowerCase() || '').includes(q) ||
+          c.phone.includes(q) ||
+          (c.instagram_username?.toLowerCase() || '').includes(q);
+        if (!matchesSearch) return false;
       }
-    }
 
-    // 5. Filtro por IA / Asesor Humano
-    if (aiFilter === 'ai' && !c.is_ai_active) return false;
-    if (aiFilter === 'human' && c.is_ai_active) return false;
+      // 2. Filtro por canal omnicanal
+      if (channelFilter === 'whatsapp' && c.channel === 'instagram') return false;
+      if (channelFilter === 'instagram' && c.channel !== 'instagram') return false;
 
-    return true;
-  });
+      // 3. Filtro por Pestaña de Asignación
+      if (activeTab === 'mine' && c.assigned_to !== currentUserId) return false;
+      if (activeTab === 'unassigned' && c.assigned_to) return false;
+
+      // 4. Filtro por Agente Específico (Admin/Supervisor)
+      if (isAdmin && selectedAgentFilter !== 'all') {
+        if (selectedAgentFilter === 'unassigned') {
+          if (c.assigned_to) return false;
+        } else {
+          if (c.assigned_to !== selectedAgentFilter) return false;
+        }
+      }
+
+      // 5. Filtro por IA / Asesor Humano
+      if (aiFilter === 'ai' && !c.is_ai_active) return false;
+      if (aiFilter === 'human' && c.is_ai_active) return false;
+
+      return true;
+    });
+  }, [contactList, deferredSearch, channelFilter, activeTab, currentUserId, isAdmin, selectedAgentFilter, aiFilter]);
 
   const currentActiveContact =
     contactList.find((c) => c.id === selectedContactId) ||
@@ -691,108 +848,16 @@ export function InboxView({
               const assignedUser = teamMembers.find((m) => m.id === c.assigned_to);
               const isUnattended = unattendedIds.has(c.id);
 
-              const dateStr = new Date(c.last_interaction_at).toLocaleTimeString('es-ES', {
-                hour: '2-digit',
-                minute: '2-digit',
-              });
-
               return (
-                <a
+                <ContactListItem
                   key={c.id}
-                  href={`/inbox/${c.id}`}
-                  onClick={(e) => {
-                    if (!e.metaKey && !e.ctrlKey && e.button === 0) {
-                      e.preventDefault();
-                      handleSelectContact(c.id);
-                    }
-                  }}
-                  className={`p-3 block transition cursor-pointer relative border-l-2 select-none ${
-                    isActive
-                      ? 'bg-blue-50/70 dark:bg-[#0052FF]/10 border-l-[#0052FF]'
-                      : isUnattended
-                      ? 'bg-rose-50 dark:bg-rose-500/10 border-l-rose-500 hover:bg-rose-100/60 dark:hover:bg-rose-500/15'
-                      : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
-                  }`}
-                >
-                  {/* Badge de Atención Pendiente */}
-                  {isUnattended && (
-                    <div className="mb-1.5 flex items-center justify-between gap-1">
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400 animate-pulse" />
-                        Pendiente de atención
-                      </span>
-                      <span className="text-[10px] text-rose-700 dark:text-rose-300 shrink-0 font-medium">Requiere asesor</span>
-                    </div>
-                  )}
-
-                  {/* Fila 1: Nombre y Hora */}
-                  <div className="flex items-center justify-between mb-1 gap-2">
-                    <span className={`font-semibold text-xs truncate min-w-0 ${isUnattended ? 'text-rose-700 dark:text-rose-200' : 'text-slate-900 dark:text-white'}`}>
-                      {c.name || 'Prospecto sin nombre'}
-                    </span>
-                    <span suppressHydrationWarning className="text-[10px] text-slate-400 dark:text-slate-400 font-mono flex-shrink-0">
-                      {dateStr}
-                    </span>
-                  </div>
-
-                  {/* Fila 2: Canal, Identificador y Estado IA */}
-                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono mb-1.5 gap-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {c.channel === 'instagram' ? (
-                        <>
-                          <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-pink-50 dark:bg-pink-500/10 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/20 shrink-0 font-sans">
-                            IG
-                          </span>
-                          <span className="text-[11px] truncate text-pink-700 dark:text-pink-300 font-medium">
-                            {c.instagram_username ? `@${c.instagram_username}` : c.phone}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 shrink-0 font-sans">
-                            WA
-                          </span>
-                          <span className="text-[11px] truncate text-slate-600 dark:text-slate-300">{c.phone}</span>
-                        </>
-                      )}
-                    </div>
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono shrink-0 ${
-                        c.is_ai_active
-                          ? 'bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20'
-                          : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20'
-                      }`}
-                    >
-                      {c.is_ai_active ? 'AI' : 'HUMAN'}
-                    </span>
-                  </div>
-
-                  {/* Fila 3: Pipeline Stage & Chip de Asignación */}
-                  <div className="flex items-center justify-between gap-1 text-[10px]">
-                    <span className="font-mono uppercase bg-slate-100 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] px-1.5 py-0.5 rounded">
-                      {c.pipeline_stage}
-                    </span>
-
-                    {/* Chip de Agente Asignado */}
-                    {c.assigned_to ? (
-                      <span
-                        className={`font-medium px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                          isMine
-                            ? 'bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] font-semibold border border-blue-200 dark:border-[#00D2FF]/20'
-                            : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B]'
-                        }`}
-                      >
-                        <User className="w-2.5 h-2.5 text-slate-400" />
-                        {isMine ? 'Tú' : assignedUser?.full_name || 'Asignado'}
-                      </span>
-                    ) : (
-                      <span className="font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
-                        <User className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400" />
-                        Sin Asignar
-                      </span>
-                    )}
-                  </div>
-                </a>
+                  contact={c}
+                  isActive={isActive}
+                  isMine={isMine}
+                  assignedUserName={assignedUser?.full_name}
+                  isUnattended={isUnattended}
+                  onSelect={handleSelectContact}
+                />
               );
             })
           )}

@@ -65,6 +65,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
 
   return (
     <InboxView
+      organizationId={current.organization.id}
       contacts={contactList}
       activeContact={activeContact}
       messages={messages || []}

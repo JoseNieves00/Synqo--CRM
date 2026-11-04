@@ -89,6 +89,8 @@ export function ChatWindow({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isInitialScroll = useRef(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const broadcastChannelRef = useRef<any>(null);
+  const lastTypingBroadcastRef = useRef<number>(0);
 
   // Estados de Eliminación Rápida de Chat
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -173,6 +175,8 @@ export function ChatWindow({
       config: { broadcast: { self: false } },
     });
 
+    broadcastChannelRef.current = channel;
+
     channel
       .on('broadcast', { event: 'typing' }, (payload) => {
         const typingUser = payload?.payload?.userName;
@@ -187,19 +191,28 @@ export function ChatWindow({
       .subscribe();
 
     return () => {
+      broadcastChannelRef.current = null;
       supabase.removeChannel(channel);
       if (typingTimeout) clearTimeout(typingTimeout);
     };
   }, [contact.id]);
 
-  // Emitir señal de tipeo para advertir a otros compañeros
+  // Emitir señal de tipeo con throttle de 3.5 segundos para evitar saturación de red
   const handleTypingBroadcast = () => {
     if (!contact.id) return;
+    const now = Date.now();
+    if (now - lastTypingBroadcastRef.current < 3500) {
+      return; // Cero lag en tipeo: no enviar ráfagas de WebSocket por cada tecla
+    }
+    lastTypingBroadcastRef.current = now;
+
     const currentMember = teamMembers.find((m) => m.id === currentUserId);
     const myName = currentMember?.full_name || 'Un asesor';
-    const supabase = createClient();
-    supabase
-      .channel(`chat-collision-${contact.id}`)
+    const channel = broadcastChannelRef.current || createClient().channel(`chat-collision-${contact.id}`, {
+      config: { broadcast: { self: false } },
+    });
+
+    channel
       .send({
         type: 'broadcast',
         event: 'typing',

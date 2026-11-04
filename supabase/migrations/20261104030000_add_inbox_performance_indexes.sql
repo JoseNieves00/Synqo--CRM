@@ -18,3 +18,4 @@ WHERE deleted_at IS NULL;
 -- Optimiza: .eq('contact_id', contactId).order('created_at', { ascending: false })
 CREATE INDEX IF NOT EXISTS idx_messages_contact_desc
 ON messages(contact_id, created_at DESC);
+

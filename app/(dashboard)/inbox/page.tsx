@@ -46,6 +46,7 @@ export default async function InboxPage() {
 
   return (
     <InboxView
+      organizationId={current.organization.id}
       contacts={contactList}
       activeContact={activeContact}
       messages={messages}

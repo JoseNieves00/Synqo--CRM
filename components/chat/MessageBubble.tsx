@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MessageSender } from '@/lib/supabase/types';
 import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink } from 'lucide-react';
 import { parseImageMessageContent, parseDocumentMessageContent } from '@/lib/media/format';
@@ -9,55 +9,58 @@ interface MessageBubbleProps {
   createdAt: string;
 }
 
-export function MessageBubble({ content, senderType, createdAt }: MessageBubbleProps) {
-  const formattedTime = new Date(createdAt).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+export const MessageBubble = React.memo(
+  function MessageBubble({ content, senderType, createdAt }: MessageBubbleProps) {
+    const formattedTime = useMemo(() => {
+      return new Date(createdAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }, [createdAt]);
 
-  if (senderType === 'system') {
-    const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado');
+    const isLead = senderType === 'lead';
+    const isAi = senderType === 'ai';
+    const isAgent = senderType === 'agent_manual';
 
-    if (isHandoff) {
-      // Extraer motivo de forma limpia sin corchetes técnicos de log
-      let reason = '';
-      const match = content.match(/Motivo:\s*["']?([^"'\]]+)["']?/i);
-      if (match && match[1]) {
-        reason = match[1].trim();
+    const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+    const imageInfo = useMemo(() => parseImageMessageContent(content), [content]);
+    const docInfo = useMemo(() => parseDocumentMessageContent(content), [content]);
+
+    if (senderType === 'system') {
+      const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado');
+
+      if (isHandoff) {
+        // Extraer motivo de forma limpia sin corchetes técnicos de log
+        let reason = '';
+        const match = content.match(/Motivo:\s*["']?([^"'\]]+)["']?/i);
+        if (match && match[1]) {
+          reason = match[1].trim();
+        }
+
+        return (
+          <div className="flex items-center justify-center my-3">
+            <div className="flex items-center gap-2 px-3 py-1 bg-amber-50 dark:bg-[#1A1F2C] border border-amber-200 dark:border-amber-500/30 rounded-full text-amber-900 dark:text-slate-300 text-xs shadow-xs max-w-lg transition-colors">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 shrink-0" />
+              <span className="font-semibold text-amber-800 dark:text-amber-300">Pausa IA:</span>
+              <span className="text-slate-700 dark:text-slate-300 truncate">
+                {reason || 'Transferido a control humano'}
+              </span>
+              <span suppressHydrationWarning className="text-[10px] text-slate-500 font-mono ml-1 shrink-0">
+                {formattedTime}
+              </span>
+            </div>
+          </div>
+        );
       }
 
       return (
-        <div className="flex items-center justify-center my-3">
-          <div className="flex items-center gap-2 px-3 py-1 bg-amber-50 dark:bg-[#1A1F2C] border border-amber-200 dark:border-amber-500/30 rounded-full text-amber-900 dark:text-slate-300 text-xs shadow-xs max-w-lg transition-colors">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 shrink-0" />
-            <span className="font-semibold text-amber-800 dark:text-amber-300">Pausa IA:</span>
-            <span className="text-slate-700 dark:text-slate-300 truncate">
-              {reason || 'Transferido a control humano'}
-            </span>
-            <span suppressHydrationWarning className="text-[10px] text-slate-500 font-mono ml-1 shrink-0">
-              {formattedTime}
-            </span>
-          </div>
+        <div className="flex items-center justify-center my-2.5">
+          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-[#131722] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#232A3B] font-mono text-center transition-colors">
+            {content}
+          </span>
         </div>
       );
     }
-
-    return (
-      <div className="flex items-center justify-center my-2.5">
-        <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-[#131722] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#232A3B] font-mono text-center transition-colors">
-          {content}
-        </span>
-      </div>
-    );
-  }
-
-  const isLead = senderType === 'lead';
-  const isAi = senderType === 'ai';
-  const isAgent = senderType === 'agent_manual';
-
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const imageInfo = parseImageMessageContent(content);
-  const docInfo = parseDocumentMessageContent(content);
 
   return (
     <>
@@ -227,4 +230,10 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
       )}
     </>
   );
-}
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.content === nextProps.content &&
+    prevProps.senderType === nextProps.senderType &&
+    prevProps.createdAt === nextProps.createdAt
+  );
+});
