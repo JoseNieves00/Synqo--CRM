@@ -126,7 +126,7 @@ export async function provisionCompany({
   console.log(`🏢 Empresa:       ${org.name} (ID: ${org.id})`);
   console.log(`👑 Admin:         ${adminName} (${adminEmail})`);
   console.log(`🔑 Contraseña:    ${adminPassword}`);
-  console.log(`💳 Suscripción:   ${org.subscription_status} (Plan ${org.plan_type})`);
+  console.log(`💳 Suscripción:   ${org.subscription_status}`);
   console.log('----------------------------------------------------');
   console.log('El cliente ya puede iniciar sesión en /login con estas credenciales.\n');
 

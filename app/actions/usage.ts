@@ -36,21 +36,14 @@ export async function getOrganizationTokenUsage(): Promise<TokenUsageData | null
 
   if (!org) return null;
 
-  const defaultLimits: Record<string, number> = {
-    starter: 500000,
-    core: 500000,
-    pro: 2500000,
-    enterprise: 7500000,
-  };
-
   const tokensUsed = Number(org.ai_tokens_used || 0);
-  const tokensLimit = Number(org.ai_tokens_limit) || defaultLimits[org.plan_type] || 100000;
+  const tokensLimit = Number(org.ai_tokens_limit) || 500000;
   const percentage = Math.min(100, Math.round((tokensUsed / tokensLimit) * 100));
 
   return {
     organizationId: org.id,
     organizationName: org.name,
-    planType: org.plan_type,
+    planType: org.plan_type || 'base',
     tokensUsed,
     tokensLimit,
     percentage,

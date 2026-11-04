@@ -288,11 +288,12 @@ export function EvolutionQrCard({
   };
 
   /**
-   * Copia el pairing code al portapapeles
+   * Copia el pairing code al portapapeles (limpio de guiones para ingreso rápido en WhatsApp)
    */
   const handleCopyCode = () => {
     if (!phoneCode) return;
-    navigator.clipboard.writeText(phoneCode);
+    const cleanToCopy = phoneCode.replace(/-/g, '').trim();
+    navigator.clipboard.writeText(cleanToCopy);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 3000);
   };
@@ -739,7 +740,7 @@ export function EvolutionQrCard({
                         </button>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Sin espacios ni signos + (ejemplo para Colombia: 573001234567).
+                        Sin espacios ni signos + (ej: 573001234567). Si omites el 57 para celular colombiano, se antepondrá automáticamente.
                       </p>
                     </div>
                   </form>
@@ -777,10 +778,14 @@ export function EvolutionQrCard({
                       Cómo vincular sin cámara:
                     </p>
                     <ol className="list-decimal list-inside space-y-1">
-                      <li>Abre WhatsApp $\rightarrow$ <strong>Dispositivos vinculados</strong> $\rightarrow$ <strong>Vincular un dispositivo</strong>.</li>
-                      <li>Toca abajo: <strong>"Vincular con el número de teléfono"</strong>.</li>
-                      <li>Ingresa el código de 8 caracteres que ves arriba.</li>
+                      <li>Abre WhatsApp en el <strong>teléfono celular principal</strong> donde está la cuenta.</li>
+                      <li>Toca <strong>Dispositivos vinculados</strong> $\rightarrow$ <strong>Vincular un dispositivo</strong>.</li>
+                      <li>Toca la opción inferior: <strong>"Vincular con el número de teléfono"</strong>.</li>
+                      <li>Escribe o pega el código de 8 caracteres que ves arriba.</li>
                     </ol>
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 border-t border-slate-200/50 dark:border-slate-800/50 mt-1">
+                      ⚠️ <strong>Nota:</strong> WhatsApp Web no puede autorizar ni vincular nuevos dispositivos. Debe ingresarse en la app WhatsApp del teléfono físico que posee la línea.
+                    </p>
                   </div>
                 </div>
               )}

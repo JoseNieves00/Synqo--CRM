@@ -43,7 +43,44 @@ export interface SendTemplateOptions {
 
 export class MessagingService {
   /**
-   * Envía un mensaje de texto plano enrutándolo al proveedor activo (Meta, Z-API o Evolution API).
+   * Resuelve y valida las credenciales requeridas para Evolution API.
+   */
+  private static resolveEvolutionConfig(organization: MessagingOrganization): {
+    instanceName: string;
+    apiKey: string;
+    apiUrl?: string | null;
+  } {
+    if (!organization.evolution_instance_name && !organization.evolution_api_key) {
+      throw new Error('Instancia de Evolution API no configurada en la plataforma.');
+    }
+
+    const instanceName =
+      organization.evolution_instance_name ||
+      `synqo_${organization.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
+
+    let decryptedKey = '';
+    if (organization.evolution_api_key) {
+      try {
+        decryptedKey = decryptSecret(organization.evolution_api_key);
+      } catch {}
+    }
+    if (!decryptedKey && process.env.EVOLUTION_API_KEY) {
+      decryptedKey = process.env.EVOLUTION_API_KEY.trim();
+    }
+
+    if (!instanceName || !decryptedKey) {
+      throw new Error('Instancia de Evolution API no configurada en la plataforma.');
+    }
+
+    return {
+      instanceName,
+      apiKey: decryptedKey,
+      apiUrl: organization.evolution_api_url,
+    };
+  }
+
+  /**
+   * Envía un mensaje de texto plano enrutándolo al proveedor activo (Meta o Evolution API).
    */
   static async sendTextMessage({
     organization,
@@ -56,23 +93,7 @@ export class MessagingService {
 
     // 1. Ruta Evolution API (VPS / Baileys)
     if (provider === 'evolution') {
-      const instanceName =
-        organization.evolution_instance_name ||
-        `synqo_${organization.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
-
-      let decryptedKey = '';
-      if (organization.evolution_api_key) {
-        try {
-          decryptedKey = decryptSecret(organization.evolution_api_key);
-        } catch {}
-      }
-      if (!decryptedKey && process.env.EVOLUTION_API_KEY) {
-        decryptedKey = process.env.EVOLUTION_API_KEY.trim();
-      }
-
-      if (!instanceName || !decryptedKey) {
-        throw new Error('Instancia de Evolution API no configurada en la plataforma.');
-      }
+      const evoConfig = this.resolveEvolutionConfig(organization);
 
       // Protección Anti-Spam en frío para conexiones VPS
       if (isColdOutbound && organization.evolution_anti_ban_mode !== false) {
@@ -86,9 +107,9 @@ export class MessagingService {
       }
 
       return await EvolutionService.sendTextMessage({
-        apiUrl: organization.evolution_api_url,
-        apiKey: decryptedKey,
-        instanceName,
+        apiUrl: evoConfig.apiUrl,
+        apiKey: evoConfig.apiKey,
+        instanceName: evoConfig.instanceName,
         to,
         message: body,
         simulateTyping,
@@ -121,28 +142,12 @@ export class MessagingService {
     const provider = organization.whatsapp_provider || 'meta';
 
     if (provider === 'evolution') {
-      const instanceName =
-        organization.evolution_instance_name ||
-        `synqo_${organization.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`;
-
-      let decryptedKey = '';
-      if (organization.evolution_api_key) {
-        try {
-          decryptedKey = decryptSecret(organization.evolution_api_key);
-        } catch {}
-      }
-      if (!decryptedKey && process.env.EVOLUTION_API_KEY) {
-        decryptedKey = process.env.EVOLUTION_API_KEY.trim();
-      }
-
-      if (!instanceName || !decryptedKey) {
-        throw new Error('Instancia de Evolution API no configurada en la plataforma.');
-      }
+      const evoConfig = this.resolveEvolutionConfig(organization);
 
       return await EvolutionService.sendInteractiveButtonsMessage({
-        apiUrl: organization.evolution_api_url,
-        apiKey: decryptedKey,
-        instanceName,
+        apiUrl: evoConfig.apiUrl,
+        apiKey: evoConfig.apiKey,
+        instanceName: evoConfig.instanceName,
         to,
         bodyText,
         buttons,

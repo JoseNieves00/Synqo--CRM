@@ -880,7 +880,6 @@ export function SettingsForm({
   };
 
   const subStatus = initialData.subscriptionStatus || 'trialing';
-  const planType = initialData.planType || 'core';
   const enabledModules: EnabledModules = initialData.enabledModules || {
     native_calendar: true,
     physical_rooms: false,

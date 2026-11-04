@@ -38,19 +38,16 @@ import { AdminCopilotTab } from './AdminCopilotTab';
 import { ProvisionWizard } from './ProvisionWizard';
 import {
   OrganizationRow,
-  PlanType,
   EnabledModules,
   listAllOrganizations,
   updateCompanySeats,
   toggleCompanyStatus,
-  updateCompanyPlan,
   updateCompanyDetails,
   updateOrganizationModules,
   regenerateCompanyAdminPassword,
   registerCompanyPayment,
 } from '@/app/actions/superadmin';
 import {
-  PLAN_DEFAULTS,
   formatTokenQuota,
   formatTokenDetailed,
   estimateChatsFromTokens,
@@ -89,7 +86,6 @@ export default function AdminConsoleClient({
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<OrganizationRow | null>(null);
   const [editName, setEditName] = useState<string>('');
-  const [editPlan, setEditPlan] = useState<PlanType>('starter');
   const [editSeats, setEditSeats] = useState<number>(2);
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
   const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
@@ -237,11 +233,8 @@ export default function AdminConsoleClient({
   const handleOpenEditModal = (org: OrganizationRow) => {
     setEditingOrg(org);
     setEditName(org.name);
-    const safePlan: PlanType = org.plan_type === 'core' ? 'starter' : org.plan_type;
-    setEditPlan(safePlan);
     setEditSeats(org.max_users);
-    const defaultLimit = PLAN_DEFAULTS[safePlan]?.aiTokensLimit || 500000;
-    setEditTokensLimit(org.ai_tokens_limit || defaultLimit);
+    setEditTokensLimit(org.ai_tokens_limit || 500000);
     setEditResetTokens(false);
     setEditModules(org.enabled_modules || {
       native_calendar: true,
@@ -265,15 +258,6 @@ export default function AdminConsoleClient({
     setEditRoomLabel(org.room_label || 'Espacio');
   };
 
-  const handlePlanChange = (newPlan: PlanType) => {
-    setEditPlan(newPlan);
-    const defaults = PLAN_DEFAULTS[newPlan];
-    if (defaults) {
-      setEditSeats(Math.max(defaults.maxUsers, editingOrg?.users_count || 1));
-      setEditTokensLimit(defaults.aiTokensLimit);
-    }
-  };
-
   const handleUpdateCompanyDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingOrg) return;
@@ -292,7 +276,6 @@ export default function AdminConsoleClient({
       await updateCompanyDetails({
         organizationId: editingOrg.id,
         name: editName,
-        planType: editPlan,
         maxUsers: editSeats,
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
@@ -314,7 +297,6 @@ export default function AdminConsoleClient({
             ? {
                 ...o,
                 name: editName,
-                plan_type: editPlan,
                 max_users: editSeats,
                 ai_tokens_limit: editTokensLimit,
                 ai_tokens_used: editResetTokens ? 0 : o.ai_tokens_used,
@@ -723,7 +705,6 @@ export default function AdminConsoleClient({
                 <th className="py-3 px-5">Empresa</th>
                 <th className="py-3 px-5">Administrador</th>
                 <th className="py-3 px-5">Usuarios</th>
-                <th className="py-3 px-5">Plan</th>
                 <th className="py-3 px-5">Tokens IA</th>
                 <th className="py-3 px-5">Cobranza & Ciclo</th>
                 <th className="py-3 px-5">Leads</th>
@@ -734,7 +715,7 @@ export default function AdminConsoleClient({
             <tbody className="divide-y divide-gray-100">
               {filteredOrgs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-gray-400 text-sm">
+                  <td colSpan={8} className="py-12 text-center text-gray-400 text-sm">
                     No se encontraron organizaciones registradas.
                   </td>
                 </tr>
@@ -836,17 +817,6 @@ export default function AdminConsoleClient({
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-5">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditModal(org)}
-                          className="capitalize px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200 transition cursor-pointer flex items-center gap-1"
-                          title="Cambiar plan comercial (Upgrade / Downgrade)"
-                        >
-                          {org.plan_type === 'core' ? 'Starter' : org.plan_type}
-                        </button>
-                      </td>
-
                       <td className="py-3.5 px-5 min-w-[155px]">
                         {(() => {
                           const used = org.ai_tokens_used || 0;
@@ -857,7 +827,7 @@ export default function AdminConsoleClient({
 
                           const googleUsed = org.ai_tokens_google_used ?? (org.ai_tokens_used ? Math.max(0, org.ai_tokens_used - (org.ai_tokens_openai_used || 0)) : 0);
                           const openaiUsed = org.ai_tokens_openai_used || 0;
-                          const openaiLimit = org.ai_tokens_openai_backup_limit || (org.plan_type === 'enterprise' ? 150000 : org.plan_type === 'pro' ? 75000 : 25000);
+                          const openaiLimit = org.ai_tokens_openai_backup_limit || 50000;
                           const hasUsedBackup = openaiUsed > 0;
 
                           return (
@@ -1117,24 +1087,6 @@ export default function AdminConsoleClient({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                      Capacidad de Conversaciones & Tokens
-                    </label>
-                    <select
-                      value={editPlan}
-                      onChange={(e) => handlePlanChange(e.target.value as PlanType)}
-                      className="w-full h-10 px-3.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 font-medium transition shadow-xs"
-                    >
-                      <option value="starter">Capacidad Base (~400 chats / 500k Tokens)</option>
-                      <option value="pro">Capacidad Comercial (~1,200 chats / 1.5M Tokens)</option>
-                      <option value="enterprise">Capacidad Alta Demanda (~3,000 chats / 4M Tokens)</option>
-                    </select>
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Ajusta la capacidad y activa o desactiva módulos abajo según lo acordado con la empresa.
-                    </p>
-                  </div>
-
-                  <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-semibold text-gray-700">
                         Límite de Usuarios
@@ -1334,13 +1286,11 @@ export default function AdminConsoleClient({
 
                         <button
                           type="button"
-                          onClick={() =>
-                            setEditTokensLimit(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)
-                          }
+                          onClick={() => setEditTokensLimit(500000)}
                           className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
-                          title="Restablece al límite oficial del plan seleccionado"
+                          title="Restablece a la cuota base de 500k tokens"
                         >
-                          ↺ Base Plan ({formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)})
+                          ↺ 500k Base
                         </button>
                       </div>
                     </div>
@@ -1365,7 +1315,7 @@ export default function AdminConsoleClient({
                     </div>
 
                     <p className="text-[10px] text-slate-500 italic">
-                      Los boosters expiran al renovar el mes y vuelven a la base de {formatTokenQuota(PLAN_DEFAULTS[editPlan]?.aiTokensLimit || 500000)}.
+                      Asigna la cuota mensual de tokens IA para la empresa.
                     </p>
                   </div>
                 </div>

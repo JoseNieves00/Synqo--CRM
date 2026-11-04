@@ -198,33 +198,6 @@ export const INDUSTRY_PRESETS: IndustryPresetConfig[] = [
   },
 ];
 
-const CAPACITY_TIERS = [
-  {
-    id: 'starter' as const,
-    name: 'Capacidad Base',
-    chats: '~400 conversaciones / mes',
-    tokens: '500k tokens IA',
-    badge: 'Validación',
-    description: 'Ideal para validar, baja demanda o negocios que inician.',
-  },
-  {
-    id: 'pro' as const,
-    name: 'Capacidad Comercial',
-    chats: '~1,200 conversaciones / mes',
-    tokens: '1.5M tokens IA',
-    badge: 'Recomendado',
-    description: 'Tráfico comercial activo con citas y seguimiento continuo.',
-  },
-  {
-    id: 'enterprise' as const,
-    name: 'Alta Demanda',
-    chats: '~3,000 conversaciones / mes',
-    tokens: '4M tokens IA',
-    badge: 'Alto Volumen',
-    description: 'Empresas con múltiples sedes, alto flujo o muchos colaboradores.',
-  },
-];
-
 interface Props {
   onSuccess: () => void;
   onCancel: () => void;
@@ -245,7 +218,6 @@ export function ProvisionWizard({ onSuccess, onCancel }: Props) {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState(() => `Synqo${Math.floor(1000 + Math.random() * 9000)}!`);
   const [showPassword, setShowPassword] = useState(false);
-  const [planType, setPlanType] = useState<'starter' | 'core' | 'pro' | 'enterprise'>('starter');
   const [maxUsers, setMaxUsers] = useState<number>(3);
 
   // Módulos
@@ -352,7 +324,6 @@ export function ProvisionWizard({ onSuccess, onCancel }: Props) {
         adminName: adminName.trim(),
         adminEmail: adminEmail.trim().toLowerCase(),
         adminPassword,
-        planType,
         maxUsers,
         companyCode: companyCode.trim().toUpperCase() || undefined,
         industryPreset: selectedPresetId,
@@ -644,68 +615,29 @@ Por seguridad te sugerimos cambiar tu contraseña una vez ingreses al sistema. �
 
               {/* Bloque Capacidad & Usuarios */}
               <div className="p-5 rounded-2xl bg-slate-50/50 border border-gray-200 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-[#0052FF]" />
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-blue-50 text-[#0052FF] rounded-xl border border-blue-200/50">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
                     <div>
-                      <h3 className="text-sm font-bold text-gray-900">Capacidad de Conversaciones & Usuarios</h3>
+                      <h3 className="text-sm font-bold text-gray-900">Cupo de Usuarios Autorizados</h3>
                       <p className="text-[11px] text-gray-500">
-                        Define la capacidad y usuarios según las funcionalidades que vas a habilitarle a la empresa.
+                        Cantidad máxima de miembros de equipo, administradores o asesores que podrán iniciar sesión.
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1.5 rounded-xl shadow-2xs">
-                    <span className="text-xs text-gray-700 font-medium">Usuarios incluidos:</span>
+                  <div className="flex items-center gap-2 bg-white border border-gray-200 px-3.5 py-2 rounded-xl shadow-2xs">
+                    <span className="text-xs text-gray-700 font-semibold">Usuarios autorizados:</span>
                     <input
                       type="number"
                       min={1}
-                      max={100}
+                      max={200}
                       value={maxUsers}
                       onChange={(e) => setMaxUsers(parseInt(e.target.value, 10) || 1)}
-                      className="w-16 h-7 px-2 text-center rounded-lg bg-slate-50 border border-gray-200 text-xs font-bold text-gray-900 focus:outline-none focus:border-[#0052FF]"
+                      className="w-16 h-8 px-2 text-center rounded-lg bg-slate-50 border border-gray-200 text-sm font-black text-gray-900 focus:outline-none focus:border-[#0052FF]"
                     />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {CAPACITY_TIERS.map((tier) => {
-                    const isSelected = planType === tier.id;
-                    return (
-                      <button
-                        key={tier.id}
-                        type="button"
-                        onClick={() => {
-                          setPlanType(tier.id);
-                          if (tier.id === 'starter' && maxUsers <= 2) setMaxUsers(2);
-                          if (tier.id === 'pro' && maxUsers <= 3) setMaxUsers(5);
-                          if (tier.id === 'enterprise' && maxUsers <= 5) setMaxUsers(10);
-                        }}
-                        className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
-                          isSelected
-                            ? 'border-[#0052FF] bg-blue-50/70 ring-2 ring-[#0052FF]/20 shadow-xs'
-                            : 'border-gray-200 bg-white hover:border-gray-300 shadow-2xs'
-                        }`}
-                      >
-                        {tier.badge && (
-                          <span className={`absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            isSelected ? 'bg-[#0052FF] text-white' : 'bg-gray-100 text-gray-600'
-                          }`}>
-                            {tier.badge}
-                          </span>
-                        )}
-                        <h4 className="text-sm font-bold text-gray-900 mb-1">{tier.name}</h4>
-                        <div className="text-sm font-black text-[#0052FF]">
-                          {tier.chats}
-                        </div>
-                        <div className="text-[11px] text-gray-500 mt-1">
-                          {tier.tokens}
-                        </div>
-                        <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
-                          {tier.description}
-                        </p>
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
             </div>
@@ -1046,7 +978,7 @@ Por seguridad te sugerimos cambiar tu contraseña una vez ingreses al sistema. �
                     )}
                     <div><strong className="text-gray-500 font-medium">Admin:</strong> <span className="text-gray-900 ml-1">{adminName}</span></div>
                     <div><strong className="text-gray-500 font-medium">Email:</strong> <span className="text-gray-900 font-mono ml-1">{adminEmail}</span></div>
-                    <div><strong className="text-gray-500 font-medium">Plan:</strong> <span className="text-emerald-700 font-bold ml-1">Personalizado a Medida</span> ({maxUsers} usuarios • {CAPACITY_TIERS.find(t => t.id === planType)?.name || 'Comercial'})</div>
+                    <div><strong className="text-gray-500 font-medium">Usuarios Autorizados:</strong> <span className="text-gray-900 font-bold ml-1">{maxUsers} usuarios</span></div>
                   </div>
 
                   <div className="p-4 rounded-xl bg-white border border-gray-200 space-y-2 shadow-2xs">
