@@ -101,6 +101,15 @@ export function SupportModal() {
     }
   }, [isOpen, activeTab]);
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
+
   const handleAskCopilot = async (overrideQuery?: string) => {
     const q = overrideQuery || copilotQuery;
     if (!q.trim() || copilotLoading) return;
@@ -176,7 +185,7 @@ export function SupportModal() {
     <>
       {/* Modal Principal (Activado desde SupportHeaderButton en el Header) */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Cabecera */}
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-50">

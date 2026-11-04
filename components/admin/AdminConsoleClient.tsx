@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Building2,
   Users,
@@ -32,6 +32,7 @@ import {
   CheckCheck,
   User,
   Mail,
+  Loader2,
 } from 'lucide-react';
 import { AdminTicketsTab } from './AdminTicketsTab';
 import { AdminCopilotTab } from './AdminCopilotTab';
@@ -130,6 +131,15 @@ export default function AdminConsoleClient({
   // Estado para modal de actualización de cobertura/pago
   const [payingOrg, setPayingOrg] = useState<OrganizationRow | null>(null);
   const [payMonth, setPayMonth] = useState<string>(currentMonthStr);
+
+  useEffect(() => {
+    if (editingOrg || payingOrg) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [editingOrg, payingOrg]);
 
   const getNextMonthStr = () => {
     const now = new Date();
@@ -1040,7 +1050,7 @@ export default function AdminConsoleClient({
 
       {/* Modal: Editar Empresa (Plan, Usuarios, Tokens) — Diseño Horizontal Adaptativo */}
       {editingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200 my-auto">
             {/* Cabecera */}
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between">
@@ -1609,10 +1619,10 @@ export default function AdminConsoleClient({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-6 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                  className="min-w-[150px] inline-flex items-center justify-center gap-1.5 px-6 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
                 >
-                  <Check className="w-4 h-4" />
-                  {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  <span>{isSubmitting ? 'Guardando...' : 'Guardar Cambios'}</span>
                 </button>
               </div>
             </form>
@@ -1622,7 +1632,7 @@ export default function AdminConsoleClient({
 
       {/* Mini-Modal: Actualizar Cobertura de Pago (Mensual o Anual) */}
       {payingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-gray-200 bg-gray-50/50">
               <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">

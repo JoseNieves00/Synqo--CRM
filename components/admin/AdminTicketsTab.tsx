@@ -306,8 +306,8 @@ export function AdminTicketsTab({ initialTickets }: AdminTicketsTabProps) {
 
       {/* Modal para visualizar captura de pantalla */}
       {previewImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-4 space-y-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-4 space-y-3 animate-in zoom-in-95 duration-200 shadow-2xl">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-gray-900">Captura de Pantalla del Reporte</span>
               <button

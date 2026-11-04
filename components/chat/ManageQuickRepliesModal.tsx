@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Zap,
@@ -40,6 +40,15 @@ export function ManageQuickRepliesModal({
   const [newShortcut, setNewShortcut] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [newText, setNewText] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -109,7 +118,7 @@ export function ManageQuickRepliesModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-[#131722] rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-[#232A3B] space-y-4 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col text-slate-100">
         {/* Cabecera */}
         <div className="flex items-center justify-between border-b border-[#1E2433] pb-3">

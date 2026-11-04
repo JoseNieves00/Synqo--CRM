@@ -509,6 +509,15 @@ export function SettingsForm({
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (templateToEdit || templateToDelete) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [templateToEdit, templateToDelete]);
+
   const handleAddTemplate = async () => {
     const cleanName = newTplName.trim().toLowerCase().replace(/\s+/g, '_');
     if (!cleanName) {
@@ -980,7 +989,7 @@ export function SettingsForm({
         <>
           {feedback && (
             <div
-              className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium ${
+              className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium animate-in fade-in slide-in-from-top-1 duration-200 transition-all ${
                 feedback.type === 'success'
                   ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
                   : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
@@ -2291,20 +2300,33 @@ export function SettingsForm({
           </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+          <div>
+            {feedback && (
+              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl animate-in fade-in duration-200 ${
+                feedback.type === 'success' 
+                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20' 
+                  : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
+              }`}>
+                {feedback.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                {feedback.message}
+              </span>
+            )}
+          </div>
           <button
             type="submit"
             disabled={saving}
-            className="bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
+            className="min-w-[195px] inline-flex items-center justify-center gap-2 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
           >
-            {saving ? 'Guardando...' : 'Guardar Configuración'}
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            <span>{saving ? 'Guardando...' : 'Guardar Configuración'}</span>
           </button>
         </div>
       </form>
 
       {/* Modal de Edición de Plantilla */}
       {templateToEdit && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 flex items-center justify-center shrink-0">
@@ -2418,7 +2440,7 @@ export function SettingsForm({
 
       {/* Modal de Confirmación para Eliminar Plantilla */}
       {templateToDelete && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4">
             <div className="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 flex items-center justify-center">
               <Trash2 className="w-5 h-5" />

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { PipelineStage } from '@/lib/supabase/types';
 import { updateCustomStageLabels } from '@/app/actions/pipeline';
@@ -24,6 +24,15 @@ export function EditStageLabelsModal({
   }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -86,7 +95,7 @@ export function EditStageLabelsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-white dark:bg-[#131722] rounded-xl max-w-lg w-full p-5 shadow-2xl border border-slate-200 dark:border-[#232A3B] space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100 transition-colors">
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#1E2433] pb-3">
           <div className="flex items-center gap-2.5 text-slate-900 dark:text-white">

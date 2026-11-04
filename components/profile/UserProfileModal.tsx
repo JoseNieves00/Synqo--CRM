@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { updateUserProfile } from '@/app/actions/profile';
 import { useTheme } from 'next-themes';
 import { User, Lock, CheckCircle2, AlertCircle, X, Shield, HelpCircle, Sun, Moon, Laptop } from 'lucide-react';
@@ -30,6 +30,15 @@ export function UserProfileModal({
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -103,8 +112,8 @@ export function UserProfileModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 dark:border-[#232A3B] transition-colors">
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 dark:border-[#232A3B] transition-colors animate-in zoom-in-95 duration-200">
         <div className="p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] flex items-center justify-center font-bold">

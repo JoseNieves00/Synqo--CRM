@@ -101,6 +101,15 @@ export function ChatWindow({
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (showDeleteModal) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [showDeleteModal]);
+
   const handleDeleteChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deletePassword.trim() || isDeleting) return;
@@ -579,10 +588,12 @@ export function ChatWindow({
 
       {/* Modal de Confirmación Rápida para Eliminar Chat */}
       {showDeleteModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#131722] rounded-xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-2">
-              <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
               <h4 className="font-bold text-sm text-slate-900 dark:text-white">
                 ¿Eliminar esta conversación?
               </h4>
@@ -594,7 +605,7 @@ export function ChatWindow({
             </p>
 
             {deleteError && (
-              <div className="p-2.5 mb-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2">
+              <div className="p-2.5 mb-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{deleteError}</span>
               </div>
@@ -613,7 +624,7 @@ export function ChatWindow({
                     placeholder="Tu contraseña actual"
                     value={deletePassword}
                     onChange={(e) => setDeletePassword(e.target.value)}
-                    className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                    className="w-full pl-8.5 pr-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-rose-500"
                   />
                 </div>
               </div>
@@ -623,14 +634,14 @@ export function ChatWindow({
                   type="button"
                   onClick={() => setShowDeleteModal(false)}
                   disabled={isDeleting}
-                  className="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-lg text-xs font-medium transition cursor-pointer"
+                  className="px-3.5 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl text-xs font-semibold transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isDeleting || !deletePassword.trim()}
-                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  className="min-w-[125px] inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition cursor-pointer shadow-xs"
                 >
                   {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>{isDeleting ? 'Eliminando...' : 'Eliminar Chat'}</span>

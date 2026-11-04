@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createLead } from '@/app/actions/contacts';
 import { PipelineStage } from '@/lib/supabase/types';
 import { PIPELINE_STAGES } from '@/services/contact.service';
@@ -26,6 +26,15 @@ export function NewLeadModal({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [stage, setStage] = useState<PipelineStage>(defaultStage);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,8 +76,8 @@ export function NewLeadModal({
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-md w-full border border-slate-200 dark:border-[#232A3B] shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100 transition-colors">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-md w-full border border-slate-200 dark:border-[#232A3B] shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100 transition-colors animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#1E2433] bg-slate-50 dark:bg-[#0E121B]">
               <h3 className="font-bold text-sm text-slate-900 dark:text-white">Registrar Nuevo Prospecto</h3>
               <button
@@ -154,7 +163,7 @@ export function NewLeadModal({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-[#0052FF] hover:bg-[#0043D4] text-white font-semibold text-xs px-5 py-2 rounded-xl transition shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  className="min-w-[115px] inline-flex items-center justify-center gap-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white font-semibold text-xs px-5 py-2 rounded-xl transition shadow-xs disabled:opacity-50 cursor-pointer"
                 >
                   {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>{loading ? 'Guardando...' : 'Crear Lead'}</span>

@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 import {
   formatImageMessageContent,
   parseImageMessageContent,
@@ -152,6 +154,119 @@ Ubicación: Valledupar
   assert.strictEqual(cleanedText.includes('CATÁLOGO VISUAL'), false, 'No debe contener el bloque interno de fotos');
   assert.ok(cleanedText.includes('Cocina mediana ($410.000): Con stickers personalizados.'));
   console.log('   ✅ Extracción y desinfección invisible de fotos aprobada.');
+
+  // 6. Ciclo Completo de Adición, Eliminación y Persistencia en Base de Datos
+  console.log('\n6️⃣  Probando ciclo de Adición, Guardado, Visualización y Eliminación en Base de Datos...');
+  const testOrgId = 'da8cb0c8-f326-4f0c-873b-7bf73319be83'; // Filippo Kids
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (supabaseUrl && serviceKey) {
+    // A. Consultar estado actual
+    const getRes = await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}&select=id,name,system_prompt,structured_prompt_data`, {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    });
+    const [currentOrg] = await getRes.json();
+    assert.ok(currentOrg, 'La organización de prueba debe existir en Supabase');
+
+    const originalPrompt = currentOrg.system_prompt || '';
+    const originalStructuredData = currentOrg.structured_prompt_data || {};
+    const originalGallery = Array.isArray(originalStructuredData.gallery) ? originalStructuredData.gallery : [];
+
+    // B. Simular Adición de Nueva Foto
+    const newTestPhoto = {
+      id: `photo-test-${Date.now()}`,
+      name: 'Producto Test de Prueba Automatizada',
+      url: 'https://eqsvpwpjalrjcfxecddi.supabase.co/storage/v1/object/public/chat-media/test-item.png',
+    };
+
+    const galleryWithAddition = [...originalGallery, newTestPhoto];
+    const cleanText = stripPhotoUrlsFromText(originalPrompt).trim();
+    const galleryBlock =
+      '\n\n=== CATÁLOGO VISUAL DE FOTOS (DISPATCH INTERNO) ===\n' +
+      galleryWithAddition.map((g: any) => `- ${g.name}: ${g.url}`).join('\n');
+    const compiledWithAddition = cleanText + galleryBlock;
+
+    // C. Guardar en Base de Datos
+    const patchRes = await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify({
+        system_prompt: compiledWithAddition,
+        structured_prompt_data: {
+          ...originalStructuredData,
+          gallery: galleryWithAddition,
+        },
+      }),
+    });
+    assert.strictEqual(patchRes.status, 200, 'El guardado en base de datos debe responder 200');
+
+    // D. Verificar que se guardó correctamente en BD
+    const verifyAddRes = await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}&select=id,system_prompt,structured_prompt_data`, {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    });
+    const [savedOrg] = await verifyAddRes.json();
+    const savedGallery = savedOrg.structured_prompt_data?.gallery || [];
+    assert.ok(
+      savedGallery.some((g: any) => g.id === newTestPhoto.id && g.name === newTestPhoto.name),
+      'La nueva foto debe persistir en structured_prompt_data.gallery en Supabase'
+    );
+    assert.ok(
+      savedOrg.system_prompt.includes(newTestPhoto.name),
+      'El system_prompt compilado debe contener el nombre del producto en el catálogo visual'
+    );
+
+    // E. Simular Eliminación de la Foto de Prueba (Restaurar)
+    const galleryAfterDeletion = savedGallery.filter((g: any) => g.id !== newTestPhoto.id);
+    const restoredBlock = galleryAfterDeletion.length > 0
+      ? '\n\n=== CATÁLOGO VISUAL DE FOTOS (DISPATCH INTERNO) ===\n' +
+        galleryAfterDeletion.map((g: any) => `- ${g.name}: ${g.url}`).join('\n')
+      : '';
+
+    await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        system_prompt: cleanText + restoredBlock,
+        structured_prompt_data: {
+          ...originalStructuredData,
+          gallery: galleryAfterDeletion,
+        },
+      }),
+    });
+
+    // F. Verificar eliminación en BD
+    const verifyDeleteRes = await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}&select=id,structured_prompt_data`, {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    });
+    const [restoredOrg] = await verifyDeleteRes.json();
+    assert.strictEqual(
+      (restoredOrg.structured_prompt_data?.gallery || []).some((g: any) => g.id === newTestPhoto.id),
+      false,
+      'La foto eliminada ya no debe existir en la base de datos'
+    );
+    console.log('   ✅ Ciclo completo de Adición, Guardado, Visualización y Eliminación verificado en Supabase.');
+  } else {
+    console.log('   ⚠️ Supabase URL o Service Key no disponibles en entorno local de pruebas.');
+  }
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE MULTIMEDIA E IMÁGENES PASARON EXITOSAMENTE!\n');
 }

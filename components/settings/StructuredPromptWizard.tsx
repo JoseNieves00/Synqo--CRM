@@ -26,6 +26,7 @@ import {
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
 import { uploadChatMedia } from '@/app/actions/chat';
+import { updateOrganizationSettings } from '@/app/actions/settings';
 
 interface StructuredPromptWizardProps {
   initialPrompt?: string | null;
@@ -74,12 +75,15 @@ export function StructuredPromptWizard({
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [feedbackBanner, setFeedbackBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const modalFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Función unificada para compilar y propagar hacia el padre (SettingsForm)
   const compileAndPropagate = (currentText: string, currentGallery: GalleryPhotoItem[]) => {
-    let compiled = currentText.trim();
+    let clean = stripPhotoUrlsFromText(currentText).trim();
+    let compiled = clean;
     if (currentGallery.length > 0) {
       const galleryBlock =
         '\n\n=== CATÁLOGO VISUAL DE FOTOS (DISPATCH INTERNO) ===\n' +
@@ -87,10 +91,13 @@ export function StructuredPromptWizard({
       compiled += galleryBlock;
     }
 
-    onPromptCompiled(compiled, {
+    const structuredData = {
       ...(initialStructuredData || {}),
       gallery: currentGallery,
-    });
+    };
+
+    onPromptCompiled(compiled, structuredData);
+    return { compiled, structuredData };
   };
 
   const handleTextChange = (newText: string) => {
@@ -168,7 +175,23 @@ export function StructuredPromptWizard({
 
       const updatedGallery = [...gallery, newPhotoItem];
       setGallery(updatedGallery);
-      compileAndPropagate(textPrompt, updatedGallery);
+      const { compiled, structuredData } = compileAndPropagate(textPrompt, updatedGallery);
+
+      // Guardar de inmediato en la base de datos para garantizar persistencia instantánea
+      try {
+        await updateOrganizationSettings({
+          systemPrompt: compiled,
+          structuredPromptData: structuredData,
+        });
+        setFeedbackBanner({
+          type: 'success',
+          text: `Foto "${newPhotoItem.name}" guardada y sincronizada en la base de datos con éxito.`,
+        });
+        setTimeout(() => setFeedbackBanner(null), 5000);
+      } catch (dbErr: any) {
+        console.warn('[DB AUTO-SAVE WARNING]', dbErr);
+      }
+
       handleCloseAddModal();
     } catch (err: any) {
       console.error('[PHOTO UPLOAD ERROR]', err);
@@ -178,11 +201,36 @@ export function StructuredPromptWizard({
     }
   };
 
-  const handleDeletePhoto = (id: string, name: string) => {
-    if (window.confirm(`¿Estás seguro de que deseas eliminar la foto de "${name}" del catálogo?`)) {
+  const handleDeletePhoto = async (id: string, name: string) => {
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar la foto de "${name}" del catálogo?`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingId(id);
       const updatedGallery = gallery.filter((item) => item.id !== id);
       setGallery(updatedGallery);
-      compileAndPropagate(textPrompt, updatedGallery);
+      const { compiled, structuredData } = compileAndPropagate(textPrompt, updatedGallery);
+
+      // Actualizar inmediatamente en la base de datos
+      await updateOrganizationSettings({
+        systemPrompt: compiled,
+        structuredPromptData: structuredData,
+      });
+
+      setFeedbackBanner({
+        type: 'success',
+        text: `Foto "${name}" eliminada del catálogo y actualizada en la base de datos.`,
+      });
+      setTimeout(() => setFeedbackBanner(null), 4000);
+    } catch (err: any) {
+      console.error('[DELETE PHOTO ERROR]', err);
+      setFeedbackBanner({
+        type: 'error',
+        text: 'Error al actualizar en base de datos: ' + (err?.message || 'Error desconocido'),
+      });
+    } finally {
+      setIsDeletingId(null);
     }
   };
 
@@ -410,6 +458,33 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
           </button>
         </div>
 
+        {/* Notificación de Sincronización en Base de Datos */}
+        {feedbackBanner && (
+          <div
+            className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 animate-in fade-in duration-200 ${
+              feedbackBanner.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 text-rose-800 dark:text-rose-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {feedbackBanner.type === 'success' ? (
+                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+              )}
+              <span>{feedbackBanner.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFeedbackBanner(null)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Grid de Fotos o Estado Vacío */}
         {gallery.length === 0 ? (
           <div
@@ -460,11 +535,16 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   </span>
                   <button
                     type="button"
+                    disabled={isDeletingId === item.id}
                     onClick={() => handleDeletePhoto(item.id, item.name)}
-                    className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition cursor-pointer shrink-0"
+                    className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition cursor-pointer shrink-0 disabled:opacity-50"
                     title="Eliminar foto del catálogo"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    {isDeletingId === item.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
                   </button>
                 </div>
               </div>
