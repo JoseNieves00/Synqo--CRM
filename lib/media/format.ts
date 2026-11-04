@@ -126,30 +126,61 @@ export function parseDocumentMessageContent(content: string | null | undefined):
 }
 
 /**
- * Limpia y remueve cualquier enlace o etiqueta de foto [foto: URL] del texto
+ * Limpia y remueve cualquier bloque de catálogo interno o enlace [foto: URL] del texto
  * para que el comerciante nunca vea URLs largas ni sintaxis técnica en el editor.
  */
 export function stripPhotoUrlsFromText(text: string | null | undefined): string {
   if (!text) return '';
   return text
+    .replace(/===\s*CATÁLOGO VISUAL DE FOTOS[\s\S]*?(?=\n\n[#=]|$)/gi, '')
     .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\]]+\]/gi, '')
-    .replace(/[ \t]+(?=\r?\n|$)/gm, '');
+    .replace(/[ \t]+(?=\r?\n|$)/gm, '')
+    .trim();
+}
+
+export interface GalleryPhotoItem {
+  id: string;
+  name: string;
+  url: string;
 }
 
 /**
- * Extrae un arreglo de fotos vinculadas { name, url } a partir de un texto con [foto: URL].
+ * Extrae un arreglo de fotos vinculadas { id, name, url } a partir de un texto con [foto: URL]
+ * o a partir del bloque de despacho interno `=== CATÁLOGO VISUAL DE FOTOS ===`.
  */
-export function extractPhotoUrlsFromText(text: string | null | undefined): Array<{ name: string; url: string }> {
+export function extractPhotoUrlsFromText(text: string | null | undefined): GalleryPhotoItem[] {
   if (!text) return [];
-  const lines = text.split(/\r?\n/);
-  const items: Array<{ name: string; url: string }> = [];
+  const items: GalleryPhotoItem[] = [];
+  const seenUrls = new Set<string>();
 
+  // 1. Extraer del bloque estructurado de catálogo visual si existe
+  const catalogBlockMatch = text.match(/===\s*CATÁLOGO VISUAL DE FOTOS[^\n]*===([\s\S]*?)(?=\n\n[#=]|$)/i);
+  if (catalogBlockMatch) {
+    const lines = catalogBlockMatch[1].split(/\r?\n/);
+    for (const line of lines) {
+      const match = line.match(/[-*]\s*([^:\n]+):\s*(https?:\/\/[^\s]+)/i);
+      if (match) {
+        const name = match[1].trim();
+        const url = match[2].trim();
+        if (!seenUrls.has(url)) {
+          seenUrls.add(url);
+          items.push({ id: `photo-${Date.now()}-${items.length}`, name, url });
+        }
+      }
+    }
+  }
+
+  // 2. Extraer de etiquetas inline [foto: URL] (comunes en catálogos redactados)
+  const lines = text.split(/\r?\n/);
   for (const line of lines) {
     const match = line.match(/[-*]\s*([^($:\n]+).*?\[(?:foto|imagen):\s*(https?:\/\/[^\]\s]+)\]/i);
     if (match) {
       const name = match[1].trim();
       const url = match[2].trim();
-      items.push({ name, url });
+      if (!seenUrls.has(url)) {
+        seenUrls.add(url);
+        items.push({ id: `photo-${Date.now()}-${items.length}`, name, url });
+      }
     }
   }
 

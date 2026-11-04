@@ -640,6 +640,11 @@ export function stripXmlToCleanText(prompt: string | null | undefined): string {
   clean = clean.replace(/<ruta_de_compra>[\s\S]*?<\/ruta_de_compra>/gi, '');
   clean = clean.replace(/<\/?[a-zA-Z0-9_-]+>/g, '').trim();
 
+  // Limpiar cualquier bloque interno de catálogo visual o URLs técnicas [foto: URL]
+  clean = clean.replace(/===\s*CATÁLOGO VISUAL DE FOTOS[\s\S]*?(?=\n\n[#=]|$)/gi, '');
+  clean = clean.replace(/\[(?:foto|imagen):\s*https?:\/\/[^\]]+\]/gi, '');
+  clean = clean.replace(/[ \t]+(?=\r?\n|$)/gm, '').trim();
+
   return clean || prompt.trim();
 }
 

@@ -3,6 +3,10 @@ import assert from 'node:assert';
 import {
   formatImageMessageContent,
   parseImageMessageContent,
+  formatDocumentMessageContent,
+  parseDocumentMessageContent,
+  stripPhotoUrlsFromText,
+  extractPhotoUrlsFromText,
   isPaymentReceiptHint,
 } from '../lib/media/format';
 import { SendWhatsAppImageToolSchema } from '../lib/validations/tool-calls.schema';
@@ -102,6 +106,52 @@ async function runMultimediaTests() {
   }, 'Debe rechazar URLs con formato inválido');
 
   console.log('   ✅ Schema de Function Calling para send_whatsapp_image aprobado.');
+
+  // 4. Formateo y Parsing de Mensajes de Documentos / Archivos
+  console.log('\n4️⃣  Probando formateo y parseo de mensajes de documentos...');
+  const docUrl = 'https://supabase.co/storage/v1/object/public/chat-media/org1/c1/catalogo-2026.pdf';
+  const docName = 'Catalogo-Filippo-2026.pdf';
+  const docCaption = 'Aquí tienes el portafolio completo en formato PDF';
+
+  const formattedDoc = formatDocumentMessageContent(docUrl, docName, docCaption);
+  assert.strictEqual(
+    formattedDoc,
+    `📄 [Documento: ${docUrl} (${docName})]: ${docCaption}`,
+    'El formato de documento canónico debe ser exacto'
+  );
+
+  const parsedDoc = parseDocumentMessageContent(formattedDoc);
+  assert.strictEqual(parsedDoc.isDocument, true);
+  assert.strictEqual(parsedDoc.url, docUrl);
+  assert.strictEqual(parsedDoc.fileName, docName);
+  assert.strictEqual(parsedDoc.caption, docCaption);
+  console.log('   ✅ Formateo y parsing de documentos / archivos aprobado.');
+
+  // 5. Extracción y Limpieza Invisible de Fotos de Productos
+  console.log('\n5️⃣  Probando extracción y desinfección invisible de fotos de productos...');
+  const rawPromptWithUrls = `# EMPRESA: Filippo Kids
+Ubicación: Valledupar
+
+# PRODUCTOS Y PRECIOS:
+- Cocina mediana ($410.000): Con stickers personalizados. [foto: https://cdn.synqo.dev/cocina-med.png]
+- Cocina pequeña ($360.000): Diseño compacto. [foto: https://cdn.synqo.dev/cocina-peq.png]
+
+=== CATÁLOGO VISUAL DE FOTOS (DISPATCH INTERNO) ===
+- Casita de Madera: https://cdn.synqo.dev/casita.png
+- Cocina + nevera: https://cdn.synqo.dev/cocina-nevera.png`;
+
+  const extractedPhotos = extractPhotoUrlsFromText(rawPromptWithUrls);
+  assert.strictEqual(extractedPhotos.length, 4, 'Debe extraer las 4 fotos vinculadas');
+  assert.ok(extractedPhotos.some((p) => p.name.includes('Cocina mediana')));
+  assert.ok(extractedPhotos.some((p) => p.name.includes('Cocina pequeña')));
+  assert.ok(extractedPhotos.some((p) => p.name.includes('Casita de Madera')));
+  assert.ok(extractedPhotos.some((p) => p.name.includes('Cocina + nevera')));
+
+  const cleanedText = stripPhotoUrlsFromText(rawPromptWithUrls);
+  assert.strictEqual(cleanedText.includes('http'), false, 'El texto desinfectado no debe contener ninguna URL técnica');
+  assert.strictEqual(cleanedText.includes('CATÁLOGO VISUAL'), false, 'No debe contener el bloque interno de fotos');
+  assert.ok(cleanedText.includes('Cocina mediana ($410.000): Con stickers personalizados.'));
+  console.log('   ✅ Extracción y desinfección invisible de fotos aprobada.');
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE MULTIMEDIA E IMÁGENES PASARON EXITOSAMENTE!\n');
 }
