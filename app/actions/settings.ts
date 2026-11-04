@@ -103,6 +103,52 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 }
 
 /**
+ * Guarda o actualiza la galería visual de fotos de productos en la organización
+ * de manera atómica e instantánea sin forzar recarga de página (zero flicker).
+ */
+export async function saveProductGallery(
+  gallery: Array<{ id: string; name: string; url: string }>,
+  compiledPrompt: string
+) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada para el usuario.');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('structured_prompt_data')
+    .eq('id', orgId)
+    .single();
+
+  const currentStructured = org?.structured_prompt_data || {};
+  const updatedStructured = {
+    ...currentStructured,
+    gallery,
+  };
+
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      system_prompt: compiledPrompt.trim(),
+      structured_prompt_data: updatedStructured,
+    })
+    .eq('id', orgId);
+
+  if (updateError) {
+    throw new Error(`Error guardando catálogo de fotos: ${updateError.message}`);
+  }
+
+  return { success: true };
+}
+
+/**
  * Agrega o actualiza una plantilla de WhatsApp en la organización.
  */
 export async function addCustomTemplate(input: { name: string; label?: string }) {

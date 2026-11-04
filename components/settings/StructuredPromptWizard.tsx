@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Sparkles,
   Building2,
@@ -26,7 +27,7 @@ import {
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
 import { uploadChatMedia } from '@/app/actions/chat';
-import { updateOrganizationSettings } from '@/app/actions/settings';
+import { saveProductGallery } from '@/app/actions/settings';
 
 interface StructuredPromptWizardProps {
   initialPrompt?: string | null;
@@ -67,6 +68,11 @@ export function StructuredPromptWizard({
   const [copied, setCopied] = useState(false);
   const [selectedTemplateModal, setSelectedTemplateModal] = useState(false);
   const [previewTemplateId, setPreviewTemplateId] = useState<string>('ecommerce');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Modal para agregar nueva foto al catálogo interno
   const [isAddPhotoModalOpen, setIsAddPhotoModalOpen] = useState(false);
@@ -153,8 +159,11 @@ export function StructuredPromptWizard({
     }
   };
 
-  const handleSavePhotoToGallery = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSavePhotoToGallery = async (e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!selectedPhotoFile) {
       setPhotoUploadError('Debes seleccionar una imagen.');
       return;
@@ -186,12 +195,9 @@ export function StructuredPromptWizard({
       setGallery(updatedGallery);
       const { compiled, structuredData } = compileAndPropagate(textPrompt, updatedGallery);
 
-      // Guardar de inmediato en la base de datos para garantizar persistencia instantánea
+      // Guardar de inmediato en la base de datos atómicamente sin recargar la página
       try {
-        await updateOrganizationSettings({
-          systemPrompt: compiled,
-          structuredPromptData: structuredData,
-        });
+        await saveProductGallery(updatedGallery, compiled);
         setFeedbackBanner({
           type: 'success',
           text: `Foto "${newPhotoItem.name}" guardada y sincronizada en la base de datos con éxito.`,
@@ -222,10 +228,7 @@ export function StructuredPromptWizard({
       const { compiled, structuredData } = compileAndPropagate(textPrompt, updatedGallery);
 
       // Actualizar inmediatamente en la base de datos
-      await updateOrganizationSettings({
-        systemPrompt: compiled,
-        structuredPromptData: structuredData,
-      });
+      await saveProductGallery(updatedGallery, compiled);
 
       setFeedbackBanner({
         type: 'success',
@@ -636,10 +639,10 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
         </span>
       </div>
 
-      {/* Modal para Agregar Foto al Catálogo Visual Interno */}
-      {isAddPhotoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full p-5 space-y-4 animate-in zoom-in-95 duration-200">
+      {/* Modal para Agregar Foto al Catálogo Visual Interno (Portaled a document.body) */}
+      {isAddPhotoModalOpen && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full p-5 space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF]">
@@ -659,7 +662,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
               </button>
             </div>
 
-            <form onSubmit={handleSavePhotoToGallery} className="space-y-3.5">
+            <div className="space-y-3.5">
               {/* Campo Nombre del Producto */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -751,7 +754,8 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   Cancelar
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleSavePhotoToGallery}
                   disabled={isUploadingPhoto || !selectedPhotoFile || !photoName.trim()}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
                 >
@@ -765,15 +769,16 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   )}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Modal Selector de Plantillas Guía por Nicho */}
-      {selectedTemplateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in zoom-in-95 duration-200">
+      {/* Modal Selector de Plantillas Guía por Nicho (Portaled a document.body) */}
+      {selectedTemplateModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
               <div>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -862,7 +867,8 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
