@@ -291,7 +291,7 @@ export function AdminTicketsTab({ initialTickets }: AdminTicketsTabProps) {
                       >
                         <option value="open">Abierto (Pendiente)</option>
                         <option value="in_progress">En Progreso (Dev)</option>
-                        <option value="resolved">Resuelto ✅ (Cierra Issue)</option>
+                        <option value="resolved">Resuelto (Cierra Issue)</option>
                         <option value="closed">Cerrado Definitivo</option>
                       </select>
                       {isUpdating && <Loader2 className="w-3 h-3 animate-spin text-gray-500" />}

@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import assert from 'assert';
-import { checkTokenQuota } from '../lib/monitoring/token-tracker';
+import { checkTokenQuota, checkBackupTokenQuota } from '../lib/monitoring/token-tracker';
 import { testWhatsAppConnection } from '../app/actions/settings';
 import { supabaseAdmin } from '../lib/supabase/admin';
 
@@ -14,7 +14,12 @@ async function runTests() {
   assert.strictEqual(orgResult.allowed, true, 'Por defecto debe permitir');
   assert(orgResult.limit >= 100000, 'Límite base debe ser al menos 100,000 tokens');
   assert.strictEqual(orgResult.percentage, 0, 'Porcentaje debe ser 0 para empresa sin consumo previo');
-  console.log('   ✅ Cuotas por defecto y límites de tokens validados.');
+
+  const backupResult = await checkBackupTokenQuota('non-existent-org-id');
+  assert.strictEqual(backupResult.allowed, true, 'Por defecto backup debe permitir');
+  assert(backupResult.limit >= 25000, 'Límite base backup debe ser al menos 25,000 tokens de OpenAI');
+  assert.strictEqual(backupResult.percentage, 0, 'Porcentaje backup debe ser 0 para empresa sin consumo previo');
+  console.log('   ✅ Cuotas por defecto y límites de tokens validados (Google Primario + OpenAI Backup).');
 
   // 2. Probar validación de parámetros en Test de Conexión de WhatsApp
   console.log('2️⃣  Probando Test de Conexión de WhatsApp Cloud API...');

@@ -4,7 +4,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { AppointmentService } from '@/services/appointment.service';
 import { ReminderService } from '@/services/reminder.service';
-import { generateInviteToken, hashPassword } from '@/lib/security/encryption';
+import { WhatsAppService } from '@/services/whatsapp.service';
+import { MessagingService } from '@/services/messaging.service';
+import { generateInviteToken, hashPassword, decryptSecret } from '@/lib/security/encryption';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -70,6 +72,9 @@ export async function getCalendarData(options?: {
       booked_via,
       reschedule_count,
       notes,
+      reference_info,
+      meeting_link,
+      delay_minutes,
       client_notified_delay_at,
       confirmation_status,
       payment_status,
@@ -126,6 +131,9 @@ export async function getCalendarData(options?: {
     bookedVia: appt.booked_via,
     rescheduleCount: appt.reschedule_count || 0,
     notes: appt.notes,
+    referenceInfo: appt.reference_info,
+    meetingLink: appt.meeting_link,
+    delayMinutes: appt.delay_minutes,
     clientNotifiedDelayAt: appt.client_notified_delay_at,
     confirmationStatus: appt.confirmation_status,
     paymentStatus: appt.payment_status,
@@ -335,6 +343,37 @@ export async function reportDelayAdmin(appointmentId: string, delayMinutes: numb
     appointmentId,
     delayMinutes,
   });
+
+  // Si se detectó el siguiente cliente del especialista, enviarle una cortesía por WhatsApp
+  if (res.nextContact && res.nextContact.phone) {
+    try {
+      const { data: fullOrg } = await (supabaseAdmin.from('organizations') as any)
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
+        .eq('id', org.id)
+        .single();
+
+      if (fullOrg) {
+        const contactName = res.nextContact.name || 'estimado cliente';
+        const serviceName = res.nextAppointment?.service_name || 'tu servicio';
+        const delayNotice = `Hola ${contactName}, te informamos de forma preventiva que el turno previo a tu cita de "${serviceName}" presenta una demora estimada de ${delayMinutes} minutos. Si deseas llegar un poco más tarde o prefieres reprogramar, por favor cuéntanos por aquí. ¡Agradecemos mucho tu comprensión!`;
+
+        await MessagingService.sendTextMessage({
+          organization: fullOrg,
+          to: res.nextContact.phone,
+          body: delayNotice,
+          simulateTyping: false,
+        });
+
+        await supabaseAdmin.from('messages').insert({
+          contact_id: res.nextContact.id,
+          sender_type: 'system',
+          content: `[Aviso preventivo de retraso (+${delayMinutes} min) enviado por WhatsApp al cliente]`,
+        });
+      }
+    } catch (delayErr) {
+      console.warn('[REPORT DELAY WHATSAPP DISPATCH WARN]', delayErr);
+    }
+  }
 
   revalidatePath('/calendar');
   return res;

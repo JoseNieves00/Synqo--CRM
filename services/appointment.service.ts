@@ -2,6 +2,8 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { isHoliday } from '@/lib/calendar/holidays';
 import { decryptSecret } from '@/lib/security/encryption';
 import { WhatsAppService } from './whatsapp.service';
+import { MessagingService } from './messaging.service';
+import { GoogleCalendarService } from './google-calendar.service';
 import type { 
   AppointmentStatus, 
   BookedVia, 
@@ -145,6 +147,13 @@ export class AppointmentService {
 
     const availableSlots: AvailableSlot[] = [];
 
+    // Consultar eventos ocupados de Google Calendar si la empresa tiene activado el bloqueo
+    const googleBusyIntervals = await GoogleCalendarService.getBusyIntervals({
+      organizationId,
+      timeMin: dayStartISO,
+      timeMax: dayEndISO,
+    });
+
     // 8. Iterar por cada especialista y calcular huecos libres
     for (const spec of specialists) {
       const schedule = (spec.weekly_schedule as unknown as SpecialistWeeklySchedule) || {};
@@ -218,6 +227,20 @@ export class AppointmentService {
             continue;
           }
 
+          // B2. Validar si choca con evento ocupado en Google Calendar
+          if (googleBusyIntervals.length > 0) {
+            const hasGoogleConflict = googleBusyIntervals.some(b => {
+              const bStart = new Date(b.start).getTime();
+              const bEnd = new Date(b.end).getTime();
+              return (slotStartTime < bEnd && slotEndTime > bStart);
+            });
+
+            if (hasGoogleConflict) {
+              currentMinutes += slotInterval;
+              continue;
+            }
+          }
+
           // C. Validar salón físico si aplica
           let assignedRoomId: string | null = null;
           let assignedRoomName: string | null = null;
@@ -282,6 +305,9 @@ export class AppointmentService {
     bookedVia?: BookedVia;
     notes?: string | null;
     clientName?: string | null;
+    referenceInfo?: string | null;
+    meetingLink?: string | null;
+    servicesList?: any;
   }) {
     const {
       organizationId,
@@ -295,6 +321,9 @@ export class AppointmentService {
       bookedVia = 'ai_whatsapp',
       notes,
       clientName,
+      referenceInfo,
+      meetingLink,
+      servicesList,
     } = params;
 
     const start = new Date(startTime);
@@ -353,6 +382,29 @@ export class AppointmentService {
       }
     }
 
+    // Sincronización automática con Google Calendar (si está conectado) y obtención de enlace Meet
+    let finalMeetingLink = meetingLink || null;
+    try {
+      const gcal = await GoogleCalendarService.createCalendarEvent({
+        organizationId,
+        summary: serviceName,
+        description: notes || '',
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        clientName: clientName || undefined,
+        referenceInfo: referenceInfo || undefined,
+      });
+
+      if (gcal.meetLink && !finalMeetingLink) {
+        finalMeetingLink = gcal.meetLink;
+      }
+    } catch (gcalErr) {
+      console.warn('[CREATE APPOINTMENT GOOGLE CALENDAR SYNC WARN]', gcalErr);
+      if (!finalMeetingLink) {
+        finalMeetingLink = GoogleCalendarService.generateDefaultMeetLink();
+      }
+    }
+
     // Insertar la cita
     const { data: appointment, error } = await supabaseAdmin
       .from('appointments')
@@ -370,6 +422,9 @@ export class AppointmentService {
         booked_via: bookedVia,
         reschedule_count: 0,
         notes: notes || null,
+        reference_info: referenceInfo || null,
+        meeting_link: finalMeetingLink,
+        services_list: servicesList || [],
         confirmation_status: 'confirmed',
       })
       .select()
@@ -427,22 +482,20 @@ export class AppointmentService {
           .single();
 
         if (spec?.phone) {
-          const { data: org } = await supabaseAdmin
-            .from('organizations')
-            .select('whatsapp_phone_number_id, whatsapp_access_token')
+          const { data: org } = await (supabaseAdmin.from('organizations') as any)
+            .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
             .eq('id', organizationId)
             .single();
 
-          if (org?.whatsapp_phone_number_id && org?.whatsapp_access_token) {
+          if (org) {
             try {
-              const token = decryptSecret(org.whatsapp_access_token);
               const waBody = `🔔 *Nuevo Turno Agendado*\n\nHola ${spec.name}, se ha programado una nueva cita:\n• *Servicio:* ${serviceName}\n• *Fecha/Hora:* ${dateFormatted}\n• *Cliente/Alumno:* ${contactDisplayName || 'Cliente'}\n\nRevisa tu cronograma en el portal. ¡Éxitos! 🚀`;
 
-              await WhatsAppService.sendTextMessage({
-                phoneNumberId: org.whatsapp_phone_number_id,
-                accessToken: token,
+              await MessagingService.sendTextMessage({
+                organization: org,
                 to: spec.phone,
                 body: waBody,
+                simulateTyping: false,
               });
             } catch (waErr: any) {
               console.warn('[AppointmentService] WhatsApp al especialista no enviado:', waErr?.message);
@@ -738,13 +791,27 @@ export class AppointmentService {
   }) {
     const { appointmentId, delayMinutes } = params;
 
+    const { data: existingAppt } = await supabaseAdmin
+      .from('appointments')
+      .select('id, organization_id, specialist_id, start_time, contact_id, delay_minutes')
+      .eq('id', appointmentId)
+      .single();
+
+    if (!existingAppt) {
+      throw new Error('Cita no encontrada para registrar aviso de retraso.');
+    }
+
+    const currentAccumulated = existingAppt.delay_minutes || 0;
+    const totalDelay = currentAccumulated + delayMinutes;
+
     const { data: appt, error } = await supabaseAdmin
       .from('appointments')
       .update({
         client_notified_delay_at: new Date().toISOString(),
+        delay_minutes: totalDelay,
       })
       .eq('id', appointmentId)
-      .select('id, organization_id, specialist_id, start_time, contact_id')
+      .select('id, organization_id, specialist_id, start_time, contact_id, delay_minutes')
       .single();
 
     if (error || !appt) {

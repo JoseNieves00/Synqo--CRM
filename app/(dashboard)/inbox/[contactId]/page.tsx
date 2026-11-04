@@ -23,7 +23,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
   // Consultar contactos, mensajes, miembros y vacíos de IA en paralelo para máxima velocidad
   const [contactsRes, messagesRes, teamRes, gapsCount] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
       .eq('organization_id', current.organization.id)
       .order('updated_at', { ascending: false })
       .limit(50),
@@ -46,7 +46,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
 
   if (!activeContact) {
     const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, assigned_to')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
       .eq('id', contactId)
       .eq('organization_id', current.organization.id)
       .single();
@@ -67,6 +67,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       activeContact={activeContact}
       messages={messages || []}
       customTemplates={(current.organization as any)?.whatsapp_templates || []}
+      whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.zapi_instance_id ? 'zapi' : 'meta')}
       currentUserId={current.user.id}
       currentUserRole={current.profile?.role || 'agent'}
       teamMembers={teamMembers}

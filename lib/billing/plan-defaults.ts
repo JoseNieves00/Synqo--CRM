@@ -3,14 +3,40 @@ import { PlanType } from '@/lib/supabase/types';
 export interface PlanLimits {
   maxUsers: number;
   aiTokensLimit: number;
+  openaiBackupLimit: number;
+  estimatedChats: string;
   label: string;
 }
 
 export const PLAN_DEFAULTS: Record<string, PlanLimits> = {
-  starter: { maxUsers: 2, aiTokensLimit: 500000, label: 'Starter (Validación)' },
-  core: { maxUsers: 2, aiTokensLimit: 500000, label: 'Starter (Validación)' },
-  pro: { maxUsers: 5, aiTokensLimit: 2500000, label: 'Pro (Comercial)' },
-  enterprise: { maxUsers: 12, aiTokensLimit: 7500000, label: 'Enterprise (Corporativo)' },
+  starter: {
+    maxUsers: 2,
+    aiTokensLimit: 500000,
+    openaiBackupLimit: 25000,
+    estimatedChats: 'Hasta 400 conversaciones / mes',
+    label: 'Starter (Citas & WhatsApp Autónomo)',
+  },
+  core: {
+    maxUsers: 2,
+    aiTokensLimit: 500000,
+    openaiBackupLimit: 25000,
+    estimatedChats: 'Hasta 400 conversaciones / mes',
+    label: 'Starter (Citas & WhatsApp Autónomo)',
+  },
+  pro: {
+    maxUsers: 5,
+    aiTokensLimit: 1500000,
+    openaiBackupLimit: 75000,
+    estimatedChats: 'Hasta 1,200 conversaciones / mes',
+    label: 'Pro (Equipo & Especialistas)',
+  },
+  enterprise: {
+    maxUsers: 12,
+    aiTokensLimit: 4000000,
+    openaiBackupLimit: 150000,
+    estimatedChats: 'Hasta 3,000 conversaciones / mes',
+    label: 'Elite (Salones & Sedes Físicas)',
+  },
 };
 
 /**

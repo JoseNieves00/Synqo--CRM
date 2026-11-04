@@ -1,7 +1,7 @@
 import OpenAI, { toFile } from 'openai';
 import { AppointmentService } from './appointment.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { recordTokenUsage, checkTokenQuota } from '@/lib/monitoring/token-tracker';
+import { recordTokenUsage, checkTokenQuota, checkBackupTokenQuota } from '@/lib/monitoring/token-tracker';
 import {
   UpdateStageToolSchema,
   CheckNativeAvailabilityToolSchema,
@@ -12,6 +12,97 @@ import {
 
 const openaiApiKey = process.env.OPENAI_API_KEY || 'placeholder-key';
 const openai = new OpenAI({ apiKey: openaiApiKey });
+
+// Google AI Studio OpenAI-compatible endpoint para modelos Gemini Flash
+const geminiApiKey = process.env.GEMINI_API_KEY || '';
+const gemini = geminiApiKey
+  ? new OpenAI({
+      apiKey: geminiApiKey,
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    })
+  : null;
+
+/**
+ * Ejecuta la llamada de inferencia respetando la preferencia de proveedor (Gemini Flash vs OpenAI)
+ * con conmutación automática (failover imperceptible) ante cuotas, latencia o fallos.
+ */
+async function createChatCompletionWithFallback(params: {
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
+  toolChoice?: 'auto' | 'none';
+  temperature?: number;
+  aiProvider?: string | null;
+  organizationId?: string;
+  contactId?: string;
+}): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; modelUsed: string }> {
+  const prefersGemini = params.aiProvider === 'gemini' || (!params.aiProvider && Boolean(geminiApiKey));
+
+  if (prefersGemini && gemini) {
+    try {
+      const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+      const response = await gemini.chat.completions.create({
+        model: geminiModel,
+        messages: params.messages,
+        tools: params.tools,
+        tool_choice: params.toolChoice || 'auto',
+        temperature: params.temperature ?? 0.3,
+      });
+
+      if (response.usage && params.organizationId && params.contactId) {
+        await recordTokenUsage({
+          organizationId: params.organizationId,
+          contactId: params.contactId,
+          promptTokens: response.usage.prompt_tokens,
+          completionTokens: response.usage.completion_tokens,
+          totalTokens: response.usage.total_tokens,
+          model: geminiModel,
+          provider: 'google',
+        });
+      }
+
+      return { response, modelUsed: geminiModel };
+    } catch (geminiError: any) {
+      console.warn(`[GEMINI FLASH FALLBACK] Gemini error (${geminiError?.message || geminiError}), conmutando automáticamente a OpenAI...`);
+    }
+  }
+
+  // Validación de cuota de contingencia antes de conmutar a OpenAI (Respaldo)
+  if (params.organizationId) {
+    const backupQuota = await checkBackupTokenQuota(params.organizationId);
+    if (!backupQuota.allowed) {
+      console.warn(
+        `[OPENAI BACKUP EXCEEDED] Org ${params.organizationId} ha agotado su bolsa mensual de emergencia de OpenAI (${backupQuota.used}/${backupQuota.limit}). Protegiendo saldo del Super Admin.`
+      );
+      throw new Error(
+        'La cuota de emergencia mensual de IA de respaldo ha sido completada para esta empresa. Por favor comunícate con soporte para recargar o atiende directamente desde la bandeja.'
+      );
+    }
+  }
+
+  // OpenAI Primary o Fallback de Respaldo
+  const openAiModel = 'gpt-4o-mini';
+  const response = await openai.chat.completions.create({
+    model: openAiModel,
+    messages: params.messages,
+    tools: params.tools,
+    tool_choice: params.toolChoice || 'auto',
+    temperature: params.temperature ?? 0.3,
+  });
+
+  if (response.usage && params.organizationId && params.contactId) {
+    await recordTokenUsage({
+      organizationId: params.organizationId,
+      contactId: params.contactId,
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens,
+      model: openAiModel,
+      provider: 'openai',
+    });
+  }
+
+  return { response, modelUsed: openAiModel };
+}
 
 // Definición de Herramientas (OpenAI Function / Tool Calling)
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -47,7 +138,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         type: 'object',
         properties: {
           date: { type: 'string', description: 'Fecha a consultar en formato YYYY-MM-DD (ej. 2026-10-28)' },
-          service_name: { type: 'string', description: 'Nombre del servicio solicitado (ej. Corte de cabello, Clase de acordeón)' },
+          service_name: { type: 'string', description: 'Nombre del servicio solicitado (ej. Corte de cabello, Clase de acordeón, Lavado de auto)' },
+          duration_minutes: { type: 'number', description: 'Duración total requerida en minutos (opcional; si pide varios servicios o combo, suma sus minutos).' },
           specialist_name: { type: 'string', description: 'Nombre del colaborador o especialista solicitado si el cliente pidió a alguien específico.' },
         },
         required: ['date'],
@@ -64,7 +156,9 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           start_time: { type: 'string', description: 'Horario seleccionado en formato ISO o YYYY-MM-DDTHH:mm:ss' },
           service_name: { type: 'string', description: 'Nombre del servicio o clase a agendar' },
+          duration_minutes: { type: 'number', description: 'Duración en minutos (opcional si es combo o personalizada)' },
           specialist_name: { type: 'string', description: 'Nombre del especialista o colaborador (opcional)' },
+          reference_info: { type: 'string', description: 'Identificador clave según el negocio: Placa del vehículo (ej. TXL-842), nombre del alumno, mascota o motivo' },
           notes: { type: 'string', description: 'Detalles, observaciones o instrumento (opcional)' },
         },
         required: ['start_time', 'service_name'],
@@ -154,6 +248,7 @@ interface ProcessLeadParams {
   afterHoursMessage?: string | null;
   isAfterHours?: boolean;
   businessHours?: any;
+  aiProvider?: string | null;
 }
 
 /**
@@ -245,6 +340,7 @@ export class OpenAIService {
     afterHoursMessage,
     isAfterHours = false,
     businessHours,
+    aiProvider,
   }: ProcessLeadParams): Promise<string> {
     // 0. Verificar cuota de tokens mensual de la empresa
     const quota = await checkTokenQuota(organizationId);
@@ -360,25 +456,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       }
     }
 
-    // 3. Primera llamada a OpenAI con gpt-4o-mini (ultra veloz y altamente rentable)
-    const response = await openai.chat.completions.create({
-      model: this.MODEL,
+    // 3. Primera llamada de inferencia con Dual-Provider (Gemini Flash con Failover OpenAI)
+    const { response } = await createChatCompletionWithFallback({
       messages: conversationHistory,
       tools,
-      tool_choice: 'auto',
-      temperature: 0.3, // Baja temperatura para consistencia comercial y seguridad
+      toolChoice: 'auto',
+      temperature: 0.3,
+      aiProvider,
+      organizationId,
+      contactId,
     });
-
-    if (response.usage) {
-      await recordTokenUsage({
-        organizationId,
-        contactId,
-        promptTokens: response.usage.prompt_tokens,
-        completionTokens: response.usage.completion_tokens,
-        totalTokens: response.usage.total_tokens,
-        model: this.MODEL,
-      });
-    }
 
     const choice = response.choices[0];
     const message = choice.message;
@@ -431,9 +518,9 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               }
             }
 
-            // Buscar duración estimada del servicio si fue especificado
-            let durationMinutes = 45;
-            if (validated.service_name) {
+            // Buscar duración estimada del servicio si fue especificado o vino duration_minutes explícito
+            let durationMinutes = validated.duration_minutes || 45;
+            if (!validated.duration_minutes && validated.service_name) {
               const { data: svc } = await supabaseAdmin
                 .from('services_catalog')
                 .select('duration_minutes')
@@ -486,18 +573,47 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               if (spec) specialistId = spec.id;
             }
 
-            const duration = validated.duration_minutes || 45;
+            let duration = validated.duration_minutes || 45;
+            let isVirtualService = false;
+            let serviceCatalogId: string | null = null;
+
+            if (validated.service_name) {
+              const { data: svc } = await supabaseAdmin
+                .from('services_catalog')
+                .select('id, duration_minutes, is_virtual')
+                .eq('organization_id', organizationId)
+                .ilike('name', `%${validated.service_name.trim()}%`)
+                .limit(1)
+                .maybeSingle();
+              if (svc) {
+                serviceCatalogId = svc.id;
+                if (!validated.duration_minutes && svc.duration_minutes) {
+                  duration = svc.duration_minutes;
+                }
+                isVirtualService = Boolean(svc.is_virtual);
+              }
+            }
+
+            // Si es un servicio virtual (ej. Asesoría B2B, Consulta Online, Clase Remota), autogenerar enlace de Google Meet
+            let virtualMeetingLink: string | null = null;
+            if (isVirtualService) {
+              const meetingCode = `${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
+              virtualMeetingLink = `https://meet.google.com/${meetingCode}`;
+            }
 
             const appt = await AppointmentService.createAppointment({
               organizationId,
               contactId,
               specialistId,
+              serviceId: serviceCatalogId,
               serviceName: validated.service_name,
               durationMinutes: duration,
               startTime: validated.start_time,
               bookedVia: 'ai_whatsapp',
               notes: validated.notes || null,
               clientName: leadName,
+              referenceInfo: validated.reference_info || null,
+              meetingLink: virtualMeetingLink,
             });
 
             toolResult = JSON.stringify({
@@ -505,7 +621,11 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               appointment_id: appt.id,
               start_time: appt.start_time,
               service_name: appt.service_name,
-              message: 'Cita reservada y confirmada exitosamente en el calendario de la empresa.',
+              reference_info: appt.reference_info || undefined,
+              meeting_link: appt.meeting_link || undefined,
+              message: appt.meeting_link
+                ? `Cita virtual confirmada. Enlace de Google Meet generado: ${appt.meeting_link}. Debes compartir este enlace al cliente en tu respuesta de WhatsApp.`
+                : 'Cita reservada y confirmada exitosamente en el calendario de la empresa.',
             });
           } else if (functionName === 'reschedule_native_appointment') {
             const validated = RescheduleNativeAppointmentToolSchema.parse(functionArgs);
@@ -695,23 +815,14 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         });
       }
 
-      // 5. Segunda llamada a OpenAI para redactar la respuesta final en lenguaje natural
-      const followUp = await openai.chat.completions.create({
-        model: this.MODEL,
+      // 5. Segunda llamada de inferencia para redactar la respuesta final en lenguaje natural
+      const { response: followUp } = await createChatCompletionWithFallback({
         messages: conversationHistory,
         temperature: 0.3,
+        aiProvider,
+        organizationId,
+        contactId,
       });
-
-      if (followUp.usage) {
-        await recordTokenUsage({
-          organizationId,
-          contactId,
-          promptTokens: followUp.usage.prompt_tokens,
-          completionTokens: followUp.usage.completion_tokens,
-          totalTokens: followUp.usage.total_tokens,
-          model: this.MODEL,
-        });
-      }
 
       const finalResponse = followUp.choices[0].message.content || '¡Hola! Con gusto, déjame consultar el dato exacto y en unos minutos te confirmo.';
 

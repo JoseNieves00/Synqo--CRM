@@ -153,21 +153,21 @@ export function StructuredPromptWizard({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden space-y-4 p-5 sm:p-6">
+    <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl shadow-xs overflow-hidden space-y-4 p-5 sm:p-6 text-slate-900 dark:text-white">
       {/* Barra Superior con Selector de Modo de Edición */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
         <div>
-          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#0052FF]" />
-            Entrenamiento & Instrucciones del Asistente IA
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+            Instrucciones del Asistente Comercial
           </h3>
-          <p className="text-[11px] text-gray-500">
-            Configura el conocimiento comercial, catálogo, precios y políticas con las que responde la IA en WhatsApp.
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Configura el catálogo, precios, políticas y respuestas automáticas de tu negocio.
           </p>
         </div>
 
         {/* Selector de Modos */}
-        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl self-start sm:self-auto">
+        <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] p-1 rounded-xl self-start sm:self-auto">
           <button
             type="button"
             onClick={() => {
@@ -178,8 +178,8 @@ export function StructuredPromptWizard({
             }}
             className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
               topMode === 'wizard'
-                ? 'bg-white text-[#0052FF] shadow-xs'
-                : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white dark:bg-[#1A1F2C] text-[#0052FF] dark:text-[#00D2FF] shadow-xs border border-slate-200/80 dark:border-[#232A3B]'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -191,11 +191,11 @@ export function StructuredPromptWizard({
             onClick={() => setTopMode('custom_text')}
             className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
               topMode === 'custom_text'
-                ? 'bg-white text-gray-900 shadow-xs'
-                : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white shadow-xs border border-slate-200/80 dark:border-[#232A3B]'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <span>📝 Texto Libre</span>
+            <span>Texto Libre</span>
           </button>
 
           <button
@@ -203,8 +203,8 @@ export function StructuredPromptWizard({
             onClick={() => setTopMode('xml')}
             className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
               topMode === 'xml'
-                ? 'bg-white text-purple-700 shadow-xs'
-                : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white dark:bg-[#1A1F2C] text-purple-600 dark:text-purple-400 shadow-xs border border-slate-200/80 dark:border-[#232A3B]'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Code2 className="w-3.5 h-3.5" />
@@ -216,13 +216,13 @@ export function StructuredPromptWizard({
       {topMode === 'custom_text' ? (
         /* Modo 1: Texto Libre (Prompt Personalizado Intacto) */
         <div className="space-y-3 animate-in fade-in duration-150">
-          <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-bold text-blue-900 flex items-center gap-2">
-                <span>📝 Modo Texto Libre (Prompt Personalizado)</span>
+              <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Modo Texto Libre</span>
               </div>
-              <p className="text-[11px] text-blue-700 mt-0.5">
-                La IA está respondiendo con este texto exacto. Puedes editar tus instrucciones libremente o probar el Asistente Visual para organizar tus servicios, precios y cuentas bancarias en pestañas interactivas.
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                El asistente responde siguiendo estas instrucciones exactas. Puedes editarlas libremente o usar las pestañas guiadas para organizar tus productos, precios y cuentas bancarias.
               </p>
             </div>
             <button
@@ -248,16 +248,16 @@ export function StructuredPromptWizard({
               onPromptCompiled(e.target.value, data);
             }}
             placeholder="Escribe aquí las instrucciones de tu asistente..."
-            className="w-full text-xs font-sans leading-relaxed p-4 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white text-gray-900"
+            className="w-full text-xs font-sans leading-relaxed p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F] focus:bg-white dark:focus:bg-[#090A0F] text-slate-800 dark:text-slate-200"
           />
         </div>
       ) : topMode === 'xml' ? (
         /* Modo 2: XML Avanzado */
         <div className="space-y-3 animate-in fade-in duration-150">
-          <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-purple-900 text-xs flex items-center gap-2">
-            <Code2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
+          <div className="p-3 bg-purple-50 dark:bg-[#090A0F] border border-purple-200 dark:border-[#232A3B] rounded-xl text-purple-900 dark:text-slate-300 text-xs flex items-center gap-2">
+            <Code2 className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
             <span>
-              Modo Avanzado: Puedes editar directamente el System Prompt delimitado en XML. La IA leerá exactamente este texto.
+              Modo Avanzado: Edición directa del prompt en formato estructurado.
             </span>
           </div>
           <textarea
@@ -267,21 +267,21 @@ export function StructuredPromptWizard({
               setManualXmlPrompt(e.target.value);
               onPromptCompiled(e.target.value, data);
             }}
-            className="w-full text-xs font-mono p-3.5 rounded-xl border border-gray-300 bg-slate-950 text-emerald-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+            className="w-full text-xs font-mono p-3.5 rounded-xl border border-slate-800 bg-slate-950 text-emerald-400 focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
           />
         </div>
       ) : (
         /* Modo 3: Asistente Guiado Visual por Secciones */
         <div className="space-y-5 animate-in fade-in duration-150">
           {/* Sub-Pestañas del Asistente y Botón Cargar Ejemplo */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-[#232A3B] pb-2.5">
             <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none whitespace-nowrap">
               {[
                 { id: 'identity', label: '1. Identidad & Tono', icon: Building2 },
                 { id: 'catalog', label: `2. Catálogo (${data.catalog.length})`, icon: Package },
-                { id: 'funnel', label: '3. Ruta de Venta', icon: Target },
+                { id: 'funnel', label: '3. Proceso de Venta', icon: Target },
                 { id: 'policies', label: '4. Políticas & Pagos', icon: ShieldCheck },
-                { id: 'handoff', label: '5. Relevo Silencioso', icon: VolumeX },
+                { id: 'handoff', label: '5. Horarios & Asignación', icon: VolumeX },
                 { id: 'preview', label: '6. Vista Previa', icon: Code2 },
               ].map((tab) => {
                 const Icon = tab.icon;
@@ -292,8 +292,8 @@ export function StructuredPromptWizard({
                     onClick={() => setActiveTab(tab.id as any)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex-shrink-0 ${
                       activeTab === tab.id
-                        ? 'bg-[#0052FF] text-white shadow-2xs font-bold'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                        ? 'bg-[#0052FF] text-white shadow-xs font-bold'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C]'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -306,11 +306,11 @@ export function StructuredPromptWizard({
             <button
               type="button"
               onClick={() => setIsPresetModalOpen(true)}
-              className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-[#0052FF] bg-gray-50 hover:bg-blue-50/60 border border-gray-200 hover:border-blue-200 rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0 self-end sm:self-auto"
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-[#0052FF] dark:hover:text-[#00D2FF] bg-slate-100 dark:bg-[#090A0F] hover:bg-slate-200/70 dark:hover:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0 self-end sm:self-auto"
               title="Ver o cargar datos de muestra pre-configurados"
             >
-              <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
-              <span>📂 Cargar Ejemplo (Opcional)</span>
+              <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+              <span>Cargar Ejemplo (Opcional)</span>
             </button>
           </div>
 
@@ -319,7 +319,7 @@ export function StructuredPromptWizard({
             <div className="space-y-4 animate-in fade-in duration-150">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Nombre Comercial de la Empresa
                   </label>
                   <input
@@ -332,12 +332,12 @@ export function StructuredPromptWizard({
                       }))
                     }
                     placeholder="Ej: Filippo Cucine"
-                    className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                    className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Ubicación y Cobertura Geográfica
                   </label>
                   <input
@@ -350,13 +350,13 @@ export function StructuredPromptWizard({
                       }))
                     }
                     placeholder="Ej: Bogotá y envíos nacionales a todo el país"
-                    className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                    className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Propuesta de Valor Única (¿Qué vendes y por qué elegirte a ti?)
                 </label>
                 <textarea
@@ -369,30 +369,30 @@ export function StructuredPromptWizard({
                     }))
                   }
                   placeholder="Ej: Cocinas integrales de diseño italiano a medida con materiales hidrófugos y garantía de 5 años..."
-                  className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                  className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                 />
               </div>
 
               {/* Selector Visual de Tono */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                   Tono de Comunicación en WhatsApp
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
                     {
                       id: 'friendly_whatsapp',
-                      title: '🟢 Cercano & WhatsApp',
+                      title: 'Cercano & WhatsApp',
                       desc: 'Cercano, cálido, empático, mensajes directos de 1 a 3 líneas con emojis sutiles.',
                     },
                     {
                       id: 'corporate_consultive',
-                      title: '🔵 Corporativo & Consultivo',
+                      title: 'Corporativo & Consultivo',
                       desc: 'Educado, profesional, enfocado en ROI comercial y soluciones B2B estructuradas.',
                     },
                     {
                       id: 'exclusive_premium',
-                      title: '🟣 Exclusivo & Premium',
+                      title: 'Exclusivo & Premium',
                       desc: 'Elegante, distinguido, resalta calidad superior y trato preferencial sin rodeos.',
                     },
                   ].map((tone) => (
@@ -407,12 +407,12 @@ export function StructuredPromptWizard({
                       }
                       className={`p-3 rounded-xl border text-left transition cursor-pointer ${
                         data.identity.tone === tone.id
-                          ? 'border-[#0052FF] bg-blue-50/50 ring-2 ring-[#0052FF]/20 shadow-xs'
-                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                          ? 'border-[#0052FF] bg-blue-50/50 dark:bg-[#0052FF]/10 ring-1 ring-[#0052FF]/30 shadow-xs'
+                          : 'border-slate-200 dark:border-[#1E2433] hover:border-slate-300 dark:hover:border-[#232A3B] bg-white dark:bg-[#090A0F]'
                       }`}
                     >
-                      <p className="text-xs font-bold text-gray-900 mb-1">{tone.title}</p>
-                      <p className="text-[11px] text-gray-500 leading-relaxed">{tone.desc}</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">{tone.title}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">{tone.desc}</p>
                     </button>
                   ))}
                 </div>
@@ -425,10 +425,10 @@ export function StructuredPromptWizard({
             <div className="space-y-4 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-gray-900">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                     Productos o Servicios Principales
                   </h4>
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     La IA utilizará estos nombres y precios exactos para blindarse contra alucinaciones.
                   </p>
                 </div>
@@ -443,13 +443,13 @@ export function StructuredPromptWizard({
               </div>
 
               {data.catalog.length === 0 ? (
-                <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-200 rounded-2xl space-y-2">
-                  <Package className="w-8 h-8 text-gray-400 mx-auto" />
-                  <p className="text-xs text-gray-500">No has registrado productos o servicios aún.</p>
+                <div className="p-8 text-center bg-slate-50 dark:bg-[#090A0F] border border-dashed border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-2">
+                  <Package className="w-8 h-8 text-slate-400 dark:text-slate-500 mx-auto" />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">No has registrado productos o servicios aún.</p>
                   <button
                     type="button"
                     onClick={handleAddProduct}
-                    className="text-xs text-[#0052FF] font-bold hover:underline cursor-pointer"
+                    className="text-xs text-[#0052FF] dark:text-[#00D2FF] font-bold hover:underline cursor-pointer"
                   >
                     + Añadir el primero
                   </button>
@@ -459,17 +459,17 @@ export function StructuredPromptWizard({
                   {data.catalog.map((item, idx) => (
                     <div
                       key={item.id}
-                      className="p-4 bg-slate-50/70 border border-gray-200 rounded-2xl space-y-3"
+                      className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-3"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                          <Package className="w-3.5 h-3.5 text-[#0052FF]" />
+                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <Package className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
                           Producto / Servicio #{idx + 1}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleRemoveProduct(item.id)}
-                          className="p-1 text-gray-400 hover:text-rose-600 transition cursor-pointer"
+                          className="p-1 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 transition cursor-pointer"
                           title="Eliminar"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -478,7 +478,7 @@ export function StructuredPromptWizard({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                             Nombre del Producto o Servicio
                           </label>
                           <input
@@ -486,12 +486,12 @@ export function StructuredPromptWizard({
                             value={item.name}
                             onChange={(e) => handleUpdateProduct(item.id, { name: e.target.value })}
                             placeholder="Ej: Cocina Lineal 2.40m"
-                            className="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                            className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                             Precio o Rango Exacto
                           </label>
                           <input
@@ -499,13 +499,13 @@ export function StructuredPromptWizard({
                             value={item.price}
                             onChange={(e) => handleUpdateProduct(item.id, { price: e.target.value })}
                             placeholder="Ej: $4.800.000 COP o Desde $150 USD"
-                            className="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                            className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                           Descripción Comercial
                         </label>
                         <input
@@ -513,13 +513,13 @@ export function StructuredPromptWizard({
                           value={item.description}
                           onChange={(e) => handleUpdateProduct(item.id, { description: e.target.value })}
                           placeholder="Ej: Muebles superior e inferior con mesón de granito y cierre lento..."
-                          className="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                          className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                         />
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
-                          <label className="block text-[11px] font-semibold text-emerald-700 mb-1">
+                          <label className="block text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-1">
                             ¿Qué incluye? (Opcional)
                           </label>
                           <input
@@ -527,12 +527,12 @@ export function StructuredPromptWizard({
                             value={item.includes || ''}
                             onChange={(e) => handleUpdateProduct(item.id, { includes: e.target.value })}
                             placeholder="Ej: Transporte e instalación en Bogotá"
-                            className="w-full text-xs p-2 rounded-lg border border-emerald-200 bg-emerald-50/30 text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            className="w-full text-xs p-2 rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-200 focus:outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-semibold text-rose-700 mb-1">
+                          <label className="block text-[11px] font-semibold text-rose-600 dark:text-rose-400 mb-1">
                             ¿Qué NO incluye? (Evita alucinaciones)
                           </label>
                           <input
@@ -540,7 +540,7 @@ export function StructuredPromptWizard({
                             value={item.excludes || ''}
                             onChange={(e) => handleUpdateProduct(item.id, { excludes: e.target.value })}
                             placeholder="Ej: Electrodomésticos ni grifería"
-                            className="w-full text-xs p-2 rounded-lg border border-rose-200 bg-rose-50/30 text-rose-950 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                            className="w-full text-xs p-2 rounded-lg border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-900 dark:text-rose-200 focus:outline-none focus:border-rose-500"
                           />
                         </div>
                       </div>
@@ -555,24 +555,24 @@ export function StructuredPromptWizard({
           {activeTab === 'funnel' && (
             <div className="space-y-4 animate-in fade-in duration-150">
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Objetivo Principal de Cierre (Meta de la IA)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
                     {
                       id: 'book_cal',
-                      title: '🗓️ Agendar Cita en Calendario',
+                      title: 'Agendar Cita en Calendario',
                       desc: 'La IA ofrece horarios de la agenda nativa y reserva automáticamente citas.',
                     },
                     {
                       id: 'take_order',
-                      title: '📦 Cerrar Pedido en WhatsApp',
+                      title: 'Cerrar Pedido en WhatsApp',
                       desc: 'La IA pide dirección, ciudad y confirma el método de pago directo.',
                     },
                     {
                       id: 'handoff_qualified',
-                      title: '👤 Calificar y Pasar a Asesor',
+                      title: 'Calificar y Pasar a Asesor',
                       desc: 'La IA recopila datos del cliente y transfiere al asesor humano listo para cerrar.',
                     },
                   ].map((goal) => (
@@ -587,19 +587,19 @@ export function StructuredPromptWizard({
                       }
                       className={`p-3 rounded-xl border text-left transition cursor-pointer ${
                         data.funnel.closingGoal === goal.id
-                          ? 'border-[#0052FF] bg-blue-50/50 ring-2 ring-[#0052FF]/20 shadow-xs'
-                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                          ? 'border-[#0052FF] bg-blue-50/50 dark:bg-[#0052FF]/10 ring-1 ring-[#0052FF]/30 shadow-xs'
+                          : 'border-slate-200 dark:border-[#1E2433] hover:border-slate-300 dark:hover:border-[#232A3B] bg-white dark:bg-[#090A0F]'
                       }`}
                     >
-                      <p className="text-xs font-bold text-gray-900 mb-1">{goal.title}</p>
-                      <p className="text-[11px] text-gray-500 leading-relaxed">{goal.desc}</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">{goal.title}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">{goal.desc}</p>
                     </button>
                   ))}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Preguntas Clave de Diagnóstico (Fase 1: Haz máx 1 pregunta a la vez)
                 </label>
                 <textarea
@@ -615,12 +615,12 @@ export function StructuredPromptWizard({
                     }))
                   }
                   placeholder="Una pregunta por línea (ej: ¿En qué ciudad te encuentras?, ¿Para cuántas personas buscas?)"
-                  className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                  className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Argumentos de Valor Diferenciales (Fase 2)
                 </label>
                 <textarea
@@ -636,7 +636,7 @@ export function StructuredPromptWizard({
                     }))
                   }
                   placeholder="Un beneficio por línea (ej: Envíos contra entrega, Garantía de 2 años, Instalación gratis)"
-                  className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                  className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                 />
               </div>
             </div>
@@ -646,7 +646,7 @@ export function StructuredPromptWizard({
           {activeTab === 'policies' && (
             <div className="space-y-4 animate-in fade-in duration-150">
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                   Métodos de Pago Aceptados
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -659,15 +659,15 @@ export function StructuredPromptWizard({
                         onClick={() => handleTogglePayment(payment)}
                         className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition cursor-pointer text-left ${
                           isChecked
-                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                            : 'bg-white dark:bg-[#090A0F] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#1E2433] hover:border-slate-300 dark:hover:border-[#232A3B]'
                         }`}
                       >
                         <div
                           className={`w-4 h-4 rounded-md flex items-center justify-center border ${
                             isChecked
                               ? 'bg-emerald-600 border-emerald-600 text-white'
-                              : 'border-gray-300 bg-white'
+                              : 'border-slate-300 dark:border-[#232A3B] bg-slate-100 dark:bg-[#131722]'
                           }`}
                         >
                           {isChecked && <Check className="w-3 h-3" />}
@@ -680,21 +680,21 @@ export function StructuredPromptWizard({
               </div>
 
               {/* Cuentas y Datos para Transferencias (Nequi, Bancolombia, etc.) */}
-              <div className="p-4 bg-slate-50 border border-gray-200 rounded-2xl space-y-3">
+              <div className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-3">
                 <div>
-                  <h5 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                    <CreditCard className="w-4 h-4 text-[#0052FF]" />
+                  <h5 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <CreditCard className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
                     <span>Cuentas para Transferencias (Nequi, Bancolombia, Daviplata)</span>
                   </h5>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Ingresa los números a los que tus clientes deben transferir. La IA los compartirá automáticamente cuando pregunten por datos de pago.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-purple-600"></span>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
                       Número de Nequi y Titular
                     </label>
                     <input
@@ -713,12 +713,12 @@ export function StructuredPromptWizard({
                         }))
                       }
                       placeholder="Ej. 310 123 4567 - Juan Pérez"
-                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span>
                       Cuenta Bancolombia (Tipo, Número y Titular)
                     </label>
@@ -738,13 +738,13 @@ export function StructuredPromptWizard({
                         }))
                       }
                       placeholder="Ej. Ahorros 123-456789-01 - Mi Empresa SAS"
-                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
                       Número de Daviplata y Titular
                     </label>
                     <input
@@ -763,13 +763,13 @@ export function StructuredPromptWizard({
                         }))
                       }
                       placeholder="Ej. 300 987 6543 - María Gómez"
-                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                       Otros Medios / Llave Transfiya / Bre-B
                     </label>
                     <input
@@ -788,7 +788,7 @@ export function StructuredPromptWizard({
                         }))
                       }
                       placeholder="Ej. Llave Transfiya 3101234567 o Corriente Davivienda..."
-                      className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF] bg-white"
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
                     />
                   </div>
                 </div>
@@ -796,7 +796,7 @@ export function StructuredPromptWizard({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Políticas de Envío o Despacho
                   </label>
                   <textarea
@@ -809,12 +809,12 @@ export function StructuredPromptWizard({
                       }))
                     }
                     placeholder="Ej: Entregas en 24 a 48 horas en Bogotá. Resto del país 3 a 5 días hábiles..."
-                    className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                    className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Garantías y Cambios
                   </label>
                   <textarea
@@ -827,7 +827,7 @@ export function StructuredPromptWizard({
                       }))
                     }
                     placeholder="Ej: 30 días de garantía directa por defectos de fabricación y 5 días para cambios de talla..."
-                    className="w-full text-xs p-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                    className="w-full text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                   />
                 </div>
               </div>
@@ -837,20 +837,20 @@ export function StructuredPromptWizard({
           {/* TAB 5: RELEVO SILENCIOSO Y HORARIOS */}
           {activeTab === 'handoff' && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-4 bg-slate-50 border border-gray-200 rounded-2xl space-y-3">
+              <div className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-slate-200 text-slate-700 rounded-xl">
-                      {data.handoff.mode === 'silent' ? <VolumeX className="w-5 h-5 text-indigo-600" /> : <Volume2 className="w-5 h-5 text-gray-600" />}
+                    <div className="p-2 bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-[#232A3B]">
+                      {data.handoff.mode === 'silent' ? <VolumeX className="w-5 h-5 text-[#0052FF] dark:text-[#00D2FF]" /> : <Volume2 className="w-5 h-5 text-slate-400" />}
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-gray-900">
-                        Modo de Relevo hacia el Asesor Humano (Handoff)
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                        Atención del Asesor Comercial
                       </h4>
-                      <p className="text-[11px] text-gray-500">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         {data.handoff.mode === 'silent'
-                          ? 'Silencio Total (Recomendado): La IA no envía nada al cliente y el asesor humano responde directamente.'
-                          : 'Mensaje de Espera: La IA envía un texto diciendo que consultará con el equipo.'}
+                          ? 'Silencio Total (Recomendado): El asesor toma el control de la conversación y responde directamente.'
+                          : 'Mensaje de Espera: El sistema notifica al cliente que un asesor atenderá su solicitud en breve.'}
                       </p>
                     </div>
                   </div>
@@ -868,8 +868,8 @@ export function StructuredPromptWizard({
                     }
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                       data.handoff.mode === 'silent'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-white text-gray-700 border-gray-300'
+                        ? 'bg-[#0052FF] text-white border-[#0052FF] shadow-xs'
+                        : 'bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C]'
                     }`}
                   >
                     {data.handoff.mode === 'silent' ? 'Silencio Total Activo' : 'Modo con Mensaje'}
@@ -878,16 +878,16 @@ export function StructuredPromptWizard({
               </div>
 
               {/* Horario Laboral y Salvavidas Fuera de Horario */}
-              <div className="p-4 bg-white border border-gray-200 rounded-2xl space-y-3">
+              <div className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-[#0052FF]" />
-                    <span className="text-xs font-bold text-gray-900">
+                    <Clock className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
                       Horario de Atención Comercial (Hora Colombia)
                     </span>
                   </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-600">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700 dark:text-slate-300">
                     <input
                       type="checkbox"
                       checked={data.handoff.afterHoursEnabled}
@@ -897,17 +897,17 @@ export function StructuredPromptWizard({
                           handoff: { ...prev.handoff, afterHoursEnabled: e.target.checked },
                         }))
                       }
-                      className="rounded text-[#0052FF] focus:ring-[#0052FF]"
+                      className="rounded border-slate-300 dark:border-[#232A3B] text-[#0052FF] focus:ring-[#0052FF]"
                     />
                     <span>Activar Salvavidas Nocturno</span>
                   </label>
                 </div>
 
                 {data.handoff.afterHoursEnabled && (
-                  <div className="space-y-3 pt-2 border-t border-gray-100 animate-in fade-in duration-150">
+                  <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-[#1E2433] animate-in fade-in duration-150">
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                        <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
                           Hora de Apertura
                         </label>
                         <input
@@ -922,12 +922,12 @@ export function StructuredPromptWizard({
                               },
                             }))
                           }
-                          className="w-full text-xs p-2 rounded-lg border border-gray-300"
+                          className="w-full text-xs p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                        <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
                           Hora de Cierre
                         </label>
                         <input
@@ -942,13 +942,13 @@ export function StructuredPromptWizard({
                               },
                             }))
                           }
-                          className="w-full text-xs p-2 rounded-lg border border-gray-300"
+                          className="w-full text-xs p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                         Mensaje Amable Fuera de Horario (Solo se envía si el cliente escribe de noche)
                       </label>
                       <textarea
@@ -961,7 +961,7 @@ export function StructuredPromptWizard({
                           }))
                         }
                         placeholder="Ej: ¡Hola! En este momento nuestro equipo ha finalizado jornada. A primera hora de la mañana retomamos para confirmarte..."
-                        className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
+                        className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                       />
                     </div>
                   </div>
@@ -974,15 +974,15 @@ export function StructuredPromptWizard({
           {activeTab === 'preview' && (
             <div className="space-y-3 animate-in fade-in duration-150">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-gray-700 flex items-center gap-1.5">
-                  <Code2 className="w-4 h-4 text-[#0052FF]" />
-                  System Prompt Compilado (Arquitectura XML)
+                <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Code2 className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                  Instrucciones Compiladas
                 </span>
-                <span className="text-[11px] text-gray-400 font-mono">
-                  ~{Math.round(manualXmlPrompt.length / 4)} tokens estimados
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                  ~{Math.round(manualXmlPrompt.length / 4)} palabras aprox.
                 </span>
               </div>
-              <div className="p-4 bg-slate-950 text-emerald-300 rounded-xl font-mono text-xs overflow-auto max-h-72 border border-slate-800 whitespace-pre-wrap leading-relaxed">
+              <div className="p-4 bg-slate-950 text-emerald-400 rounded-xl font-mono text-xs overflow-auto max-h-72 border border-slate-800 whitespace-pre-wrap leading-relaxed">
                 {manualXmlPrompt}
               </div>
             </div>
@@ -992,22 +992,22 @@ export function StructuredPromptWizard({
 
       {/* Modal: Cargar Plantillas de Ejemplo */}
       {isPresetModalOpen && (
-        <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#232A3B]">
               <div>
-                <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-[#0052FF]" />
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
                   Plantillas de Ejemplo (Opcionales)
                 </h4>
-                <p className="text-[11px] text-gray-500 mt-0.5">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   Carga datos de muestra para ver cómo se estructura un catálogo, o empieza con campos limpios.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsPresetModalOpen(false)}
-                className="text-gray-400 hover:text-gray-700 p-1 rounded-lg transition cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1021,54 +1021,54 @@ export function StructuredPromptWizard({
                   handleSelectPreset('custom');
                   setIsPresetModalOpen(false);
                 }}
-                className="w-full text-left p-3 rounded-xl border border-blue-200 bg-blue-50/50 hover:bg-blue-50 transition flex items-start gap-3 cursor-pointer group"
+                className="w-full text-left p-3 rounded-xl border border-blue-200 dark:border-[#0052FF]/30 bg-blue-50/70 dark:bg-[#0052FF]/10 hover:bg-blue-100/70 dark:hover:bg-[#0052FF]/15 transition flex items-start gap-3 cursor-pointer group"
               >
-                <div className="p-2 rounded-lg bg-blue-600 text-white shrink-0 mt-0.5">
+                <div className="p-2 rounded-lg bg-[#0052FF] text-white shrink-0 mt-0.5">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-900">
-                      🌱 Plantilla en Blanco (Desde Cero)
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      Plantilla en Blanco (Desde Cero)
                     </span>
-                    <span className="text-[10px] font-semibold text-blue-600 bg-blue-100/70 px-2 py-0.5 rounded-full">
+                    <span className="text-[10px] font-semibold text-[#0052FF] dark:text-[#00D2FF] bg-blue-100 dark:bg-[#0052FF]/20 px-2 py-0.5 rounded-full border border-blue-200 dark:border-[#0052FF]/30">
                       Recomendado
                     </span>
                   </div>
-                  <p className="text-[11px] text-blue-700/80 mt-0.5 leading-relaxed">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
                     Formulario 100% limpio sin productos ni textos de prueba. Ideal para registrar tus datos propios.
                   </p>
                 </div>
               </button>
 
-              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider pt-1">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider pt-1">
                 O inspírate con un ejemplo pre-llenado:
               </div>
 
               {[
                 {
                   id: 'services',
-                  label: '💼 Servicios & Consultoría B2B',
+                  label: 'Servicios & Consultoría B2B',
                   desc: 'Ejemplo con sesiones de diagnóstico, paquetes mensuales y agendamiento.',
                 },
                 {
                   id: 'ecommerce',
-                  label: '🛍️ E-commerce & Tienda Virtual',
+                  label: 'E-commerce & Tienda Virtual',
                   desc: 'Ejemplo con productos de moda/accesorios, costo de envíos y pagos Nequi/contraentrega.',
                 },
                 {
                   id: 'health',
-                  label: '🦷 Salud, Belleza & Spa',
+                  label: 'Salud, Belleza & Spa',
                   desc: 'Ejemplo con citas de valoración, tratamientos dentales y cuidados preventivos.',
                 },
                 {
                   id: 'real_estate',
-                  label: '🏡 Inmobiliaria & Propiedades',
+                  label: 'Inmobiliaria & Propiedades',
                   desc: 'Ejemplo con visitas a apartamentos, canon de arrendamiento y requisitos.',
                 },
                 {
                   id: 'gastronomy',
-                  label: '🍽️ Gastronomía & Restaurante',
+                  label: 'Gastronomía & Restaurante',
                   desc: 'Ejemplo con combos familiares, reservas en mesa y domicilios con empaque térmico.',
                 },
               ].map((preset) => (
@@ -1079,18 +1079,18 @@ export function StructuredPromptWizard({
                     handleSelectPreset(preset.id as IndustryPreset);
                     setIsPresetModalOpen(false);
                   }}
-                  className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50 transition flex items-start gap-3 cursor-pointer group"
+                  className="w-full text-left p-3 rounded-xl border border-slate-200 dark:border-[#1E2433] hover:border-slate-300 dark:hover:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] hover:bg-slate-100 dark:hover:bg-[#1A1F2C]/40 transition flex items-start gap-3 cursor-pointer group"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-900 group-hover:text-[#0052FF] transition">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-[#0052FF] dark:group-hover:text-[#00D2FF] transition">
                         {preset.label}
                       </span>
-                      <span className="text-[10px] font-medium text-gray-400 group-hover:text-[#0052FF]">
+                      <span className="text-[10px] font-medium text-slate-400 group-hover:text-[#0052FF] dark:group-hover:text-[#00D2FF]">
                         Cargar ejemplo →
                       </span>
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
                       {preset.desc}
                     </p>
                   </div>
@@ -1098,11 +1098,11 @@ export function StructuredPromptWizard({
               ))}
             </div>
 
-            <div className="pt-2 flex justify-end border-t border-gray-100">
+            <div className="pt-2 flex justify-end border-t border-slate-100 dark:border-[#1E2433]">
               <button
                 type="button"
                 onClick={() => setIsPresetModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl transition cursor-pointer"
               >
                 Cerrar
               </button>

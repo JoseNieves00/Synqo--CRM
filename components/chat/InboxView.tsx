@@ -8,17 +8,14 @@ import {
   Search,
   Bot,
   User,
-  Clock,
-  AlertCircle,
-  Users,
-  Shield,
-  Zap,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
+import { importRecentZapiChats } from '@/app/actions/zapi';
 
 interface ContactItem {
   id: string;
@@ -29,6 +26,9 @@ interface ContactItem {
   last_interaction_at: string;
   assigned_to?: string | null;
   custom_fields?: any;
+  channel?: 'whatsapp' | 'instagram';
+  instagram_username?: string | null;
+  instagram_id?: string | null;
 }
 
 interface MessageItem {
@@ -50,6 +50,7 @@ interface InboxViewProps {
   activeContact: ContactItem | null;
   messages: MessageItem[];
   customTemplates?: Array<{ name: string; label: string }>;
+  whatsappProvider?: 'meta' | 'zapi';
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
@@ -61,6 +62,7 @@ export function InboxView({
   activeContact,
   messages,
   customTemplates,
+  whatsappProvider = 'meta',
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
@@ -83,11 +85,34 @@ export function InboxView({
   // Filtro secundario de IA / Humano
   const [aiFilter, setAiFilter] = useState<'all' | 'ai' | 'human'>('all');
 
+  // Filtro de canal omnicanal (WhatsApp / Instagram)
+  const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'instagram'>('all');
+
   // Filtro por agente específico (solo visible para Admins y Supervisores)
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string>('all');
 
   // Conjunto de IDs de contactos con relevo pendiente no contestado
   const [unattendedIds, setUnattendedIds] = useState<Set<string>>(new Set());
+
+  // Estado de sincronización manual de chats de WhatsApp (Modelo C)
+  const [syncingChats, setSyncingChats] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const handleSyncZapiChats = async () => {
+    setSyncingChats(true);
+    setSyncFeedback(null);
+    try {
+      const res = await importRecentZapiChats();
+      setSyncFeedback(res.message);
+      router.refresh();
+      setTimeout(() => setSyncFeedback(null), 6000);
+    } catch (err: any) {
+      setSyncFeedback(err.message || 'Error al sincronizar chats.');
+      setTimeout(() => setSyncFeedback(null), 6000);
+    } finally {
+      setSyncingChats(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -95,21 +120,27 @@ export function InboxView({
       try {
         const list = await getUnattendedHandoffs();
         if (isMounted) {
-          setUnattendedIds(new Set(list.map((u) => u.id)));
+          setUnattendedIds(new Set(list.map((item: any) => item.id)));
         }
-      } catch {
-        // Red o micro-corte silencioso
+      } catch (e) {
+        console.warn('[InboxView] Error cargando relevos pendientes:', e);
       }
     };
 
     fetchUnattended();
-    const interval = setInterval(fetchUnattended, 6000);
+
+    const handleHandoffUpdate = () => {
+      fetchUnattended();
+    };
+
+    window.addEventListener('synqo-unattended-count', handleHandoffUpdate);
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      window.removeEventListener('synqo-unattended-count', handleHandoffUpdate);
     };
   }, []);
 
+  // Mantener actualizado el estado cuando cambian las props
   useEffect(() => {
     setContactList(contacts);
   }, [contacts]);
@@ -118,23 +149,41 @@ export function InboxView({
     setMessageList(messages);
   }, [messages]);
 
-  // Polling inteligente cada 4 segundos cuando la pestaña está en primer plano
+  // Suscripción Realtime a mensajes de Supabase
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        router.refresh();
-      }
-    }, 4000);
+    if (!activeContact?.id) return;
 
-    return () => clearInterval(interval);
-  }, [router]);
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`inbox-messages-${activeContact.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `contact_id=eq.${activeContact.id}`,
+        },
+        (payload) => {
+          const newMsg = payload.new as MessageItem;
+          setMessageList((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+        }
+      )
+      .subscribe();
 
-  // Suscripción Realtime a cambios en contactos y mensajes
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeContact?.id]);
+
+  // Suscripción Realtime a actualización de contactos (asignaciones, IA activa, relevos)
   useEffect(() => {
     const supabase = createClient();
-
-    const contactsChannel = supabase
-      .channel('inbox-contacts-realtime')
+    const channel = supabase
+      .channel('inbox-contacts-live')
       .on(
         'postgres_changes',
         {
@@ -148,63 +197,49 @@ export function InboxView({
             setContactList((prev) =>
               prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
             );
-          } else {
-            router.refresh();
+          } else if (payload.eventType === 'INSERT') {
+            const inserted = payload.new as ContactItem;
+            setContactList((prev) => [inserted, ...prev]);
           }
         }
       )
       .subscribe();
 
-    let messagesChannel: any = null;
-    if (activeContact?.id) {
-      messagesChannel = supabase
-        .channel(`inbox-messages-${activeContact.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `contact_id=eq.${activeContact.id}`,
-          },
-          (payload) => {
-            const newMsg = payload.new as MessageItem;
-            setMessageList((prev) => {
-              if (prev.some((m) => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
-          }
-        )
-        .subscribe();
-    }
-
     return () => {
-      supabase.removeChannel(contactsChannel);
-      if (messagesChannel) supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(channel);
     };
-  }, [activeContact?.id, router]);
+  }, []);
 
-  // Contadores para badges
-  const unassignedCount = contactList.filter((c) => !c.assigned_to).length;
+  // Conteo de chats por pestañas
   const myChatsCount = contactList.filter((c) => c.assigned_to === currentUserId).length;
+  const unassignedCount = contactList.filter((c) => !c.assigned_to).length;
 
   // Filtrado compuesto
   const filteredContacts = contactList.filter((c) => {
-    // 1. Búsqueda por texto (nombre o teléfono)
+    // 1. Filtro de búsqueda por texto
+    const q = search.toLowerCase();
     const matchesSearch =
-      (c.name?.toLowerCase() || '').includes(search.toLowerCase()) ||
-      c.phone.includes(search);
+      (c.name?.toLowerCase() || '').includes(q) ||
+      c.phone.includes(q) ||
+      (c.instagram_username?.toLowerCase() || '').includes(q);
 
     if (!matchesSearch) return false;
 
-    // 2. Filtro de pestaña principal
+    // 2. Filtro por canal omnicanal
+    if (channelFilter === 'whatsapp') {
+      if (c.channel === 'instagram') return false;
+    } else if (channelFilter === 'instagram') {
+      if (c.channel !== 'instagram') return false;
+    }
+
+    // 3. Filtro por Pestaña de Asignación
     if (activeTab === 'mine') {
       if (c.assigned_to !== currentUserId) return false;
     } else if (activeTab === 'unassigned') {
       if (c.assigned_to) return false;
     }
 
-    // 3. Filtro por agente específico (Admin)
+    // 4. Filtro por Agente Específico (Admin/Supervisor)
     if (isAdmin && selectedAgentFilter !== 'all') {
       if (selectedAgentFilter === 'unassigned') {
         if (c.assigned_to) return false;
@@ -213,98 +248,170 @@ export function InboxView({
       }
     }
 
-    // 4. Filtro por estado de IA
-    if (aiFilter === 'ai') return c.is_ai_active;
-    if (aiFilter === 'human') return !c.is_ai_active;
+    // 5. Filtro por IA / Asesor Humano
+    if (aiFilter === 'ai' && !c.is_ai_active) return false;
+    if (aiFilter === 'human' && c.is_ai_active) return false;
 
     return true;
   });
 
   return (
-    <div className="flex h-[calc(100vh-125px)] gap-4 overflow-hidden">
+    <div className="flex h-[calc(100vh-80px)] gap-3 overflow-hidden">
       {/* Columna Izquierda: Directorio de Leads */}
-      <div className="w-80 md:w-96 bg-white rounded-2xl border border-gray-200 overflow-hidden flex flex-col shadow-sm flex-shrink-0">
+      <div className="w-80 md:w-96 bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden flex flex-col flex-shrink-0 text-slate-900 dark:text-slate-100 shadow-xs transition-colors">
         {/* Cabecera del Directorio */}
-        <div className="p-4 border-b border-gray-200 bg-gray-50/70 space-y-3">
+        <div className="p-3.5 border-b border-slate-200 dark:border-[#1E2433] bg-slate-50 dark:bg-[#0E121B] space-y-2.5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-sm text-gray-900 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-emerald-600" />
-                Inbox Multi-Agente
+              <h2 className="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                Inbox
               </h2>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                {contactList.length} conversaciones registradas
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                {contactList.length} conversaciones
               </p>
             </div>
-            <NewLeadModal buttonLabel="" className="w-8 h-8 p-0 flex items-center justify-center rounded-xl shadow-xs" />
+            <div className="flex items-center gap-1.5">
+              {whatsappProvider === 'zapi' && (
+                <button
+                  type="button"
+                  onClick={handleSyncZapiChats}
+                  disabled={syncingChats}
+                  title="Sincronizar últimos chats de WhatsApp al CRM"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                >
+                  <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce text-purple-600' : ''}`} />
+                  <span className="hidden sm:inline">{syncingChats ? 'Sincronizando...' : 'Sincronizar'}</span>
+                </button>
+              )}
+              <NewLeadModal
+                buttonLabel="Nuevo Lead"
+                onSuccess={(id) => {
+                  if (id) {
+                    router.push(`/inbox/${id}`);
+                  }
+                  router.refresh();
+                }}
+              />
+            </div>
           </div>
+
+          {/* Banner de Feedback de Sincronización */}
+          {syncFeedback && (
+            <div className="p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-700 dark:text-purple-300 flex items-center justify-between gap-2">
+              <span className="leading-tight">{syncFeedback}</span>
+              <button
+                type="button"
+                onClick={() => setSyncFeedback(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer font-bold shrink-0"
+              >
+                &times;
+              </button>
+            </div>
+          )}
 
           {/* Buscador */}
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por nombre o teléfono..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white"
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:ring-1 focus:ring-[#0052FF] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500"
             />
           </div>
 
-          {/* Recordatorio Activo de Vacíos de Conocimiento en la IA */}
+          {/* Selector Omnicanal: Preparado y visible únicamente cuando existan contactos de Instagram */}
+          {contactList.some((c) => c.channel === 'instagram') && (
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] p-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs">
+              <button
+                onClick={() => setChannelFilter('all')}
+                className={`flex-1 py-1 rounded-md text-center transition cursor-pointer text-[11px] font-medium ${
+                  channelFilter === 'all'
+                    ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Todos ({contactList.length})
+              </button>
+              <button
+                onClick={() => setChannelFilter('whatsapp')}
+                className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 text-[11px] font-medium ${
+                  channelFilter === 'whatsapp'
+                    ? 'bg-white dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF]'
+                }`}
+              >
+                WA ({contactList.filter((c) => c.channel !== 'instagram').length})
+              </button>
+              <button
+                onClick={() => setChannelFilter('instagram')}
+                className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 text-[11px] font-medium ${
+                  channelFilter === 'instagram'
+                    ? 'bg-white dark:bg-[#131722] text-pink-600 dark:text-pink-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-300'
+                }`}
+              >
+                IG ({contactList.filter((c) => c.channel === 'instagram').length})
+              </button>
+            </div>
+          )}
+
+          {/* Recordatorio de Preguntas Frecuentes Pendientes */}
           {pendingGapsCount > 0 && (
             <Link
               href="/settings"
-              className="flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 text-amber-950 text-xs hover:border-amber-400 transition group shadow-2xs"
-              title="Entrenar IA con las dudas recientes de tus clientes"
+              className="flex items-center justify-between p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs hover:border-amber-300 dark:hover:border-amber-400 transition group"
+              title="Resolver dudas frecuentes de clientes"
             >
               <div className="flex items-center gap-2 min-w-0">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600 animate-pulse flex-shrink-0" />
-                <span className="font-bold text-[11px] truncate">
-                  {pendingGapsCount === 1 ? '1 duda sin respuesta de IA' : `${pendingGapsCount} dudas sin respuesta de IA`}
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                <span className="font-medium text-[11px] truncate">
+                  {pendingGapsCount === 1 ? '1 duda pendiente por resolver' : `${pendingGapsCount} dudas pendientes por resolver`}
                 </span>
               </div>
-              <span className="text-[10px] font-bold text-amber-700 group-hover:underline flex-shrink-0">
-                Entrenar →
+              <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 group-hover:underline flex-shrink-0">
+                Resolver &rarr;
               </span>
             </Link>
           )}
 
           {/* Pestañas de Asignación */}
-          <div className="flex items-center gap-1 bg-gray-200/70 p-1 rounded-xl text-xs font-semibold">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] p-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-medium">
             {isAdmin ? (
               <>
                 <button
                   onClick={() => setActiveTab('all')}
-                  className={`flex-1 py-1 rounded-lg text-center transition cursor-pointer ${
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'all'
-                      ? 'bg-white text-gray-900 shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Todos ({contactList.length})
                 </button>
                 <button
                   onClick={() => setActiveTab('unassigned')}
-                  className={`flex-1 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
                     activeTab === 'unassigned'
-                      ? 'bg-white text-gray-900 shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Por Asignar
                   {unassignedCount > 0 && (
-                    <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold">
+                    <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
                       {unassignedCount}
                     </span>
                   )}
                 </button>
                 <button
                   onClick={() => setActiveTab('mine')}
-                  className={`flex-1 py-1 rounded-lg text-center transition cursor-pointer ${
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'mine'
-                      ? 'bg-white text-gray-900 shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Mis Chats ({myChatsCount})
@@ -314,35 +421,35 @@ export function InboxView({
               <>
                 <button
                   onClick={() => setActiveTab('mine')}
-                  className={`flex-1 py-1 rounded-lg text-center transition cursor-pointer ${
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'mine'
-                      ? 'bg-white text-gray-900 shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Mis Chats ({myChatsCount})
                 </button>
                 <button
                   onClick={() => setActiveTab('unassigned')}
-                  className={`flex-1 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
                     activeTab === 'unassigned'
-                      ? 'bg-white text-gray-900 shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Sin Asignar
                   {unassignedCount > 0 && (
-                    <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold">
+                    <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
                       {unassignedCount}
                     </span>
                   )}
                 </button>
                 <button
                   onClick={() => setActiveTab('all')}
-                  className={`flex-1 py-1 rounded-lg text-center transition cursor-pointer ${
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'all'
-                      ? 'bg-white text-gray-900 shadow-xs'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Todos
@@ -357,25 +464,25 @@ export function InboxView({
               <select
                 value={selectedAgentFilter}
                 onChange={(e) => setSelectedAgentFilter(e.target.value)}
-                className="w-full text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="w-full text-xs bg-white dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
               >
-                <option value="all">👥 Filtrar por Agente: Todos</option>
-                <option value="unassigned">⚠️ Solo Sin Asignar</option>
+                <option value="all">Filtrar por Agente: Todos</option>
+                <option value="unassigned">Solo Sin Asignar</option>
                 {teamMembers.map((m) => (
                   <option key={m.id} value={m.id}>
-                    👤 {m.full_name} {m.id === currentUserId ? '(Tú)' : ''}
+                    {m.full_name} {m.id === currentUserId ? '(Tú)' : ''}
                   </option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* Filtros rápidos IA / Humano */}
+          {/* Filtros rápidos Modo Automático / Asesor */}
           <div className="flex items-center gap-1.5 pt-0.5 text-[11px]">
             <button
               onClick={() => setAiFilter('all')}
               className={`px-2 py-0.5 rounded-md font-medium transition cursor-pointer ${
-                aiFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                aiFilter === 'all' ? 'bg-[#0052FF] text-white' : 'bg-slate-100 dark:bg-[#090A0F] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#232A3B] hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Todos
@@ -383,26 +490,41 @@ export function InboxView({
             <button
               onClick={() => setAiFilter('ai')}
               className={`px-2 py-0.5 rounded-md font-medium transition cursor-pointer flex items-center gap-1 ${
-                aiFilter === 'ai' ? 'bg-[#0052FF] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                aiFilter === 'ai' ? 'bg-[#0052FF] text-white' : 'bg-slate-100 dark:bg-[#090A0F] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#232A3B] hover:text-[#0052FF] dark:hover:text-white'
               }`}
             >
-              <Bot className="w-3 h-3" /> IA
+              <Bot className="w-3 h-3" /> Automático
             </button>
             <button
               onClick={() => setAiFilter('human')}
               className={`px-2 py-0.5 rounded-md font-medium transition cursor-pointer flex items-center gap-1 ${
-                aiFilter === 'human' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                aiFilter === 'human' ? 'bg-[#0052FF] text-white' : 'bg-slate-100 dark:bg-[#090A0F] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#232A3B] hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <User className="w-3 h-3" /> Humano
+              <User className="w-3 h-3" /> Asesor
             </button>
           </div>
         </div>
 
         {/* Lista de Chats con Scroll */}
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-          {filteredContacts.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-400">
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-[#1E2433]">
+          {contactList.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 dark:text-slate-500 space-y-3">
+              <p>No tienes conversaciones registradas aún.</p>
+              {whatsappProvider === 'zapi' && (
+                <button
+                  type="button"
+                  onClick={handleSyncZapiChats}
+                  disabled={syncingChats}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-purple-600 text-white hover:bg-purple-500 transition shadow-xs cursor-pointer disabled:opacity-50 mx-auto"
+                >
+                  <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce' : ''}`} />
+                  {syncingChats ? 'Sincronizando...' : 'Sincronizar Últimos 50 Chats'}
+                </button>
+              )}
+            </div>
+          ) : filteredContacts.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 dark:text-slate-500">
               No hay conversaciones en esta sección.
             </div>
           ) : (
@@ -421,52 +543,70 @@ export function InboxView({
                 <Link
                   key={c.id}
                   href={`/inbox/${c.id}`}
-                  className={`p-3 block transition cursor-pointer relative border-l-4 ${
+                  className={`p-3 block transition cursor-pointer relative border-l-2 ${
                     isActive
-                      ? 'bg-[#0052FF]/8 border-l-[#0052FF]'
+                      ? 'bg-blue-50/70 dark:bg-[#0052FF]/10 border-l-[#0052FF]'
                       : isUnattended
-                      ? 'bg-rose-50/80 border-l-rose-500 hover:bg-rose-100/70'
-                      : 'border-l-transparent hover:bg-slate-50'
+                      ? 'bg-rose-50 dark:bg-rose-500/10 border-l-rose-500 hover:bg-rose-100/60 dark:hover:bg-rose-500/15'
+                      : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
                   }`}
                 >
-                  {/* Badge Relevo Pendiente Destacado (Anti-Visto) */}
+                  {/* Badge de Atención Pendiente */}
                   {isUnattended && (
                     <div className="mb-1.5 flex items-center justify-between gap-1">
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-600 text-white shadow-xs animate-pulse">
-                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                        🚨 RELEVO PENDIENTE
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400 animate-pulse" />
+                        Pendiente de atención
                       </span>
-                      <span className="text-[10px] font-bold text-rose-600 shrink-0">Esperando asesor</span>
+                      <span className="text-[10px] text-rose-700 dark:text-rose-300 shrink-0 font-medium">Requiere asesor</span>
                     </div>
                   )}
 
                   {/* Fila 1: Nombre y Hora */}
                   <div className="flex items-center justify-between mb-1 gap-2">
-                    <span className={`font-bold text-xs truncate min-w-0 ${isUnattended ? 'text-rose-950 font-black' : 'text-gray-900'}`}>
+                    <span className={`font-semibold text-xs truncate min-w-0 ${isUnattended ? 'text-rose-700 dark:text-rose-200' : 'text-slate-900 dark:text-white'}`}>
                       {c.name || 'Prospecto sin nombre'}
                     </span>
-                    <span suppressHydrationWarning className="text-[10px] text-gray-400 font-mono flex-shrink-0">
+                    <span suppressHydrationWarning className="text-[10px] text-slate-400 dark:text-slate-400 font-mono flex-shrink-0">
                       {dateStr}
                     </span>
                   </div>
 
-                  {/* Fila 2: Teléfono y Estado IA */}
-                  <div className="flex items-center justify-between text-xs text-gray-500 font-mono mb-1.5">
-                    <span className="text-[11px]">{c.phone}</span>
+                  {/* Fila 2: Canal, Identificador y Estado IA */}
+                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono mb-1.5 gap-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {c.channel === 'instagram' ? (
+                        <>
+                          <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-pink-50 dark:bg-pink-500/10 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/20 shrink-0 font-sans">
+                            IG
+                          </span>
+                          <span className="text-[11px] truncate text-pink-700 dark:text-pink-300 font-medium">
+                            {c.instagram_username ? `@${c.instagram_username}` : c.phone}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="inline-flex items-center text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 shrink-0 font-sans">
+                            WA
+                          </span>
+                          <span className="text-[11px] truncate text-slate-600 dark:text-slate-300">{c.phone}</span>
+                        </>
+                      )}
+                    </div>
                     <span
-                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase font-sans ${
+                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono shrink-0 ${
                         c.is_ai_active
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
+                          ? 'bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20'
+                          : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20'
                       }`}
                     >
-                      {c.is_ai_active ? 'IA' : 'HUMANO'}
+                      {c.is_ai_active ? 'AI' : 'HUMAN'}
                     </span>
                   </div>
 
                   {/* Fila 3: Pipeline Stage & Chip de Asignación */}
                   <div className="flex items-center justify-between gap-1 text-[10px]">
-                    <span className="font-semibold uppercase bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                    <span className="font-mono uppercase bg-slate-100 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] px-1.5 py-0.5 rounded">
                       {c.pipeline_stage}
                     </span>
 
@@ -475,16 +615,16 @@ export function InboxView({
                       <span
                         className={`font-medium px-1.5 py-0.5 rounded flex items-center gap-1 ${
                           isMine
-                            ? 'bg-emerald-50 text-emerald-700 font-bold border border-emerald-200'
-                            : 'bg-gray-100 text-gray-600'
+                            ? 'bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] font-semibold border border-blue-200 dark:border-[#00D2FF]/20'
+                            : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B]'
                         }`}
                       >
-                        <User className="w-2.5 h-2.5" />
+                        <User className="w-2.5 h-2.5 text-slate-400" />
                         {isMine ? 'Tú' : assignedUser?.full_name || 'Asignado'}
                       </span>
                     ) : (
-                      <span className="font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                        <Zap className="w-2.5 h-2.5 text-amber-500" />
+                      <span className="font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <User className="w-2.5 h-2.5 text-amber-500 dark:text-amber-400" />
                         Sin Asignar
                       </span>
                     )}
@@ -505,16 +645,17 @@ export function InboxView({
             messages={messageList}
             onOptimisticMessage={(msg) => setMessageList((prev) => [...prev, msg])}
             customTemplates={customTemplates}
+            whatsappProvider={whatsappProvider}
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             teamMembers={teamMembers}
           />
         ) : (
-          <div className="h-full bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center p-8 text-center shadow-sm">
-            <MessageSquare className="w-12 h-12 text-gray-300 mb-3" />
-            <h3 className="font-bold text-base text-gray-900">Selecciona una conversación</h3>
-            <p className="text-xs text-gray-500 mt-1 max-w-sm">
-              Elige un contacto del panel izquierdo para revisar los mensajes enviados por el prospecto, la IA y los agentes humanos.
+          <div className="h-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] flex flex-col items-center justify-center p-8 text-center text-slate-800 dark:text-slate-100 shadow-xs transition-colors">
+            <MessageSquare className="w-10 h-10 text-slate-400 dark:text-slate-600 mb-2.5" />
+            <h3 className="font-semibold text-sm text-slate-900 dark:text-white">Selecciona una conversación</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+              Elige un contacto del panel izquierdo para revisar los mensajes y gestionar la atención en tiempo real.
             </p>
           </div>
         )}

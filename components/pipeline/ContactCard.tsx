@@ -41,61 +41,59 @@ export function ContactCard({
     <div
       draggable
       onDragStart={handleDragStart}
-      className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing select-none"
+      className="bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF]/60 dark:hover:border-[#0052FF]/60 p-3 shadow-xs hover:shadow-sm transition-all cursor-grab active:cursor-grabbing select-none text-slate-900 dark:text-slate-100"
     >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <h4 className="font-medium text-sm text-gray-900 truncate">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <h4 className="font-semibold text-xs text-slate-900 dark:text-white truncate">
           {name || 'Lead sin nombre'}
         </h4>
         <span
-          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+          className={`inline-flex items-center gap-1 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${
             isAiActive
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              : 'bg-amber-50 text-amber-700 border border-amber-200'
+              ? 'bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20'
+              : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20'
           }`}
         >
           {isAiActive ? (
             <>
-              <Bot className="w-3 h-3 text-emerald-600" />
-              IA Activa
+              <Bot className="w-2.5 h-2.5" />
+              <span>AI</span>
             </>
           ) : (
             <>
-              <User className="w-3 h-3 text-amber-600" />
-              Humano
+              <User className="w-2.5 h-2.5" />
+              <span>HUMAN</span>
             </>
           )}
         </span>
       </div>
 
-      <p className="text-xs text-gray-500 font-mono mb-3">{phone}</p>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mb-2.5">{phone}</p>
 
-      <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-100">
-        <span suppressHydrationWarning className="flex items-center gap-1">
-          <Clock className="w-3 h-3" />
+      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-[#1E2433]">
+        <span suppressHydrationWarning className="flex items-center gap-1 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+          <Clock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
           {formattedDate}
         </span>
 
         <Link
           href={`/inbox/${id}`}
-          className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5"
+          className="text-[11px] text-[#0052FF] dark:text-[#00D2FF] hover:underline font-medium flex items-center gap-0.5"
         >
-          Ver chat <ArrowRight className="w-3 h-3" />
+          Chat <ArrowRight className="w-3 h-3" />
         </Link>
       </div>
 
       {onMoveStage && (
-        <div className="mt-3 pt-2">
-          <label className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block mb-1">
-            Mover a etapa:
-          </label>
+        <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-[#1E2433]/60 flex items-center justify-between gap-2">
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">Fase:</span>
           <select
             value={currentStage}
             onChange={(e) => onMoveStage(id, e.target.value as PipelineStage)}
-            className="w-full text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-black"
+            className="text-[10px] bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded px-1.5 py-0.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
           >
             {PIPELINE_STAGES.map((s) => (
-              <option key={s.id} value={s.id}>
+              <option key={s.id} value={s.id} className="bg-white dark:bg-[#131722] text-slate-900 dark:text-slate-200">
                 {s.label}
               </option>
             ))}
@@ -105,4 +103,3 @@ export function ContactCard({
     </div>
   );
 }
-

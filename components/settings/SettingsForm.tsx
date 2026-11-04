@@ -13,6 +13,16 @@ import {
   deleteCustomTemplate,
 } from '@/app/actions/settings';
 import {
+  saveGoogleCalendarSettings,
+  disconnectGoogleCalendar,
+  testGoogleCalendarConnection,
+  getGoogleOAuthUrl,
+  saveInstagramSettings,
+  disconnectInstagram,
+  testInstagramConnection,
+} from '@/app/actions/integrations';
+import type { EnabledModules } from '@/lib/supabase/types';
+import {
   KeyRound,
   Bot,
   Calendar,
@@ -38,86 +48,17 @@ import {
   Save,
   DoorOpen,
   Smartphone,
+  Instagram,
+  Video,
+  Shield,
+  Loader2,
 } from 'lucide-react';
 import { TeamTab } from './TeamTab';
 import { SpecialistsTab } from './SpecialistsTab';
 import { RoomsTab } from './RoomsTab';
 import { StructuredPromptWizard } from './StructuredPromptWizard';
 import { KnowledgeGapsList } from './KnowledgeGapsList';
-
-interface PlanDetails {
-  title: string;
-  badge: string;
-  description: string;
-  tokens: string;
-  seats: string;
-  features: string[];
-  highlight?: string;
-}
-
-const PLAN_BENEFITS: Record<string, PlanDetails> = {
-  core: {
-    title: 'Starter (Validación)',
-    badge: 'Starter',
-    description: 'Diseñado para negocios unipersonales o 1-2 asesores validando su canal de captación y cierre por WhatsApp.',
-    tokens: '500,000 tokens IA / mes (~350 - 500 chats)',
-    seats: 'Hasta 2 usuarios de asesores incluidos',
-    features: [
-      'IA autónoma con Prompt 100% editable y personalizable',
-      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Calendario y citas automatizadas nativas',
-      'Alertas sonoras melódicas y notificaciones push al navegador',
-      'Soporte técnico estándar por ticket y correo',
-    ],
-  },
-  starter: {
-    title: 'Starter (Validación)',
-    badge: 'Starter',
-    description: 'Diseñado para negocios unipersonales o 1-2 asesores validando su canal de captación y cierre por WhatsApp.',
-    tokens: '500,000 tokens IA / mes (~350 - 500 chats)',
-    seats: 'Hasta 2 usuarios de asesores incluidos',
-    features: [
-      'IA autónoma con Prompt 100% editable y personalizable',
-      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Calendario y citas automatizadas nativas',
-      'Alertas sonoras melódicas y notificaciones push al navegador',
-      'Soporte técnico estándar por ticket y correo',
-    ],
-  },
-  pro: {
-    title: 'Pro Comercial (Recomendado)',
-    badge: 'Pro',
-    description: 'Para empresas con equipo comercial activo que buscan acelerar la conversión y cierre de prospectos calificados.',
-    tokens: '2,500,000 tokens IA / mes (~1,800 - 2,500 chats)',
-    seats: 'Hasta 5 usuarios de asesores incluidos',
-    features: [
-      'IA autónoma con Prompt 100% editable y personalizable',
-      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Calendario y citas automatizadas nativas',
-      'Exportación de Leads y contactos a archivo CSV / Excel',
-      'Alertas sonoras melódicas y notificaciones push al navegador',
-      'Soporte comercial prioritario por correo electrónico',
-    ],
-    highlight: 'Plan Más Popular',
-  },
-  enterprise: {
-    title: 'Enterprise Corporativo (Escala)',
-    badge: 'Enterprise',
-    description: 'Para operaciones comerciales consolidadas con múltiples turnos y equipos comerciales grandes.',
-    tokens: '7,500,000 tokens IA / mes (~5,000 - 7,500 chats)',
-    seats: 'Hasta 12 usuarios de asesores incluidos',
-    features: [
-      'IA autónoma con Prompt 100% editable y personalizable',
-      'Bandeja de entrada de WhatsApp & Kanban en tiempo real',
-      'Calendario y citas automatizadas nativas',
-      'Exportación Masiva de Leads & Historial completo a Excel',
-      'Grupo VIP de WhatsApp dedicado con SLA de respuesta < 2h',
-      'Sesión de Capacitación en Vivo (45 min) para asesores',
-      'Facturación corporativa anual / local y soporte preferencial',
-    ],
-    highlight: 'Soporte VIP en WhatsApp',
-  },
-};
+import { ZApiQrCard } from './ZApiQrCard';
 
 interface SettingsFormProps {
   initialData: {
@@ -140,6 +81,23 @@ interface SettingsFormProps {
     aiTokensLimit?: number;
     maxUsers?: number;
     industryPreset?: string | null;
+    hasGoogleCalendarToken?: boolean;
+    googleCalendarId?: string;
+    googleCalendarSyncEnabled?: boolean;
+    googleCalendarBlockBusy?: boolean;
+    instagramAccountId?: string;
+    hasInstagramToken?: boolean;
+    whatsappProvider?: 'meta' | 'zapi';
+    zapiInstanceId?: string;
+    hasZapiToken?: boolean;
+    hasZapiClientToken?: boolean;
+    zapiStatus?: 'connected' | 'disconnected' | 'connecting';
+    zapiPhoneConnected?: string;
+    zapiAntiBanMode?: boolean;
+    zapiMaxOutboundPerHour?: number;
+    specialistLabel?: string;
+    roomLabel?: string;
+    enabledModules?: EnabledModules;
   };
   teamData?: {
     organization: {
@@ -154,16 +112,28 @@ interface SettingsFormProps {
   };
   specialistsData?: any[];
   roomsData?: any[];
+  isSuperAdmin?: boolean;
 }
 
 // Bandera para Meta Embedded Signup:
 // Mantener en false mientras se completa la verificación oficial de Meta Tech Provider.
 // En false, la conexión oficial se realiza mediante Phone Number ID y Token Permanente del Sistema.
+// Control de características experimentales / futuras
 const SHOW_EMBEDDED_SIGNUP = false;
+// Instagram Direct preparado en arquitectura backend/servicios. Oculto en Frontend para MVP (activar en próxima release)
+const SHOW_INSTAGRAM_MVP = false;
 
-export function SettingsForm({ initialData, teamData, specialistsData, roomsData }: SettingsFormProps) {
+export function SettingsForm({
+  initialData,
+  teamData,
+  specialistsData,
+  roomsData,
+  isSuperAdmin = false,
+}: SettingsFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms'>('integrations');
+  const activeWaEngine: 'meta' | 'zapi' =
+    initialData.whatsappProvider || (initialData.zapiInstanceId ? 'zapi' : 'meta');
   const [phoneNumberId, setPhoneNumberId] = useState(initialData.whatsappPhoneNumberId || '');
   const [accessToken, setAccessToken] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -188,9 +158,207 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
   const [structuredPromptData, setStructuredPromptData] = useState<any>(
     initialData.structuredPromptData || null
   );
-  const [industryPreset, setIndustryPreset] = useState<string>(
-    initialData.industryPreset || 'services'
-  );
+
+  // Google Calendar & Google Meet state
+  const [gcalId, setGcalId] = useState(initialData.googleCalendarId || '');
+  const [gcalToken, setGcalToken] = useState('');
+  const [showGcalToken, setShowGcalToken] = useState(false);
+  const [hasGcalToken, setHasGcalToken] = useState(Boolean(initialData.hasGoogleCalendarToken));
+  const [gcalSyncEnabled, setGcalSyncEnabled] = useState(Boolean(initialData.googleCalendarSyncEnabled));
+  const [gcalBlockBusy, setGcalBlockBusy] = useState(Boolean(initialData.googleCalendarBlockBusy));
+  const [savingGcal, setSavingGcal] = useState(false);
+  const [testingGcal, setTestingGcal] = useState(false);
+  const [disconnectingGcal, setDisconnectingGcal] = useState(false);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [showManualGoogle, setShowManualGoogle] = useState(false);
+  const [gcalFeedback, setGcalFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Instagram Direct state
+  const [igAccountId, setIgAccountId] = useState(initialData.instagramAccountId || '');
+  const [igToken, setIgToken] = useState('');
+  const [showIgToken, setShowIgToken] = useState(false);
+  const [hasIgToken, setHasIgToken] = useState(Boolean(initialData.hasInstagramToken));
+  const [savingIg, setSavingIg] = useState(false);
+  const [testingIg, setTestingIg] = useState(false);
+  const [disconnectingIg, setDisconnectingIg] = useState(false);
+  const [igFeedback, setIgFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Estados de verificación previa obligatoria (Gate anti-credenciales erróneas)
+  const [waVerified, setWaVerified] = useState(false);
+  const [igVerified, setIgVerified] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('google') === 'connected') {
+        setGcalFeedback({
+          success: true,
+          message: '¡Cuenta de Google Calendar y Meet vinculada exitosamente con 1 clic!',
+        });
+        setHasGcalToken(true);
+      } else if (params.get('google_error')) {
+        setGcalFeedback({
+          success: false,
+          message: `Error al vincular con Google: ${decodeURIComponent(params.get('google_error') || '')}`,
+        });
+      }
+    }
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    setConnectingGoogle(true);
+    setGcalFeedback(null);
+    try {
+      const res = await getGoogleOAuthUrl();
+      if (res.success && res.url) {
+        window.location.href = res.url;
+      } else {
+        setGcalFeedback({
+          success: false,
+          message: res.error || 'Configura GOOGLE_CLIENT_ID en .env.local para el botón de 1 clic, o ingresa tu token manualmente.',
+        });
+        setShowManualGoogle(true);
+      }
+    } catch (err: any) {
+      setGcalFeedback({ success: false, message: err?.message || 'Error al conectar con Google.' });
+      setShowManualGoogle(true);
+    } finally {
+      setConnectingGoogle(false);
+    }
+  };
+
+  const handleSaveGoogleCalendar = async () => {
+    setSavingGcal(true);
+    setGcalFeedback(null);
+    try {
+      await saveGoogleCalendarSettings({
+        calendarId: gcalId,
+        accessToken: gcalToken || undefined,
+        syncEnabled: gcalSyncEnabled,
+        blockBusy: gcalBlockBusy,
+      });
+      if (gcalToken) setHasGcalToken(true);
+      setGcalFeedback({ success: true, message: '¡Configuración de Google Calendar guardada exitosamente!' });
+    } catch (err: any) {
+      setGcalFeedback({ success: false, message: err?.message || 'Error al guardar Google Calendar.' });
+    } finally {
+      setSavingGcal(false);
+    }
+  };
+
+  const handleTestGoogleCalendar = async () => {
+    setTestingGcal(true);
+    setGcalFeedback(null);
+    try {
+      const res = await testGoogleCalendarConnection(gcalId, gcalToken || undefined);
+      setGcalFeedback({
+        success: res.success,
+        message: res.success ? (res.message || 'Conexión exitosa.') : (res.error || 'Fallo en la prueba.'),
+      });
+    } catch (err: any) {
+      setGcalFeedback({ success: false, message: err?.message || 'Error probando Google Calendar.' });
+    } finally {
+      setTestingGcal(false);
+    }
+  };
+
+  const handleDisconnectGoogleCalendar = async () => {
+    if (!confirm('¿Estás seguro de desconectar Google Calendar?')) return;
+    setDisconnectingGcal(true);
+    try {
+      await disconnectGoogleCalendar();
+      setHasGcalToken(false);
+      setGcalToken('');
+      setGcalFeedback({ success: true, message: 'Google Calendar desconectado.' });
+    } catch (err: any) {
+      setGcalFeedback({ success: false, message: err?.message || 'Error al desconectar.' });
+    } finally {
+      setDisconnectingGcal(false);
+    }
+  };
+
+  const handleSaveInstagram = async () => {
+    if (!igVerified && !hasIgToken) {
+      setIgFeedback({
+        success: false,
+        message: 'Por favor prueba y verifica la conexión con Meta antes de guardar las credenciales.',
+      });
+      return;
+    }
+    setSavingIg(true);
+    setIgFeedback(null);
+    try {
+      await saveInstagramSettings({
+        instagramAccountId: igAccountId,
+        accessToken: igToken || undefined,
+      });
+      if (igToken) {
+        setHasIgToken(true);
+        setIgToken('');
+      }
+      setIgVerified(false);
+      setIgFeedback({ success: true, message: '¡Cuenta de Instagram guardada y vinculada exitosamente!' });
+    } catch (err: any) {
+      setIgFeedback({ success: false, message: err?.message || 'Error al guardar Instagram.' });
+    } finally {
+      setSavingIg(false);
+    }
+  };
+
+  const handleTestInstagram = async () => {
+    const accountToTest = igAccountId.trim() || initialData.instagramAccountId;
+    const tokenToTest = igToken.trim();
+
+    if (!accountToTest) {
+      setIgFeedback({
+        success: false,
+        message: 'Por favor ingresa primero el "ID de la Cuenta de Instagram Business" para probar la conexión.',
+      });
+      setIgVerified(false);
+      return;
+    }
+
+    if (!tokenToTest && !hasIgToken) {
+      setIgFeedback({
+        success: false,
+        message: 'Por favor ingresa tu "Instagram Access Token (Meta System User)" para probar la conexión.',
+      });
+      setIgVerified(false);
+      return;
+    }
+
+    setTestingIg(true);
+    setIgFeedback(null);
+    try {
+      const res = await testInstagramConnection(accountToTest, tokenToTest || undefined);
+      setIgFeedback({
+        success: res.success,
+        message: res.success ? (res.message || 'Conexión exitosa.') : (res.error || 'Fallo en la prueba.'),
+      });
+      setIgVerified(Boolean(res.success));
+    } catch (err: any) {
+      setIgFeedback({ success: false, message: err?.message || 'Error probando conexión con Instagram Direct.' });
+      setIgVerified(false);
+    } finally {
+      setTestingIg(false);
+    }
+  };
+
+  const handleDisconnectInstagram = async () => {
+    if (!confirm('¿Estás seguro de desconectar Instagram Direct?')) return;
+    setDisconnectingIg(true);
+    try {
+      await disconnectInstagram();
+      setHasIgToken(false);
+      setIgToken('');
+      setIgVerified(false);
+      setIgFeedback({ success: true, message: 'Instagram Direct desconectado.' });
+    } catch (err: any) {
+      setIgFeedback({ success: false, message: err?.message || 'Error al desconectar.' });
+    } finally {
+      setDisconnectingIg(false);
+    }
+  };
 
   // Inicialización del SDK de Meta y escucha de eventos de sesión (sessionInfoVersion: '2')
   useEffect(() => {
@@ -458,6 +626,14 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
       return;
     }
 
+    if (!waVerified && !hasToken) {
+      setFeedback({
+        type: 'error',
+        message: 'Por favor prueba y verifica la conexión con WhatsApp antes de guardar.',
+      });
+      return;
+    }
+
     setSavingManualWa(true);
     setFeedback(null);
     try {
@@ -471,6 +647,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
         setAccessToken('');
       }
 
+      setWaVerified(false);
       setFeedback({
         type: 'success',
         message: '¡Credenciales de WhatsApp guardadas exitosamente!',
@@ -660,8 +837,10 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
         appSecret: appSecret || undefined,
       });
       setWaTestResult(res);
+      setWaVerified(Boolean(res.success));
     } catch (err: any) {
       setWaTestResult({ success: false, error: err.message || 'Error probando WhatsApp' });
+      setWaVerified(false);
     } finally {
       setTestingWhatsApp(false);
     }
@@ -679,7 +858,6 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
         whatsappAppSecret: appSecret || undefined,
         systemPrompt: systemPrompt || undefined,
         structuredPromptData: structuredPromptData || undefined,
-        industryPreset: industryPreset || undefined,
       });
 
       setFeedback({
@@ -701,30 +879,37 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
   const subStatus = initialData.subscriptionStatus || 'trialing';
   const planType = initialData.planType || 'core';
+  const enabledModules: EnabledModules = initialData.enabledModules || {
+    native_calendar: true,
+    physical_rooms: false,
+    staff_mobile_portal: false,
+    quick_pay: false,
+    anti_no_show: true,
+  };
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-5xl space-y-6 text-slate-900 dark:text-white transition-colors">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
           Configuración & Administración
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Gestiona las integraciones de IA, credenciales cifradas y accesos de agentes de {initialData.orgName || 'tu empresa'}.
         </p>
       </div>
 
-      {/* Navegación por Pestañas */}
-      <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
+      {/* Navegación por Pestañas Segmentadas */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-fit">
         <button
           type="button"
           onClick={() => setActiveTab('integrations')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
             activeTab === 'integrations'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
           }`}
         >
-          <Sliders className="w-4 h-4" />
+          <Sliders className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
           Integraciones & IA
         </button>
 
@@ -732,42 +917,46 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
           <button
             type="button"
             onClick={() => setActiveTab('team')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
               activeTab === 'team'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
             }`}
           >
-            <Users className="w-4 h-4" />
+            <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
             Equipo & Usuarios ({teamData.members.length}/{teamData.organization.maxUsers})
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('specialists')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
-            activeTab === 'specialists'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-          }`}
-        >
-          <Smartphone className="w-4 h-4 text-[#00D2FF]" />
-          Colaboradores & Especialistas ({specialistsData?.length || 0})
-        </button>
+        {(enabledModules.staff_mobile_portal || (specialistsData && specialistsData.length > 0)) && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('specialists')}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+              activeTab === 'specialists'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+            }`}
+          >
+            <Smartphone className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+            {initialData.specialistLabel ? `${initialData.specialistLabel}s` : 'Colaboradores'} ({specialistsData?.length || 0})
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('rooms')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
-            activeTab === 'rooms'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-          }`}
-        >
-          <DoorOpen className="w-4 h-4 text-emerald-500" />
-          Salones & Espacios ({roomsData?.length || 0})
-        </button>
+        {(enabledModules.physical_rooms || (roomsData && roomsData.length > 0)) && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('rooms')}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+              activeTab === 'rooms'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+            }`}
+          >
+            <DoorOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            {initialData.roomLabel ? `${initialData.roomLabel}s` : 'Espacios Físicos'} ({roomsData?.length || 0})
+          </button>
+        )}
       </div>
 
       {activeTab === 'specialists' ? (
@@ -776,11 +965,13 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
           organizationId={teamData?.organization.id || ''}
           companyCode={initialData.companyCode || ''}
           companyName={initialData.orgName || 'Mi Empresa'}
+          specialistLabel={initialData.specialistLabel || 'Colaborador'}
         />
       ) : activeTab === 'rooms' ? (
         <RoomsTab
           rooms={roomsData || []}
           organizationId={teamData?.organization.id || ''}
+          roomLabel={initialData.roomLabel || 'Espacio'}
         />
       ) : activeTab === 'team' && teamData ? (
         <TeamTab initialData={teamData} />
@@ -788,24 +979,23 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
         <>
           {feedback && (
             <div
-              className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+              className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium ${
                 feedback.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
               }`}
             >
               {feedback.type === 'success' ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
               ) : (
-                <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
               )}
               <span>{feedback.message}</span>
             </div>
           )}
 
-          {/* Tarjeta de Licencia y Beneficios del Plan */}
+          {/* Panel de Funcionalidades & Capacidad Activa (En vez de nombre rígido de plan) */}
           {(() => {
-            const currentPlan = PLAN_BENEFITS[planType.toLowerCase()] || PLAN_BENEFITS.core;
             const maxUsersCount = teamData?.organization?.maxUsers ?? initialData.maxUsers ?? 2;
             const activeUsersCount = teamData?.organization?.usedUsers ?? 1;
             const remainingSeats = teamData?.organization?.remainingSeats ?? Math.max(0, maxUsersCount - activeUsersCount);
@@ -813,38 +1003,71 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
             const effectiveLimit =
               initialData.aiTokensLimit && initialData.aiTokensLimit > 0
                 ? initialData.aiTokensLimit
-                : planType.toLowerCase() === 'enterprise'
-                ? 7500000
-                : planType.toLowerCase() === 'pro'
-                ? 2500000
                 : 500000;
             const effectiveUsed = initialData.aiTokensUsed || 0;
             const tokenPercent = Math.min(100, Math.round((effectiveUsed / effectiveLimit) * 100));
 
-            // Aproximación de chats basada en la cantidad de tokens configurada en la base de datos:
-            // Una sesión promedio de atención completa por WhatsApp consume entre 800 y 1,200 tokens IA.
             const minEstimatedChats = Math.floor(effectiveLimit / 1200);
             const maxEstimatedChats = Math.floor(effectiveLimit / 800);
             const remainingTokens = Math.max(0, effectiveLimit - effectiveUsed);
             const remainingEstimatedChats = Math.floor(remainingTokens / 1000);
 
+            const specLabel = initialData.specialistLabel || 'Colaborador';
+            const rLabel = initialData.roomLabel || 'Espacio';
+
+            const moduleList = [
+              {
+                id: 'calendar',
+                name: 'Agenda & Citas por WhatsApp',
+                active: Boolean(enabledModules.native_calendar),
+                icon: Calendar,
+                desc: 'Bot IA agendador 24/7 y sincronización de citas en tiempo real.',
+              },
+              {
+                id: 'specialists',
+                name: `Gestión de ${specLabel}s`,
+                active: Boolean(enabledModules.staff_mobile_portal),
+                icon: Smartphone,
+                desc: `Portal móvil con PIN para que los ${specLabel.toLowerCase()}s vean su agenda.`,
+              },
+              {
+                id: 'rooms',
+                name: `Control de ${rLabel}s & Aforo`,
+                active: Boolean(enabledModules.physical_rooms),
+                icon: DoorOpen,
+                desc: `Asignación de ${rLabel.toLowerCase()}s físicos por turno sin sobrecupo.`,
+              },
+              {
+                id: 'anti_no_show',
+                name: 'Protocolo Anti No-Show',
+                active: Boolean(enabledModules.anti_no_show),
+                icon: Shield,
+                desc: 'Confirmaciones automáticas a 8 horas con recordatorios diurnos.',
+              },
+              {
+                id: 'quick_pay',
+                name: 'Cobros Rápidos (Quick Pay)',
+                active: Boolean(enabledModules.quick_pay),
+                icon: CreditCard,
+                desc: 'Registro de cobros directos (Efectivo, Nequi, Datáfono).',
+              },
+            ];
+
             return (
-              <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
+                {/* Cabecera del Servicio */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] rounded-xl">
-                      <CreditCard className="w-5 h-5" />
+                    <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20">
+                      <Sliders className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-base font-bold text-gray-900">Estado de Licencia & Servicio</h2>
-                        {currentPlan.highlight && (
-                          <span className="text-[10px] bg-[#0052FF]/10 text-[#0052FF] font-semibold px-2 py-0.5 rounded-full border border-[#0052FF]/20">
-                            {currentPlan.highlight}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500">Plan contratado y herramientas activas en tu suscripción</p>
+                      <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                        Funcionalidades & Capacidad Activa
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Herramientas habilitadas para {initialData.orgName || 'tu empresa'} y consumo del mes
+                      </p>
                     </div>
                   </div>
 
@@ -852,68 +1075,66 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     <span
                       className={`text-xs font-semibold px-3 py-1 rounded-full border flex items-center gap-1.5 ${
                         subStatus === 'active' || subStatus === 'trialing'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                          : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30'
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
                           subStatus === 'active' || subStatus === 'trialing'
-                            ? 'bg-emerald-500 animate-pulse'
-                            : 'bg-rose-500'
+                            ? 'bg-emerald-500 dark:bg-emerald-400 animate-pulse'
+                            : 'bg-rose-500 dark:bg-rose-400'
                         }`}
                       />
-                      {subStatus === 'trialing'
-                        ? `Prueba Activa (${currentPlan.badge})`
-                        : `Plan ${currentPlan.badge}: ${subStatus.toUpperCase()}`}
+                      {subStatus === 'trialing' ? 'Prueba Activa' : 'Suscripción Activa'}
                     </span>
                   </div>
                 </div>
 
-                {/* Cuotas del Plan: Usuarios y Tokens Dinámicos desde Base de Datos */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
+                {/* Cuotas de Capacidad: Usuarios y Conversaciones */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#1E2433] flex flex-col justify-between gap-2.5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
+                      <div className="p-2 rounded-lg bg-white dark:bg-[#1A1F2C] text-[#0052FF] dark:text-[#00D2FF] border border-slate-200 dark:border-[#232A3B] shadow-2xs shrink-0">
                         <Users className="w-4 h-4" />
                       </div>
                       <div>
-                        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
-                          Capacidad de Asesores
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">
+                          Usuarios de Equipo
                         </span>
-                        <span className="text-xs font-bold text-gray-900">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
                           {activeUsersCount} de {maxUsersCount} usuarios activos
                         </span>
                       </div>
                     </div>
-                    <div className="text-[11px] text-gray-600 flex items-center justify-between pt-1.5 border-t border-slate-200/70 font-medium">
-                      <span>{remainingSeats > 0 ? `${remainingSeats} ${remainingSeats === 1 ? 'cupo disponible' : 'cupos disponibles'}` : 'Límite alcanzado'}</span>
-                      <span className="font-semibold text-slate-700 font-mono">Máx: {maxUsersCount}</span>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-[#1E2433] font-medium">
+                      <span>{remainingSeats > 0 ? `${remainingSeats} ${remainingSeats === 1 ? 'cupo disponible' : 'cupos disponibles'}` : 'Cupos al 100%'}</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 font-mono">Máx: {maxUsersCount}</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between gap-2.5">
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#1E2433] flex flex-col justify-between gap-2.5">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-white text-[#0052FF] border border-slate-200 shadow-xs shrink-0">
+                      <div className="p-2 rounded-lg bg-white dark:bg-[#1A1F2C] text-[#0052FF] dark:text-[#00D2FF] border border-slate-200 dark:border-[#232A3B] shadow-2xs shrink-0">
                         <Zap className="w-4 h-4" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block">
-                            Cuota de Tokens IA en Tiempo Real
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider block">
+                            Capacidad de Conversaciones IA
                           </span>
-                          <span className="text-[10px] font-bold text-slate-700 font-mono">
+                          <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 font-mono">
                             {tokenPercent}%
                           </span>
                         </div>
-                        <span className="text-xs font-bold text-gray-900 font-mono">
-                          {effectiveUsed.toLocaleString()} / {effectiveLimit.toLocaleString()} tokens
+                        <span suppressHydrationWarning className="text-xs font-bold text-slate-900 dark:text-white font-mono">
+                          ~{remainingEstimatedChats.toLocaleString()} chats restantes este mes
                         </span>
                       </div>
                     </div>
 
                     {/* Barra de progreso de consumo de tokens */}
-                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                    <div className="w-full bg-slate-200 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] rounded-full h-1.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
                           tokenPercent >= 90
@@ -926,13 +1147,89 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                       />
                     </div>
 
-                    <div className="text-[11px] text-gray-600 flex items-center justify-between pt-0.5 font-medium">
-                      <span>~{minEstimatedChats.toLocaleString()} a {maxEstimatedChats.toLocaleString()} chats/mes</span>
-                      <span className="text-emerald-700 font-semibold font-mono">
-                        ~{remainingEstimatedChats.toLocaleString()} chats restantes
+                    <div suppressHydrationWarning className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-0.5 font-medium">
+                      <span>Capacidad total: ~{minEstimatedChats.toLocaleString()} a {maxEstimatedChats.toLocaleString()} chats</span>
+                      <span className="text-slate-600 dark:text-slate-300 font-mono">
+                        {effectiveUsed.toLocaleString()} tokens usados
                       </span>
                     </div>
                   </div>
+                </div>
+
+                {/* Tablero de Funcionalidades (Encendidas vs No contratadas) */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+                      Herramientas & Módulos Disponibles
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {moduleList.filter((m) => m.active).length} de {moduleList.length} activas
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                    {moduleList.map((m) => {
+                      const IconComponent = m.icon;
+                      return (
+                        <div
+                          key={m.id}
+                          className={`p-3.5 rounded-xl border transition flex flex-col justify-between gap-2 ${
+                            m.active
+                              ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20'
+                              : 'bg-slate-50/60 dark:bg-[#0E121C] border-slate-200 dark:border-[#232A3B] opacity-75'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`p-1.5 rounded-lg ${
+                                  m.active
+                                    ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                <IconComponent className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
+                                {m.name}
+                              </span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                m.active
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                                  : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                              }`}
+                            >
+                              {m.active ? 'Encendido' : 'No contratado'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                            {m.desc}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Banner de Solicitud de Nuevas Funcionalidades */}
+                <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-[#0052FF]/5 border border-blue-100 dark:border-[#0052FF]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                    <span className="text-base">💡</span>
+                    <span>
+                      ¿Deseas encender un módulo adicional o ampliar el cupo de tu equipo?
+                    </span>
+                  </div>
+                  <a
+                    href="https://wa.me/573000000000?text=Hola,%20deseo%20activar%20una%20funcionalidad%20adicional%20en%20mi%20cuenta%20de%20Synqo"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold transition shrink-0"
+                  >
+                    <span>Solicitar a Soporte</span>
+                  </a>
                 </div>
               </div>
             );
@@ -940,95 +1237,56 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">
-            {/* Tipo de Negocio / Especialidad del Nicho */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
-              <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
-                <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] rounded-xl">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-gray-900">Tipo de Negocio & Nicho de tu Empresa</h2>
-                  <p className="text-xs text-gray-500">
-                    Adapta automáticamente la terminología y campos del Calendario, Citas e IA al nicho de tu empresa.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { id: 'services', label: 'Barbería, Spa & Belleza', icon: '✂️', desc: 'Atención presencial por turnos con profesionales' },
-                  { id: 'health', label: 'Salud & Consultorios', icon: '🦷', desc: 'Médicos, Odontología, Terapias y Consultorios' },
-                  { id: 'academy', label: 'Academias & Cursos', icon: '🥋', desc: 'Clases, Fitness, Danza, Salones y Alumnos' },
-                  { id: 'b2b', label: 'B2B & Consultoría', icon: '💼', desc: 'Reuniones virtuales (Meet/Zoom) y Demos' },
-                  { id: 'ecommerce', label: 'E-Commerce & Retail', icon: '🛍️', desc: 'Venta de productos y envíos a domicilio' },
-                  { id: 'custom', label: 'A Medida / General', icon: '⚙️', desc: 'Configuración modular libre' },
-                ].map((niche) => {
-                  const isSelected = industryPreset === niche.id;
-                  return (
-                    <button
-                      key={niche.id}
-                      type="button"
-                      onClick={() => setIndustryPreset(niche.id)}
-                      className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? 'bg-blue-50/80 border-[#0052FF] ring-2 ring-[#0052FF]/20 shadow-xs'
-                          : 'bg-slate-50/50 border-gray-200 hover:border-gray-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div>
-                        <span className="text-lg block mb-1">{niche.icon}</span>
-                        <div className="text-xs font-bold text-gray-900 leading-tight">{niche.label}</div>
-                        <div className="text-[10px] text-gray-500 mt-1 leading-snug line-clamp-2">{niche.desc}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Meta WhatsApp Cloud API */}
-            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+            {activeWaEngine === 'zapi' ? (
+              <ZApiQrCard
+                initialInstanceId={initialData.zapiInstanceId}
+                hasToken={initialData.hasZapiToken}
+                hasClientToken={initialData.hasZapiClientToken}
+                initialStatus={initialData.zapiStatus}
+                initialPhone={initialData.zapiPhoneConnected}
+                antiBanMode={initialData.zapiAntiBanMode}
+                maxOutboundPerHour={initialData.zapiMaxOutboundPerHour}
+                isSuperAdmin={isSuperAdmin}
+              />
+            ) : (
+              /* Meta WhatsApp Cloud API */
+              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <div className="p-2.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl">
                     <Bot className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-semibold text-gray-900">Meta WhatsApp Cloud API (Oficial)</h2>
-                      <span className="text-[10px] bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full border border-emerald-200">
-                        v21.0
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500">Conexión oficial de WhatsApp Business para captación de leads y atención con IA</p>
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">WhatsApp Cloud API</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Conexión oficial de WhatsApp Business para captación de leads y atención automática</p>
                   </div>
                 </div>
 
-                {(hasToken || phoneNumberId) && (
+                {hasToken && (
                   <button
                     type="button"
                     onClick={handleTestWhatsApp}
                     disabled={testingWhatsApp}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 transition cursor-pointer disabled:opacity-50"
                   >
                     <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
-                    {testingWhatsApp ? 'Probando...' : 'Probar Conexión WhatsApp'}
+                    {testingWhatsApp ? 'Diagnosticando...' : 'Diagnosticar Conexión'}
                   </button>
                 )}
               </div>
 
               {waTestResult && (
                 <div
-                  className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                  className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
                     waTestResult.success
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                   }`}
                 >
                   {waTestResult.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                    <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 flex-shrink-0" />
                   )}
                   <span>{waTestResult.success ? waTestResult.message : waTestResult.error}</span>
                 </div>
@@ -1037,24 +1295,24 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
               {/* SECCIÓN WHATSAPP CLOUD API: CONEXIÓN OFICIAL DIRECTA O EMBEDDED SIGNUP */}
               {hasToken && phoneNumberId ? (
                 // Estado: Conectado
-                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-5 space-y-4">
+                <div className="bg-slate-50 dark:bg-[#090A0F] border border-emerald-500/30 rounded-xl p-5 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-xs shrink-0">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-lg shadow-xs shrink-0">
                         <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                           <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.067-2.123-.532-1.748-.733-2.871-2.502-2.958-2.618-.087-.115-.708-.941-.708-1.794 0-.853.448-1.272.607-1.446.16-.174.348-.217.464-.217.116 0 .232.001.333.006.107.005.25-.041.391.298.145.348.493 1.202.536 1.29.043.087.072.189.014.305-.058.115-.087.188-.174.289-.087.102-.182.228-.261.306-.087.087-.178.182-.077.355.101.174.45 1.742 1.353 2.544.755.672 1.392.879 1.589.976.197.097.312.083.428-.051.116-.134.493-.574.624-.77.13-.197.261-.164.44-.097.179.067 1.135.536 1.33.633.195.097.326.145.375.228.048.083.048.482-.096.887z"/>
                         </svg>
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-gray-900">WhatsApp Business Conectado</span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-sm font-bold text-slate-900 dark:text-white">WhatsApp Business Conectado</span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
                             Activo & Sincronizado
                           </span>
                         </div>
-                        <p className="text-xs text-gray-600 mt-0.5">
-                          Phone Number ID: <span className="font-mono font-semibold text-gray-900">{phoneNumberId}</span>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Phone Number ID: <span className="font-mono font-semibold text-slate-900 dark:text-white">{phoneNumberId}</span>
                         </p>
                       </div>
                     </div>
@@ -1075,9 +1333,9 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                         <button
                           type="button"
                           onClick={() => setShowManualConfig(!showManualConfig)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 transition cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-[#1A1F2C] hover:bg-slate-50 dark:hover:bg-[#232A3B] border border-slate-200 dark:border-[#232A3B] transition cursor-pointer shadow-2xs"
                         >
-                          <Lock className="w-3.5 h-3.5 text-slate-500" />
+                          <Lock className="w-3.5 h-3.5 text-slate-400" />
                           <span>{showManualConfig ? 'Ocultar Credenciales' : 'Actualizar Credenciales'}</span>
                         </button>
                       )}
@@ -1086,7 +1344,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                         type="button"
                         onClick={handleDisconnect}
                         disabled={disconnectingWhatsApp}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition cursor-pointer disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer disabled:opacity-50"
                       >
                         <Unlink className="w-3.5 h-3.5" />
                         <span>{disconnectingWhatsApp ? 'Desconectando...' : 'Desconectar'}</span>
@@ -1096,45 +1354,45 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
                   {waFeedback && (
                     <div
-                      className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                      className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
                         waFeedback.type === 'success'
-                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
                           : waFeedback.type === 'warning'
-                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                          : 'bg-rose-100 text-rose-900 border border-rose-300'
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                       }`}
                     >
                       {waFeedback.type === 'success' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
                       ) : (
-                        <AlertCircle className="w-4 h-4 text-rose-700 flex-shrink-0" />
+                        <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 flex-shrink-0" />
                       )}
                       <span>{waFeedback.message}</span>
                     </div>
                   )}
 
-                  <div className="text-[11px] text-emerald-900 bg-emerald-100/60 rounded-lg p-2.5 border border-emerald-200/60 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <div className="text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-500/10 rounded-xl p-2.5 border border-emerald-500/20 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>
-                      Tus clientes ya pueden escribir a este número y serán atendidos inmediatamente por la Inteligencia Artificial y tu equipo comercial.
+                      Tus clientes ya pueden escribir a este número y serán atendidos inmediatamente de forma automática y por tu equipo comercial.
                     </span>
                   </div>
 
                   {/* Edición de credenciales cuando ya está conectado */}
                   {showManualConfig && (
-                    <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-xl space-y-4 mt-3">
-                      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                        <span className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                    <div className="p-4 sm:p-5 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-4 mt-3 shadow-xs">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#1E2433] pb-2">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
                           Actualizar Credenciales de WhatsApp
                         </span>
-                        <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                           <Lock className="w-3 h-3" /> Cifrado AES-256
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="text-xs font-semibold text-gray-700 block mb-1">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                             Phone Number ID de Meta (Solo números)
                           </label>
                           <input
@@ -1142,12 +1400,12 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                             placeholder="Ej. 104589234812345"
                             value={phoneNumberId}
                             onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
-                            className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
+                            className="w-full text-sm bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono"
                           />
                         </div>
 
                         <div>
-                          <label className="text-xs font-semibold text-gray-700 block mb-1">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                             Nuevo WhatsApp Permanent Access Token
                           </label>
                           <div className="relative">
@@ -1156,12 +1414,12 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                               placeholder="•••••••••••••••••••••••• (Guardado)"
                               value={accessToken}
                               onChange={(e) => setAccessToken(e.target.value.trim())}
-                              className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                              className="w-full text-sm bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3.5 pr-10 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono text-xs"
                             />
                             <button
                               type="button"
                               onClick={() => setShowToken(!showToken)}
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer p-1"
                               title={showToken ? 'Ocultar token' : 'Mostrar token'}
                             >
                               {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -1175,7 +1433,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                           type="button"
                           onClick={handleSaveManualWhatsApp}
                           disabled={savingManualWa || !phoneNumberId.trim()}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-sm cursor-pointer disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-xs cursor-pointer disabled:opacity-50"
                         >
                           <Save className={`w-3.5 h-3.5 ${savingManualWa ? 'animate-spin' : ''}`} />
                           <span>{savingManualWa ? 'Guardando...' : 'Actualizar Credenciales'}</span>
@@ -1186,21 +1444,21 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                 </div>
               ) : SHOW_EMBEDDED_SIGNUP ? (
                 // Estado: No conectado con Embedded Signup activo
-                <div className="bg-gradient-to-br from-blue-50/80 via-white to-slate-50 border-2 border-dashed border-[#1877F2]/30 rounded-2xl p-6 sm:p-7 space-y-5">
+                <div className="bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-6 sm:p-7 space-y-5 shadow-xs">
                   {waFeedback && (
                     <div
                       className={`p-3.5 rounded-xl text-xs font-semibold flex items-start gap-2.5 transition ${
                         waFeedback.type === 'success'
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
                           : waFeedback.type === 'warning'
-                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                       }`}
                     >
                       {waFeedback.type === 'success' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 shrink-0 mt-0.5" />
                       ) : (
-                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0 mt-0.5" />
                       )}
                       <div className="flex-1">
                         <p>{waFeedback.message}</p>
@@ -1211,14 +1469,14 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#1877F2] bg-blue-100/80 px-2.5 py-0.5 rounded-full border border-blue-200">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#1877F2] bg-blue-500/10 px-2.5 py-0.5 rounded-full border border-blue-500/30">
                           Recomendado • Meta Embedded Signup (1 Clic)
                         </span>
                       </div>
-                      <h3 className="text-lg font-bold text-gray-900">
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                         Conecta tu WhatsApp Business en 1 Clic
                       </h3>
-                      <p className="text-xs text-gray-600 max-w-xl leading-relaxed">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xl leading-relaxed">
                         Vincula tu número comercial de forma automática y guiada con Meta. Sin copiar tokens del sistema, sin crear apps en Meta Developers y sin demoras técnicas.
                       </p>
                     </div>
@@ -1228,7 +1486,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                         type="button"
                         onClick={handleConnectWhatsApp}
                         disabled={connectingWhatsApp}
-                        className="inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl font-bold text-sm text-white bg-[#1877F2] hover:bg-[#166FE5] active:bg-[#0C63D4] shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-3 px-6 py-3.5 rounded-xl font-bold text-sm text-white bg-[#1877F2] hover:bg-[#166FE5] active:bg-[#0C63D4] shadow-xs hover:shadow-sm transition cursor-pointer disabled:opacity-60"
                       >
                         {connectingWhatsApp ? (
                           <RefreshCw className="w-5 h-5 animate-spin" />
@@ -1246,7 +1504,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                         href={`https://www.facebook.com/v21.0/dialog/oauth?client_id=${metaAppId}&config_id=${metaConfigId}&response_type=code&redirect_uri=${encodeURIComponent(typeof window !== 'undefined' ? `${window.location.origin}/settings` : 'https://crm.synqo.dev/settings')}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-[#1877F2] hover:underline inline-flex items-center gap-1 font-medium cursor-pointer"
+                        className="text-[11px] text-[#0052FF] dark:text-[#00D2FF] hover:underline inline-flex items-center gap-1 font-medium cursor-pointer"
                       >
                         ¿No abre la ventana? Conectar en pestaña nueva &rarr;
                       </a>
@@ -1255,15 +1513,15 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                 </div>
               ) : (
                 // Estado: No conectado con Configuración Directa Oficial
-                <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-5">
-                  <div className="border-b border-gray-100 pb-3">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-block mb-1.5">
+                <div className="bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-6 shadow-xs space-y-5">
+                  <div className="border-b border-slate-200 dark:border-[#1E2433] pb-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30 inline-block mb-1.5">
                       Conexión Oficial WhatsApp Cloud API
                     </span>
-                    <h3 className="text-base font-bold text-gray-900">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
                       Vincular Número de WhatsApp Business
                     </h3>
-                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                       Conecta la línea de WhatsApp de tu empresa ingresando tu Phone Number ID y el Token Permanente generado en Meta Business Suite.
                     </p>
                   </div>
@@ -1272,16 +1530,16 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     <div
                       className={`p-3.5 rounded-xl text-xs font-semibold flex items-start gap-2.5 ${
                         waFeedback.type === 'success'
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
                           : waFeedback.type === 'warning'
-                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                       }`}
                     >
                       {waFeedback.type === 'success' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 shrink-0 mt-0.5" />
                       ) : (
-                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0 mt-0.5" />
                       )}
                       <p>{waFeedback.message}</p>
                     </div>
@@ -1289,27 +1547,30 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs font-semibold text-gray-700 block mb-1">
-                        Phone Number ID de Meta <span className="text-rose-500">*</span>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                        Phone Number ID de Meta <span className="text-rose-500 dark:text-rose-400">*</span>
                       </label>
                       <input
                         type="text"
                         placeholder="Ej. 104589234812345"
                         value={phoneNumberId}
-                        onChange={(e) => setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''))}
-                        className="w-full text-sm border border-gray-300 rounded-md px-3.5 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono"
+                        onChange={(e) => {
+                          setPhoneNumberId(e.target.value.replace(/[^0-9]/g, ''));
+                          setWaVerified(false);
+                        }}
+                        className="w-full text-sm bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono"
                       />
-                      <p className="text-[11px] text-gray-400 mt-1">
+                      <p className="text-[11px] text-slate-500 mt-1">
                         Encuéntralo en Meta for Developers → WhatsApp → API Setup → Phone number ID.
                       </p>
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-gray-700 block mb-1 flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1 flex items-center justify-between">
                         <span>
-                          Token Permanente de Meta (Usuario del Sistema) <span className="text-rose-500">*</span>
+                          Token Permanente de Meta (Usuario del Sistema) <span className="text-rose-500 dark:text-rose-400">*</span>
                         </span>
-                        <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                           <Lock className="w-3 h-3" /> Cifrado AES-256
                         </span>
                       </label>
@@ -1318,64 +1579,535 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                           type={showToken ? 'text' : 'password'}
                           placeholder={hasToken ? '•••••••••••••••••••••••• (Guardado)' : 'EAAG••••••••••••••••••••'}
                           value={accessToken}
-                          onChange={(e) => setAccessToken(e.target.value.trim())}
-                          className="w-full text-sm border border-gray-300 rounded-md pl-3.5 pr-10 py-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-black font-mono text-xs"
+                          onChange={(e) => {
+                            setAccessToken(e.target.value.trim());
+                            setWaVerified(false);
+                          }}
+                          className="w-full text-sm bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3.5 pr-10 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono text-xs"
                         />
                         <button
                           type="button"
                           onClick={() => setShowToken(!showToken)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-1"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer p-1"
                           title={showToken ? 'Ocultar token' : 'Mostrar token'}
                         >
                           {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-1">
+                      <p className="text-[11px] text-slate-500 mt-1">
                         Token permanente con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.
                       </p>
                     </div>
                   </div>
 
                   {/* Guía paso a paso */}
-                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs text-slate-700">
-                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-800 block">
+                  <div className="p-3.5 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-1.5 text-xs text-slate-700 dark:text-slate-300 shadow-2xs">
+                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-900 dark:text-white block">
                       Instrucciones de Vinculación Oficial:
                     </span>
-                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-600">
-                      <li>Ingresa a tu <strong>Meta Business Suite</strong> (Configuración del Negocio &rarr; Usuarios del Sistema).</li>
+                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+                      <li>Ingresa a tu <strong className="text-slate-800 dark:text-slate-200">Meta Business Suite</strong> (Configuración del Negocio &rarr; Usuarios del Sistema).</li>
                       <li>Genera un Token permanente con permisos <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.</li>
-                      <li>Pega el <strong>Phone Number ID</strong> y el <strong>Token</strong> en los campos superiores y haz clic en <em>Guardar y Vincular WhatsApp</em>.</li>
+                      <li>Pega el <strong className="text-slate-800 dark:text-slate-200">Phone Number ID</strong> y el <strong className="text-slate-800 dark:text-slate-200">Token</strong> y haz clic en <em>1. Probar Conexión</em> antes de guardar.</li>
                     </ol>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-gray-100">
-                    <p className="text-[11px] text-gray-500">
-                      El token se cifra con AES-256 en base de datos. Ningún empleado tiene acceso a la clave en texto plano.
+                  {/* Barra de Acción con Flujo de Verificación Previa */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1E2433]">
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      {waVerified ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          Línea verificada con éxito en Meta. Ya puedes guardar.
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                          <Lock className="w-3.5 h-3.5 text-amber-500" />
+                          Prueba la conexión primero para habilitar el guardado seguro.
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={handleTestWhatsApp}
+                        disabled={testingWhatsApp}
+                        className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                          waVerified
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20'
+                            : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20'
+                        }`}
+                      >
+                        <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
+                        <span>
+                          {testingWhatsApp
+                            ? 'Verificando con Meta...'
+                            : waVerified
+                            ? 'Re-verificar'
+                            : '1. Probar Conexión con WhatsApp'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveManualWhatsApp}
+                        disabled={savingManualWa || !waVerified || !phoneNumberId.trim()}
+                        className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                          waVerified && !savingManualWa
+                            ? 'bg-[#0052FF] hover:bg-[#0047E0] text-white'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                        }`}
+                        title={!waVerified ? 'Primero debes probar y verificar la conexión con WhatsApp con éxito' : ''}
+                      >
+                        <Save className={`w-4 h-4 ${savingManualWa ? 'animate-spin' : ''}`} />
+                        <span>{savingManualWa ? 'Guardando...' : '2. Guardar y Vincular WhatsApp'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Google Calendar & Google Meet (Oficial) */}
+            <div id="google-calendar" className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-500/20 rounded-xl">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">Google Calendar & Google Meet</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Sincroniza tus citas nativas con Google Calendar y genera videollamadas oficiales de Google Meet
                     </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {hasGcalToken && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleTestGoogleCalendar}
+                        disabled={testingGcal}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] hover:bg-blue-500/20 border border-blue-500/30 transition cursor-pointer disabled:opacity-50"
+                      >
+                        <Zap className={`w-3.5 h-3.5 ${testingGcal ? 'animate-spin' : ''}`} />
+                        {testingGcal ? 'Probando...' : 'Probar Conexión'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectGoogleCalendar}
+                        disabled={disconnectingGcal}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer disabled:opacity-50"
+                      >
+                        <Unlink className="w-3.5 h-3.5" />
+                        <span>Desconectar</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {gcalFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                    gcalFeedback.success
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {gcalFeedback.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 flex-shrink-0" />
+                  )}
+                  <span>{gcalFeedback.message}</span>
+                </div>
+              )}
+
+              {!hasGcalToken ? (
+                /* Estado No Conectado: Botón Oficial de Google en 1 Clic */
+                <div className="space-y-4">
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-center space-y-4 shadow-xs">
+                    <div className="max-w-md mx-auto space-y-1.5">
+                      <div className="w-12 h-12 rounded-2xl bg-white dark:bg-[#131722] shadow-xs border border-slate-200 dark:border-[#232A3B] flex items-center justify-center mx-auto mb-2">
+                        <Calendar className="w-6 h-6 text-[#0052FF] dark:text-[#00D2FF]" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                        Conecta tu Google Calendar en 1 Clic
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                        Inicia sesión con tu cuenta de Google para exportar citas automáticamente, generar videollamadas oficiales de Meet y evitar colisiones de horario.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleConnectGoogle}
+                        disabled={connectingGoogle}
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-6 py-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#1A1F2C] hover:bg-slate-50 dark:hover:bg-[#232A3B] text-slate-800 dark:text-white font-bold text-xs shadow-xs hover:shadow-sm transition cursor-pointer disabled:opacity-50"
+                      >
+                        {connectingGoogle ? (
+                          <Loader2 className="w-5 h-5 animate-spin text-[#0052FF] dark:text-[#00D2FF]" />
+                        ) : (
+                          <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                          </svg>
+                        )}
+                        <span>{connectingGoogle ? 'Conectando con Google...' : 'Conectar con Google Calendar'}</span>
+                      </button>
+                    </div>
+
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowManualGoogle(!showManualGoogle)}
+                        className="text-[11px] text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white underline cursor-pointer"
+                      >
+                        {showManualGoogle ? 'Ocultar configuración avanzada manual' : '¿Prefieres ingresar token o credencial de servicio manualmente?'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {showManualGoogle && (
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] space-y-4 shadow-xs">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                            ID del Calendario de Google (Correo o primary)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="primary o tuempresa@gmail.com"
+                            value={gcalId}
+                            onChange={(e) => setGcalId(e.target.value.trim())}
+                            className="w-full text-sm bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                            OAuth Token / Google Service Token
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showGcalToken ? 'text' : 'password'}
+                              placeholder="Pega tu token de acceso de Google"
+                              value={gcalToken}
+                              onChange={(e) => setGcalToken(e.target.value.trim())}
+                              className="w-full text-sm bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3.5 pr-10 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowGcalToken(!showGcalToken)}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer p-1"
+                            >
+                              {showGcalToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={handleSaveGoogleCalendar}
+                          disabled={savingGcal || !gcalToken.trim()}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-xs cursor-pointer disabled:opacity-50"
+                        >
+                          <Save className={`w-4 h-4 ${savingGcal ? 'animate-spin' : ''}`} />
+                          <span>{savingGcal ? 'Guardando...' : 'Guardar Token Manual'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Estado Conectado: Tarjeta Verificada y Ajustes de Sincronización */
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-xs">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
+                          Conectado a Google Calendar: {gcalId || 'primary'}
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                          Sincronización activa con Google Meet y detección de horarios ocupados
+                        </span>
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      onClick={handleSaveManualWhatsApp}
-                      disabled={savingManualWa || !phoneNumberId.trim()}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
+                      onClick={handleTestGoogleCalendar}
+                      disabled={testingGcal}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-[#131722] text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] transition cursor-pointer shrink-0 shadow-2xs"
                     >
-                      <Save className={`w-4 h-4 ${savingManualWa ? 'animate-spin' : ''}`} />
-                      <span>{savingManualWa ? 'Guardando...' : 'Guardar y Vincular WhatsApp'}</span>
+                      {testingGcal ? 'Verificando...' : 'Verificar Conexión'}
+                    </button>
+                  </div>
+
+                  {/* Toggles de Sincronización */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] hover:bg-slate-100/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer transition">
+                      <input
+                        type="checkbox"
+                        checked={gcalSyncEnabled}
+                        onChange={(e) => setGcalSyncEnabled(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300 dark:border-[#232A3B] text-[#0052FF] focus:ring-[#0052FF]"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                          Exportar Citas a Google Calendar
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug block">
+                          Crea un evento en tu Google Calendar con enlace oficial de Google Meet cada vez que se agende una cita.
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] hover:bg-slate-100/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer transition">
+                      <input
+                        type="checkbox"
+                        checked={gcalBlockBusy}
+                        onChange={(e) => setGcalBlockBusy(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300 dark:border-[#232A3B] text-[#0052FF] focus:ring-[#0052FF]"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                          Bloquear Turnos Ocupados
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug block">
+                          Evita que la IA agende turnos cuando tengas eventos ocupados en tu Google Calendar personal.
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveGoogleCalendar}
+                      disabled={savingGcal}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0052FF] hover:bg-[#0047E0] text-white transition shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      <Save className={`w-4 h-4 ${savingGcal ? 'animate-spin' : ''}`} />
+                      <span>{savingGcal ? 'Guardando...' : 'Guardar Preferencias de Sincronización'}</span>
                     </button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Plantillas de WhatsApp (Meta) para Ventana de 24 Horas y Nuevos Prospectos */}
-            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+            {/* Meta Instagram Direct Messaging (Preparado para próxima actualización - oculto en MVP) */}
+            {SHOW_INSTAGRAM_MVP && (
+              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-amber-50 text-amber-600 rounded-lg">
+                  <div className="p-2.5 bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20 rounded-xl">
+                    <Instagram className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">Meta Instagram Direct</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Recibe y responde mensajes directos (DMs) de Instagram de forma automática y con tus asesores desde un solo lugar
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {hasIgToken ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                        Vinculado
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleTestInstagram}
+                        disabled={testingIg}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/10 dark:text-purple-300 dark:hover:bg-purple-500/20 text-purple-700 border border-purple-200 dark:border-purple-500/30 transition cursor-pointer disabled:opacity-50"
+                        title="Verificar estado de salud de la conexión con Meta Graph API"
+                      >
+                        <Zap className={`w-3.5 h-3.5 ${testingIg ? 'animate-spin' : ''}`} />
+                        <span>{testingIg ? 'Diagnosticando...' : 'Diagnosticar Conexión'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectInstagram}
+                        disabled={disconnectingIg}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-300 dark:hover:bg-rose-500/20 border border-rose-200 dark:border-rose-500/30 transition cursor-pointer disabled:opacity-50"
+                      >
+                        <Unlink className="w-3.5 h-3.5" />
+                        <span>Desconectar</span>
+                      </button>
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50">
+                      No vinculado
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {igFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                    igFeedback.success
+                      ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {igFeedback.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                  )}
+                  <span>{igFeedback.message}</span>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      ID de la Cuenta de Instagram Business <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. 1784140530921102"
+                      value={igAccountId}
+                      onChange={(e) => {
+                        setIgAccountId(e.target.value.replace(/[^0-9]/g, ''));
+                        setIgVerified(false);
+                      }}
+                      className="w-full text-sm bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono text-xs"
+                    />
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      Encuéntralo en Meta Business Suite → Configuración de Instagram → ID de la cuenta.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1 flex items-center justify-between">
+                      <span>
+                        Instagram Access Token (Usuario del Sistema) <span className="text-rose-400">*</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Cifrado AES-256
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showIgToken ? 'text' : 'password'}
+                        placeholder={hasIgToken ? '•••••••••••••••••••••••• (Guardado)' : 'Pega tu System User Token permanente'}
+                        value={igToken}
+                        onChange={(e) => {
+                          setIgToken(e.target.value.trim());
+                          setIgVerified(false);
+                        }}
+                        className="w-full text-sm bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3.5 pr-10 py-2.5 text-slate-900 dark:text-white focus:bg-white dark:focus:bg-[#090A0F] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] font-mono text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowIgToken(!showIgToken)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-1"
+                        title={showIgToken ? 'Ocultar token' : 'Mostrar token'}
+                      >
+                        {showIgToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      Token permanente con permisos <code>instagram_basic</code> y <code>instagram_manage_messages</code>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Guía paso a paso unificada con el modelo de WhatsApp */}
+                <div className="p-3.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                  <span className="font-bold text-[11px] uppercase tracking-wider text-slate-900 dark:text-white block">
+                    Instrucciones de Vinculación Oficial:
+                  </span>
+                  <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    <li>Verifica que tu cuenta de Instagram sea Profesional (Business o Creator) y esté vinculada a una Fan Page en Meta.</li>
+                    <li>En tu <strong className="text-slate-800 dark:text-slate-200">Meta Business Suite</strong> (Configuración del Negocio &rarr; Usuarios del Sistema), genera un token permanente.</li>
+                    <li>Pega el <strong className="text-slate-800 dark:text-slate-200">ID de Instagram</strong> y el <strong className="text-slate-800 dark:text-slate-200">Token</strong> y haz clic en <em>1. Probar Conexión con Instagram</em> antes de guardar.</li>
+                  </ol>
+                </div>
+
+                {/* Barra de Acción con Flujo de Verificación Previa ("Probar primero -> Guardar después") */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-[#1E2433]">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    {igVerified ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+                        Cuenta verificada en vivo con Meta. Ya puedes guardar.
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                        <Lock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+                        Prueba la conexión primero para habilitar el guardado seguro.
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={handleTestInstagram}
+                      disabled={testingIg}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 dark:hover:bg-purple-500/20 border border-purple-200 dark:border-purple-500/30 transition cursor-pointer disabled:opacity-50"
+                    >
+                      <Zap className={`w-3.5 h-3.5 ${testingIg ? 'animate-spin' : ''}`} />
+                      <span>
+                        {testingIg
+                          ? 'Verificando con Meta...'
+                          : igVerified
+                          ? 'Re-verificar'
+                          : '1. Probar Conexión con Instagram'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveInstagram}
+                      disabled={savingIg || (!igVerified && !hasIgToken) || !igAccountId.trim()}
+                      className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer ${
+                        (igVerified || hasIgToken) && !savingIg && igAccountId.trim()
+                          ? 'bg-[#0052FF] hover:bg-[#0047E0] text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60'
+                      }`}
+                      title={!igVerified && !hasIgToken ? 'Primero debes probar y verificar la conexión con Instagram con éxito' : ''}
+                    >
+                      <Save className={`w-4 h-4 ${savingIg ? 'animate-spin' : ''}`} />
+                      <span>{savingIg ? 'Guardando...' : '2. Guardar y Vincular Instagram Direct'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            )}
+
+            {/* Plantillas de WhatsApp (Meta) para Ventana de 24 Horas y Nuevos Prospectos - Solo visible si el motor es Meta */}
+            {activeWaEngine === 'meta' && (
+            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 rounded-xl">
                     <FileText className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-base font-semibold text-gray-900">Plantillas de WhatsApp (Meta)</h2>
-                    <p className="text-xs text-gray-500">
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">Plantillas de WhatsApp (Meta)</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Disponibles en el selector del chat cuando la ventana de 24 horas expire o al crear un nuevo lead
                     </p>
                   </div>
@@ -1384,41 +2116,41 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
               {tplFeedback && (
                 <div
-                  className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                  className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
                     tplFeedback.type === 'success'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30'
+                      : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30'
                   }`}
                 >
                   {tplFeedback.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                    <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 flex-shrink-0" />
                   )}
                   <span>{tplFeedback.message}</span>
                 </div>
               )}
 
               {/* Formulario para agregar nueva plantilla */}
-              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
-                <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">
+              <div className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-3">
+                <h3 className="text-xs font-semibold text-slate-900 dark:text-white uppercase tracking-wider">
                   Vincular Nueva Plantilla desde Meta
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <div className="sm:col-span-2">
-                    <label className="text-xs font-medium text-gray-700 block mb-1">
-                      Nombre exacto en Meta <span className="text-rose-500">*</span>
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                      Nombre exacto en Meta <span className="text-rose-400">*</span>
                     </label>
                     <input
                       type="text"
                       placeholder="ej: reactivacion_lead"
                       value={newTplName}
                       onChange={(e) => setNewTplName(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
-                      className="w-full text-xs font-mono border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                      className="w-full text-xs font-mono border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-white dark:bg-[#131722]"
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="text-xs font-medium text-gray-700 block mb-1">
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
                       Etiqueta en CRM (Opcional)
                     </label>
                     <input
@@ -1426,7 +2158,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                       placeholder="ej: Reactivación de Lead"
                       value={newTplLabel}
                       onChange={(e) => setNewTplLabel(e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                      className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-white dark:bg-[#131722]"
                     />
                   </div>
                   <div className="sm:col-span-1 flex items-end">
@@ -1434,47 +2166,47 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                       type="button"
                       onClick={handleAddTemplate}
                       disabled={savingTpl || !newTplName.trim()}
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer disabled:opacity-50"
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition cursor-pointer disabled:opacity-50 shadow-xs"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       {savingTpl ? 'Guardando...' : 'Agregar'}
                     </button>
                   </div>
                 </div>
-                <p className="text-[11px] text-gray-500">
-                  Copia el nombre tal cual lo aprobaste en el <strong>Administrador de WhatsApp de Meta</strong> (sin espacios ni mayúsculas). El CRM solo requiere el nombre para invocar el envío oficial.
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Copia el nombre tal cual lo aprobaste en el <strong className="text-slate-700 dark:text-slate-300">Administrador de WhatsApp de Meta</strong> (sin espacios ni mayúsculas). El CRM solo requiere el nombre para invocar el envío oficial.
                 </p>
               </div>
 
               {/* Listado de plantillas activas en el CRM */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-gray-700">
+                  <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                     Plantillas configuradas ({templates.length}):
                   </h3>
-                  <span className="text-[11px] text-gray-400">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
                     Disponibles en el selector del chat
                   </span>
                 </div>
 
-                <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                <div className="divide-y divide-slate-100 dark:divide-[#1E2433] border border-slate-200 dark:border-[#232A3B] rounded-xl overflow-hidden bg-white dark:bg-[#090A0F]">
                   {templates.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-gray-500">
+                    <div className="p-4 text-center text-xs text-slate-400 dark:text-slate-500">
                       No hay plantillas registradas. Agrega una arriba con el nombre exacto aprobado en Meta.
                     </div>
                   ) : (
                     templates.map((tpl) => (
                       <div
                         key={tpl.name}
-                        className="p-3 flex items-center justify-between hover:bg-gray-50/70 transition"
+                        className="p-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-[#1A1F2C]/50 transition"
                       >
                         <div className="flex items-center gap-2.5">
                           <div className="w-2 h-2 rounded-full bg-emerald-500" />
                           <div>
-                            <p className="text-xs font-semibold text-gray-900">
+                            <p className="text-xs font-semibold text-slate-900 dark:text-white">
                               {tpl.label || tpl.name}
                             </p>
-                            <p className="text-[11px] font-mono text-gray-500">
+                            <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                               {tpl.name}
                             </p>
                           </div>
@@ -1494,7 +2226,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                               setEditError(null);
                             }}
                             disabled={savingTpl || deletingTpl || editingTpl}
-                            className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-lg transition cursor-pointer"
                             title="Editar plantilla"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -1509,7 +2241,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                               setDeleteError(null);
                             }}
                             disabled={savingTpl || deletingTpl || editingTpl}
-                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
                             title="Eliminar plantilla"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1521,19 +2253,20 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                 </div>
               </div>
             </div>
+            )}
 
         {/* Asistente Visual de IA Multinicho & Vacíos de Conocimiento */}
         <div className="space-y-6">
-          <div className="flex items-center gap-3 border-b border-gray-200 pb-3">
-            <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] rounded-xl">
+          <div className="flex items-center gap-3 border-b border-slate-200 dark:border-[#232A3B] pb-3">
+            <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-900">
-                Asistente de Conocimiento & Ruta de Compra de la IA
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                Asistente Comercial & Catálogo de Servicios
               </h2>
-              <p className="text-xs text-gray-500">
-                Estructura el catálogo, tono, embudo de ventas y entrena a tu IA con las dudas reales de tus clientes
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Estructura el catálogo de productos o servicios, precios, tono de comunicación y respuestas automáticas
               </p>
             </div>
           </div>
@@ -1559,7 +2292,7 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
           <button
             type="submit"
             disabled={saving}
-            className="bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-md shadow-[#0052FF]/20 disabled:opacity-50 cursor-pointer"
+            className="bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
           >
             {saving ? 'Guardando...' : 'Guardar Configuración'}
           </button>
@@ -1568,33 +2301,33 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
       {/* Modal de Edición de Plantilla */}
       {templateToEdit && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 flex items-center justify-center shrink-0">
                 <Pencil className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-base text-gray-900">
+                <h3 className="font-bold text-base text-slate-900 dark:text-white">
                   Editar Plantilla
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Modifica el nombre técnico de Meta o su etiqueta.
                 </p>
               </div>
             </div>
 
             {editError && (
-              <div className="p-2.5 rounded-lg text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <div className="p-2.5 rounded-xl text-xs font-medium bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
                 <span>{editError}</span>
               </div>
             )}
 
             <form onSubmit={handleSaveEditTemplate} className="space-y-3 pt-1">
               <div>
-                <label className="text-xs font-medium text-gray-700 block mb-1">
-                  Nombre exacto en Meta <span className="text-rose-500">*</span>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                  Nombre exacto en Meta <span className="text-rose-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -1606,13 +2339,13 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     })
                   }
                   placeholder="ej: reactivacion_lead"
-                  className="w-full text-xs font-mono border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  className="w-full text-xs font-mono border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium text-gray-700 block mb-1">
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
                   Etiqueta en CRM (Nombre amigable)
                 </label>
                 <input
@@ -1625,13 +2358,13 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     })
                   }
                   placeholder="ej: Reactivación de Lead"
-                  className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium text-gray-700 block mb-1">
-                  Confirma con tu contraseña <span className="text-rose-500">*</span>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                  Confirma con tu contraseña <span className="text-rose-400">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -1639,13 +2372,13 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     value={editPassword}
                     onChange={(e) => setEditPassword(e.target.value)}
                     placeholder="Tu contraseña de Synqo"
-                    className="w-full text-xs border border-gray-300 rounded-lg pl-3 pr-9 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                    className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3 pr-9 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowEditPassword(!showEditPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-0.5"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-0.5"
                     title={showEditPassword ? 'Ocultar' : 'Mostrar'}
                   >
                     {showEditPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -1662,14 +2395,14 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     setEditError(null);
                   }}
                   disabled={editingTpl}
-                  className="flex-1 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl border border-gray-300 transition cursor-pointer"
+                  className="flex-1 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl border border-slate-200 dark:border-[#232A3B] transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={editingTpl || !templateToEdit.name.trim() || !editPassword.trim()}
-                  className="flex-1 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition cursor-pointer shadow-sm disabled:opacity-50"
+                  className="flex-1 py-2 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
                 >
                   {editingTpl ? 'Guardando...' : 'Guardar Cambios'}
                 </button>
@@ -1682,33 +2415,33 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
 
       {/* Modal de Confirmación para Eliminar Plantilla */}
       {templateToDelete && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-150 space-y-4">
-            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 flex items-center justify-center">
               <Trash2 className="w-5 h-5" />
             </div>
 
             <div>
-              <h3 className="font-bold text-base text-gray-900 mb-1">
+              <h3 className="font-bold text-base text-slate-900 dark:text-white mb-1">
                 ¿Eliminar plantilla de WhatsApp?
               </h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 ¿Estás seguro de que deseas quitar la plantilla{' '}
-                <strong className="text-gray-800 font-mono">"{templateToDelete}"</strong> del CRM? Ya no estará disponible en el selector del Inbox.
+                <strong className="text-slate-800 dark:text-slate-200 font-mono">"{templateToDelete}"</strong> del CRM? Ya no estará disponible en el selector del Inbox.
               </p>
             </div>
 
             {deleteError && (
-              <div className="p-2.5 rounded-lg text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <div className="p-2.5 rounded-xl text-xs font-medium bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
                 <span>{deleteError}</span>
               </div>
             )}
 
             <form onSubmit={confirmDeleteTemplate} className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-gray-700 block mb-1">
-                  Confirma con tu contraseña <span className="text-rose-500">*</span>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                  Confirma con tu contraseña <span className="text-rose-400">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -1716,14 +2449,14 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     value={deletePassword}
                     onChange={(e) => setDeletePassword(e.target.value)}
                     placeholder="Tu contraseña de Synqo"
-                    className="w-full text-xs border border-gray-300 rounded-lg pl-3 pr-9 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white"
+                    className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3 pr-9 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
                     autoFocus
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowDeletePassword(!showDeletePassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer p-0.5"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-0.5"
                     title={showDeletePassword ? 'Ocultar' : 'Mostrar'}
                   >
                     {showDeletePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -1740,14 +2473,14 @@ export function SettingsForm({ initialData, teamData, specialistsData, roomsData
                     setDeleteError(null);
                   }}
                   disabled={deletingTpl}
-                  className="flex-1 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl border border-gray-300 transition cursor-pointer"
+                  className="flex-1 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl border border-slate-200 dark:border-[#232A3B] transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={deletingTpl || !deletePassword.trim()}
-                  className="flex-1 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   {deletingTpl ? 'Eliminando...' : 'Eliminar'}

@@ -8,6 +8,8 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
 import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
+import { encryptSecret } from '@/lib/security/encryption';
+import { ZApiService } from '@/services/zapi.service';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -145,6 +147,9 @@ export interface OrganizationRow {
   admin_name?: string;
   ai_tokens_used?: number;
   ai_tokens_limit?: number;
+  ai_tokens_google_used?: number;
+  ai_tokens_openai_used?: number;
+  ai_tokens_openai_backup_limit?: number;
   paid_until_month?: string | null;
   billing_due_day?: number;
   past_due_since?: string | null;
@@ -156,6 +161,15 @@ export interface OrganizationRow {
   company_code?: string | null;
   enabled_modules?: EnabledModules;
   appointment_settings?: AppointmentSettings;
+  whatsapp_provider?: 'meta' | 'zapi';
+  zapi_instance_id?: string | null;
+  zapi_status?: 'connected' | 'disconnected' | 'connecting';
+  zapi_phone_connected?: string | null;
+  zapi_anti_ban_mode?: boolean;
+  zapi_max_outbound_per_hour?: number;
+  specialist_label?: string | null;
+  room_label?: string | null;
+  industry_preset?: string | null;
 }
 
 /**
@@ -208,6 +222,14 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       admin_name: adminUser?.full_name,
       ai_tokens_used: Number(org.ai_tokens_used || 0),
       ai_tokens_limit: Number(org.ai_tokens_limit || 100000),
+      ai_tokens_google_used: Number(
+        org.ai_tokens_google_used || (org.ai_tokens_used ? Math.max(0, Number(org.ai_tokens_used) - Number(org.ai_tokens_openai_used || 0)) : 0)
+      ),
+      ai_tokens_openai_used: Number(org.ai_tokens_openai_used || 0),
+      ai_tokens_openai_backup_limit: Number(
+        org.ai_tokens_openai_backup_limit ||
+          (org.plan_type === 'enterprise' ? 150000 : org.plan_type === 'pro' ? 75000 : 25000)
+      ),
       paid_until_month: org.paid_until_month || null,
       billing_due_day: org.billing_due_day || 5,
       past_due_since: org.past_due_since || null,
@@ -217,6 +239,15 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       billing_status_color: bStatus.color,
       is_suspended: bStatus.isSuspended,
       company_code: org.company_code || null,
+      whatsapp_provider: org.whatsapp_provider || 'meta',
+      zapi_instance_id: org.zapi_instance_id || null,
+      zapi_status: org.zapi_status || 'disconnected',
+      zapi_phone_connected: org.zapi_phone_connected || null,
+      zapi_anti_ban_mode: org.zapi_anti_ban_mode ?? true,
+      zapi_max_outbound_per_hour: org.zapi_max_outbound_per_hour || 20,
+      specialist_label: org.specialist_label || null,
+      room_label: org.room_label || null,
+      industry_preset: org.industry_preset || null,
       enabled_modules: (org.enabled_modules as EnabledModules) || {
         native_calendar: true,
         physical_rooms: false,
@@ -241,6 +272,15 @@ const ProvisionSchema = z.object({
   firstBillingMonth: z.string().optional(),
   enabledModules: z.any().optional(),
   companyCode: z.string().optional(),
+  industryPreset: z.string().optional(),
+  whatsappProvider: z.enum(['meta', 'zapi']).optional(),
+  zapiInstanceId: z.string().optional(),
+  zapiToken: z.string().optional(),
+  zapiClientToken: z.string().optional(),
+  zapiAntiBanMode: z.boolean().optional(),
+  zapiMaxOutboundPerHour: z.number().int().optional(),
+  specialistLabel: z.string().optional(),
+  roomLabel: z.string().optional(),
 });
 
 /**
@@ -256,6 +296,15 @@ export async function provisionCompany(input: {
   firstBillingMonth?: string;
   enabledModules?: EnabledModules;
   companyCode?: string;
+  industryPreset?: string;
+  whatsappProvider?: 'meta' | 'zapi';
+  zapiInstanceId?: string;
+  zapiToken?: string;
+  zapiClientToken?: string;
+  zapiAntiBanMode?: boolean;
+  zapiMaxOutboundPerHour?: number;
+  specialistLabel?: string;
+  roomLabel?: string;
 }) {
   await requireSuperAdmin();
 
@@ -289,12 +338,26 @@ export async function provisionCompany(input: {
     billing_due_day: 5,
     company_code: generatedCode,
     enabled_modules: defaultModules,
+    industry_preset: validated.industryPreset || 'services',
+    whatsapp_provider: validated.whatsappProvider || 'meta',
+    zapi_instance_id: validated.zapiInstanceId?.trim() || null,
+    zapi_token: validated.zapiToken?.trim() ? encryptSecret(validated.zapiToken.trim()) : null,
+    zapi_client_token: validated.zapiClientToken?.trim() ? encryptSecret(validated.zapiClientToken.trim()) : null,
+    zapi_anti_ban_mode: validated.zapiAntiBanMode ?? true,
+    zapi_max_outbound_per_hour: validated.zapiMaxOutboundPerHour || 20,
+    specialist_label: validated.specialistLabel || 'Colaborador',
+    room_label: validated.roomLabel || 'Espacio',
+    ai_tokens_used: 0,
+    ai_tokens_limit: PLAN_DEFAULTS[planToInsert]?.aiTokensLimit || 500000,
+    ai_tokens_google_used: 0,
+    ai_tokens_openai_used: 0,
+    ai_tokens_openai_backup_limit: PLAN_DEFAULTS[planToInsert]?.openaiBackupLimit || 25000,
     system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
   };
 
   let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
     .insert(insertPayload)
-    .select('id, name')
+    .select('id, name, company_code')
     .single();
 
   if (orgError && (orgError.message?.includes('paid_until_month') || orgError.message?.includes('column'))) {
@@ -302,7 +365,7 @@ export async function provisionCompany(input: {
     delete insertPayload.billing_due_day;
     const retry = await (supabaseAdmin.from('organizations') as any)
       .insert(insertPayload)
-      .select('id, name')
+      .select('id, name, company_code')
       .single();
     org = retry.data;
     orgError = retry.error;
@@ -312,7 +375,7 @@ export async function provisionCompany(input: {
     insertPayload.plan_type = 'core';
     const retry = await (supabaseAdmin.from('organizations') as any)
       .insert(insertPayload)
-      .select('id, name')
+      .select('id, name, company_code')
       .single();
     org = retry.data;
     orgError = retry.error;
@@ -375,11 +438,21 @@ export async function provisionCompany(input: {
   revalidatePath('/admin');
   return {
     success: true,
-    organization: org,
+    organization: {
+      ...org,
+      company_code: org?.company_code || generatedCode,
+    },
     user: {
       id: userId,
       email: validated.adminEmail,
       fullName: validated.adminName,
+    },
+    credentials: {
+      companyName: validated.companyName.trim(),
+      companyCode: org?.company_code || generatedCode,
+      adminName: validated.adminName.trim(),
+      adminEmail: validated.adminEmail.trim().toLowerCase(),
+      adminPassword: validated.adminPassword,
     },
   };
 }
@@ -426,6 +499,14 @@ export async function updateCompanyDetails(input: {
   resetTokensUsed?: boolean;
   enabledModules?: EnabledModules;
   companyCode?: string;
+  whatsappProvider?: 'meta' | 'zapi';
+  zapiInstanceId?: string;
+  zapiToken?: string;
+  zapiClientToken?: string;
+  zapiAntiBanMode?: boolean;
+  zapiMaxOutboundPerHour?: number;
+  specialistLabel?: string;
+  roomLabel?: string;
 }) {
   await requireSuperAdmin();
 
@@ -460,6 +541,30 @@ export async function updateCompanyDetails(input: {
     updated_at: new Date().toISOString(),
   };
 
+  if (input.whatsappProvider) {
+    updateData.whatsapp_provider = input.whatsappProvider;
+  }
+
+  if (input.zapiInstanceId !== undefined) {
+    updateData.zapi_instance_id = input.zapiInstanceId.trim() || null;
+  }
+
+  if (input.zapiToken && input.zapiToken.trim()) {
+    updateData.zapi_token = encryptSecret(input.zapiToken.trim());
+  }
+
+  if (input.zapiClientToken && input.zapiClientToken.trim()) {
+    updateData.zapi_client_token = encryptSecret(input.zapiClientToken.trim());
+  }
+
+  if (input.zapiAntiBanMode !== undefined) {
+    updateData.zapi_anti_ban_mode = input.zapiAntiBanMode;
+  }
+
+  if (input.zapiMaxOutboundPerHour !== undefined) {
+    updateData.zapi_max_outbound_per_hour = input.zapiMaxOutboundPerHour;
+  }
+
   if (input.enabledModules) {
     updateData.enabled_modules = input.enabledModules;
   }
@@ -468,8 +573,18 @@ export async function updateCompanyDetails(input: {
     updateData.company_code = input.companyCode.trim().toUpperCase();
   }
 
+  if (input.specialistLabel !== undefined) {
+    updateData.specialist_label = input.specialistLabel.trim() || 'Colaborador';
+  }
+
+  if (input.roomLabel !== undefined) {
+    updateData.room_label = input.roomLabel.trim() || 'Espacio';
+  }
+
   if (input.resetTokensUsed) {
     updateData.ai_tokens_used = 0;
+    updateData.ai_tokens_google_used = 0;
+    updateData.ai_tokens_openai_used = 0;
   }
 
   let { error } = await (supabaseAdmin.from('organizations') as any)

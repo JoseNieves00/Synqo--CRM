@@ -10,12 +10,14 @@ interface NewLeadModalProps {
   buttonLabel?: string;
   className?: string;
   defaultStage?: PipelineStage;
+  onSuccess?: (contactId?: string) => void;
 }
 
 export function NewLeadModal({
   buttonLabel = 'Nuevo Lead',
   className = '',
   defaultStage = 'nuevo',
+  onSuccess,
 }: NewLeadModalProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,7 @@ export function NewLeadModal({
     setError(null);
 
     try {
-      await createLead({
+      const res = await createLead({
         name,
         phone,
         pipelineStage: stage,
@@ -41,6 +43,10 @@ export function NewLeadModal({
       setName('');
       setPhone('');
       setIsOpen(false);
+
+      if (onSuccess && res?.contactId) {
+        onSuccess(res.contactId);
+      }
     } catch (err: any) {
       setError(err?.message || 'Error al guardar el lead');
     } finally {
@@ -54,20 +60,20 @@ export function NewLeadModal({
         type="button"
         onClick={() => setIsOpen(true)}
         title="Registrar Nuevo Prospecto"
-        className={`inline-flex items-center gap-1.5 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition shadow-md shadow-[#0052FF]/20 cursor-pointer ${className}`}
+        className={`inline-flex items-center gap-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition shadow-xs cursor-pointer ${className}`}
       >
         <Plus className="w-3.5 h-3.5" />
         {buttonLabel ? <span>{buttonLabel}</span> : null}
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-gray-200 shadow-xl overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gray-50/50">
-              <h3 className="font-bold text-gray-900 text-sm">Registrar Nuevo Prospecto</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-md w-full border border-slate-200 dark:border-[#232A3B] shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100 transition-colors">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#1E2433] bg-slate-50 dark:bg-[#0E121B]">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Registrar Nuevo Prospecto</h3>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition cursor-pointer p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C]"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -75,61 +81,61 @@ export function NewLeadModal({
 
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               {error && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-medium">
                   {error}
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Nombre Completo
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Nombre Completo *
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                  <User className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-3" />
                   <input
                     type="text"
                     required
                     placeholder="Ej. Sofía Martínez"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
+                    className="w-full h-10 text-sm bg-white dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-10 pr-3.5 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Número de WhatsApp (con código de país)
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Número de Teléfono / WhatsApp *
                 </label>
                 <div className="relative">
-                  <Phone className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                  <Phone className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-3" />
                   <input
                     type="text"
                     required
-                    placeholder="+52 55 1234 5678"
+                    placeholder="+57 312 456 7890"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 font-mono focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
+                    className="w-full h-10 text-sm bg-white dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-10 pr-3.5 text-slate-900 dark:text-white font-mono placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
                   />
                 </div>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  Incluye el símbolo + y el código de país (ej. +52, +54, +57, +34).
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Incluye el prefijo de país (ej. +57, +52, +54, +34, +1).
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Etapa Inicial en el Pipeline
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Etapa Inicial
                 </label>
                 <div className="relative">
-                  <Tag className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                  <Tag className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-3" />
                   <select
                     value={stage}
                     onChange={(e) => setStage(e.target.value as PipelineStage)}
-                    className="w-full text-xs border border-gray-300 rounded-xl pl-9 pr-3 py-2 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
+                    className="w-full h-10 text-sm bg-white dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl pl-10 pr-3.5 text-slate-900 dark:text-slate-200 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs cursor-pointer"
                   >
                     {PIPELINE_STAGES.map((s) => (
-                      <option key={s.id} value={s.id}>
+                      <option key={s.id} value={s.id} className="bg-white dark:bg-[#131722] text-slate-900 dark:text-slate-200">
                         {s.label}
                       </option>
                     ))}
@@ -137,21 +143,21 @@ export function NewLeadModal({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-[#1E2433]">
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-800 transition cursor-pointer"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold text-xs px-4 py-2 rounded-xl transition shadow-md shadow-[#0052FF]/20 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  className="bg-[#0052FF] hover:bg-[#0043D4] text-white font-semibold text-xs px-5 py-2 rounded-xl transition shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                 >
-                  {loading && <Loader2 className="w-3 h-3 animate-spin" />}
-                  {loading ? 'Guardando...' : 'Crear Lead'}
+                  {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{loading ? 'Guardando...' : 'Crear Lead'}</span>
                 </button>
               </div>
             </form>
@@ -161,4 +167,3 @@ export function NewLeadModal({
     </>
   );
 }
-

@@ -95,6 +95,7 @@ export function HandoffAlertNotifier({
   const [activeAlerts, setActiveAlerts] = useState<AlertData[]>([]);
   const [unattendedList, setUnattendedList] = useState<UnattendedItem[]>([]);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
 
   const originalTitleRef = useRef<string>('');
@@ -394,59 +395,81 @@ export function HandoffAlertNotifier({
         </div>
       )}
 
-      {/* 2. Banner Flotante Insistente Anti-Visto (Solo visible fuera del Inbox para no obstruir el chat) */}
-      {!isInsideInbox && unattendedList.length > 0 && latestUnattended && (
+      {/* 2. Banner Flotante de Atención (Solo visible fuera del Inbox para no obstruir el chat) */}
+      {!isInsideInbox && !isDismissed && unattendedList.length > 0 && latestUnattended && (
         <div className="fixed bottom-5 right-5 z-50 animate-in slide-in-from-bottom-5 duration-300">
           {isMinimized ? (
-            <button
-              onClick={() => setIsMinimized(false)}
-              className="px-3.5 py-2.5 rounded-2xl bg-[#090A0F] border-2 border-rose-500 shadow-2xl text-white text-xs font-bold flex items-center gap-2.5 hover:bg-[#131722] transition cursor-pointer"
-            >
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
-              </span>
-              <span>🚨 {unattendedList.length} {unattendedList.length === 1 ? 'Relevo Pendiente' : 'Relevos Pendientes'}</span>
-              <span className="text-[10px] text-slate-400 font-semibold bg-[#1E2433] px-2 py-0.5 rounded-md">Abrir ↗</span>
-            </button>
+            <div className="flex items-center gap-1.5 p-1 pl-3 pr-1.5 rounded-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] shadow-lg text-slate-800 dark:text-slate-100 text-xs font-medium">
+              <button
+                onClick={() => setIsMinimized(false)}
+                className="flex items-center gap-2 hover:opacity-80 transition cursor-pointer"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                </span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  {unattendedList.length} {unattendedList.length === 1 ? 'chat pendiente' : 'chats pendientes'}
+                </span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-[#1A1F2C] px-1.5 py-0.5 rounded-md border border-slate-200/60 dark:border-[#232A3B]">
+                  Abrir ↗
+                </span>
+              </button>
+              <button
+                onClick={() => setIsDismissed(true)}
+                title="Descartar aviso"
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer ml-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           ) : (
-            <div className="bg-[#090A0F] text-white p-4 rounded-2xl border-2 border-rose-500 shadow-2xl max-w-sm w-full space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-[#1E2433]">
+            <div className="bg-white dark:bg-[#131722] text-slate-900 dark:text-white p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-sm w-full space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-[#1E2433]">
                 <div className="flex items-center gap-2">
-                  <span className="relative flex h-2.5 w-2.5">
+                  <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
                   </span>
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-rose-400">
-                    {unattendedList.length === 1 ? '¡1 Chat en Visto (Relevo IA)!' : `¡${unattendedList.length} Chats en Visto (Relevo IA)!`}
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">
+                    {unattendedList.length === 1 ? '1 conversación pendiente' : `${unattendedList.length} conversaciones pendientes`}
                   </span>
                 </div>
-                <button
-                  onClick={() => setIsMinimized(true)}
-                  title="Minimizar aviso"
-                  className="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-[#131722] hover:bg-[#1A2030] transition cursor-pointer font-bold"
-                >
-                  Minimizar
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setIsMinimized(true)}
+                    title="Minimizar"
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-white text-xs px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-[#1A2030] transition cursor-pointer"
+                  >
+                    Minimizar
+                  </button>
+                  <button
+                    onClick={() => setIsDismissed(true)}
+                    title="Cerrar aviso"
+                    className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1A2030] transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Tarjeta del cliente más reciente esperando */}
-              <div className="bg-[#131722] p-3 rounded-xl border border-[#232A3B] space-y-1.5">
+              <div className="bg-slate-50 dark:bg-[#090A0F] p-3 rounded-xl border border-slate-200 dark:border-[#232A3B] space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-white truncate max-w-[190px]">
+                  <span className="font-semibold text-xs text-slate-900 dark:text-white truncate max-w-[190px]">
                     {latestUnattended.name}
                   </span>
-                  <span className="text-[10px] text-rose-400 font-mono font-semibold">
+                  <span className="text-[10px] text-rose-600 dark:text-rose-400 font-mono font-semibold">
                     {formatTimeAgo(latestUnattended.waitingSince)}
                   </span>
                 </div>
 
-                <div className="text-[11px] text-slate-400 font-mono">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                   {latestUnattended.phone}
                 </div>
 
                 {latestUnattended.lastMessage && (
-                  <p className="text-[11px] text-slate-200 italic line-clamp-2 mt-1 bg-[#090A0F]/80 p-2 rounded-lg border border-[#1E2433]">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 italic line-clamp-2 mt-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-slate-200 dark:border-[#1E2433]">
                     "{latestUnattended.lastMessage}"
                   </p>
                 )}
@@ -455,16 +478,16 @@ export function HandoffAlertNotifier({
               <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={() => router.push(`/inbox/${latestUnattended.id}`)}
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-[#0052FF] hover:bg-[#0040CC] font-bold text-xs text-white rounded-xl shadow-lg shadow-[#0052FF]/25 transition cursor-pointer"
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-[#0052FF] hover:bg-[#0047E0] font-semibold text-xs text-white rounded-xl shadow-xs transition cursor-pointer"
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
-                  <span>⚡ Atender en Inbox</span>
+                  <span>Atender en Inbox</span>
                 </button>
 
                 {unattendedList.length > 1 && (
                   <button
                     onClick={() => router.push('/inbox')}
-                    className="px-3 py-2.5 text-xs font-semibold text-slate-300 hover:text-white bg-[#131722] hover:bg-[#1A2030] rounded-xl transition cursor-pointer border border-[#232A3B]"
+                    className="px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-[#131722] hover:bg-slate-200 dark:hover:bg-[#1A2030] rounded-xl transition cursor-pointer border border-slate-200 dark:border-[#232A3B]"
                   >
                     Ver ({unattendedList.length})
                   </button>

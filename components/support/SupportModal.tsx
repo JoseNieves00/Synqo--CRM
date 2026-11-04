@@ -526,9 +526,9 @@ export function SupportModal() {
                               }`}
                             >
                               {t.status === 'resolved'
-                                ? 'Resuelto ✅'
+                                ? 'Resuelto'
                                 : t.status === 'in_progress'
-                                ? 'En Revisión 👨‍💻'
+                                ? 'En Revisión'
                                 : 'Abierto'}
                             </span>
                           </div>

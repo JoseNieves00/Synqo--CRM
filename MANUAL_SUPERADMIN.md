@@ -34,29 +34,24 @@ Como Super Administrador (`admin@synqo.dev` o el correo definido en `SUPER_ADMIN
 ```
 
 ### Funciones Principales de la Consola:
-1. **Aprovisionamiento de Nuevas Empresas ("+ Nueva Empresa"):**
-   - Nombre de la empresa (ej. *Barbería Elite Club*, *Academia de Baile Ritmo Latino*).
-   - Nombre y correo del Administrador del cliente (ej. *gerencia@empresa.com*).
-   - Contraseña inicial del cliente.
-   - Plan comercial asignado: `Starter` (Validación comercial - 2 usuarios), `Pro` (Comercial recomendado - 5 usuarios) o `Enterprise` (Corporativo - 12 usuarios).
-   - Límite de Usuarios autorizados (`max_users`): Define cuántos asesores puede dar de alta la empresa en su equipo (2 para Starter, 5 para Pro, 12 para Enterprise, o el cupo negociado).
-   - **Código de Empresa Autogenerado (`company_code`):** El sistema asigna un código mnemotécnico alfanumérico único (ej. `EMPR1457`) que sirve de identificador rápido para el portal de colaboradores.
+1. **Aprovisionamiento Multinicho en 3 Pasos ("+ Nueva Empresa" - ProvisionWizard):**
+   - **Paso 1 (Empresa & Detección Inteligente):** Escribe el nombre de la empresa y el sistema detecta automáticamente palabras clave del rubro (salud, estética, gimnasios, academias, inmobiliaria, etc.) sin obligar a encasillarla.
+   - **Modelo de Precios a Medida (Fase Start-up):** Asignación manual de capacidad de conversaciones y usuarios (`Starter` ~400 chats, `Pro` ~1,200 chats, `Enterprise` ~3,000 chats) sin precios fijos en dólares visibles, cobrando según los módulos acordados.
+   - **Paso 2 (Servicios & Nomenclatura 100% Personalizada):**
+     - **Módulos Habilitados:** Enciende o apaga con 1 clic: *Agenda & Citas por WhatsApp*, *Portal Móvil de Colaboradores*, *Control de Espacios Físicos & Aforo* y *Cobros Rápidos (Quick Pay)*.
+     - **Términos Condicionados:** Las preguntas de cómo llaman a sus colaboradores (*Doctores, Barberos, Agentes*) y a sus espacios (*Consultorios, Cabinas, Salones*) solo aparecen si los módulos respectivos están activos.
+     - **Código de Empresa para Acceso Móvil:** Si se activa el portal de colaboradores, se genera o personaliza su código mnemotécnico alfanumérico único (ej. `EMPR1457`).
+     - **Selección de Motor de WhatsApp:** Meta Cloud API oficial o Z-API Express QR.
+   - **Paso 3 (Revisión & Envío Inmediato por WhatsApp):**
+     - Botón destacado **"Copiar Mensaje para WhatsApp"** que genera un texto listo para enviar al cliente con URL de acceso (`https://crm.synqo.dev/login`), correo, contraseña temporal, código de equipo y lista de módulos habilitados.
 2. **Edición Integral de Empresa (Modal de Tenant & Upgrades):**
-   - **Nombre de la empresa:** Corrección de razón social, marca o erratas ortográficas.
-   - **Upgrades y Downgrades de Plan:** Cambiar en caliente entre `Starter`, `Pro` y `Enterprise` con botón de 1 clic para *sincronizar los cupos recomendados del plan* (usuarios y tokens).
-   - **Límite de Usuarios:** Aumentar o ajustar cupos de asesores por ventas de *add-ons* de usuarios.  
-     *(🛡️ **Blindaje de Seguridad:** El sistema bloquea reducciones de cupos de usuarios si son menores a la cantidad de miembros activos actuales, impidiendo estados huérfanos o usuarios bloqueados).*
-   - **Paquetes de Tokens Extra (Boosters Mensuales):** Botones rápidos de 1 clic `[ ⭐ +1M Tokens (Booster) ]` y `[ +500k Tokens ]` para recargar saldo de WhatsApp IA ante campañas de alta demanda sin forzar un upgrade de plan.
-   - **Regla de Negocio de Boosters:** Los tokens extra aplican **únicamente para el mes en curso**. Al registrar el pago de renovación mensual en `/admin`, el sistema reinicia el consumo a 0 y **restablece automáticamente el límite a la cuota base del plan** (`500k`, `2.5M` o `7.5M`), evitando que el cliente conserve saldo extra de por vida de forma gratuita.
-   - **Cortesía Técnica de Soporte:** Opción para reiniciar el consumo acumulado de tokens a 0 en cualquier momento sin esperar a fin de mes.
-3. **Gestión de Módulos Habilitados (`enabled_modules`):**
-   - Permite activar o desactivar módulos en caliente por empresa según el nicho contratado:
-     - `native_calendar`: Habilita la pestaña y motor de citas propio.
-     - `physical_rooms`: Activa la gestión de salones, cabinas o espacios físicos.
-     - `staff_mobile_portal`: Permite acceso de especialistas a `/colaborador`.
-     - `anti_no_show`: Activa recordatorios automáticos por WhatsApp a 24 horas y cancelación a 8 horas.
-     - `quick_pay`: Generación de órdenes rápidas y verificación humana de pagos.
-     - `ad_attribution`: Rastreo de campañas de Meta Ads (CTWA).
+   - **Nombre de la empresa:** Corrección de razón social o marca comercial.
+   - **Nomenclatura Multi-Nicho Dinámica:** Edición de los nombres de colaboradores y espacios, sincronizados en tiempo real con los módulos activos.
+   - **Ajustes de Capacidad y Asientos:** Aumentar usuarios (`max_users`) y límite mensual de tokens de IA.
+     *(🛡️ **Blindaje de Seguridad:** El sistema bloquea reducciones de cupos de usuarios si son menores a la cantidad de miembros activos actuales).*
+   - **Paquetes de Tokens Extra (Boosters Mensuales):** Botones rápidos para recargar saldo de tokens IA ante campañas de alta demanda sin forzar un upgrade de plan.
+   - **Gestión Modular en Caliente:** Activa o desactiva cualquier módulo si el cliente amplía o ajusta su suscripción mensual.
+   - **Cortesía Técnica de Soporte:** Opción para reiniciar el consumo acumulado de tokens a 0 en cualquier momento.
 4. **Suspensión Inmediata por Morosidad (Toggle de Estado):**
    - Si un cliente se atrasa en el pago, haz clic en el botón de pausa.
    - **Efecto Inmediato:** Suspendes el acceso al CRM para todos los asesores de esa empresa **y** el webhook corta automáticamente las respuestas de IA para ese número de WhatsApp, impidiendo que consuman saldo en OpenAI.
@@ -158,14 +153,38 @@ CRON_SECRET=synqo_cron_secure_token_produccion_2026
 
 ---
 
-## 5. Vinculación del Webhook con Meta Cloud API
+## 5. Vinculación de Webhooks (Meta Cloud API y Z-API)
 
-1. En el panel de **Meta Developers** de tu aplicación, navega a **WhatsApp** → **Configuración**.
+Synqo cuenta con arquitectura desacoplada de mensajería dual. Dependiendo del motor asignado a cada empresa, los webhooks deben direccionarse de la siguiente manera:
+
+### A. Meta WhatsApp Cloud API (Oficial Meta)
+1. En el panel de **Meta Developers** (`developers.facebook.com`), navega a tu aplicación $\rightarrow$ **WhatsApp** $\rightarrow$ **Configuración**.
 2. En la sección **Webhook**:
    - **URL de devolución de llamada:** `https://tudominio.com/api/whatsapp/webhook`
-   - **Token de verificación:** El mismo valor que pusiste en `META_WEBHOOK_VERIFY_TOKEN`.
+   - **Token de verificación:** El valor exacto configurado en tu variable de entorno `META_WEBHOOK_VERIFY_TOKEN`.
    - Pulsa **"Verificar y Guardar"**.
 3. En **Administrar campos**, suscríbete al campo **`messages`**.
+
+### B. Z-API Express (Sesión Clonada / Código QR)
+1. En el panel de administración de **Z-API** (`admin.z-api.io`), selecciona la instancia y ve a la pestaña **Webhooks y configuración general**.
+2. Configura los siguientes campos con el endpoint unificado de Synqo:
+   - **Al recibir (`on-receive`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`  
+     *(🚨 ¡CRÍTICO! Aquí es donde entran los mensajes de los prospectos).*
+   - **Notificar todos los mensajes enviados por mí:** **ACTIVAR (Verde)**  
+     *(🚨 ¡OBLIGATORIO! Permite detectar cuando el dueño o asesor responde desde su celular físico para pausar la IA por 45 minutos y registrar el relevo humano en el CRM).*
+   - **Al desconectar (`on-disconnect`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
+   - **En la conexión (`on-connect`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
+   - **Recibir estado del mensaje (`on-message-status`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
+   - **En el envío (`on-send`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
+3. **Filtros de recepción recomendados:**
+   - **Ignorar mensajes grupales:** **ACTIVAR** (Evita que el bot responda en grupos de WhatsApp).
+   - **Ignora los mensajes de chat privados:** **DESACTIVAR** (Debe estar apagado para recibir chats 1 a 1 de clientes).
+4. **Seguridad (Client-Token):**
+   - En el menú lateral izquierdo de Z-API $\rightarrow$ **Seguridad** $\rightarrow$ Activa la tarjeta con el ícono de la llave 🗝️ y copia tu **Client-Token**. Pégalo en Synqo al aprovisionar o editar la empresa. (Requerido obligatoriamente por Z-API para generar el código QR y el código de emparejamiento telefónico).
+5. **Métodos de Vinculación para el Cliente Final:**
+   - **Código QR:** Escaneo directo desde el monitor con rotación segura cada 20 segundos.
+   - **Código por Teléfono (Pairing Code):** Generación de código de 8 dígitos para vincular el celular sin requerir cámara ni dos pantallas simultáneas.
+   - **Sincronización Segura (Modelo C):** Opción bajo demanda en Ajustes e Inbox para importar hasta 50 chats recientes con la IA pausada preventivamente.
 
 ---
 

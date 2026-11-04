@@ -22,6 +22,8 @@ import {
   Bot,
   Loader2,
   CheckCircle2,
+  MessageSquare,
+  Instagram,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -49,10 +51,14 @@ interface ChatWindowProps {
     last_interaction_at: string;
     assigned_to?: string | null;
     custom_fields?: any;
+    channel?: 'whatsapp' | 'instagram';
+    instagram_username?: string | null;
+    instagram_id?: string | null;
   };
   messages: MessageItem[];
   onOptimisticMessage?: (msg: MessageItem) => void;
   customTemplates?: Array<{ name: string; label: string }>;
+  whatsappProvider?: 'meta' | 'zapi';
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
@@ -63,6 +69,7 @@ export function ChatWindow({
   messages,
   onOptimisticMessage,
   customTemplates,
+  whatsappProvider = 'meta',
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
@@ -77,8 +84,10 @@ export function ChatWindow({
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [otherTyping, setOtherTyping] = useState<string | null>(null);
 
-  const is24hValid = isWithin24HourWindow(contact.last_interaction_at);
+  const isZapi = whatsappProvider === 'zapi';
+  const is24hValid = isZapi ? true : isWithin24HourWindow(contact.last_interaction_at);
   const remainingHours = getRemainingHoursInWindow(contact.last_interaction_at);
+  const effectiveTemplates = isZapi ? [] : customTemplates;
 
   const isAdminOrSupervisor = currentUserRole === 'admin' || currentUserRole === 'supervisor';
   const isAssignedToMe = contact.assigned_to === currentUserId;
@@ -223,42 +232,62 @@ export function ChatWindow({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+    <div className="flex flex-col h-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-colors">
       {/* Cabecera del Chat */}
-      <div className="px-5 py-3 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-3">
+      <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] flex flex-wrap items-center justify-between gap-3">
         {/* Info del Contacto y Asignación */}
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-gray-900 truncate max-w-[200px] sm:max-w-xs">
-              {contact.name || 'Lead de WhatsApp'}
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-xs">
+              {contact.name ||
+                (contact.channel === 'instagram'
+                  ? contact.instagram_username
+                    ? `@${contact.instagram_username}`
+                    : 'Contacto Instagram'
+                  : 'Lead de WhatsApp')}
             </h2>
             {contact.pipeline_stage && (
-              <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+              <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B]">
                 {contact.pipeline_stage}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500 font-mono mt-0.5">
-            <Phone className="w-3 h-3 text-gray-400" />
-            <span>{contact.phone}</span>
-          </div>
+          {contact.channel === 'instagram' ? (
+            <div className="flex items-center gap-1.5 text-xs text-pink-700 dark:text-pink-300 font-mono mt-0.5">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-pink-50 dark:bg-pink-500/10 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/20">
+                <Instagram className="w-3 h-3 text-pink-500 dark:text-pink-400" />
+                <span>Instagram Direct</span>
+              </span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {contact.instagram_username ? `@${contact.instagram_username}` : contact.phone}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20">
+                <MessageSquare className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
+                <span>WhatsApp</span>
+              </span>
+              <span>{contact.phone}</span>
+            </div>
+          )}
         </div>
 
         {/* Controles: Asignación, 24h, IA Switch y Ficha */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Badge o Selector de Asignación */}
           {isAdminOrSupervisor ? (
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1 text-xs shadow-xs">
-              <User className="w-3.5 h-3.5 text-gray-500" />
+            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1 text-xs">
+              <User className="w-3.5 h-3.5 text-slate-400" />
               <select
                 value={contact.assigned_to || 'unassigned'}
                 onChange={(e) => handleAdminReassign(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-gray-800 focus:outline-none cursor-pointer"
+                className="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
               >
-                <option value="unassigned">⚠️ Sin Asignar</option>
+                <option value="unassigned" className="bg-white dark:bg-[#131722] text-amber-700 dark:text-amber-400">Sin Asignar</option>
                 {teamMembers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    👤 {m.full_name} {m.id === currentUserId ? '(Tú)' : ''}
+                  <option key={m.id} value={m.id} className="bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200">
+                    {m.full_name} {m.id === currentUserId ? '(Tú)' : ''}
                   </option>
                 ))}
               </select>
@@ -267,56 +296,66 @@ export function ChatWindow({
             <button
               onClick={handleClaimLead}
               disabled={isClaiming}
-              className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1 bg-[#0052FF] hover:bg-[#0043D4] text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 shadow-xs"
             >
               {isClaiming ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Reclamando...</span>
+                  <span>Tomando...</span>
                 </>
               ) : claimSuccess ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                  <span>¡Tomado!</span>
+                  <span>Asignado</span>
                 </>
               ) : (
                 <>
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>Tomar este cliente</span>
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Tomar cliente</span>
                 </>
               )}
             </button>
           ) : isAssignedToMe ? (
-            <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center gap-1">
+            <span className="px-2.5 py-1 bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 rounded-lg text-xs font-medium flex items-center gap-1">
               <User className="w-3 h-3" /> Asignado a ti
             </span>
           ) : (
-            <span className="px-2.5 py-1 bg-gray-100 text-gray-600 rounded-xl text-xs font-medium flex items-center gap-1">
-              <User className="w-3 h-3 text-gray-400" /> {assignedMember?.full_name || 'Otro asesor'}
+            <span className="px-2.5 py-1 bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] rounded-lg text-xs font-medium flex items-center gap-1">
+              <User className="w-3 h-3 text-slate-400" /> {assignedMember?.full_name || 'Otro asesor'}
             </span>
           )}
 
-          {/* Indicador de la Ventana de 24h de Meta */}
-          <div
-            suppressHydrationWarning
-            className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border ${
-              is24hValid
-                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                : 'bg-amber-50 text-amber-800 border-amber-300'
-            }`}
-          >
-            {is24hValid ? (
-              <>
-                <Clock className="w-3 h-3" />
-                <span suppressHydrationWarning>{remainingHours}h restantes</span>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="w-3 h-3 text-amber-600" />
-                <span>24h Expirada</span>
-              </>
-            )}
-          </div>
+          {/* Indicador de la Ventana / Protocolo de WhatsApp */}
+          {isZapi ? (
+            <div
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30"
+              title="Instancia Z-API activa: Sesión clonada directa sin ventana de 24 horas de Meta"
+            >
+              <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Z-API Directo (Sin restricción 24h)</span>
+            </div>
+          ) : (
+            <div
+              suppressHydrationWarning
+              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border ${
+                is24hValid
+                  ? 'bg-emerald-50 dark:bg-[#090A0F] text-emerald-700 dark:text-slate-300 border-emerald-200 dark:border-[#232A3B]'
+                  : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30'
+              }`}
+            >
+              {is24hValid ? (
+                <>
+                  <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-slate-400" />
+                  <span suppressHydrationWarning>{remainingHours}h restantes</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>24h Expirada</span>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Switch IA / Control Humano */}
           <AiToggleSwitch
@@ -329,10 +368,10 @@ export function ChatWindow({
           <button
             type="button"
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition flex items-center gap-1 cursor-pointer ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1 cursor-pointer ${
               isDrawerOpen
-                ? 'bg-slate-900 text-white border-slate-900'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
@@ -343,14 +382,14 @@ export function ChatWindow({
 
       {/* Alerta de Error de Meta o Concurrencia */}
       {errorMessage && (
-        <div className="mx-4 mt-2.5 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center justify-between gap-3 shadow-xs animate-in fade-in">
+        <div className="mx-4 mt-2.5 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center justify-between gap-3 animate-in fade-in">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span className="font-semibold">{errorMessage}</span>
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
           <button
             onClick={() => setErrorMessage(null)}
-            className="text-rose-500 hover:text-rose-700 text-xs font-semibold cursor-pointer shrink-0"
+            className="text-rose-400 hover:text-rose-200 text-xs font-semibold cursor-pointer shrink-0"
           >
             Cerrar
           </button>
@@ -359,25 +398,22 @@ export function ChatWindow({
 
       {/* Alerta de Colisión en Tiempo Real (Otro operador escribiendo) */}
       {otherTyping && (
-        <div className="mx-4 mt-2 p-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2 shadow-xs animate-in fade-in">
-          <AlertCircle className="w-3.5 h-3.5 text-amber-600 animate-pulse flex-shrink-0" />
+        <div className="mx-4 mt-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300 flex items-center gap-2 animate-in fade-in">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-400 animate-pulse flex-shrink-0" />
           <span>
             <strong>{otherTyping}</strong> está respondiendo este chat en este momento...
           </span>
         </div>
       )}
 
-      {/* Banner de Relevo Humano Pendiente (Anti-Visto) */}
+      {/* Banner de Atención Pendiente */}
       {isWaitingForHuman && (
-        <div className="mx-4 mt-2.5 p-3 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-300 rounded-xl text-xs text-rose-950 flex items-center justify-between gap-3 shadow-xs">
+        <div className="mx-4 mt-2.5 p-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="flex h-2.5 w-2.5 relative shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
-            </span>
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
             <div>
-              <span className="font-extrabold text-rose-800">🚨 Relevo pendiente:</span>{' '}
-              <span className="text-gray-700">El cliente está esperando la respuesta de un asesor humano. Escribe tu respuesta abajo para continuar la conversación.</span>
+              <span className="font-semibold text-rose-700 dark:text-rose-300">Atención requerida:</span>{' '}
+              <span className="text-slate-600 dark:text-slate-300">El cliente está esperando respuesta de un asesor.</span>
             </div>
           </div>
         </div>
@@ -388,9 +424,9 @@ export function ChatWindow({
         {/* Columna de Mensajes + Input */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Lista de Mensajes */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50 space-y-1">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50 dark:bg-[#090A0F] space-y-1 transition-colors">
             {messages.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400 text-xs">
+              <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
                 No hay mensajes registrados con este contacto.
               </div>
             ) : (
@@ -408,10 +444,10 @@ export function ChatWindow({
 
           {/* Banner de Estado de la IA antes del Input */}
           {contact.is_ai_active && !isReadOnly && (
-            <div className="px-4 py-1.5 bg-blue-50/80 border-t border-blue-100 flex items-center gap-2 text-[11px] text-blue-700">
-              <Bot className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+            <div className="px-4 py-1.5 bg-slate-100 dark:bg-[#0E121B] border-t border-slate-200 dark:border-[#1E2433] flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+              <Bot className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] flex-shrink-0" />
               <span>
-                <strong>IA Activa:</strong> La IA está respondiendo a este prospecto. Si envías un mensaje, tomarás el control manual.
+                <strong>IA Activa:</strong> La IA está respondiendo automáticamente. Al enviar un mensaje tomarás el control manual.
               </span>
             </div>
           )}
@@ -422,11 +458,11 @@ export function ChatWindow({
             isWithin24h={is24hValid}
             onSendMessage={handleSendMessage}
             onSendTemplate={handleSendTemplate}
-            customTemplates={customTemplates}
+            customTemplates={effectiveTemplates}
             disabled={isReadOnly}
             disabledReason={
               isReadOnly
-                ? `🔒 Chat asignado a ${assignedMember?.full_name || 'otro asesor'}. Modo solo lectura.`
+                ? `Chat asignado a ${assignedMember?.full_name || 'otro asesor'}. Modo solo lectura.`
                 : undefined
             }
             onTyping={handleTypingBroadcast}

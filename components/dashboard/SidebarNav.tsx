@@ -46,23 +46,26 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
       href: '/dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
-      iconColor: 'text-slate-200',
+      activeColor:
+        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
+      iconColor: 'text-slate-900 dark:text-white',
       matchExact: true,
     },
     {
       href: '/inbox',
-      label: 'Inbox WhatsApp',
+      label: 'Inbox',
       icon: MessageSquare,
-      activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
-      iconColor: 'text-[#00D2FF]',
+      activeColor:
+        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
+      iconColor: 'text-[#0052FF] dark:text-[#00D2FF]',
       matchExact: false,
     },
     {
       href: '/pipeline',
       label: 'Pipeline Kanban',
       icon: Kanban,
-      activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
+      activeColor:
+        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
       iconColor: 'text-[#0052FF]',
       matchExact: true,
     },
@@ -70,8 +73,9 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
       href: '/calendar',
       label: 'Agenda & Citas',
       icon: Calendar,
-      activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
-      iconColor: 'text-[#00D2FF]',
+      activeColor:
+        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
+      iconColor: 'text-[#0052FF] dark:text-[#00D2FF]',
       matchExact: false,
     },
   ];
@@ -81,8 +85,9 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
       href: '/settings',
       label: 'Configuración & Equipo',
       icon: Settings,
-      activeColor: 'text-white bg-[#131722] shadow-sm border border-[#232A3B] font-semibold',
-      iconColor: 'text-indigo-400',
+      activeColor:
+        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
+      iconColor: 'text-slate-700 dark:text-slate-300',
       matchExact: false,
     });
   }
@@ -93,13 +98,13 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
         <Link
           href="/admin"
           prefetch={true}
-          className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition mb-2 ${
+          className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition mb-2 border ${
             pathname.startsWith('/admin')
-              ? 'bg-[#0052FF] text-white shadow-md shadow-[#0052FF]/20'
-              : 'bg-[#0052FF]/10 text-[#00D2FF] hover:bg-[#0052FF]/20 border border-[#0052FF]/30'
+              ? 'bg-[#0052FF] text-white border-[#0052FF]'
+              : 'bg-slate-100 dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] hover:bg-slate-200 dark:hover:bg-[#1A1F2C] border-slate-200 dark:border-[#232A3B]'
           }`}
         >
-          <ShieldCheck className="w-4 h-4 text-[#00D2FF]" />
+          <ShieldCheck className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
           <span>Consola Super Admin</span>
         </Link>
       )}
@@ -116,22 +121,22 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
             key={item.href}
             href={item.href}
             prefetch={true}
-            className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150 cursor-pointer ${
+            className={`flex items-center gap-3 px-3.5 py-2 rounded-xl text-sm transition-all duration-150 cursor-pointer ${
               isActive
                 ? item.activeColor
-                : 'text-slate-400 hover:text-white hover:bg-[#131722]/60 font-medium'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#131722]/60 font-medium'
             }`}
           >
-            <Icon className={`w-4 h-4 transition-colors ${isActive ? item.iconColor : 'text-slate-400'}`} />
+            <Icon className={`w-4 h-4 transition-colors ${isActive ? item.iconColor : 'text-slate-400 dark:text-slate-400'}`} />
             <span>{item.label}</span>
 
             {/* Badge de Relevos Pendientes en Inbox */}
             {isInbox && unattendedCount > 0 ? (
-              <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white shadow-sm shadow-rose-500/40 animate-pulse">
-                🔴 {unattendedCount}
+              <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
+                {unattendedCount}
               </span>
             ) : isActive ? (
-              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#00D2FF] shadow-[0_0_8px_#00D2FF] animate-pulse" />
+              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#0052FF] dark:bg-[#00D2FF]" />
             ) : null}
           </Link>
         );
@@ -139,5 +144,3 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
     </nav>
   );
 }
-
-

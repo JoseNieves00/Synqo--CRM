@@ -29,9 +29,13 @@ interface RoomItem {
 interface RoomsTabProps {
   rooms: RoomItem[];
   organizationId: string;
+  roomLabel?: string;
 }
 
-export function RoomsTab({ rooms: initialRooms }: RoomsTabProps) {
+export function RoomsTab({
+  rooms: initialRooms,
+  roomLabel = 'Espacio',
+}: RoomsTabProps) {
   const [rooms, setRooms] = useState<RoomItem[]>(initialRooms);
   const [isPending, startTransition] = useTransition();
 
@@ -122,77 +126,77 @@ export function RoomsTab({ rooms: initialRooms }: RoomsTabProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#0E121B] border border-[#1E2433]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] shadow-xs">
         <div>
           <div className="flex items-center gap-2">
-            <DoorOpen className="w-5 h-5 text-emerald-400" />
-            <h3 className="text-base font-bold text-white">Salones, Cabinas & Espacios Físicos</h3>
+            <DoorOpen className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">Gestión de {roomLabel}s</h3>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Control de aforo por estación para academias, consultorios y barberías, evitando sobrecupo físico.
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Control de aforo por estación para {roomLabel.toLowerCase()}s, evitando sobrecupo físico.
           </p>
         </div>
 
         <button
           onClick={handleOpenCreate}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0040CC] text-white text-xs font-semibold shadow-md shadow-[#0052FF]/20 transition"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-semibold shadow-xs transition cursor-pointer"
         >
           <Plus className="w-4 h-4" />
-          <span>Nuevo Salón / Espacio</span>
+          <span>Nuevo {roomLabel}</span>
         </button>
       </div>
 
       {/* Grid de Salones */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {rooms.length === 0 ? (
-          <div className="col-span-full py-12 text-center bg-[#0E121B] rounded-2xl border border-[#1E2433] p-6 text-slate-400 text-xs">
-            No hay salones o cabinas físicas registradas. Registra el primero para activar el control de aforo.
+          <div className="col-span-full py-12 text-center bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 text-slate-500 dark:text-slate-400 text-xs shadow-xs">
+            No hay {roomLabel.toLowerCase()}s registrados. Registra el primero para activar el control de aforo.
           </div>
         ) : (
           rooms.map((room) => (
             <div
               key={room.id}
-              className="p-4 rounded-xl bg-[#0E121B] border border-[#1E2433] hover:border-[#232A3B] transition flex flex-col justify-between"
+              className="p-4 rounded-xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] hover:border-slate-300 dark:hover:border-[#00D2FF]/30 transition flex flex-col justify-between shadow-xs"
             >
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
                       <DoorOpen className="w-4 h-4" />
                     </div>
-                    <h4 className="font-bold text-white text-sm">{room.name}</h4>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-sm">{room.name}</h4>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
                     Activo
                   </span>
                 </div>
 
-                <div className="mt-2 space-y-1.5 text-xs text-slate-300">
+                <div className="mt-2 space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
                   <div className="flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5 text-slate-400" />
                     <span>Aforo Máximo:</span>
-                    <span className="font-bold text-white">{room.capacity} persona(s)</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{room.capacity} persona(s)</span>
                   </div>
 
                   {room.description && (
-                    <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
                       {room.description}
                     </p>
                   )}
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-[#1E2433] flex items-center justify-end gap-2">
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#1E2433] flex items-center justify-end gap-2">
                 <button
                   onClick={() => handleOpenEdit(room)}
-                  className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-[#131722] transition text-xs flex items-center gap-1"
+                  className="p-1.5 rounded text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#131722] transition text-xs flex items-center gap-1 cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   <span>Editar</span>
                 </button>
                 <button
                   onClick={() => handleDelete(room.id)}
-                  className="p-1.5 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                  className="p-1.5 rounded text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -204,44 +208,44 @@ export function RoomsTab({ rooms: initialRooms }: RoomsTabProps) {
 
       {/* Modal Crear / Editar Salón */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0E121B] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1E2433]">
               <div className="flex items-center gap-2">
-                <DoorOpen className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">
-                  {editingRoom ? 'Editar Salón / Espacio' : 'Nuevo Salón o Estación'}
+                <DoorOpen className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {editingRoom ? `Editar ${roomLabel}` : `Nuevo ${roomLabel}`}
                 </h3>
               </div>
               <button
                 onClick={() => setModalOpen(false)}
-                className="text-slate-400 hover:text-white transition"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {formError && (
-              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs">
                 {formError}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Nombre del Salón / Estación *</label>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Nombre del {roomLabel} *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej. Salón 1 (Canto & Batería) o Silla 1"
+                  placeholder={`Ej. ${roomLabel} 1 o Principal`}
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  className="w-full h-10 px-3.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Capacidad Máxima (Aforo) *</label>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Capacidad Máxima (Aforo) *</label>
                 <input
                   type="number"
                   min={1}
@@ -249,38 +253,38 @@ export function RoomsTab({ rooms: initialRooms }: RoomsTabProps) {
                   required
                   value={form.capacity}
                   onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF]"
+                  className="w-full h-10 px-3.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Para barbería o consulta médica usa 1. Para clases grupales de música usa la capacidad del salón.
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Define el aforo máximo simultáneo para citas o reservas en este espacio.
                 </span>
               </div>
 
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Descripción / Aislamiento Acústico</label>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Descripción o Notas de Espacio</label>
                 <textarea
                   rows={2}
-                  placeholder="Ej. Equipado con batería acústica y panel insonorizado"
+                  placeholder="Ej. Equipamiento disponible, ubicación interior o notas especiales"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] resize-none"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs resize-none"
                 />
               </div>
 
-              <div className="pt-3 border-t border-[#1E2433] flex items-center justify-end gap-2.5">
+              <div className="pt-3 border-t border-slate-100 dark:border-[#1E2433] flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-3 py-2 rounded-lg bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition"
+                  className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-[#131722] hover:bg-slate-200 dark:hover:bg-[#1A2030] text-slate-600 dark:text-slate-300 dark:hover:text-white transition font-medium cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="px-4 py-2 rounded-lg bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold transition disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold transition disabled:opacity-50 shadow-xs cursor-pointer"
                 >
-                  {isPending ? 'Guardando...' : editingRoom ? 'Guardar Cambios' : 'Crear Salón'}
+                  {isPending ? 'Guardando...' : editingRoom ? 'Guardar Cambios' : `Crear ${roomLabel}`}
                 </button>
               </div>
             </form>

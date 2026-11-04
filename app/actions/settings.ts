@@ -30,7 +30,7 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id, role')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
 
@@ -71,7 +71,9 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
     updatePayload.structured_prompt_data = input.structuredPromptData;
   }
 
-  if (input.industryPreset !== undefined) {
+  // Regla de Negocio Estricta: El cliente / inquilino no debe modificar su nicho de negocio.
+  // Solo el Super Administrador tiene autorización para cambiar el nicho asignado a una organización.
+  if (input.industryPreset !== undefined && profile.is_super_admin) {
     updatePayload.industry_preset = input.industryPreset as any;
   }
 

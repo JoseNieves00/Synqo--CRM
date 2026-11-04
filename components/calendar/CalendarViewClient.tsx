@@ -25,6 +25,10 @@ import {
   Check,
   X,
   MapPin,
+  Building2,
+  Video,
+  Tag,
+  UserCheck,
 } from 'lucide-react';
 import {
   createQuickAppointmentAdmin,
@@ -73,6 +77,9 @@ interface AppointmentItem {
   bookedVia: string;
   rescheduleCount: number;
   notes: string | null;
+  referenceInfo?: string | null;
+  meetingLink?: string | null;
+  delayMinutes?: number | null;
   clientNotifiedDelayAt: string | null;
   confirmationStatus: string | null;
   paymentStatus: string | null;
@@ -572,28 +579,28 @@ export function CalendarViewClient({
   const getModalityBadge = (notes: string | null) => {
     if (!notes) {
       return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-500/10 text-slate-300 border border-slate-500/30">
-          🏢 Sede
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+          <Building2 className="w-3 h-3 text-slate-400" /> Sede
         </span>
       );
     }
-    if (notes.includes('[💻 Virtual')) {
+    if (notes.includes('[💻 Virtual') || notes.includes('[Virtual')) {
       return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/10 text-[#00D2FF] border border-[#00D2FF]/30">
-          💻 Virtual
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#0052FF]/10 text-[#00D2FF] border border-[#00D2FF]/20">
+          <Video className="w-3 h-3 text-[#00D2FF]" /> Virtual
         </span>
       );
     }
-    if (notes.includes('[📍 Domicilio')) {
+    if (notes.includes('[📍 Domicilio') || notes.includes('[Domicilio')) {
       return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-          📍 Domicilio
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20">
+          <MapPin className="w-3 h-3 text-amber-400" /> Domicilio
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-500/10 text-slate-300 border border-slate-500/30">
-        🏢 Sede
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+        <Building2 className="w-3 h-3 text-slate-400" /> Sede
       </span>
     );
   };
@@ -613,17 +620,17 @@ export function CalendarViewClient({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0B0E14] text-slate-100">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 dark:bg-[#0B0E14] text-slate-900 dark:text-slate-100 transition-colors">
       {/* Header Superior del Calendario */}
-      <div className="border-b border-[#1E2433] bg-[#0E121B] px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="border-b border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#00D2FF]/10 border border-[#00D2FF]/30 flex items-center justify-center text-[#00D2FF]">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-[#00D2FF]/10 border border-blue-200 dark:border-[#00D2FF]/30 flex items-center justify-center text-[#0052FF] dark:text-[#00D2FF]">
               <CalendarIcon className="w-4 h-4" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">Agenda & Calendario Nativo</h1>
-              <p className="text-xs text-slate-400">
+              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Agenda & Calendario Nativo</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Gestión multi-especialista y salones sin colisiones
               </p>
             </div>
@@ -632,7 +639,7 @@ export function CalendarViewClient({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Switcher de Vista */}
-          <div className="flex items-center bg-[#131722] border border-[#232A3B] rounded-lg p-1 text-xs font-medium">
+          <div className="flex items-center bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg p-1 text-xs font-medium">
             <button
               onClick={() => setViewMode('day')}
               className={`px-3 py-1.5 rounded-md transition ${
@@ -679,7 +686,7 @@ export function CalendarViewClient({
           {/* Botón Nueva Cita Rápida */}
           <button
             onClick={() => setIsNewModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#0052FF] to-[#00D2FF] text-white text-xs font-semibold rounded-lg shadow-md shadow-[#0052FF]/20 hover:opacity-95 transition"
+            className="flex items-center gap-2 px-4 py-2 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Agendar Cita Rápida</span>
@@ -821,9 +828,29 @@ export function CalendarViewClient({
                         </div>
                       </div>
 
-                      <h4 className="font-semibold text-white text-sm group-hover:text-[#00D2FF] transition truncate">
-                        {appt.serviceName}
-                      </h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-semibold text-white text-sm group-hover:text-[#00D2FF] transition truncate">
+                          {appt.serviceName}
+                        </h4>
+                        {appt.referenceInfo && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+                            <Tag className="w-2.5 h-2.5 text-slate-400" />
+                            <span>{appt.referenceInfo}</span>
+                          </span>
+                        )}
+                        {appt.meetingLink && (
+                          <a
+                            href={appt.meetingLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#0052FF]/10 text-[#00D2FF] border border-[#00D2FF]/20 hover:bg-[#0052FF]/20 transition"
+                          >
+                            <Video className="w-3 h-3 text-[#00D2FF]" />
+                            <span>Unirse a Meet</span>
+                          </a>
+                        )}
+                      </div>
 
                       <div className="mt-2 space-y-1 text-xs text-slate-300">
                         <div className="flex items-center gap-1.5">
@@ -1001,8 +1028,13 @@ export function CalendarViewClient({
                                       <div className="font-semibold text-white truncate text-[11px]">
                                         {appt.client?.name || 'Cliente'}
                                       </div>
-                                      <div className="text-[10px] text-slate-400 truncate">
-                                        {appt.serviceName} {appt.room?.name ? `• ${appt.room.name}` : ''}
+                                      <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
+                                        <span>{appt.serviceName} {appt.room?.name ? `• ${appt.room.name}` : ''}</span>
+                                        {appt.referenceInfo && (
+                                          <span className="text-[9px] font-bold text-amber-300 font-mono">
+                                            [{appt.referenceInfo}]
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                     <span className="font-mono text-[10px] font-semibold text-slate-300 flex-shrink-0">
@@ -1092,7 +1124,26 @@ export function CalendarViewClient({
                           <div className="text-[11px] text-slate-400 font-mono">{appt.client?.phone}</div>
                         </td>
                         <td className="py-3.5 px-4 font-medium text-slate-200">
-                          {appt.serviceName}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{appt.serviceName}</span>
+                            {appt.referenceInfo && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#1A1F2C] text-slate-300 border border-[#232A3B]">
+                                <Tag className="w-2.5 h-2.5 text-slate-400" />
+                                <span>{appt.referenceInfo}</span>
+                              </span>
+                            )}
+                            {appt.meetingLink && (
+                              <a
+                                href={appt.meetingLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-[#0052FF]/10 text-[#00D2FF] border border-[#00D2FF]/20 hover:bg-[#0052FF]/20 transition"
+                              >
+                                <Video className="w-3 h-3 text-[#00D2FF]" />
+                                <span>Meet</span>
+                              </a>
+                            )}
+                          </div>
                           <span className="block text-[10px] text-slate-400">{appt.durationMinutes} min</span>
                         </td>
                         <td className="py-3.5 px-4 text-slate-300">
@@ -1160,25 +1211,26 @@ export function CalendarViewClient({
                   </label>
                   <div className={`grid grid-cols-${currentNiche.allowedModalities.length} gap-2`}>
                     {[
-                      { id: 'presencial', label: 'En Sede', icon: '🏢' },
-                      { id: 'virtual', label: 'Virtual', icon: '💻' },
-                      { id: 'domicilio', label: 'A Domicilio', icon: '📍' },
+                      { id: 'presencial', label: 'En Sede', icon: Building2 },
+                      { id: 'virtual', label: 'Virtual', icon: Video },
+                      { id: 'domicilio', label: 'A Domicilio', icon: MapPin },
                     ]
                       .filter((m) => currentNiche.allowedModalities.includes(m.id as any))
                       .map((m) => {
+                        const IconComponent = m.icon;
                         const isSelected = formData.modality === m.id;
                         return (
                           <button
                             key={m.id}
                             type="button"
                             onClick={() => setFormData({ ...formData, modality: m.id as any })}
-                            className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                            className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
                               isSelected
                                 ? 'bg-[#00D2FF]/15 border-[#00D2FF] text-[#00D2FF] font-bold shadow-xs'
                                 : 'bg-[#131722] border-[#232A3B] text-slate-400 hover:text-slate-200 hover:bg-[#1A2030]'
                             }`}
                           >
-                            <span className="text-base mb-0.5">{m.icon}</span>
+                            <IconComponent className="w-4 h-4" />
                             <span className="text-xs">{m.label}</span>
                           </button>
                         );
@@ -1461,10 +1513,10 @@ export function CalendarViewClient({
               <div className="pt-2 border-t border-[#1E2433]">
                 <button
                   onClick={() => handleMarkArrival(selectedAppointment.id)}
-                  className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-2 transition"
+                  className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center justify-center gap-2 transition"
                 >
-                  <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                  <span>📍 Llegó a Recepción (Notificar al Colaborador)</span>
+                  <UserCheck className="w-4 h-4 text-amber-400" />
+                  <span>Llegó a Recepción (Notificar)</span>
                 </button>
               </div>
 
@@ -1507,27 +1559,31 @@ export function CalendarViewClient({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => handleUpdateStatus(selectedAppointment.id, 'in_progress')}
-                    className="px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ▶ En Atención
+                    <PlayCircle className="w-3.5 h-3.5" />
+                    <span>En Atención</span>
                   </button>
                   <button
                     onClick={() => handleUpdateStatus(selectedAppointment.id, 'completed')}
-                    className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ✓ Finalizada
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Finalizada</span>
                   </button>
                   <button
                     onClick={() => handleUpdateStatus(selectedAppointment.id, 'no_show')}
-                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ⚠ No Asistió
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>No Asistió</span>
                   </button>
                   <button
                     onClick={() => handleCancelAppointment(selectedAppointment.id)}
-                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5"
                   >
-                    ✕ Cancelar Cita
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Cancelar Cita</span>
                   </button>
                 </div>
               </div>
