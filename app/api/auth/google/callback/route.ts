@@ -38,7 +38,9 @@ export async function GET(request: Request) {
       .update(stateStr)
       .digest('hex');
 
-    if (signature !== expectedSignature) {
+    const expBuf = Buffer.from(expectedSignature, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+    if (expBuf.length !== sigBuf.length || !crypto.timingSafeEqual(expBuf, sigBuf)) {
       throw new Error('Firma de seguridad inválida o manipulada.');
     }
 

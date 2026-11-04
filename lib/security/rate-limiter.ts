@@ -1,45 +1,54 @@
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
-let ratelimit: Ratelimit | null = null;
+let redis: Redis | null = null;
+const limitersCache = new Map<number, Ratelimit>();
 
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
   try {
-    const redis = new Redis({
+    redis = new Redis({
       url: process.env.UPSTASH_REDIS_REST_URL,
       token: process.env.UPSTASH_REDIS_REST_TOKEN,
-    });
-
-    // Límite: Máximo 15 mensajes por minuto por remitente
-    ratelimit = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(15, '60 s'),
-      analytics: true,
-      prefix: 'synqo_ratelimit',
     });
   } catch (error) {
     console.warn('[RATE LIMITER] No se pudo inicializar Upstash Redis. Usando almacenamiento en memoria local.', error);
   }
 }
 
-// In-memory fallback para entornos sin Redis configurado o límites personalizados por acción
+function getRedisLimiter(maxRequests: number): Ratelimit | null {
+  if (!redis) return null;
+  let limiter = limitersCache.get(maxRequests);
+  if (!limiter) {
+    limiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(maxRequests, '60 s'),
+      analytics: true,
+      prefix: `synqo_ratelimit_${maxRequests}`,
+    });
+    limitersCache.set(maxRequests, limiter);
+  }
+  return limiter;
+}
+
+// In-memory fallback para entornos sin Redis configurado o pruebas locales
 const memoryStore = new Map<string, { count: number; resetTime: number }>();
 
 export async function checkRateLimit(
   identifier: string,
   maxRequests: number = 15
 ): Promise<{ success: boolean; remaining: number }> {
-  // Si se solicita un límite diferente a 15 (ej. 5 para login anti-fuerza bruta), usar memoryStore para exactitud
-  if (ratelimit && maxRequests === 15) {
+  // 1. Usar Upstash Redis distribuido si está configurado (apto para Serverless / Vercel Lambdas)
+  const dynamicLimiter = getRedisLimiter(maxRequests);
+  if (dynamicLimiter) {
     try {
-      const result = await ratelimit.limit(identifier);
+      const result = await dynamicLimiter.limit(identifier);
       return { success: result.success, remaining: result.remaining };
     } catch (e) {
       console.warn('[RATE LIMITER WARNING] Error consultando Redis, aplicando fallback en memoria:', e);
     }
   }
 
-  // Fallback de memoria por ventana deslizante de 60 segundos
+  // 2. Fallback de memoria por ventana deslizante de 60 segundos
   const now = Date.now();
   const record = memoryStore.get(identifier);
 

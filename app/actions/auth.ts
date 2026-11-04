@@ -185,7 +185,14 @@ export async function getCurrentUserAndOrg() {
         ...profile,
         is_super_admin: isSuperAdmin,
       },
-      organization: org,
+      organization: {
+        ...org,
+        // 🛡️ OFUSCACIÓN DE SECRETOS: Prevenir fuga de tokens cifrados a componentes cliente
+        whatsapp_access_token: org?.whatsapp_access_token ? 'enc:configured' : null,
+        whatsapp_app_secret: org?.whatsapp_app_secret ? 'enc:configured' : null,
+        zapi_token: org?.zapi_token ? 'enc:configured' : null,
+        zapi_client_token: org?.zapi_client_token ? 'enc:configured' : null,
+      },
       mustChangePassword: Boolean(user?.user_metadata?.must_change_password),
     };
   } catch (err: any) {

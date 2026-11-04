@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil } from '@vercel/functions';
 import { checkRateLimit } from '@/lib/security/rate-limiter';
 import { sanitizeLeadMessage } from '@/lib/security/sanitize';
+import { verifyZapiWebhook, isValidMediaUrl } from '@/lib/security/verify-webhook';
+import { decryptSecret } from '@/lib/security/encryption';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
+import { NotificationService } from '@/lib/notifications/resend';
 
 /**
  * 1. GET: Health-check y prueba de conectividad de webhook para Z-API.
@@ -37,32 +40,47 @@ export async function POST(request: NextRequest) {
     searchParams.get('instance_id') ||
     request.headers.get('x-instance-id');
 
+  if (!instanceId || typeof instanceId !== 'string') {
+    console.warn('[Z-API WEBHOOK] Petición rechazada: falta instanceId');
+    return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
+  }
+
   // 2. Localizar la organización en Supabase
-  let organization: any = null;
-  if (instanceId) {
-    const { data: orgFound } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_provider, zapi_instance_id, zapi_token, zapi_client_token, zapi_status, zapi_anti_ban_mode, zapi_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
-      .eq('zapi_instance_id', instanceId)
-      .maybeSingle();
-    organization = orgFound;
-  }
-
-  // Fallback si no viene instanceId explícito en el payload
-  if (!organization) {
-    const { data: singleZapiOrg } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_provider, zapi_instance_id, zapi_token, zapi_client_token, zapi_status, zapi_anti_ban_mode, zapi_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
-      .eq('whatsapp_provider', 'zapi')
-      .not('zapi_instance_id', 'is', null)
-      .limit(2);
-
-    if (singleZapiOrg && singleZapiOrg.length === 1) {
-      organization = singleZapiOrg[0];
-    }
-  }
+  const { data: organization } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, subscription_status, is_active, whatsapp_provider, zapi_instance_id, zapi_token, zapi_client_token, zapi_status, zapi_anti_ban_mode, zapi_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
+    .eq('zapi_instance_id', instanceId.trim())
+    .maybeSingle();
 
   if (!organization) {
     console.warn(`[Z-API WEBHOOK] No se encontró organización para instanceId: ${instanceId}`);
     return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+  }
+
+  // 🛡️ VERIFICACIÓN CRIPTOGRÁFICA DE WEBHOOK (Anti-Suplantación de Z-API)
+  const providedSecret = searchParams.get('secret');
+  const providedClientToken =
+    request.headers.get('client-token') ||
+    request.headers.get('x-client-token') ||
+    payload.clientToken;
+
+  const decryptedClientToken = organization.zapi_client_token
+    ? decryptSecret(organization.zapi_client_token)
+    : null;
+  const decryptedInstanceToken = organization.zapi_token
+    ? decryptSecret(organization.zapi_token)
+    : null;
+
+  const isAuthorized = verifyZapiWebhook({
+    instanceId: organization.zapi_instance_id,
+    providedSecret,
+    providedClientToken,
+    decryptedClientToken,
+    decryptedInstanceToken,
+  });
+
+  if (!isAuthorized) {
+    console.error(`[SECURITY ALERT] Webhook Z-API rechazado: firma HMAC o Client-Token no coinciden para org "${organization.name}".`);
+    return new NextResponse('Unauthorized: Invalid Z-API webhook signature or token', { status: 401 });
   }
 
   const orgId = organization.id;
@@ -101,6 +119,24 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq('id', orgId);
+
+    // 🛡️ NOTIFICACIÓN PROACTIVA AL ADMINISTRADOR (Resend)
+    const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
+      .select('email')
+      .eq('organization_id', orgId)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    if (adminProfile?.email) {
+      waitUntil(
+        NotificationService.sendChannelDisconnectedAlert({
+          adminEmail: adminProfile.email,
+          companyName: organization.name || 'Empresa Synqo',
+          provider: 'zapi',
+          reason: 'El celular comercial perdió conexión Wi-Fi, se apagó o WhatsApp cerró la sesión web de la instancia.',
+        })
+      );
+    }
 
     return NextResponse.json({ status: 'disconnection_status_updated' }, { status: 200 });
   }
@@ -226,16 +262,22 @@ export async function POST(request: NextRequest) {
     // Nota de voz entrante vía Z-API con Whisper
     try {
       const audioUrl = payload.audio?.audioUrl || payload.audio?.url || payload.voice?.audioUrl;
-      const audioRes = await fetch(audioUrl);
-      if (audioRes.ok) {
-        const arrayBuf = await audioRes.arrayBuffer();
-        const transcription = await OpenAIService.transcribeAudio(
-          Buffer.from(arrayBuf),
-          payload.audio?.mimeType || 'audio/ogg'
-        );
-        rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
+      // 🛡️ BLINDAJE ANTI-SSRF: Validar que el dominio provenga exclusivamente de Z-API o Meta CDN autorizados
+      if (!isValidMediaUrl(audioUrl)) {
+        console.warn('[SECURITY WARNING] Host de nota de voz no autorizado o intento de SSRF bloqueado:', audioUrl);
+        rawContent = '🎤 [Nota de voz recibida - audio externo bloqueado por seguridad]';
       } else {
-        rawContent = '🎤 [Nota de voz recibida]';
+        const audioRes = await fetch(audioUrl);
+        if (audioRes.ok) {
+          const arrayBuf = await audioRes.arrayBuffer();
+          const transcription = await OpenAIService.transcribeAudio(
+            Buffer.from(arrayBuf),
+            payload.audio?.mimeType || 'audio/ogg'
+          );
+          rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
+        } else {
+          rawContent = '🎤 [Nota de voz recibida]';
+        }
       }
     } catch (audioErr) {
       console.warn('[Z-API AUDIO TRANSCRIPTION ERROR]', audioErr);
@@ -462,28 +504,43 @@ export async function POST(request: NextRequest) {
           });
 
           if (aiResponseText && aiResponseText.trim() !== '') {
-            const outboundId = await MessagingService.sendTextMessage({
-              organization,
-              to: leadPhone,
-              body: aiResponseText,
-              simulateTyping: true,
-            });
+            try {
+              const outboundId = await MessagingService.sendTextMessage({
+                organization,
+                to: leadPhone,
+                body: aiResponseText,
+                simulateTyping: true,
+              });
 
-            await supabaseAdmin.from('messages').insert({
-              contact_id: contactId,
-              sender_type: 'ai',
-              content: aiResponseText,
-              meta_message_id: outboundId,
-              channel: 'whatsapp',
-            });
+              await supabaseAdmin.from('messages').insert({
+                contact_id: contactId,
+                sender_type: 'ai',
+                content: aiResponseText,
+                meta_message_id: outboundId,
+                channel: 'whatsapp',
+              });
 
-            await supabaseAdmin
-              .from('contacts')
-              .update({
-                last_interaction_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', contactId);
+              await supabaseAdmin
+                .from('contacts')
+                .update({
+                  last_interaction_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', contactId);
+            } catch (sendErr: any) {
+              console.error('[Z-API OUTBOUND SEND ERROR]', sendErr);
+              const errMsg = sendErr?.message || '';
+              const isDisconnected =
+                errMsg.toLowerCase().includes('disconnected') ||
+                errMsg.toLowerCase().includes('405') ||
+                errMsg.toLowerCase().includes('desconectad');
+              await supabaseAdmin.from('messages').insert({
+                contact_id: contactId,
+                sender_type: 'system',
+                content: `⚠️ [Alerta Z-API]: No se pudo entregar la respuesta de la IA (${isDisconnected ? 'Celular o instancia desconectada de WhatsApp' : 'Error de comunicación con Z-API'}). Revisa la conexión en Configuración.`,
+                channel: 'whatsapp',
+              });
+            }
           }
         } catch (workerErr: any) {
           console.error('[Z-API ASYNC WORKER ERROR]', workerErr);

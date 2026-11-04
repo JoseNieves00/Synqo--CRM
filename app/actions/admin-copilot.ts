@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import OpenAI from 'openai';
+import { checkRateLimit } from '@/lib/security/rate-limiter';
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -48,6 +49,16 @@ export async function askAdminCopilot(
   const cleanQuestion = question.trim();
   if (!cleanQuestion) {
     return { success: false, answer: 'Por favor escribe una consulta válida.' };
+  }
+
+  // 🛡️ BLINDAJE ANTI-ABUSO (Protección de presupuesto OpenAI Super Admin): Máximo 10 preguntas por minuto
+  const rateLimitKey = `admin_copilot_${user.id}`;
+  const rateCheck = await checkRateLimit(rateLimitKey, 10);
+  if (!rateCheck.success) {
+    return {
+      success: false,
+      answer: 'Has alcanzado el límite de consultas por minuto con el Admin Copilot. Espera unos instantes antes de volver a consultar.',
+    };
   }
 
   // 2. Compilar Snapshot de Datos Explícitos e Implícitos (Zero PII)

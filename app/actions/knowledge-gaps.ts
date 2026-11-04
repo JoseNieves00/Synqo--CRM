@@ -79,6 +79,14 @@ export async function resolveKnowledgeGapAndTrainAI(
     return { success: false, error: 'Sesión no autorizada' };
   }
 
+  // 🛡️ CONTROL DE ACCESO RBAC: Solo administradores o supervisores pueden entrenar y modificar el prompt del asistente
+  if (current.profile.role !== 'admin' && current.profile.role !== 'supervisor' && !current.profile.is_super_admin) {
+    return {
+      success: false,
+      error: 'Permisos insuficientes: Solo administradores o supervisores pueden entrenar la IA y modificar las directrices de la empresa.',
+    };
+  }
+
   if (!answer || answer.trim().length < 3) {
     return { success: false, error: 'Por favor ingresa una respuesta clara de al menos 3 caracteres.' };
   }
@@ -193,6 +201,14 @@ export async function saveStructuredPrompt(
   const current = await getCurrentUserAndOrg();
   if (!current) {
     return { success: false, error: 'Sesión no autorizada' };
+  }
+
+  // 🛡️ CONTROL DE ACCESO RBAC: Solo administradores o supervisores pueden compilar y modificar el System Prompt
+  if (current.profile.role !== 'admin' && current.profile.role !== 'supervisor' && !current.profile.is_super_admin) {
+    return {
+      success: false,
+      error: 'Permisos insuficientes: Solo administradores o supervisores pueden configurar el prompt y directrices de la empresa.',
+    };
   }
 
   try {

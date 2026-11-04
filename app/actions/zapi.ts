@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
+import { generateZapiWebhookSecret } from '@/lib/security/verify-webhook';
 import { ZApiService } from '@/services/zapi.service';
 import { revalidatePath } from 'next/cache';
 
@@ -80,7 +81,9 @@ export async function saveZapiCredentials({
   let webhookFeedback = '';
   if (instanceId && token) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://synqo.dev';
-    const webhookUrl = `${appUrl}/api/webhooks/whatsapp/zapi?instanceId=${encodeURIComponent(instanceId.trim())}`;
+    const cleanInst = instanceId.trim();
+    const webhookSecret = generateZapiWebhookSecret(cleanInst);
+    const webhookUrl = `${appUrl}/api/webhooks/whatsapp/zapi?instanceId=${encodeURIComponent(cleanInst)}&secret=${webhookSecret}`;
 
     try {
       const configRes = await ZApiService.configureWebhooks({

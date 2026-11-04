@@ -222,7 +222,10 @@ export async function importContactsBatch(
     name: item.name,
     pipeline_stage: item.stage,
     is_ai_active: true,
-    last_interaction_at: new Date().toISOString(),
+    // 🛡️ BLINDAJE POLÍTICA 24H DE META:
+    // Los contactos importados masivamente en frío se inicializan con la ventana cerrada (-48h)
+    // para obligar al uso de plantillas oficiales (HSM) y evitar baneos de número en Meta por spam.
+    last_interaction_at: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
     custom_fields: item.notes ? { notes: item.notes } : {},
     updated_at: new Date().toISOString(),
   }));
