@@ -6,7 +6,7 @@ import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/wha
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
-import { formatImageMessageContent } from '@/lib/media/format';
+import { formatImageMessageContent, formatDocumentMessageContent } from '@/lib/media/format';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -192,10 +192,15 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
 }
 
 /**
- * Sube un archivo multimedia a Supabase Storage (bucket 'chat-media')
- * con validación de tipo MIME y tamaño máximo de 10 MB.
+ * Sube un archivo multimedia o documento a Supabase Storage (bucket 'chat-media')
+ * con validación de tipo MIME y tamaño máximo de 15 MB.
  */
-export async function uploadChatMedia(formData: FormData): Promise<{ url: string }> {
+export async function uploadChatMedia(formData: FormData): Promise<{
+  url: string;
+  fileName: string;
+  isDocument: boolean;
+  fileType: string;
+}> {
   const supabase = createServerSupabaseClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error('No autorizado');
@@ -203,13 +208,25 @@ export async function uploadChatMedia(formData: FormData): Promise<{ url: string
   const file = formData.get('file') as File;
   if (!file) throw new Error('No se recibió ningún archivo.');
 
-  if (file.size > 10 * 1024 * 1024) {
-    throw new Error('El archivo supera el tamaño máximo permitido de 10 MB.');
+  if (file.size > 15 * 1024 * 1024) {
+    throw new Error('El archivo supera el tamaño máximo permitido de 15 MB.');
   }
 
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (!allowedTypes.includes(file.type)) {
-    throw new Error('Solo se permiten imágenes en formato JPG, PNG, WEBP o GIF.');
+  const allowedTypes = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+  ];
+
+  if (!allowedTypes.includes(file.type) && !file.name.match(/\.(pdf|docx?|xlsx?|txt|png|jpe?g|webp|gif)$/i)) {
+    throw new Error('Formato de archivo no admitido. Se permiten imágenes (JPG, PNG, WEBP) y documentos (PDF, Word, Excel, TXT).');
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
@@ -218,8 +235,9 @@ export async function uploadChatMedia(formData: FormData): Promise<{ url: string
     .single();
 
   const orgId = profile?.organization_id || 'general';
-  const fileExt = file.name.split('.').pop() || 'jpg';
-  const fileName = `${orgId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+  const fileExt = file.name.split('.').pop() || (file.type.startsWith('image/') ? 'jpg' : 'pdf');
+  const safeBaseName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const fileName = `${orgId}/${Date.now()}_${safeBaseName}`;
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -227,27 +245,40 @@ export async function uploadChatMedia(formData: FormData): Promise<{ url: string
   const { error: uploadError } = await supabaseAdmin.storage
     .from('chat-media')
     .upload(fileName, buffer, {
-      contentType: file.type,
+      contentType: file.type || 'application/octet-stream',
       upsert: true,
     });
 
   if (uploadError) {
     console.error('[STORAGE UPLOAD ERROR]', uploadError);
-    throw new Error(`Error al subir imagen: ${uploadError.message}`);
+    throw new Error(`Error al subir archivo: ${uploadError.message}`);
   }
 
   const { data: publicData } = supabaseAdmin.storage
     .from('chat-media')
     .getPublicUrl(fileName);
 
-  return { url: publicData.publicUrl };
+  const isDocument = !file.type.startsWith('image/');
+
+  return {
+    url: publicData.publicUrl,
+    fileName: file.name,
+    isDocument,
+    fileType: file.type,
+  };
 }
 
 /**
- * Envía una imagen manual por un agente humano desde el CRM a WhatsApp.
+ * Envía una imagen o documento manual por un agente humano desde el CRM a WhatsApp.
  * Silencia la IA automáticamente (Human Takeover).
  */
-export async function sendAgentMediaMessage(contactId: string, mediaUrl: string, caption?: string) {
+export async function sendAgentMediaMessage(
+  contactId: string,
+  mediaUrl: string,
+  caption?: string,
+  fileName?: string,
+  isDocument?: boolean
+) {
   const supabase = createServerSupabaseClient();
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -278,12 +309,14 @@ export async function sendAgentMediaMessage(contactId: string, mediaUrl: string,
 
   const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
 
-  // 1. Despachar imagen a WhatsApp
+  // 1. Despachar imagen o documento a WhatsApp
   const messageId = await MessagingService.sendMediaMessage({
     organization: org,
     to: targetRecipient,
     mediaUrl,
     caption: caption || undefined,
+    mediaType: isDocument ? 'document' : 'image',
+    fileName: fileName || (isDocument ? 'documento.pdf' : 'imagen.jpg'),
   });
 
   // 2. Silenciar IA (Human Takeover) y actualizar última interacción
@@ -295,8 +328,11 @@ export async function sendAgentMediaMessage(contactId: string, mediaUrl: string,
     })
     .eq('id', contactId);
 
-  // 3. Persistir en la tabla messages
-  const formattedContent = formatImageMessageContent(mediaUrl, caption);
+  // 3. Persistir en la tabla messages con formato correspondiente
+  const formattedContent = isDocument
+    ? formatDocumentMessageContent(mediaUrl, fileName, caption)
+    : formatImageMessageContent(mediaUrl, caption);
+
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',

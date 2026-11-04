@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MessageSender } from '@/lib/supabase/types';
-import { Bot, User, ShieldCheck, Maximize2, X, Download } from 'lucide-react';
-import { parseImageMessageContent } from '@/lib/media/format';
+import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink } from 'lucide-react';
+import { parseImageMessageContent, parseDocumentMessageContent } from '@/lib/media/format';
 
 interface MessageBubbleProps {
   content: string;
@@ -57,6 +57,7 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
 
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const imageInfo = parseImageMessageContent(content);
+  const docInfo = parseDocumentMessageContent(content);
 
   return (
     <>
@@ -92,7 +93,7 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
             )}
           </div>
 
-          {/* Renderizado de Imagen si el mensaje es multimedia */}
+          {/* Renderizado de Imagen */}
           {imageInfo.isImage && imageInfo.url ? (
             <div className="space-y-1.5 my-1">
               <div
@@ -114,6 +115,54 @@ export function MessageBubble({ content, senderType, createdAt }: MessageBubbleP
               {imageInfo.caption && (
                 <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
                   {imageInfo.caption}
+                </p>
+              )}
+            </div>
+          ) : docInfo.isDocument ? (
+            /* Renderizado de Documento / Archivo */
+            <div className="space-y-1.5 my-1">
+              <div
+                className={`flex items-center gap-2.5 p-2.5 rounded-xl border ${
+                  isAgent
+                    ? 'bg-white/15 border-white/20 text-white'
+                    : 'bg-slate-50 dark:bg-[#131722] border-slate-200 dark:border-[#232A3B] text-slate-800 dark:text-slate-100'
+                }`}
+              >
+                <div
+                  className={`p-2 rounded-lg shrink-0 ${
+                    isAgent
+                      ? 'bg-white/20 text-white'
+                      : 'bg-blue-50 dark:bg-blue-950/60 text-[#0052FF] dark:text-[#00D2FF]'
+                  }`}
+                >
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-xs truncate" title={docInfo.fileName}>
+                    {docInfo.fileName || 'Archivo adjunto'}
+                  </p>
+                  <span className="text-[10px] opacity-75 font-mono">Documento</span>
+                </div>
+                {docInfo.url && (
+                  <a
+                    href={docInfo.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download={docInfo.fileName}
+                    className={`p-1.5 rounded-lg transition shrink-0 cursor-pointer ${
+                      isAgent
+                        ? 'bg-white/20 hover:bg-white/30 text-white'
+                        : 'bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                    title="Descargar archivo"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+              {docInfo.caption && (
+                <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
+                  {docInfo.caption}
                 </p>
               )}
             </div>

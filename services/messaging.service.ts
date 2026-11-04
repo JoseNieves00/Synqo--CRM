@@ -170,6 +170,18 @@ export class MessagingService {
     }
 
     const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+
+    if (mediaType === 'document') {
+      return await WhatsAppService.sendDocumentMessage({
+        phoneNumberId: organization.whatsapp_phone_number_id,
+        accessToken: decryptedToken,
+        to,
+        documentUrl: mediaUrl,
+        caption,
+        fileName,
+      });
+    }
+
     return await WhatsAppService.sendImageMessage({
       phoneNumberId: organization.whatsapp_phone_number_id,
       accessToken: decryptedToken,

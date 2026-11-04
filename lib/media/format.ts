@@ -65,6 +65,97 @@ export function parseImageMessageContent(content: string | null | undefined): Pa
   return { isImage: false };
 }
 
+export interface ParsedDocumentMessage {
+  isDocument: boolean;
+  url?: string;
+  fileName?: string;
+  caption?: string;
+}
+
+/**
+ * Formatea el contenido de un mensaje de documento o archivo para almacenamiento seguro en BD.
+ */
+export function formatDocumentMessageContent(url: string, fileName?: string, caption?: string): string {
+  const cleanUrl = url.trim();
+  const cleanFileName = (fileName || 'documento.pdf').trim();
+  const cleanCaption = caption?.trim();
+
+  if (cleanCaption) {
+    return `📄 [Documento: ${cleanUrl} (${cleanFileName})]: ${cleanCaption}`;
+  }
+  return `📄 [Documento: ${cleanUrl} (${cleanFileName})]`;
+}
+
+/**
+ * Extrae la URL, nombre de archivo y caption de un mensaje formateado como documento.
+ */
+export function parseDocumentMessageContent(content: string | null | undefined): ParsedDocumentMessage {
+  if (!content || typeof content !== 'string') {
+    return { isDocument: false };
+  }
+
+  const canonicalMatch = content.match(/^📄\s*\[(?:Documento|Archivo):\s*(https?:\/\/[^\s()\]]+)(?:\s*\(([^)]+)\))?\](?::\s*([\s\S]*))?$/i);
+  if (canonicalMatch) {
+    return {
+      isDocument: true,
+      url: canonicalMatch[1].trim(),
+      fileName: canonicalMatch[2]?.trim() || 'Documento',
+      caption: canonicalMatch[3]?.trim() || '',
+    };
+  }
+
+  const legacyMatch = content.match(/^📄\s*\[(?:Documento|Archivo)\s*(?:recibido)?:\s*([^\]]+)\](?::\s*([\s\S]*))?$/i);
+  if (legacyMatch) {
+    const rawVal = legacyMatch[1].trim();
+    if (rawVal.startsWith('http')) {
+      return {
+        isDocument: true,
+        url: rawVal,
+        fileName: 'Documento',
+        caption: legacyMatch[2]?.trim() || '',
+      };
+    }
+    return {
+      isDocument: true,
+      fileName: rawVal,
+      caption: legacyMatch[2]?.trim() || '',
+    };
+  }
+
+  return { isDocument: false };
+}
+
+/**
+ * Limpia y remueve cualquier enlace o etiqueta de foto [foto: URL] del texto
+ * para que el comerciante nunca vea URLs largas ni sintaxis técnica en el editor.
+ */
+export function stripPhotoUrlsFromText(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\]]+\]/gi, '')
+    .replace(/[ \t]+(?=\r?\n|$)/gm, '');
+}
+
+/**
+ * Extrae un arreglo de fotos vinculadas { name, url } a partir de un texto con [foto: URL].
+ */
+export function extractPhotoUrlsFromText(text: string | null | undefined): Array<{ name: string; url: string }> {
+  if (!text) return [];
+  const lines = text.split(/\r?\n/);
+  const items: Array<{ name: string; url: string }> = [];
+
+  for (const line of lines) {
+    const match = line.match(/[-*]\s*([^($:\n]+).*?\[(?:foto|imagen):\s*(https?:\/\/[^\]\s]+)\]/i);
+    if (match) {
+      const name = match[1].trim();
+      const url = match[2].trim();
+      items.push({ name, url });
+    }
+  }
+
+  return items;
+}
+
 /**
  * Heurística Zero-Cost para detectar si un mensaje con foto es un comprobante de pago o transferencia.
  * Si es verdadero, la IA nunca debe validar el pago ni invocar modelos de visión costosos;

@@ -131,6 +131,61 @@ export class WhatsAppService {
   }
 
   /**
+   * Envía un documento o archivo (PDF, Word, Excel, etc.) a través de Meta WhatsApp Cloud API.
+   */
+  static async sendDocumentMessage({
+    phoneNumberId,
+    accessToken,
+    to,
+    documentUrl,
+    caption,
+    fileName = 'documento.pdf',
+  }: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    documentUrl: string;
+    caption?: string;
+    fileName?: string;
+  }): Promise<string> {
+    const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
+
+    const bodyPayload: any = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'document',
+      document: {
+        link: documentUrl,
+        filename: fileName,
+      },
+    };
+
+    if (caption && caption.trim()) {
+      bodyPayload.document.caption = caption.trim();
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bodyPayload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[WHATSAPP API SEND DOCUMENT ERROR]', errorData);
+      throw new Error(`WhatsApp API Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.messages?.[0]?.id || '';
+  }
+
+  /**
    * Envía un mensaje interactivo con botones de respuesta rápida (Quick Reply Buttons).
    * Ideal para confirmación de citas con un solo toque: [✓ Confirmar] o [↻ Reprogramar].
    */

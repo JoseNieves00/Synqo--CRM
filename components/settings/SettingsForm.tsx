@@ -1672,6 +1672,7 @@ export function SettingsForm({
             )}
 
             {/* Google Calendar & Google Meet (Oficial) */}
+            {Boolean(enabledModules.native_calendar) && (
             <div id="google-calendar" className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
                 <div className="flex items-center gap-3">
@@ -1908,6 +1909,7 @@ export function SettingsForm({
                 </div>
               )}
             </div>
+            )}
 
             {/* Meta Instagram Direct Messaging (Preparado para próxima actualización - oculto en MVP) */}
             {SHOW_INSTAGRAM_MVP && (

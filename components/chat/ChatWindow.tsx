@@ -9,7 +9,7 @@ import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow } from '@/services/contact.service';
 import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi } from '@/app/actions/chat';
-import { formatImageMessageContent } from '@/lib/media/format';
+import { formatImageMessageContent, formatDocumentMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin } from '@/app/actions/assignment';
 import { deleteContactWithPassword } from '@/app/actions/contacts';
 import { META_TEMPLATES } from '@/services/whatsapp.service';
@@ -253,9 +253,11 @@ export function ChatWindow({
     }
   };
 
-  const handleSendMedia = async (mediaUrl: string, caption?: string) => {
+  const handleSendMedia = async (mediaUrl: string, caption?: string, fileName?: string, isDocument?: boolean) => {
     setErrorMessage(null);
-    const formatted = formatImageMessageContent(mediaUrl, caption);
+    const formatted = isDocument
+      ? formatDocumentMessageContent(mediaUrl, fileName, caption)
+      : formatImageMessageContent(mediaUrl, caption);
     onOptimisticMessage?.({
       id: `temp-${Date.now()}`,
       sender_type: 'agent_manual',
@@ -263,10 +265,10 @@ export function ChatWindow({
       created_at: new Date().toISOString(),
     });
     try {
-      await sendAgentMediaMessage(contact.id, mediaUrl, caption);
+      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument);
     } catch (err: any) {
       console.error('[SEND MEDIA ERROR]', err);
-      setErrorMessage(`Error al enviar imagen: ${err?.message || 'Error de conexión con WhatsApp'}`);
+      setErrorMessage(`Error al enviar archivo: ${err?.message || 'Error de conexión con WhatsApp'}`);
       throw err;
     }
   };
