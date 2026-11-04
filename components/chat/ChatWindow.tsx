@@ -196,7 +196,7 @@ export function ChatWindow({
       } else if (msg.includes('131047') || msg.includes('24 hours') || msg.includes('24h')) {
         setErrorMessage('La ventana de 24 horas de Meta ha vencido para este cliente. Debes enviar una Plantilla Oficial para reanudar la conversación.');
       } else if (msg.includes('Disconnected') || msg.includes('desconectad') || msg.includes('405')) {
-        setErrorMessage('El teléfono o la instancia de WhatsApp (Z-API) está desconectada. Revisa la vinculación en Configuración.');
+        setErrorMessage('El teléfono o la instancia de WhatsApp (Evolution API) está desconectada. Revisa la vinculación en Configuración.');
       } else {
         setErrorMessage(`Error al enviar mensaje: ${msg || 'Error de conexión con WhatsApp'}`);
       }
@@ -334,10 +334,10 @@ export function ChatWindow({
           {isBaileys ? (
             <div
               className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30"
-              title={whatsappProvider === 'evolution' ? 'Instancia Evolution API activa: Sesión Baileys en VPS sin ventana de 24 horas' : 'Instancia Z-API activa: Sesión clonada directa sin ventana de 24 horas de Meta'}
+              title="Instancia Evolution API activa: Sesión Baileys en VPS sin ventana de 24 horas"
             >
               <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{whatsappProvider === 'evolution' ? 'Evolution API (Sin restricción 24h)' : 'Z-API Directo (Sin restricción 24h)'}</span>
+              <span>Evolution API (Sin restricción 24h)</span>
             </div>
           ) : (
             <div
