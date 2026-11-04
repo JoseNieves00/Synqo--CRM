@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
   Building2,
@@ -15,8 +15,10 @@ import {
   RotateCcw,
   AlertCircle,
   HelpCircle,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
+import { uploadChatMedia } from '@/app/actions/chat';
 
 interface StructuredPromptWizardProps {
   initialPrompt?: string | null;
@@ -49,6 +51,51 @@ export function StructuredPromptWizard({
   const [copied, setCopied] = useState(false);
   const [selectedTemplateModal, setSelectedTemplateModal] = useState(false);
   const [previewTemplateId, setPreviewTemplateId] = useState<string>('ecommerce');
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoUploadSuccess, setPhotoUploadSuccess] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido (JPG, PNG o WebP).');
+      return;
+    }
+
+    try {
+      setIsUploadingPhoto(true);
+      setPhotoUploadSuccess(null);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const result = await uploadChatMedia(formData);
+      if (result.url) {
+        const snippet = ` [foto: ${result.url}]`;
+        const ta = textareaRef.current;
+        if (ta) {
+          const start = ta.selectionStart;
+          const end = ta.selectionEnd;
+          const currentVal = textPrompt;
+          const newVal = currentVal.substring(0, start) + snippet + currentVal.substring(end);
+          handleTextChange(newVal);
+        } else {
+          handleTextChange(textPrompt + `\n- Foto de producto [foto: ${result.url}]`);
+        }
+        setPhotoUploadSuccess('✅ Foto subida exitosamente y vinculada con [foto: URL].');
+        setTimeout(() => setPhotoUploadSuccess(null), 7000);
+      }
+    } catch (err: any) {
+      console.error('[PHOTO UPLOAD ERROR]', err);
+      alert('Error al subir la imagen: ' + (err?.message || 'Verifica el archivo'));
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = '';
+    }
+  };
 
   // Plantillas prediseñadas para orientar al cliente según su tipo de negocio
   const TEMPLATES: TemplatePreset[] = [
@@ -263,6 +310,24 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
           >
             Pegar Plantilla Rápida
           </button>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handlePhotoUpload}
+            className="hidden"
+          />
+          <button
+            type="button"
+            disabled={isUploadingPhoto}
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:text-[#0052FF] dark:hover:text-[#00D2FF] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-blue-400 dark:hover:border-blue-500 shadow-sm transition-all cursor-pointer"
+            title="Sube una foto de producto para que la IA la envíe automáticamente a WhatsApp cuando un cliente pida fotos"
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-blue-500" />
+            <span>{isUploadingPhoto ? 'Subiendo foto...' : 'Anexar Foto de Producto'}</span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -292,8 +357,22 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
         </div>
       </div>
 
+      {photoUploadSuccess && (
+        <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2 animate-in fade-in">
+          <span>{photoUploadSuccess}</span>
+          <button
+            type="button"
+            onClick={() => setPhotoUploadSuccess(null)}
+            className="text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Editor de Texto Libre Principal */}
       <textarea
+        ref={textareaRef}
         rows={18}
         value={textPrompt}
         onChange={(e) => handleTextChange(e.target.value)}

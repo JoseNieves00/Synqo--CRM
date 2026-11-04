@@ -41,6 +41,11 @@ export const CancelNativeAppointmentToolSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const SendWhatsAppImageToolSchema = z.object({
+  image_url: z.string().url().describe('URL pública directa de la imagen (https://...)'),
+  caption: z.string().max(300).optional().describe('Breve descripción o pie de foto (máximo 1 o 2 oraciones)'),
+});
+
 export type UpdateStageToolInput = z.infer<typeof UpdateStageToolSchema>;
 export type CheckAvailabilityToolInput = z.infer<typeof CheckAvailabilityToolSchema>;
 export type BookAppointmentToolInput = z.infer<typeof BookAppointmentToolSchema>;
@@ -48,3 +53,4 @@ export type CheckNativeAvailabilityToolInput = z.infer<typeof CheckNativeAvailab
 export type BookNativeAppointmentToolInput = z.infer<typeof BookNativeAppointmentToolSchema>;
 export type RescheduleNativeAppointmentToolInput = z.infer<typeof RescheduleNativeAppointmentToolSchema>;
 export type CancelNativeAppointmentToolInput = z.infer<typeof CancelNativeAppointmentToolSchema>;
+export type SendWhatsAppImageToolInput = z.infer<typeof SendWhatsAppImageToolSchema>;

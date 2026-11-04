@@ -9,6 +9,8 @@ import { WhatsAppService } from '@/services/whatsapp.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
+import { formatImageMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
+import { uploadIncomingChatMedia } from '@/lib/media/storage';
 
 /**
  * 1. GET: Handshake de verificación inicial de Meta WhatsApp Webhook.
@@ -154,8 +156,30 @@ export async function POST(request: NextRequest) {
         rawContent = '[Respuesta interactiva]';
       }
     } else if (msgType === 'image') {
-      const caption = incomingMessage.image?.caption;
-      rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
+      const imageId = incomingMessage.image?.id;
+      const caption = (incomingMessage.image?.caption || '').trim();
+      let imageUrl: string | null = null;
+
+      if (imageId && organization.whatsapp_access_token) {
+        try {
+          const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+          const media = await WhatsAppService.downloadMedia(imageId, decryptedToken);
+          imageUrl = await uploadIncomingChatMedia({
+            buffer: media.buffer,
+            mimeType: media.mimeType || 'image/jpeg',
+            organizationId: orgId,
+            contactId: leadPhone || 'incoming',
+          });
+        } catch (imgErr: any) {
+          console.error('[WHATSAPP IMAGE DOWNLOAD ERROR]', imgErr);
+        }
+      }
+
+      if (imageUrl) {
+        rawContent = formatImageMessageContent(imageUrl, caption);
+      } else {
+        rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
+      }
     } else if (msgType === 'document') {
       const filename = incomingMessage.document?.filename || 'Archivo';
       const caption = incomingMessage.document?.caption;
@@ -183,6 +207,7 @@ export async function POST(request: NextRequest) {
     }
 
     const sanitizedContent = sanitizeLeadMessage(rawContent);
+    const isPaymentReceipt = msgType === 'image' && isPaymentReceiptHint(incomingMessage.image?.caption || '');
 
     // G. Parche 1: Blindaje de Rentabilidad (Esquema de Suscripción & Estado Activo)
     const isSubscriptionActive =
@@ -213,7 +238,7 @@ export async function POST(request: NextRequest) {
 
     if (existingContact) {
       contactId = existingContact.id;
-      isAiActive = existingContact.is_ai_active;
+      isAiActive = isPaymentReceipt ? false : existingContact.is_ai_active;
 
       // Actualizar timestamp de última interacción y nombre si viene provisto
       await supabaseAdmin
@@ -221,6 +246,7 @@ export async function POST(request: NextRequest) {
         .update({
           last_interaction_at: new Date().toISOString(),
           name: leadName,
+          ...(isPaymentReceipt ? { is_ai_active: false } : {}),
         })
         .eq('id', contactId);
     } else {
@@ -233,7 +259,7 @@ export async function POST(request: NextRequest) {
           phone: leadPhone,
           name: leadName,
           pipeline_stage: 'nuevo',
-          is_ai_active: true,
+          is_ai_active: !isPaymentReceipt,
           assigned_to: bestAgentId || null,
           last_interaction_at: new Date().toISOString(),
         })
@@ -272,6 +298,14 @@ export async function POST(request: NextRequest) {
       })
       .select('id, created_at')
       .single();
+
+    if (isPaymentReceipt) {
+      await supabaseAdmin.from('messages').insert({
+        contact_id: contactId,
+        sender_type: 'system',
+        content: '[🚨 Comprobante de pago recibido en imagen: Asesor humano requerido para verificar extracto bancario. IA pausada.]',
+      });
+    }
 
     // K. Parche 2: Resolución de Timeout con waitUntil (Ejecución Asíncrona en Segundo Plano)
     if (isSubscriptionActive && isAiActive) {

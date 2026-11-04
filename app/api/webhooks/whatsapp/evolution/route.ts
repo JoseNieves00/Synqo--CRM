@@ -10,6 +10,8 @@ import { EvolutionService } from '@/services/evolution.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
+import { formatImageMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
+import { uploadIncomingChatMedia } from '@/lib/media/storage';
 
 /**
  * 1. GET: Health-check y prueba de conectividad de webhook para Evolution API.
@@ -297,8 +299,36 @@ export async function POST(request: NextRequest) {
       rawContent = '🎤 [Nota de voz recibida]';
     }
   } else if (msgObj.imageMessage) {
-    const caption = msgObj.imageMessage.caption || '';
-    rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
+    const caption = (msgObj.imageMessage.caption || '').trim();
+    let imageUrl: string | null = null;
+
+    try {
+      const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
+      const media = await EvolutionService.getBase64Media({
+        apiUrl: organization.evolution_api_url,
+        apiKey: finalApiKey,
+        instanceName: cleanInstance,
+        messageId,
+      });
+
+      if (media?.base64) {
+        const imageBuffer = Buffer.from(media.base64, 'base64');
+        imageUrl = await uploadIncomingChatMedia({
+          buffer: imageBuffer,
+          mimeType: media.mimetype || 'image/jpeg',
+          organizationId: orgId,
+          contactId: leadPhone || 'incoming',
+        });
+      }
+    } catch (imgErr) {
+      console.warn('[EVOLUTION IMAGE DOWNLOAD WARN]', imgErr);
+    }
+
+    if (imageUrl) {
+      rawContent = formatImageMessageContent(imageUrl, caption);
+    } else {
+      rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
+    }
   } else if (msgObj.documentMessage) {
     const fileName = msgObj.documentMessage.fileName || 'Archivo';
     rawContent = `📄 [Documento recibido: ${fileName}]`;
@@ -310,6 +340,7 @@ export async function POST(request: NextRequest) {
 
   const sanitizedContent = sanitizeLeadMessage(rawContent);
   const leadName = messageData.pushName || 'Lead WhatsApp';
+  const isPaymentReceipt = Boolean(msgObj.imageMessage && isPaymentReceiptHint(msgObj.imageMessage.caption || ''));
 
   // 8. Blindaje de Rentabilidad (Estado de suscripción activo)
   const isSubscriptionActive =
@@ -353,6 +384,10 @@ export async function POST(request: NextRequest) {
     if (leadName && leadName !== 'Lead WhatsApp') {
       contactUpdate.name = leadName;
     }
+    if (isPaymentReceipt) {
+      contactUpdate.is_ai_active = false;
+      isAiActive = false;
+    }
 
     await supabaseAdmin
       .from('contacts')
@@ -367,7 +402,7 @@ export async function POST(request: NextRequest) {
         phone: leadPhone,
         name: leadName,
         pipeline_stage: 'nuevo',
-        is_ai_active: true,
+        is_ai_active: !isPaymentReceipt,
         channel: 'whatsapp',
         assigned_to: bestAgentId || null,
         custom_fields: { remote_jid: remoteJid },
@@ -410,6 +445,15 @@ export async function POST(request: NextRequest) {
     })
     .select('id, created_at')
     .single();
+
+  if (isPaymentReceipt) {
+    await supabaseAdmin.from('messages').insert({
+      contact_id: contactId,
+      sender_type: 'system',
+      content: '[🚨 Comprobante de pago recibido en imagen: Asesor humano requerido para verificar extracto bancario. IA pausada.]',
+      channel: 'whatsapp',
+    });
+  }
 
   // 12. Procesamiento Asíncrono de IA con waitUntil
   if (isSubscriptionActive && isAiActive) {

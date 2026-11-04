@@ -410,7 +410,7 @@ export function HandoffAlertNotifier({
     <>
       {/* Botón para solicitar permisos de notificación si están en 'default' */}
       {permission === 'default' && (
-        <div className="fixed bottom-4 left-4 z-40 bg-slate-900/90 text-white text-[11px] px-3 py-2 rounded-xl border border-slate-700 shadow-xl flex items-center gap-2.5 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed bottom-4 left-4 md:left-[276px] z-40 bg-slate-900/90 text-white text-[11px] px-3 py-2 rounded-xl border border-slate-700 shadow-xl flex items-center gap-2.5 backdrop-blur-sm animate-in fade-in duration-300">
           <Bell className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
           <span>¿Activar alertas sonoras y de escritorio para llamadas y asignaciones?</span>
           <button
@@ -422,9 +422,9 @@ export function HandoffAlertNotifier({
         </div>
       )}
 
-      {/* 1. Alertas de Entrada Inmediata (Toast Transitorio) */}
+      {/* 1. Alertas de Entrada Inmediata (Toast Transitorio en Lado Izquierdo) */}
       {activeAlerts.filter((a) => pathname !== `/inbox/${a.id}`).length > 0 && (
-        <div className="fixed bottom-24 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full">
+        <div className="fixed bottom-24 left-5 md:left-[276px] z-50 flex flex-col gap-2.5 max-w-sm w-full">
           {activeAlerts.filter((a) => pathname !== `/inbox/${a.id}`).map((alert) => {
             const isHandoff = alert.type === 'handoff';
 
@@ -507,9 +507,9 @@ export function HandoffAlertNotifier({
         </div>
       )}
 
-      {/* 2. Banner Flotante de Atención (Solo visible fuera del Inbox para no obstruir el chat) */}
+      {/* 2. Banner Flotante de Atención (Ubicado a la izquierda, junto al Sidebar, fuera del Inbox) */}
       {!isInsideInbox && !isDismissed && unattendedList.length > 0 && latestUnattended && (
-        <div className="fixed bottom-5 right-5 z-50 animate-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-5 left-5 md:left-[276px] z-50 animate-in slide-in-from-bottom-5 duration-300">
           {isMinimized ? (
             <div className="flex items-center gap-1.5 p-1 pl-3 pr-1.5 rounded-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] shadow-lg text-slate-800 dark:text-slate-100 text-xs font-medium">
               <button

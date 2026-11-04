@@ -590,15 +590,16 @@ export class EvolutionService {
   }
 
   /**
-   * Descarga el audio o medio multimedia en Base64 para transcripción con Whisper.
+   * Descarga cualquier medio multimedia (imagen, audio, documento) en Base64 desde Evolution API.
    * Endpoint oficial: POST /chat/getBase64FromMediaMessage/{instance}
    */
-  static async getBase64Audio({
+  static async getBase64Media({
     apiUrl,
     apiKey,
     instanceName,
     messageId,
-  }: EvolutionCredentials & { messageId: string }): Promise<{ base64: string; mimetype: string } | null> {
+    convertToMp4 = false,
+  }: EvolutionCredentials & { messageId: string; convertToMp4?: boolean }): Promise<{ base64: string; mimetype: string } | null> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
     const url = `${baseUrl}/chat/getBase64FromMediaMessage/${cleanInstance}`;
@@ -613,7 +614,7 @@ export class EvolutionService {
               id: messageId,
             },
           },
-          convertToMp4: true,
+          convertToMp4,
         }),
       });
 
@@ -624,12 +625,31 @@ export class EvolutionService {
 
       return {
         base64: data.base64,
-        mimetype: data.mimetype || 'audio/mp4',
+        mimetype: data.mimetype || (convertToMp4 ? 'audio/mp4' : 'image/jpeg'),
       };
     } catch (e: any) {
       console.warn('[EVOLUTION GET BASE64 MEDIA ERROR]', e.message);
       return null;
     }
+  }
+
+  /**
+   * Descarga el audio o medio multimedia en Base64 para transcripción con Whisper.
+   * Endpoint oficial: POST /chat/getBase64FromMediaMessage/{instance}
+   */
+  static async getBase64Audio({
+    apiUrl,
+    apiKey,
+    instanceName,
+    messageId,
+  }: EvolutionCredentials & { messageId: string }): Promise<{ base64: string; mimetype: string } | null> {
+    return this.getBase64Media({
+      apiUrl,
+      apiKey,
+      instanceName,
+      messageId,
+      convertToMp4: true,
+    });
   }
 
   /**
