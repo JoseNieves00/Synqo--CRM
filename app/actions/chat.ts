@@ -75,7 +75,7 @@ export async function sendAgentMessage(contactId: string, content: string) {
   } else {
     // 4. Obtener credenciales de mensajería de la organización
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
+      .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
       .eq('id', orgId)
       .single();
 
@@ -149,7 +149,7 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
   if (!contact) throw new Error('Contacto no encontrado');
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
+    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
     .eq('id', orgId)
     .single();
 

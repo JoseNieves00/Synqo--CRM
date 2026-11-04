@@ -9,7 +9,6 @@ import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
 import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
 import { encryptSecret } from '@/lib/security/encryption';
-import { ZApiService } from '@/services/zapi.service';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -161,12 +160,13 @@ export interface OrganizationRow {
   company_code?: string | null;
   enabled_modules?: EnabledModules;
   appointment_settings?: AppointmentSettings;
-  whatsapp_provider?: 'meta' | 'zapi';
-  zapi_instance_id?: string | null;
-  zapi_status?: 'connected' | 'disconnected' | 'connecting';
-  zapi_phone_connected?: string | null;
-  zapi_anti_ban_mode?: boolean;
-  zapi_max_outbound_per_hour?: number;
+  whatsapp_provider?: 'meta' | 'evolution';
+  evolution_api_url?: string | null;
+  evolution_instance_name?: string | null;
+  evolution_status?: 'connected' | 'disconnected' | 'connecting';
+  evolution_phone_connected?: string | null;
+  evolution_anti_ban_mode?: boolean;
+  evolution_max_outbound_per_hour?: number;
   specialist_label?: string | null;
   room_label?: string | null;
   industry_preset?: string | null;
@@ -240,11 +240,12 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       is_suspended: bStatus.isSuspended,
       company_code: org.company_code || null,
       whatsapp_provider: org.whatsapp_provider || 'meta',
-      zapi_instance_id: org.zapi_instance_id || null,
-      zapi_status: org.zapi_status || 'disconnected',
-      zapi_phone_connected: org.zapi_phone_connected || null,
-      zapi_anti_ban_mode: org.zapi_anti_ban_mode ?? true,
-      zapi_max_outbound_per_hour: org.zapi_max_outbound_per_hour || 20,
+      evolution_api_url: org.evolution_api_url || null,
+      evolution_instance_name: org.evolution_instance_name || null,
+      evolution_status: org.evolution_status || 'disconnected',
+      evolution_phone_connected: org.evolution_phone_connected || null,
+      evolution_anti_ban_mode: org.evolution_anti_ban_mode ?? true,
+      evolution_max_outbound_per_hour: org.evolution_max_outbound_per_hour || 20,
       specialist_label: org.specialist_label || null,
       room_label: org.room_label || null,
       industry_preset: org.industry_preset || null,
@@ -273,12 +274,12 @@ const ProvisionSchema = z.object({
   enabledModules: z.any().optional(),
   companyCode: z.string().optional(),
   industryPreset: z.string().optional(),
-  whatsappProvider: z.enum(['meta', 'zapi']).optional(),
-  zapiInstanceId: z.string().optional(),
-  zapiToken: z.string().optional(),
-  zapiClientToken: z.string().optional(),
-  zapiAntiBanMode: z.boolean().optional(),
-  zapiMaxOutboundPerHour: z.number().int().optional(),
+  whatsappProvider: z.enum(['meta', 'evolution']).optional(),
+  evolutionApiUrl: z.string().optional(),
+  evolutionApiKey: z.string().optional(),
+  evolutionInstanceName: z.string().optional(),
+  evolutionAntiBanMode: z.boolean().optional(),
+  evolutionMaxOutboundPerHour: z.number().int().optional(),
   specialistLabel: z.string().optional(),
   roomLabel: z.string().optional(),
 });
@@ -297,12 +298,12 @@ export async function provisionCompany(input: {
   enabledModules?: EnabledModules;
   companyCode?: string;
   industryPreset?: string;
-  whatsappProvider?: 'meta' | 'zapi';
-  zapiInstanceId?: string;
-  zapiToken?: string;
-  zapiClientToken?: string;
-  zapiAntiBanMode?: boolean;
-  zapiMaxOutboundPerHour?: number;
+  whatsappProvider?: 'meta' | 'evolution';
+  evolutionApiUrl?: string;
+  evolutionApiKey?: string;
+  evolutionInstanceName?: string;
+  evolutionAntiBanMode?: boolean;
+  evolutionMaxOutboundPerHour?: number;
   specialistLabel?: string;
   roomLabel?: string;
 }) {
@@ -340,11 +341,11 @@ export async function provisionCompany(input: {
     enabled_modules: defaultModules,
     industry_preset: validated.industryPreset || 'services',
     whatsapp_provider: validated.whatsappProvider || 'meta',
-    zapi_instance_id: validated.zapiInstanceId?.trim() || null,
-    zapi_token: validated.zapiToken?.trim() ? encryptSecret(validated.zapiToken.trim()) : null,
-    zapi_client_token: validated.zapiClientToken?.trim() ? encryptSecret(validated.zapiClientToken.trim()) : null,
-    zapi_anti_ban_mode: validated.zapiAntiBanMode ?? true,
-    zapi_max_outbound_per_hour: validated.zapiMaxOutboundPerHour || 20,
+    evolution_api_url: validated.evolutionApiUrl?.trim() || null,
+    evolution_api_key: validated.evolutionApiKey?.trim() ? encryptSecret(validated.evolutionApiKey.trim()) : null,
+    evolution_instance_name: validated.evolutionInstanceName?.trim() || null,
+    evolution_anti_ban_mode: validated.evolutionAntiBanMode ?? true,
+    evolution_max_outbound_per_hour: validated.evolutionMaxOutboundPerHour || 20,
     specialist_label: validated.specialistLabel || 'Colaborador',
     room_label: validated.roomLabel || 'Espacio',
     ai_tokens_used: 0,
@@ -502,12 +503,12 @@ export async function updateCompanyDetails(input: {
   resetTokensUsed?: boolean;
   enabledModules?: EnabledModules;
   companyCode?: string;
-  whatsappProvider?: 'meta' | 'zapi';
-  zapiInstanceId?: string;
-  zapiToken?: string;
-  zapiClientToken?: string;
-  zapiAntiBanMode?: boolean;
-  zapiMaxOutboundPerHour?: number;
+  whatsappProvider?: 'meta' | 'evolution';
+  evolutionApiUrl?: string;
+  evolutionApiKey?: string;
+  evolutionInstanceName?: string;
+  evolutionAntiBanMode?: boolean;
+  evolutionMaxOutboundPerHour?: number;
   specialistLabel?: string;
   roomLabel?: string;
 }) {
@@ -548,24 +549,24 @@ export async function updateCompanyDetails(input: {
     updateData.whatsapp_provider = input.whatsappProvider;
   }
 
-  if (input.zapiInstanceId !== undefined) {
-    updateData.zapi_instance_id = input.zapiInstanceId.trim() || null;
+  if (input.evolutionApiUrl !== undefined) {
+    updateData.evolution_api_url = input.evolutionApiUrl.trim() || null;
   }
 
-  if (input.zapiToken && input.zapiToken.trim()) {
-    updateData.zapi_token = encryptSecret(input.zapiToken.trim());
+  if (input.evolutionApiKey && input.evolutionApiKey.trim()) {
+    updateData.evolution_api_key = encryptSecret(input.evolutionApiKey.trim());
   }
 
-  if (input.zapiClientToken && input.zapiClientToken.trim()) {
-    updateData.zapi_client_token = encryptSecret(input.zapiClientToken.trim());
+  if (input.evolutionInstanceName !== undefined) {
+    updateData.evolution_instance_name = input.evolutionInstanceName.trim() || null;
   }
 
-  if (input.zapiAntiBanMode !== undefined) {
-    updateData.zapi_anti_ban_mode = input.zapiAntiBanMode;
+  if (input.evolutionAntiBanMode !== undefined) {
+    updateData.evolution_anti_ban_mode = input.evolutionAntiBanMode;
   }
 
-  if (input.zapiMaxOutboundPerHour !== undefined) {
-    updateData.zapi_max_outbound_per_hour = input.zapiMaxOutboundPerHour;
+  if (input.evolutionMaxOutboundPerHour !== undefined) {
+    updateData.evolution_max_outbound_per_hour = input.evolutionMaxOutboundPerHour;
   }
 
   if (input.enabledModules) {

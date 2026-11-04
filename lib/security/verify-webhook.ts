@@ -52,47 +52,50 @@ export function verifyMetaSignature(
 }
 
 /**
- * Genera un secreto HMAC-SHA256 determinista para autenticar webhooks de Z-API de una instancia.
+ * Genera un secreto HMAC-SHA256 determinista para autenticar webhooks de Evolution API de una instancia.
  */
-export function generateZapiWebhookSecret(instanceId: string): string {
-  const masterKey = process.env.ENCRYPTION_KEY || 'synqo_zapi_master_secret';
-  return crypto.createHmac('sha256', masterKey).update(instanceId.trim()).digest('hex').slice(0, 32);
+export function generateEvolutionWebhookSecret(instanceName: string): string {
+  const masterKey = process.env.ENCRYPTION_KEY || 'synqo_evolution_master_secret';
+  return crypto.createHmac('sha256', masterKey).update(instanceName.trim()).digest('hex').slice(0, 32);
 }
 
 /**
- * Valida si el secreto o el Client-Token provisto coincide con las credenciales de la instancia Z-API.
+ * Valida si el secreto, token Bearer o apikey coincide con las credenciales de la instancia Evolution API.
  */
-export function verifyZapiWebhook(params: {
-  instanceId: string;
+export function verifyEvolutionWebhook(params: {
+  instanceName: string;
   providedSecret?: string | null;
-  providedClientToken?: string | null;
-  decryptedClientToken?: string | null;
-  decryptedInstanceToken?: string | null;
+  providedApiKey?: string | null;
+  decryptedApiKey?: string | null;
 }): boolean {
-  const { instanceId, providedSecret, providedClientToken, decryptedClientToken, decryptedInstanceToken } = params;
+  const { instanceName, providedSecret, providedApiKey, decryptedApiKey } = params;
 
-  // 1. Validar por secreto HMAC en query string
+  // 1. Validar por secreto HMAC en query string o header Bearer
   if (providedSecret && providedSecret.trim()) {
-    const expectedSecret = generateZapiWebhookSecret(instanceId);
+    const cleanSecret = providedSecret.trim().replace(/^Bearer\s+/i, '');
+    const expectedSecret = generateEvolutionWebhookSecret(instanceName);
     const expectedBuf = Buffer.from(expectedSecret, 'utf8');
-    const providedBuf = Buffer.from(providedSecret.trim(), 'utf8');
+    const providedBuf = Buffer.from(cleanSecret, 'utf8');
     if (expectedBuf.length === providedBuf.length && crypto.timingSafeEqual(expectedBuf, providedBuf)) {
       return true;
     }
   }
 
-  // 2. Validar por Client-Token en header
-  if (providedClientToken && providedClientToken.trim()) {
-    const cleanProvided = providedClientToken.trim();
-    if (decryptedClientToken && decryptedClientToken.trim()) {
-      const expBuf = Buffer.from(decryptedClientToken.trim(), 'utf8');
+  // 2. Validar por API Key en header apikey o Authorization
+  if (providedApiKey && providedApiKey.trim()) {
+    const cleanProvided = providedApiKey.trim().replace(/^Bearer\s+/i, '');
+    
+    if (decryptedApiKey && decryptedApiKey.trim()) {
+      const expBuf = Buffer.from(decryptedApiKey.trim(), 'utf8');
       const provBuf = Buffer.from(cleanProvided, 'utf8');
       if (expBuf.length === provBuf.length && crypto.timingSafeEqual(expBuf, provBuf)) {
         return true;
       }
     }
-    if (decryptedInstanceToken && decryptedInstanceToken.trim()) {
-      const expBuf = Buffer.from(decryptedInstanceToken.trim(), 'utf8');
+
+    const envKey = process.env.EVOLUTION_API_KEY;
+    if (envKey && envKey.trim()) {
+      const expBuf = Buffer.from(envKey.trim(), 'utf8');
       const provBuf = Buffer.from(cleanProvided, 'utf8');
       if (expBuf.length === provBuf.length && crypto.timingSafeEqual(expBuf, provBuf)) {
         return true;

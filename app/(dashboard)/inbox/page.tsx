@@ -49,7 +49,7 @@ export default async function InboxPage() {
       activeContact={activeContact}
       messages={messages}
       customTemplates={(current.organization as any)?.whatsapp_templates || []}
-      whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.zapi_instance_id ? 'zapi' : 'meta')}
+      whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.evolution_instance_name ? 'evolution' : 'meta')}
       currentUserId={current.user.id}
       currentUserRole={current.profile?.role || 'agent'}
       teamMembers={teamMembers || []}

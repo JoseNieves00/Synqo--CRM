@@ -360,7 +360,7 @@ export async function reportDelayAdmin(appointmentId: string, delayMinutes: numb
   if (res.nextContact && res.nextContact.phone) {
     try {
       const { data: fullOrg } = await (supabaseAdmin.from('organizations') as any)
-        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour')
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
         .eq('id', org.id)
         .single();
 

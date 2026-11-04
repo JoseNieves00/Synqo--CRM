@@ -15,7 +15,7 @@ import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
-import { importRecentZapiChats } from '@/app/actions/zapi';
+import { importRecentEvolutionChats } from '@/app/actions/evolution';
 
 interface ContactItem {
   id: string;
@@ -50,7 +50,7 @@ interface InboxViewProps {
   activeContact: ContactItem | null;
   messages: MessageItem[];
   customTemplates?: Array<{ name: string; label: string }>;
-  whatsappProvider?: 'meta' | 'zapi';
+  whatsappProvider?: 'meta' | 'evolution';
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
@@ -94,15 +94,17 @@ export function InboxView({
   // Conjunto de IDs de contactos con relevo pendiente no contestado
   const [unattendedIds, setUnattendedIds] = useState<Set<string>>(new Set());
 
-  // Estado de sincronización manual de chats de WhatsApp (Modelo C)
+  // Estado de sincronización manual de chats de WhatsApp (Evolution API / Z-API)
   const [syncingChats, setSyncingChats] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
-  const handleSyncZapiChats = async () => {
+  const isBaileys = whatsappProvider === 'evolution';
+
+  const handleSyncChats = async () => {
     setSyncingChats(true);
     setSyncFeedback(null);
     try {
-      const res = await importRecentZapiChats();
+      const res = await importRecentEvolutionChats();
       setSyncFeedback(res.message);
       router.refresh();
       setTimeout(() => setSyncFeedback(null), 6000);
@@ -272,15 +274,15 @@ export function InboxView({
               </p>
             </div>
             <div className="flex items-center gap-1.5">
-              {whatsappProvider === 'zapi' && (
+              {isBaileys && (
                 <button
                   type="button"
-                  onClick={handleSyncZapiChats}
+                  onClick={handleSyncChats}
                   disabled={syncingChats}
                   title="Sincronizar últimos chats de WhatsApp al CRM"
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
                 >
-                  <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce text-purple-600' : ''}`} />
+                  <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce text-indigo-600' : ''}`} />
                   <span className="hidden sm:inline">{syncingChats ? 'Sincronizando...' : 'Sincronizar'}</span>
                 </button>
               )}
@@ -511,12 +513,12 @@ export function InboxView({
           {contactList.length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-400 dark:text-slate-500 space-y-3">
               <p>No tienes conversaciones registradas aún.</p>
-              {whatsappProvider === 'zapi' && (
+              {isBaileys && (
                 <button
                   type="button"
-                  onClick={handleSyncZapiChats}
+                  onClick={handleSyncChats}
                   disabled={syncingChats}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-purple-600 text-white hover:bg-purple-500 transition shadow-xs cursor-pointer disabled:opacity-50 mx-auto"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition shadow-xs cursor-pointer disabled:opacity-50 mx-auto"
                 >
                   <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce' : ''}`} />
                   {syncingChats ? 'Sincronizando...' : 'Sincronizar Últimos 50 Chats'}
