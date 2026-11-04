@@ -360,31 +360,18 @@ export async function provisionCompany(input: {
     .select('id, name, company_code')
     .single();
 
-  // Reintentos automáticos eliminando columnas opcionales que aún no existan en la base de datos
-  while (orgError && orgError.message && (orgError.message.includes('does not exist') || orgError.message.includes('column'))) {
-    const match = orgError.message.match(/column\s+(?:organizations\.)?(\w+)\s+does not exist/i);
-    if (match && match[1] && match[1] in insertPayload) {
-      delete insertPayload[match[1]];
-      const retry = await (supabaseAdmin.from('organizations') as any)
-        .insert(insertPayload)
-        .select('id, name, company_code')
-        .single();
-      org = retry.data;
-      orgError = retry.error;
-    } else {
-      // Fallback genérico para columnas recién introducidas
-      delete insertPayload.specialist_label;
-      delete insertPayload.room_label;
-      delete insertPayload.paid_until_month;
-      delete insertPayload.billing_due_day;
-      const retry = await (supabaseAdmin.from('organizations') as any)
-        .insert(insertPayload)
-        .select('id, name, company_code')
-        .single();
-      org = retry.data;
-      orgError = retry.error;
-      break;
-    }
+  // Reintento inmediato eliminando columnas opcionales que aún no existan en la base de datos
+  if (orgError && orgError.message) {
+    delete insertPayload.specialist_label;
+    delete insertPayload.room_label;
+    delete insertPayload.paid_until_month;
+    delete insertPayload.billing_due_day;
+    const retry = await (supabaseAdmin.from('organizations') as any)
+      .insert(insertPayload)
+      .select('id, name, company_code')
+      .single();
+    org = retry.data;
+    orgError = retry.error;
   }
 
   if (orgError && orgError.message?.includes('organizations_plan_type_check') && insertPayload.plan_type === 'starter') {
@@ -608,23 +595,15 @@ export async function updateCompanyDetails(input: {
     .eq('id', input.organizationId);
 
   // Fallback si faltan columnas opcionales en updateData
-  while (error && error.message && (error.message.includes('does not exist') || error.message.includes('column'))) {
-    const match = error.message.match(/column\s+(?:organizations\.)?(\w+)\s+does not exist/i);
-    if (match && match[1] && match[1] in updateData) {
-      delete updateData[match[1]];
-      const retry = await (supabaseAdmin.from('organizations') as any)
-        .update(updateData)
-        .eq('id', input.organizationId);
-      error = retry.error;
-    } else {
-      delete updateData.specialist_label;
-      delete updateData.room_label;
-      const retry = await (supabaseAdmin.from('organizations') as any)
-        .update(updateData)
-        .eq('id', input.organizationId);
-      error = retry.error;
-      break;
-    }
+  if (error && error.message && (error.message.includes('does not exist') || error.message.includes('column'))) {
+    delete updateData.specialist_label;
+    delete updateData.room_label;
+    delete updateData.paid_until_month;
+    delete updateData.billing_due_day;
+    const retry = await (supabaseAdmin.from('organizations') as any)
+      .update(updateData)
+      .eq('id', input.organizationId);
+    error = retry.error;
   }
 
   // Fallback si la BD aún tiene constraint con 'core' en vez de 'starter'
