@@ -437,10 +437,15 @@ export async function importRecentEvolutionChats() {
 
     // 4. Verificar si ya existe en la base de datos
     const { data: existingContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name')
+      .select('id, name, deleted_at')
       .eq('organization_id', orgId)
       .or(`phone.eq.${cleanPhone},phone.eq.+${cleanPhone}`)
       .maybeSingle();
+
+    if (existingContact?.deleted_at) {
+      // Si el contacto fue eliminado previamente por el administrador, no re-importarlo
+      continue;
+    }
 
     let contactId: string | undefined = existingContact?.id;
 

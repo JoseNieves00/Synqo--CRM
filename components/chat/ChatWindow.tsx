@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { MessageSender } from '@/lib/supabase/types';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
@@ -9,6 +10,7 @@ import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow } from '@/services/contact.service';
 import { sendAgentMessage, sendAgentTemplate, toggleContactAi } from '@/app/actions/chat';
 import { claimUnassignedLead, assignLeadByAdmin } from '@/app/actions/assignment';
+import { deleteContactWithPassword } from '@/app/actions/contacts';
 import { META_TEMPLATES } from '@/services/whatsapp.service';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -24,6 +26,9 @@ import {
   CheckCircle2,
   MessageSquare,
   Instagram,
+  Trash2,
+  AlertTriangle,
+  Lock,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -78,6 +83,36 @@ export function ChatWindow({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Estados de Eliminación Rápida de Chat
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleDeleteChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletePassword.trim() || isDeleting) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await deleteContactWithPassword(contact.id, deletePassword);
+      setShowDeleteModal(false);
+      router.push('/inbox');
+      router.refresh();
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Error al eliminar la conversación');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Estados de Asignación y Bloqueo Concurrente
   const [isClaiming, setIsClaiming] = useState(false);
@@ -382,6 +417,22 @@ export function ChatWindow({
             <UserCheck className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Ficha</span>
           </button>
+
+          {/* Botón Eliminar Chat Directo (Solo Admins y Supervisores) */}
+          {isAdminOrSupervisor && (
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError(null);
+                setDeletePassword('');
+                setShowDeleteModal(true);
+              }}
+              title="Eliminar este chat y conversación permanentemente"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-slate-200 dark:border-[#232A3B] hover:border-rose-200 dark:hover:border-rose-500/20 transition cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -481,6 +532,71 @@ export function ChatWindow({
           onClose={() => setIsDrawerOpen(false)}
         />
       </div>
+
+      {/* Modal de Confirmación Rápida para Eliminar Chat */}
+      {showDeleteModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#131722] rounded-xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-2">
+              <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+              <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                ¿Eliminar esta conversación?
+              </h4>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+              Esta acción es permanente e irreversible. Se eliminará a{' '}
+              <strong className="text-slate-900 dark:text-white">{contact.name || contact.phone}</strong>{' '}
+              junto con todo su historial de mensajes, notas y registros de actividad.
+            </p>
+
+            {deleteError && (
+              <div className="p-2.5 mb-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleDeleteChat} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Confirma con tu contraseña de administrador:
+                </label>
+                <div className="relative">
+                  <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="Tu contraseña actual"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={isDeleting}
+                  className="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-lg text-xs font-medium transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDeleting || !deletePassword.trim()}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isDeleting ? 'Eliminando...' : 'Eliminar Chat'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

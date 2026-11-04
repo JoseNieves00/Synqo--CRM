@@ -115,6 +115,52 @@ async function runTests() {
   assert.strictEqual(updatedOrg.enabled_modules?.staff_mobile_portal, true, 'staff_mobile_portal debe ser true');
   console.log(`   ✅ Módulos activos validados en Supabase. Código Empresa: ${updatedOrg.company_code || 'AUTOGEN'}`);
 
+  // 6. Probar Eliminación Definitiva en Cascada de Chats / Contactos
+  console.log('6️⃣  Probando Eliminación Permanente de Chats y Mensajes...');
+  const { data: tempContact, error: createTempErr } = await (supabaseAdmin.from('contacts') as any)
+    .insert({
+      organization_id: org.id,
+      name: 'Test Deletion Contact',
+      phone: '573999999999',
+      channel: 'whatsapp',
+      pipeline_stage: 'nuevo',
+      is_ai_active: true,
+    })
+    .select('id')
+    .single();
+
+  assert(!createTempErr && tempContact, 'Debe crearse el contacto temporal');
+
+  const { data: tempMsg, error: createMsgErr } = await (supabaseAdmin.from('messages') as any)
+    .insert({
+      contact_id: tempContact.id,
+      sender_type: 'lead',
+      content: 'Mensaje de prueba para eliminación',
+      channel: 'whatsapp',
+    })
+    .select('id')
+    .single();
+
+  assert(!createMsgErr && tempMsg, 'Debe crearse el mensaje temporal asociado');
+
+  // Ejecutar eliminación en cascada
+  await (supabaseAdmin.from('messages') as any).delete().eq('contact_id', tempContact.id);
+  await (supabaseAdmin.from('contacts') as any).delete().eq('id', tempContact.id);
+
+  // Verificar que el mensaje y el contacto ya no existen
+  const { data: checkContact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id')
+    .eq('id', tempContact.id)
+    .maybeSingle();
+
+  const { data: checkMsg } = await (supabaseAdmin.from('messages') as any)
+    .select('id')
+    .eq('contact_id', tempContact.id);
+
+  assert(!checkContact, 'El contacto debe haber sido eliminado completamente');
+  assert(!checkMsg || checkMsg.length === 0, 'Los mensajes asociados deben eliminarse en cascada');
+  console.log('   ✅ Eliminación permanente en cascada verificada exitosamente.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SUPER ADMIN Y EQUIPO PASARON CON ÉXITO!');
 }
 

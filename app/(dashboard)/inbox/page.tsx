@@ -20,6 +20,7 @@ export default async function InboxPage() {
     (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
       .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
       .order('updated_at', { ascending: false })
       .limit(50),
     (supabaseAdmin.from('profiles') as any)

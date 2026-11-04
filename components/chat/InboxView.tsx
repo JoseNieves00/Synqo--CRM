@@ -194,14 +194,25 @@ export function InboxView({
           table: 'contacts',
         },
         (payload) => {
-          if (payload.eventType === 'UPDATE') {
-            const updated = payload.new as ContactItem;
-            setContactList((prev) =>
-              prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
-            );
+          if (payload.eventType === 'DELETE') {
+            const deleted = payload.old as { id?: string };
+            if (deleted?.id) {
+              setContactList((prev) => prev.filter((c) => c.id !== deleted.id));
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as any;
+            if (updated.deleted_at) {
+              setContactList((prev) => prev.filter((c) => c.id !== updated.id));
+            } else {
+              setContactList((prev) =>
+                prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+              );
+            }
           } else if (payload.eventType === 'INSERT') {
-            const inserted = payload.new as ContactItem;
-            setContactList((prev) => [inserted, ...prev]);
+            const inserted = payload.new as any;
+            if (!inserted.deleted_at) {
+              setContactList((prev) => [inserted, ...prev]);
+            }
           }
         }
       )

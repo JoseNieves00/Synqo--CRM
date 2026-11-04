@@ -18,6 +18,7 @@ export default async function PipelinePage() {
   const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
     .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
     .eq('organization_id', current.organization.id)
+    .is('deleted_at', null)
     .order('last_interaction_at', { ascending: false })
     .limit(150);
 

@@ -205,25 +205,37 @@ export async function deleteContactWithPassword(contactId: string, password: str
     throw new Error('Contacto no encontrado o no tienes permisos sobre él.');
   }
 
-  // 5. Intentar borrado lógico (Soft delete con deleted_at) si la columna existe
-  const nowIso = new Date().toISOString();
-  const { error: softDeleteError } = await (supabaseAdmin.from('contacts') as any)
-    .update({ deleted_at: nowIso, updated_at: nowIso })
+  // 5. Borrado definitivo en cascada de mensajes, citas y contacto
+  // 5.1 Eliminar mensajes asociados a la conversación
+  await (supabaseAdmin.from('messages') as any)
+    .delete()
+    .eq('contact_id', contactId);
+
+  // 5.2 Eliminar citas programadas del contacto
+  await (supabaseAdmin.from('appointments') as any)
+    .delete()
+    .eq('contact_id', contactId);
+
+  // 5.3 Desvincular o eliminar vacíos de conocimiento asociados
+  await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+    .delete()
+    .eq('contact_id', contactId);
+
+  // 5.4 Eliminar el registro del contacto definitivamente
+  const { error: deleteError } = await (supabaseAdmin.from('contacts') as any)
+    .delete()
     .eq('id', contactId)
     .eq('organization_id', profile.organization_id);
 
-  if (softDeleteError) {
-    // Si la columna deleted_at no está presente aún en la base de datos, proceder con borrado seguro estándar
-    await (supabaseAdmin.from('messages') as any)
-      .delete()
-      .eq('contact_id', contactId);
-
-    const { error: deleteError } = await (supabaseAdmin.from('contacts') as any)
-      .delete()
+  if (deleteError) {
+    // Si alguna restricción bloquea el borrado físico, aplicar soft-delete seguro
+    const nowIso = new Date().toISOString();
+    const { error: softDeleteError } = await (supabaseAdmin.from('contacts') as any)
+      .update({ deleted_at: nowIso, updated_at: nowIso })
       .eq('id', contactId)
       .eq('organization_id', profile.organization_id);
 
-    if (deleteError) {
+    if (softDeleteError) {
       throw new Error(`Error al eliminar el prospecto: ${deleteError.message}`);
     }
   }

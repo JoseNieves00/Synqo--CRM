@@ -42,6 +42,7 @@ export default async function DashboardPage() {
     (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at, assigned_to')
       .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
       .order('last_interaction_at', { ascending: false })
       .limit(100),
     getOrganizationTokenUsage(),

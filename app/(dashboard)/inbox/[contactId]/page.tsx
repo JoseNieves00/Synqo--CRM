@@ -25,6 +25,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
     (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
       .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
       .order('updated_at', { ascending: false })
       .limit(50),
     (supabaseAdmin.from('messages') as any)
@@ -49,7 +50,8 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
       .eq('id', contactId)
       .eq('organization_id', current.organization.id)
-      .single();
+      .is('deleted_at', null)
+      .maybeSingle();
 
     activeContact = singleContact;
   }
