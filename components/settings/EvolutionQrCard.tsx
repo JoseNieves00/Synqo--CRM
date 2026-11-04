@@ -139,6 +139,15 @@ export function EvolutionQrCard({
     return () => clearInterval(timer);
   }, [qrModalOpen, qrImage, connectTab]);
 
+  useEffect(() => {
+    if (qrModalOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [qrModalOpen]);
+
   /**
    * Guarda o actualiza las credenciales de Evolution API
    */
@@ -615,7 +624,7 @@ export function EvolutionQrCard({
 
       {/* Modal / Dialogo de Conexión (QR Code y Pairing Code Telefónico) */}
       {qrModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="p-4 border-b border-slate-100 dark:border-[#232A3B] flex items-center justify-between bg-slate-50/50 dark:bg-[#181D29]/50">

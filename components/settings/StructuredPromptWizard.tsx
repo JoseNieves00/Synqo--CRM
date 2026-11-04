@@ -124,6 +124,15 @@ export function StructuredPromptWizard({
     setPhotoUploadError(null);
   };
 
+  useEffect(() => {
+    if (isAddPhotoModalOpen || selectedTemplateModal) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isAddPhotoModalOpen, selectedTemplateModal]);
+
   const handleFileSelection = (file: File) => {
     if (!file.type.startsWith('image/')) {
       setPhotoUploadError('Por favor selecciona una imagen válida (JPG, PNG o WebP).');
@@ -629,7 +638,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
 
       {/* Modal para Agregar Foto al Catálogo Visual Interno */}
       {isAddPhotoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full p-5 space-y-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
               <div className="flex items-center gap-2">
@@ -763,7 +772,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
 
       {/* Modal Selector de Plantillas Guía por Nicho */}
       {selectedTemplateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
               <div>

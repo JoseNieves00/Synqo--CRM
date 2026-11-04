@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   UserPlus,
@@ -53,6 +53,15 @@ export function TeamTab({ initialData }: TeamTabProps) {
     tempPassword: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (isModalOpen || tempPassResult) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isModalOpen, tempPassResult]);
 
   // Formulario de nuevo miembro
   const [fullName, setFullName] = useState('');
@@ -373,7 +382,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
 
       {/* Modal: Agregar Miembro */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 dark:border-[#232A3B]">
             <div className="p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#1A1F2C]/50">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">

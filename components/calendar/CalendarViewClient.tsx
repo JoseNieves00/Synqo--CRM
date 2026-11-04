@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition, useMemo } from 'react';
+import React, { useState, useTransition, useMemo, useEffect } from 'react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -255,6 +255,15 @@ export function CalendarViewClient({
     notes: '',
   });
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isNewModalOpen || selectedAppointment) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isNewModalOpen, selectedAppointment]);
 
   // Filtrado de citas
   const filteredAppointments = useMemo(() => {
@@ -1178,7 +1187,7 @@ export function CalendarViewClient({
 
       {/* Modal Nueva Cita Rápida Adaptable al Nicho */}
       {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 my-8">
             <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
               <div className="flex items-center gap-2">
@@ -1446,7 +1455,7 @@ export function CalendarViewClient({
 
       {/* Modal Detalle de Cita */}
       {selectedAppointment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
               <div className="flex items-center gap-2">

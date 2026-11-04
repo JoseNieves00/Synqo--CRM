@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useEffect } from 'react';
 import {
   DoorOpen,
   Plus,
@@ -47,6 +47,15 @@ export function RoomsTab({
     description: '',
   });
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (modalOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [modalOpen]);
 
   const handleOpenCreate = () => {
     setEditingRoom(null);
@@ -208,7 +217,7 @@ export function RoomsTab({
 
       {/* Modal Crear / Editar Salón */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0E121B] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1E2433]">
               <div className="flex items-center gap-2">
