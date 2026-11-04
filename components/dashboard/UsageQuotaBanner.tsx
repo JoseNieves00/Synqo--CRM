@@ -95,7 +95,7 @@ export function UsageQuotaBanner({
           href="/settings"
           className="px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-black/40 hover:bg-white dark:hover:bg-black/60 border border-current/20 text-[11px] font-semibold transition"
         >
-          Ver Plan
+          Ver Consumo
         </Link>
 
         <button

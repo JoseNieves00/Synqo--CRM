@@ -235,9 +235,6 @@ export function TeamTab({ initialData }: TeamTabProps) {
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
                 Gestión de Usuarios & Agentes
               </h2>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-[#0052FF]/30">
-                Plan {initialData.organization.planType}
-              </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Los agentes pueden chatear con los prospectos del Inbox y gestionar el Pipeline Kanban.
@@ -287,7 +284,7 @@ export function TeamTab({ initialData }: TeamTabProps) {
             <div className="mt-3 p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
               <Info className="w-4 h-4 text-amber-500 dark:text-amber-400 flex-shrink-0" />
               <span>
-                Has completado la cuota de usuarios autorizados para tu plan actual. Para habilitar más cupos, solicita una ampliación de tu suscripción.
+                Has completado la cuota de usuarios autorizados para tu cuenta. Para habilitar más cupos, contacta al soporte o administrador.
               </span>
             </div>
           )}

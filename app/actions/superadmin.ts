@@ -7,7 +7,6 @@ import { PlanType, SubscriptionStatus, EnabledModules, AppointmentSettings } fro
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
-import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
 import { encryptSecret } from '@/lib/security/encryption';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
@@ -227,8 +226,7 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       ),
       ai_tokens_openai_used: Number(org.ai_tokens_openai_used || 0),
       ai_tokens_openai_backup_limit: Number(
-        org.ai_tokens_openai_backup_limit ||
-          (org.plan_type === 'enterprise' ? 150000 : org.plan_type === 'pro' ? 75000 : 25000)
+        org.ai_tokens_openai_backup_limit || 25000
       ),
       paid_until_month: org.paid_until_month || null,
       billing_due_day: org.billing_due_day || 5,
@@ -268,7 +266,7 @@ const ProvisionSchema = z.object({
   adminName: z.string().min(2, 'El nombre del administrador es requerido.'),
   adminEmail: z.string().email('Correo electrónico inválido.'),
   adminPassword: z.string().min(8, 'La contraseña debe tener mínimo 8 caracteres.'),
-  planType: z.enum(['starter', 'core', 'pro', 'enterprise']).default('starter'),
+  planType: z.enum(['starter', 'core', 'pro', 'enterprise']).optional().default('core'),
   maxUsers: z.number().int().min(1).max(100).default(3),
   firstBillingMonth: z.string().optional(),
   enabledModules: z.any().optional(),
@@ -349,10 +347,10 @@ export async function provisionCompany(input: {
     specialist_label: validated.specialistLabel || 'Colaborador',
     room_label: validated.roomLabel || 'Espacio',
     ai_tokens_used: 0,
-    ai_tokens_limit: PLAN_DEFAULTS[planToInsert]?.aiTokensLimit || 500000,
+    ai_tokens_limit: 500000,
     ai_tokens_google_used: 0,
     ai_tokens_openai_used: 0,
-    ai_tokens_openai_backup_limit: PLAN_DEFAULTS[planToInsert]?.openaiBackupLimit || 25000,
+    ai_tokens_openai_backup_limit: 25000,
     system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
   };
 
@@ -497,7 +495,7 @@ export async function updateCompanySeats(organizationId: string, maxUsers: numbe
 export async function updateCompanyDetails(input: {
   organizationId: string;
   name: string;
-  planType: PlanType;
+  planType?: PlanType;
   maxUsers: number;
   aiTokensLimit?: number;
   resetTokensUsed?: boolean;
@@ -534,16 +532,18 @@ export async function updateCompanyDetails(input: {
     );
   }
 
-  const defaultLimit = PLAN_DEFAULTS[input.planType]?.aiTokensLimit || 500000;
-  const tokensLimit = input.aiTokensLimit && input.aiTokensLimit > 0 ? input.aiTokensLimit : defaultLimit;
+  const tokensLimit = input.aiTokensLimit && input.aiTokensLimit > 0 ? input.aiTokensLimit : 500000;
 
   const updateData: Record<string, any> = {
     name,
-    plan_type: input.planType,
     max_users: input.maxUsers,
     ai_tokens_limit: tokensLimit,
     updated_at: new Date().toISOString(),
   };
+
+  if (input.planType) {
+    updateData.plan_type = input.planType;
+  }
 
   if (input.whatsappProvider) {
     updateData.whatsapp_provider = input.whatsappProvider;
@@ -736,23 +736,13 @@ export async function registerCompanyPayment(input: {
     console.warn('[PAYMENT LEDGER WARN]', err?.message);
   }
 
-  // 2. Obtener el plan de la empresa para resetear el límite de tokens a la cuota base oficial
-  const { data: orgData } = await (supabaseAdmin.from('organizations') as any)
-    .select('plan_type')
-    .eq('id', input.organizationId)
-    .single();
-
-  const planKey = orgData?.plan_type || 'starter';
-  const baseTokensLimit = PLAN_DEFAULTS[planKey]?.aiTokensLimit || 500000;
-
-  // 3. Actualizar empresa: reactivar, renovar ciclo, reiniciar tokens consumidos y expirar boosters temporales
+  // 2. Actualizar empresa: reactivar, renovar ciclo y reiniciar tokens consumidos
   const updateData: Record<string, any> = {
     paid_until_month: input.periodMonth,
     is_active: true,
     subscription_status: 'active',
     past_due_since: null,
     ai_tokens_used: 0, // Cláusula 6 y 7: tokens se renuevan al pagar el mes
-    ai_tokens_limit: baseTokensLimit, // Boosters adicionales expiran con el nuevo ciclo mensual
     updated_at: new Date().toISOString(),
   };
 

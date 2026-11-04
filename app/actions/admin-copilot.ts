@@ -185,12 +185,12 @@ async function compilePlatformSnapshot(): Promise<string> {
       if (tokenPercent >= 90) {
         burnRateDeduction = '⚠️ CRÍTICO: Cuota casi agotada (>90%), IA en riesgo de pausa inminente';
       } else if (tokenPercent >= 75) {
-        burnRateDeduction = 'Alerta de consumo alto (>75%), evaluar ampliación a plan superior';
+        burnRateDeduction = 'Alerta de consumo alto (>75%), evaluar ampliación de cuota de tokens';
       }
 
       lines.push(
         `- EMPRESA: "${org.name}" (ID: ${org.id})`,
-        `  Plan: ${org.plan_type.toUpperCase()} | Estado: ${org.is_active ? 'Activa' : 'Inactiva/Suspendida'}`,
+        `  Estado: ${org.is_active ? 'Activa' : 'Inactiva/Suspendida'}`,
         `  WhatsApp: ${isWhatsappConfigured ? 'Conectado y Operativo' : '⚠️ Desconectado / Sin credenciales'}`,
         `  Capacidad Asesores: ${usedSeats} / ${maxSeats} ocupados (${remainingSeats} cupos libres)`,
         `  Tokens IA: ${tokensUsed.toLocaleString()} / ${tokensLimit.toLocaleString()} (${tokenPercent}%) - ${burnRateDeduction}`,

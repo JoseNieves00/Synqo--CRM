@@ -25,7 +25,7 @@ export async function recordTokenUsage(input: RecordTokenUsageInput) {
   try {
     // 1. Obtener la organización para leer tokens actuales
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, ai_tokens_used, ai_tokens_limit, ai_tokens_google_used, ai_tokens_openai_used, plan_type')
+      .select('id, ai_tokens_used, ai_tokens_limit, ai_tokens_google_used, ai_tokens_openai_used')
       .eq('id', organizationId)
       .single();
 
@@ -103,22 +103,15 @@ export async function checkTokenQuota(organizationId: string): Promise<{
 }> {
   try {
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('ai_tokens_used, ai_tokens_limit, plan_type')
+      .select('ai_tokens_used, ai_tokens_limit')
       .eq('id', organizationId)
       .single();
 
     if (!org) {
-      return { allowed: true, used: 0, limit: 100000, percentage: 0 };
+      return { allowed: true, used: 0, limit: 500000, percentage: 0 };
     }
 
-    const defaultLimits: Record<string, number> = {
-      starter: 500000,
-      core: 500000,
-      pro: 1500000,
-      enterprise: 4000000,
-    };
-
-    const limit = Number(org.ai_tokens_limit) || defaultLimits[org.plan_type] || 100000;
+    const limit = Number(org.ai_tokens_limit) || 500000;
     const used = Number(org.ai_tokens_used) || 0;
     const percentage = Math.min(100, Math.round((used / limit) * 100));
 
@@ -130,7 +123,7 @@ export async function checkTokenQuota(organizationId: string): Promise<{
     };
   } catch (err) {
     console.warn('[Token Tracker] Error verificando cuota:', err);
-    return { allowed: true, used: 0, limit: 100000, percentage: 0 };
+    return { allowed: true, used: 0, limit: 500000, percentage: 0 };
   }
 }
 
@@ -146,7 +139,7 @@ export async function checkBackupTokenQuota(organizationId: string): Promise<{
 }> {
   try {
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('ai_tokens_openai_used, ai_tokens_openai_backup_limit, plan_type')
+      .select('ai_tokens_openai_used, ai_tokens_openai_backup_limit')
       .eq('id', organizationId)
       .single();
 
@@ -154,14 +147,7 @@ export async function checkBackupTokenQuota(organizationId: string): Promise<{
       return { allowed: true, used: 0, limit: 25000, percentage: 0 };
     }
 
-    const defaultBackupLimits: Record<string, number> = {
-      starter: 25000,
-      core: 25000,
-      pro: 75000,
-      enterprise: 150000,
-    };
-
-    const limit = Number(org.ai_tokens_openai_backup_limit) || defaultBackupLimits[org.plan_type] || 25000;
+    const limit = Number(org.ai_tokens_openai_backup_limit) || 25000;
     const used = Number(org.ai_tokens_openai_used) || 0;
     const percentage = Math.min(100, Math.round((used / limit) * 100));
 

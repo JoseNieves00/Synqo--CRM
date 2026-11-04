@@ -212,7 +212,12 @@ export class EvolutionService {
   }: EvolutionPhoneCodeParams & { webhookUrl?: string }): Promise<EvolutionPhoneCodeResponse> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
-    const cleanPhone = phone.replace(/\D/g, '');
+    let cleanPhone = phone.replace(/\D/g, '');
+
+    // Si el usuario ingresó 10 dígitos iniciando en 3 (típico celular colombiano sin prefijo 57), normalizar a 57...
+    if (cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+      cleanPhone = `57${cleanPhone}`;
+    }
 
     if (!cleanPhone || cleanPhone.length < 8) {
       throw new Error('El número telefónico debe contener código de país y al menos 8 dígitos (ej: 573001234567).');
@@ -223,32 +228,60 @@ export class EvolutionService {
 
     const url = `${baseUrl}/instance/connect/${cleanInstance}?number=${cleanPhone}`;
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.buildHeaders(apiKey),
-      cache: 'no-store',
-    });
+    const executeConnect = async () => {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(apiKey),
+        cache: 'no-store',
+      });
 
-    if (!response.ok) {
-      const errData = await response.text().catch(() => '');
-      if (
-        errData.toLowerCase().includes('already connected') ||
-        errData.toLowerCase().includes('open')
-      ) {
-        throw new Error('ALREADY_CONNECTED');
+      if (!response.ok) {
+        const errData = await response.text().catch(() => '');
+        if (
+          errData.toLowerCase().includes('already connected') ||
+          errData.toLowerCase().includes('open')
+        ) {
+          throw new Error('ALREADY_CONNECTED');
+        }
+        throw new Error(`Error obteniendo código de vinculación (${response.status}): ${errData}`);
       }
-      throw new Error(`Error obteniendo código de vinculación (${response.status}): ${errData}`);
+
+      const data = await response.json().catch(() => ({}));
+      let raw = data.pairingCode || data.pairing_code || '';
+      // Solo aceptar data.code si NO es un string de código QR (no contiene '@' y es de longitud corta <= 10)
+      if (!raw && data.code && typeof data.code === 'string' && data.code.length <= 10 && !data.code.includes('@')) {
+        raw = data.code;
+      }
+      return raw ? String(raw).trim() : null;
+    };
+
+    let code = await executeConnect();
+
+    // 2. Si Evolution API retornó null en pairingCode (debido a que la instancia estaba en bucle QR 'connecting'),
+    // reinicializamos la instancia limpia para que Baileys active el modo Pairing Code en el socket.
+    if (!code) {
+      console.warn(`[EVOLUTION PHONE CODE] La instancia ${cleanInstance} está en bucle QR. Reinicializando para habilitar Pairing Code...`);
+      await fetch(`${baseUrl}/instance/delete/${cleanInstance}`, {
+        method: 'DELETE',
+        headers: this.buildHeaders(apiKey),
+      }).catch(() => {});
+
+      await this.createInstanceIfNotExists({ apiUrl, apiKey, instanceName: cleanInstance, webhookUrl });
+
+      code = await executeConnect();
     }
 
-    const data = await response.json().catch(() => ({}));
-    const rawCode = data.pairingCode || data.code || data.pairing_code || '';
-
-    if (!rawCode) {
-      throw new Error('No se recibió el código de vinculación de Evolution API.');
+    if (!code) {
+      throw new Error('No se recibió el código de vinculación de Evolution API. Intenta nuevamente.');
     }
+
+    // Formatear a XXXX-XXXX para máxima legibilidad humana si tiene 8 caracteres
+    const formattedCode = code.length === 8 && !code.includes('-')
+      ? `${code.slice(0, 4)}-${code.slice(4)}`
+      : code;
 
     return {
-      code: String(rawCode).trim(),
+      code: formattedCode,
     };
   }
 

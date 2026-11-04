@@ -13,7 +13,6 @@ import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbe
 import { SuspendedOrganizationModal } from '@/components/billing/SuspendedOrganizationModal';
 import { SupportModal } from '@/components/support/SupportModal';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
-import { PLAN_DEFAULTS } from '@/lib/billing/plan-defaults';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +27,6 @@ export default async function DashboardLayout({
   const userEmail = current?.user?.email || '';
   const userFullName = current?.profile?.full_name || 'Usuario';
   const subStatus = current?.organization?.subscription_status || 'active';
-  const planType = current?.organization?.plan_type || 'core';
   const orgId = current?.organization?.id;
   const userRole = current?.profile?.role || 'agent';
   const isSuperAdmin = Boolean(current?.profile?.is_super_admin);
@@ -41,10 +39,7 @@ export default async function DashboardLayout({
 
   // Cálculo de alerta de consumo de IA para la empresa cliente (80% y 100%)
   const usedTokens = Number(current?.organization?.ai_tokens_used || 0);
-  const limitTokens = Number(
-    current?.organization?.ai_tokens_limit ||
-      (PLAN_DEFAULTS[planType]?.aiTokensLimit || 500000)
-  );
+  const limitTokens = Number(current?.organization?.ai_tokens_limit || 500000);
   const usagePercentage = Math.min(100, Math.round((usedTokens / limitTokens) * 100));
   const isUsageWarning = usagePercentage >= 80 && usagePercentage < 100;
   const isUsageExceeded = usagePercentage >= 100;
@@ -74,10 +69,10 @@ export default async function DashboardLayout({
         {/* Menú de Navegación Principal Reactivo con Prefetching */}
         <SidebarNav isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} />
 
-        {/* Estado del Servicio & Facturación */}
+        {/* Estado del Servicio & Suscripción */}
         <div className="p-3 mx-3 mb-2 rounded-xl bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 capitalize">Plan {planType}</span>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Suscripción</span>
             <span
               className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
                 subStatus === 'active' || subStatus === 'trialing'

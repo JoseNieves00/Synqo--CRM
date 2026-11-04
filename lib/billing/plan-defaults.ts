@@ -1,4 +1,6 @@
-import { PlanType } from '@/lib/supabase/types';
+export const DEFAULT_AI_TOKENS_LIMIT = 500000;
+export const DEFAULT_MAX_USERS = 3;
+export const DEFAULT_OPENAI_BACKUP_LIMIT = 25000;
 
 export interface PlanLimits {
   maxUsers: number;
@@ -8,36 +10,23 @@ export interface PlanLimits {
   label: string;
 }
 
-export const PLAN_DEFAULTS: Record<string, PlanLimits> = {
-  starter: {
-    maxUsers: 2,
-    aiTokensLimit: 500000,
-    openaiBackupLimit: 25000,
-    estimatedChats: 'Hasta 400 conversaciones / mes',
-    label: 'Starter (Citas & WhatsApp Autónomo)',
-  },
-  core: {
-    maxUsers: 2,
-    aiTokensLimit: 500000,
-    openaiBackupLimit: 25000,
-    estimatedChats: 'Hasta 400 conversaciones / mes',
-    label: 'Starter (Citas & WhatsApp Autónomo)',
-  },
-  pro: {
-    maxUsers: 5,
-    aiTokensLimit: 1500000,
-    openaiBackupLimit: 75000,
-    estimatedChats: 'Hasta 1,200 conversaciones / mes',
-    label: 'Pro (Equipo & Especialistas)',
-  },
-  enterprise: {
-    maxUsers: 12,
-    aiTokensLimit: 4000000,
-    openaiBackupLimit: 150000,
-    estimatedChats: 'Hasta 3,000 conversaciones / mes',
-    label: 'Elite (Salones & Sedes Físicas)',
-  },
+const defaultLimits: PlanLimits = {
+  maxUsers: DEFAULT_MAX_USERS,
+  aiTokensLimit: DEFAULT_AI_TOKENS_LIMIT,
+  openaiBackupLimit: DEFAULT_OPENAI_BACKUP_LIMIT,
+  estimatedChats: 'Hasta 400 conversaciones / mes',
+  label: 'Base',
 };
+
+/**
+ * Mapeo retrocompatible que provee los límites base por defecto.
+ */
+export const PLAN_DEFAULTS: Record<string, PlanLimits> = new Proxy(
+  {},
+  {
+    get: () => defaultLimits,
+  }
+);
 
 /**
  * Formatea cuotas de tokens de forma compacta e intuitiva:
@@ -85,5 +74,3 @@ export function estimateChatsFromTokens(tokens: number): string {
   }
   return `~${minChats} a ${maxChats} chats`;
 }
-
-
