@@ -595,3 +595,52 @@ export function appendKnowledgeToPrompt(
   return `${existingPrompt}\n\n### Nueva Pregunta Frecuente:\n- Pregunta: ${cleanQ}\n- Respuesta: ${cleanA}`;
 }
 
+/**
+ * Convierte un System Prompt con delimitadores XML en texto limpio y legible
+ * para humanos, eliminando etiquetas técnicas y preservando la información del negocio.
+ */
+export function stripXmlToCleanText(prompt: string | null | undefined): string {
+  if (!prompt) return '';
+  if (!prompt.includes('<') && !prompt.includes('>')) return prompt.trim();
+
+  let text = prompt;
+
+  const companyMatch = text.match(/NOMBRE_COMERCIAL:\s*"([^"]*)"/i);
+  const cityMatch = text.match(/UBICACION_Y_COBERTURA:\s*"([^"]*)"/i);
+  const valueMatch = text.match(/PROPUESTA_DE_VALOR:\s*"([^"]*)"/i);
+  const toneMatch = text.match(/DIRECTRIZ_DE_TONO:\s*([^\n<]*)/i);
+
+  const catalogMatch = text.match(/<catalogo_oferta>([\s\S]*?)<\/catalogo_oferta>/i);
+  const policiesMatch = text.match(/<politicas_y_faq>([\s\S]*?)<\/politicas_y_faq>/i);
+
+  let clean = '';
+  if (companyMatch && companyMatch[1]) {
+    clean += `# EMPRESA: ${companyMatch[1]}\n`;
+  }
+  if (cityMatch && cityMatch[1]) {
+    clean += `Ubicación y cobertura: ${cityMatch[1]}\n`;
+  }
+  if (valueMatch && valueMatch[1]) {
+    clean += `Descripción: ${valueMatch[1]}\n`;
+  }
+  if (toneMatch && toneMatch[1]) {
+    clean += `Tono deseado: ${toneMatch[1].trim()}\n`;
+  }
+
+  if (catalogMatch && catalogMatch[1]?.trim()) {
+    clean += `\n# PRODUCTOS, SERVICIOS Y PRECIOS:\n${catalogMatch[1].trim()}\n`;
+  }
+
+  if (policiesMatch && policiesMatch[1]?.trim()) {
+    clean += `\n# POLÍTICAS, ENVÍOS Y PAGOS:\n${policiesMatch[1].trim()}\n`;
+  }
+
+  // Eliminar bloques internos que el backend ya maneja automáticamente
+  clean = clean.replace(/<reglas_estrictas>[\s\S]*?<\/reglas_estrictas>/gi, '');
+  clean = clean.replace(/<ruta_de_compra>[\s\S]*?<\/ruta_de_compra>/gi, '');
+  clean = clean.replace(/<\/?[a-zA-Z0-9_-]+>/g, '').trim();
+
+  return clean || prompt.trim();
+}
+
+

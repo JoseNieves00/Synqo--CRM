@@ -28,6 +28,7 @@ import {
   CatalogItem,
   INDUSTRY_BLUEPRINTS,
   compileStructuredPrompt,
+  stripXmlToCleanText,
 } from '@/lib/ai/prompt-compiler';
 
 interface StructuredPromptWizardProps {
@@ -43,19 +44,8 @@ export function StructuredPromptWizard({
   companyName = 'Mi Empresa',
   onPromptCompiled,
 }: StructuredPromptWizardProps) {
-  // Detectar si la empresa ya tiene un prompt previo en texto libre (sin XML ni structured_data)
-  const isExistingCustomText = Boolean(
-    initialPrompt &&
-    initialPrompt.trim().length > 0 &&
-    !initialStructuredData &&
-    !initialPrompt.includes('<identidad_y_rol>')
-  );
-
-  // Modo principal: 'custom_text' (texto libre previo), 'wizard' (asistente guiado), 'xml' (avanzado)
-  const [topMode, setTopMode] = useState<'custom_text' | 'wizard' | 'xml'>(() => {
-    if (isExistingCustomText) return 'custom_text';
-    return 'wizard';
-  });
+  // Modo principal: 'custom_text' (Texto Libre Guiado - Recomendado), 'wizard' (Asistente Visual por Casillas), 'xml' (Avanzado)
+  const [topMode, setTopMode] = useState<'custom_text' | 'wizard' | 'xml'>('custom_text');
 
   // Modal para cargar plantillas de ejemplo (Opcional)
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
@@ -71,6 +61,9 @@ export function StructuredPromptWizard({
   const [activeTab, setActiveTab] = useState<'identity' | 'catalog' | 'funnel' | 'policies' | 'handoff' | 'preview'>('identity');
   const [manualXmlPrompt, setManualXmlPrompt] = useState<string>(() => {
     return initialPrompt || compileStructuredPrompt(data);
+  });
+  const [freeTextPrompt, setFreeTextPrompt] = useState<string>(() => {
+    return stripXmlToCleanText(initialPrompt) || '';
   });
 
   // Re-compilar únicamente cuando se está utilizando activamente el Asistente Guiado
@@ -171,6 +164,24 @@ export function StructuredPromptWizard({
           <button
             type="button"
             onClick={() => {
+              setTopMode('custom_text');
+              const clean = stripXmlToCleanText(freeTextPrompt || manualXmlPrompt || initialPrompt);
+              setFreeTextPrompt(clean);
+              onPromptCompiled(clean, data);
+            }}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+              topMode === 'custom_text'
+                ? 'bg-white dark:bg-[#1A1F2C] text-[#0052FF] dark:text-[#00D2FF] shadow-xs border border-slate-200/80 dark:border-[#232A3B]'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+            <span>Texto Libre con Guías</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               setTopMode('wizard');
               const compiled = compileStructuredPrompt(data);
               setManualXmlPrompt(compiled);
@@ -182,25 +193,16 @@ export function StructuredPromptWizard({
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <Package className="w-3.5 h-3.5" />
             <span>Asistente Visual</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setTopMode('custom_text')}
-            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-              topMode === 'custom_text'
-                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white shadow-xs border border-slate-200/80 dark:border-[#232A3B]'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>Texto Libre</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTopMode('xml')}
+            onClick={() => {
+              setTopMode('xml');
+              onPromptCompiled(manualXmlPrompt, data);
+            }}
             className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
               topMode === 'xml'
                 ? 'bg-white dark:bg-[#1A1F2C] text-purple-600 dark:text-purple-400 shadow-xs border border-slate-200/80 dark:border-[#232A3B]'
@@ -208,48 +210,114 @@ export function StructuredPromptWizard({
             }`}
           >
             <Code2 className="w-3.5 h-3.5" />
-            <span>XML</span>
+            <span>Avanzado (XML)</span>
           </button>
         </div>
       </div>
 
       {topMode === 'custom_text' ? (
-        /* Modo 1: Texto Libre (Prompt Personalizado Intacto) */
-        <div className="space-y-3 animate-in fade-in duration-150">
-          <div className="p-4 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Modo Texto Libre</span>
+        /* Modo 1: Texto Libre con Guías Claras (Recomendado y sin XML engorroso) */
+        <div className="space-y-4 animate-in fade-in duration-150">
+          {/* Banner de tranquilidad y control total */}
+          <div className="p-4 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 dark:from-[#0f172a] dark:to-[#1e1b4b] border border-blue-200/70 dark:border-blue-900/40 rounded-2xl">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-blue-600 text-white shrink-0 mt-0.5 shadow-xs">
+                <Sparkles className="w-4 h-4" />
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                El asistente responde siguiendo estas instrucciones exactas. Puedes editarlas libremente o usar las pestañas guiadas para organizar tus productos, precios y cuentas bancarias.
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Control Total en Texto Libre (Sin etiquetas técnicas)</span>
+                  <span className="text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                    Recomendado
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Describe tu negocio con tus propias palabras y libertad. <strong>Synqo CRM inyecta automáticamente en segundo plano</strong> el blindaje financiero (no inventar precios ni descuentos), el tono de WhatsApp (mensajes cortos de 1 a 3 líneas), el protocolo de fotos/catálogos, notas de voz y el relevo imperceptible a asesores humanos.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Pequeñas Guías Rápidas de lo que se debe poner */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <div className="p-3 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-1">
+              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-500" />
+                <span>1. Tu Negocio</span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                Nombre comercial, a qué se dedica la empresa y ciudad o zona de cobertura.
               </p>
             </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-1">
+              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-emerald-500" />
+                <span>2. Catálogo y Precios</span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                Lista de productos o servicios con precios exactos y qué incluye cada uno.
+              </p>
+            </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-1">
+              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5 text-amber-500" />
+                <span>3. Pagos y Envíos</span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                Cuentas (Nequi, Daviplata, Bancolombia), pago contra entrega y tiempos de envío.
+              </p>
+            </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl space-y-1">
+              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5 text-purple-500" />
+                <span>4. Pautas Especiales</span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                Instrucciones puntuales (ej: cómo responder a fotos, promociones o pedidos especiales).
+              </p>
+            </div>
+          </div>
+
+          {/* Barra de Acciones y Botón de Plantilla Guía Limpia */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Escribe o edita el texto a continuación. Los cambios son guardados y aplicados a la IA.
+            </span>
             <button
               type="button"
               onClick={() => {
-                setTopMode('wizard');
-                const compiled = compileStructuredPrompt(data);
-                setManualXmlPrompt(compiled);
-                onPromptCompiled(compiled, data);
+                const template = `# MI EMPRESA: ${companyName}\nUbicación y cobertura: Colombia\nDescripción: Atención comercial y asesoría personalizada.\n\n# PRODUCTOS, SERVICIOS Y PRECIOS:\n- Producto 1 ($50.000): Incluye atención directa.\n- Producto 2 ($100.000): Incluye envío prioritario.\n\n# POLÍTICAS, ENVÍOS Y PAGOS:\n- Métodos de pago: Transferencia Bancolombia, Nequi, Daviplata, Efectivo contra entrega.\n- Envíos: Despachos en 24 a 48 horas a nivel nacional.\n\n# INSTRUCCIONES ESPECIALES DE ATENCIÓN:\n- Mantener respuestas breves de 1 a 3 líneas en WhatsApp.\n- Si el cliente pide fotos, confirmar con entusiasmo y consultar cuál modelo desea ver.\n`;
+                if (!freeTextPrompt || freeTextPrompt.trim().length === 0 || window.confirm('¿Deseas reemplazar el texto actual con una plantilla guía limpia?')) {
+                  setFreeTextPrompt(template);
+                  onPromptCompiled(template, data);
+                }
               }}
-              className="px-3.5 py-2 rounded-xl bg-[#0052FF] text-white text-xs font-bold shadow-xs hover:bg-[#0047E0] transition cursor-pointer shrink-0 flex items-center gap-1.5"
+              className="text-[11px] font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:underline flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Probar Asistente Visual</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Pegar Plantilla Guía Limpia</span>
             </button>
           </div>
 
+          {/* Editor de Texto Libre */}
           <textarea
-            rows={15}
-            value={manualXmlPrompt}
+            rows={16}
+            value={freeTextPrompt}
             onChange={(e) => {
-              setManualXmlPrompt(e.target.value);
+              setFreeTextPrompt(e.target.value);
               onPromptCompiled(e.target.value, data);
             }}
-            placeholder="Escribe aquí las instrucciones de tu asistente..."
-            className="w-full text-xs font-sans leading-relaxed p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F] focus:bg-white dark:focus:bg-[#090A0F] text-slate-800 dark:text-slate-200"
+            placeholder="Escribe aquí las instrucciones de tu negocio siguiendo las 4 guías superiores..."
+            className="w-full text-xs font-mono sm:font-sans leading-relaxed p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50/70 dark:bg-[#090A0F] focus:bg-white dark:focus:bg-[#090A0F] text-slate-800 dark:text-slate-200 shadow-inner"
           />
+
+          <div className="flex items-center justify-between text-[11px] text-slate-400">
+            <span>{freeTextPrompt.length} caracteres</span>
+            <span>✓ Se almacena en formato limpio sin código XML</span>
+          </div>
         </div>
       ) : topMode === 'xml' ? (
         /* Modo 2: XML Avanzado */
@@ -257,7 +325,7 @@ export function StructuredPromptWizard({
           <div className="p-3 bg-purple-50 dark:bg-[#090A0F] border border-purple-200 dark:border-[#232A3B] rounded-xl text-purple-900 dark:text-slate-300 text-xs flex items-center gap-2">
             <Code2 className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
             <span>
-              Modo Avanzado: Edición directa del prompt en formato estructurado.
+              Modo Avanzado: Edición directa del prompt en formato estructurado XML.
             </span>
           </div>
           <textarea
