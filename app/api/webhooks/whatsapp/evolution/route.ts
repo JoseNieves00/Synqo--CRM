@@ -178,6 +178,7 @@ export async function POST(request: NextRequest) {
   }
 
   const messageId = messageKey.id;
+  const isLid = remoteJid.endsWith('@lid');
   const cleanPhone = remoteJid.replace(/@s\.whatsapp\.net|@c\.us|@lid/g, '').replace(/[^\d]/g, '');
 
   if (!cleanPhone || !messageId) {
@@ -185,6 +186,7 @@ export async function POST(request: NextRequest) {
   }
 
   const leadPhone = cleanPhone;
+  const targetRecipient = isLid ? remoteJid : cleanPhone;
 
   // 5. FILTRO CRÍTICO: Detección de Mensajes Propios (fromMe: true)
   // Permite la coexistencia natural bot-humano.
@@ -331,7 +333,7 @@ export async function POST(request: NextRequest) {
 
   const { data: existingContact } = await supabaseAdmin
     .from('contacts')
-    .select('id, name, is_ai_active')
+    .select('id, name, is_ai_active, custom_fields')
     .eq('organization_id', orgId)
     .or(`phone.eq.${leadPhone},phone.eq.+${leadPhone}`)
     .maybeSingle();
@@ -343,6 +345,10 @@ export async function POST(request: NextRequest) {
     const contactUpdate: any = {
       last_interaction_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      custom_fields: {
+        ...((existingContact.custom_fields as Record<string, any>) || {}),
+        remote_jid: remoteJid,
+      },
     };
     if (leadName && leadName !== 'Lead WhatsApp') {
       contactUpdate.name = leadName;
@@ -364,6 +370,7 @@ export async function POST(request: NextRequest) {
         is_ai_active: true,
         channel: 'whatsapp',
         assigned_to: bestAgentId || null,
+        custom_fields: { remote_jid: remoteJid },
         last_interaction_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -466,7 +473,7 @@ export async function POST(request: NextRequest) {
 
               const outboundId = await MessagingService.sendTextMessage({
                 organization,
-                to: leadPhone,
+                to: targetRecipient || leadPhone,
                 body: confirmText,
                 simulateTyping: true,
               });
@@ -515,7 +522,7 @@ export async function POST(request: NextRequest) {
             try {
               const outboundId = await MessagingService.sendTextMessage({
                 organization,
-                to: leadPhone,
+                to: targetRecipient || leadPhone,
                 body: aiResponseText,
                 simulateTyping: true,
               });

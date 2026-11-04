@@ -35,7 +35,7 @@ export async function sendAgentMessage(contactId: string, content: string) {
 
   // 3. Validar que el contacto pertenece a la misma organización (Anti-IDOR)
   const { data: contact, error: contactError } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, phone, organization_id, channel, instagram_id, last_interaction_at')
+    .select('id, phone, custom_fields, organization_id, channel, instagram_id, last_interaction_at')
     .eq('id', contactId)
     .eq('organization_id', orgId)
     .single();
@@ -90,10 +90,11 @@ export async function sendAgentMessage(contactId: string, content: string) {
     // Si el contacto nunca ha tenido interacción previa, se considera envío en frío (outbound)
     const isCold = !contact.last_interaction_at;
 
-    // 5. Enviar mensaje mediante el motor configurado (Meta Cloud API o Z-API Express)
+    // 5. Enviar mensaje mediante el motor configurado (Meta Cloud API o Evolution API)
+    const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
     metaMessageId = await MessagingService.sendTextMessage({
       organization: org,
-      to: contact.phone,
+      to: targetRecipient,
       body: cleanContent,
       simulateTyping: false,
       isColdOutbound: isCold,
@@ -141,7 +142,7 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
   if (!orgId) throw new Error('Perfil no encontrado');
 
   const { data: contact } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, phone, organization_id')
+    .select('id, phone, custom_fields, organization_id')
     .eq('id', contactId)
     .eq('organization_id', orgId)
     .single();
@@ -161,9 +162,11 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
   const templateName = templateDef?.name || templateKey;
   const templateLabel = templateDef?.label || templateKey;
 
+  const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
+
   const metaId = await MessagingService.sendTemplateMessage({
     organization: org,
-    to: contact.phone,
+    to: targetRecipient,
     templateKey,
     templateName,
     languageCode: 'es',

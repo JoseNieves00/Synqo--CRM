@@ -436,7 +436,11 @@ export class EvolutionService {
   }): Promise<string> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
-    const cleanTo = to.replace(/[^0-9]/g, '');
+    let cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
+    // Soporte nativo para WhatsApp Linked Devices (LID): si es un identificador de dispositivo privado de 14+ dígitos, dirigir al canal @lid
+    if (!cleanTo.includes('@') && cleanTo.length >= 14 && !cleanTo.startsWith('55') && !cleanTo.startsWith('52') && !cleanTo.startsWith('57')) {
+      cleanTo = `${cleanTo}@lid`;
+    }
     const url = `${baseUrl}/message/sendText/${cleanInstance}`;
 
     let delayMs = 1000;
