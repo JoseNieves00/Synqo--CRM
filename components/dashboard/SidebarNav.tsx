@@ -12,13 +12,15 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
+import type { EnabledModules } from '@/lib/supabase/types';
 
 interface SidebarNavProps {
   isSuperAdmin: boolean;
   isAdmin: boolean;
+  enabledModules?: EnabledModules;
 }
 
-export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
+export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules }: SidebarNavProps) {
   const pathname = usePathname();
   const [unattendedCount, setUnattendedCount] = useState<number>(0);
 
@@ -69,15 +71,19 @@ export function SidebarNav({ isSuperAdmin, isAdmin }: SidebarNavProps) {
       iconColor: 'text-[#0052FF]',
       matchExact: true,
     },
-    {
-      href: '/calendar',
-      label: 'Agenda & Citas',
-      icon: Calendar,
-      activeColor:
-        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
-      iconColor: 'text-[#0052FF] dark:text-[#00D2FF]',
-      matchExact: false,
-    },
+    ...(enabledModules?.native_calendar !== false
+      ? [
+          {
+            href: '/calendar',
+            label: 'Agenda & Citas',
+            icon: Calendar,
+            activeColor:
+              'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
+            iconColor: 'text-[#0052FF] dark:text-[#00D2FF]',
+            matchExact: false,
+          },
+        ]
+      : []),
   ];
 
   if (isAdmin) {

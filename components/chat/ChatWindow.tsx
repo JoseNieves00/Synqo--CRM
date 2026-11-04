@@ -8,7 +8,8 @@ import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow } from '@/services/contact.service';
-import { sendAgentMessage, sendAgentTemplate, toggleContactAi } from '@/app/actions/chat';
+import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi } from '@/app/actions/chat';
+import { formatImageMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin } from '@/app/actions/assignment';
 import { deleteContactWithPassword } from '@/app/actions/contacts';
 import { META_TEMPLATES } from '@/services/whatsapp.service';
@@ -61,7 +62,9 @@ interface ChatWindowProps {
     instagram_id?: string | null;
   };
   messages: MessageItem[];
+  isLoadingMessages?: boolean;
   onOptimisticMessage?: (msg: MessageItem) => void;
+  onContactUpdate?: (fields: Partial<any>) => void;
   customTemplates?: Array<{ name: string; label: string }>;
   whatsappProvider?: 'meta' | 'evolution';
   currentUserId?: string;
@@ -72,7 +75,9 @@ interface ChatWindowProps {
 export function ChatWindow({
   contact,
   messages,
+  isLoadingMessages = false,
   onOptimisticMessage,
+  onContactUpdate,
   customTemplates,
   whatsappProvider = 'meta',
   currentUserId,
@@ -82,6 +87,7 @@ export function ChatWindow({
   const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isInitialScroll = useRef(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Estados de Eliminación Rápida de Chat
@@ -105,8 +111,10 @@ export function ChatWindow({
     try {
       await deleteContactWithPassword(contact.id, deletePassword);
       setShowDeleteModal(false);
-      router.push('/inbox');
-      router.refresh();
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/inbox');
+        window.dispatchEvent(new CustomEvent('synqo-chat-deleted', { detail: contact.id }));
+      }
     } catch (err: any) {
       setDeleteError(err?.message || 'Error al eliminar la conversación');
     } finally {
@@ -138,7 +146,12 @@ export function ChatWindow({
   const isWaitingForHuman = !contact.is_ai_active && lastMessage && lastMessage.sender_type === 'lead';
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isInitialScroll.current) {
+      isInitialScroll.current = false;
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages.length]);
 
   // Canal Realtime Broadcast: Detección de Colisión (Typing Presence entre agentes)
@@ -194,7 +207,7 @@ export function ChatWindow({
       await claimUnassignedLead(contact.id);
       setClaimSuccess(true);
       setTimeout(() => setClaimSuccess(false), 3000);
-      router.refresh();
+      onContactUpdate?.({ assigned_to: currentUserId });
     } catch (err: any) {
       setErrorMessage(err.message || 'No se pudo tomar el lead.');
     } finally {
@@ -205,9 +218,10 @@ export function ChatWindow({
   // Reasignar lead (solo Admins o Supervisores)
   const handleAdminReassign = async (targetId: string) => {
     setErrorMessage(null);
+    const targetAssigned = targetId === 'unassigned' ? null : targetId;
     try {
-      await assignLeadByAdmin(contact.id, targetId === 'unassigned' ? null : targetId);
-      router.refresh();
+      await assignLeadByAdmin(contact.id, targetAssigned);
+      onContactUpdate?.({ assigned_to: targetAssigned });
     } catch (err: any) {
       setErrorMessage(err.message || 'Error al reasignar lead.');
     }
@@ -236,8 +250,24 @@ export function ChatWindow({
         setErrorMessage(`Error al enviar mensaje: ${msg || 'Error de conexión con WhatsApp'}`);
       }
       throw err; // Permite a ChatInput preservar el texto escrito en el borrador
-    } finally {
-      router.refresh();
+    }
+  };
+
+  const handleSendMedia = async (mediaUrl: string, caption?: string) => {
+    setErrorMessage(null);
+    const formatted = formatImageMessageContent(mediaUrl, caption);
+    onOptimisticMessage?.({
+      id: `temp-${Date.now()}`,
+      sender_type: 'agent_manual',
+      content: formatted,
+      created_at: new Date().toISOString(),
+    });
+    try {
+      await sendAgentMediaMessage(contact.id, mediaUrl, caption);
+    } catch (err: any) {
+      console.error('[SEND MEDIA ERROR]', err);
+      setErrorMessage(`Error al enviar imagen: ${err?.message || 'Error de conexión con WhatsApp'}`);
+      throw err;
     }
   };
 
@@ -262,12 +292,11 @@ export function ChatWindow({
       } else {
         setErrorMessage(`Error de Meta al enviar plantilla: ${msg || 'No se pudo despachar la plantilla'}`);
       }
-    } finally {
-      router.refresh();
     }
   };
 
   const handleToggleAi = async (newState: boolean) => {
+    onContactUpdate?.({ is_ai_active: newState });
     await toggleContactAi(contact.id, newState);
   };
 
@@ -481,7 +510,19 @@ export function ChatWindow({
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Lista de Mensajes */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50 dark:bg-[#090A0F] space-y-1 transition-colors">
-            {messages.length === 0 ? (
+            {isLoadingMessages ? (
+              <div className="h-full flex flex-col justify-end space-y-3 p-2 animate-pulse">
+                <div className="flex justify-start">
+                  <div className="w-48 h-10 bg-slate-200 dark:bg-[#1A1F2C] rounded-2xl rounded-tl-xs" />
+                </div>
+                <div className="flex justify-end">
+                  <div className="w-56 h-12 bg-blue-100 dark:bg-[#0052FF]/20 rounded-2xl rounded-tr-xs" />
+                </div>
+                <div className="flex justify-start">
+                  <div className="w-40 h-9 bg-slate-200 dark:bg-[#1A1F2C] rounded-2xl rounded-tl-xs" />
+                </div>
+              </div>
+            ) : messages.length === 0 ? (
               <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
                 No hay mensajes registrados con este contacto.
               </div>
@@ -513,6 +554,7 @@ export function ChatWindow({
             contactId={contact.id}
             isWithin24h={is24hValid}
             onSendMessage={handleSendMessage}
+            onSendMedia={handleSendMedia}
             onSendTemplate={handleSendTemplate}
             customTemplates={effectiveTemplates}
             disabled={isReadOnly}

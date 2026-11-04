@@ -2,8 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles } from 'lucide-react';
-import { getOrganizationQuickReplies } from '@/app/actions/chat';
+import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2 } from 'lucide-react';
+import { getOrganizationQuickReplies, uploadChatMedia } from '@/app/actions/chat';
 import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
 import { ManageQuickRepliesModal } from './ManageQuickRepliesModal';
 
@@ -11,6 +11,7 @@ interface ChatInputProps {
   contactId: string;
   isWithin24h: boolean;
   onSendMessage: (text: string) => Promise<void>;
+  onSendMedia?: (mediaUrl: string, caption?: string) => Promise<void>;
   onSendTemplate: (templateName: string) => Promise<void>;
   customTemplates?: Array<{ name: string; label: string }>;
   disabled?: boolean;
@@ -22,6 +23,7 @@ export function ChatInput({
   contactId,
   isWithin24h,
   onSendMessage,
+  onSendMedia,
   onSendTemplate,
   customTemplates,
   disabled,
@@ -42,6 +44,16 @@ export function ChatInput({
   const [activeSnippets, setActiveSnippets] = useState<QuickSnippet[]>(BASE_DEFAULT_SNIPPETS);
   const [aiSuggestions, setAiSuggestions] = useState<QuickSnippet[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estado para previsualización y envío de imagen adjunta
+  const [pendingMedia, setPendingMedia] = useState<{
+    file: File;
+    previewUrl: string;
+    caption: string;
+  } | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   // Cargar atajos personalizados y sugerencias generadas por la IA según el prompt
   useEffect(() => {
@@ -262,15 +274,153 @@ export function ChatInput({
         </button>
       </div>
 
-      <form onSubmit={handleSubmitText} className="p-2.5 pt-1.5 flex gap-2">
+      {/* Previsualización de Imagen Adjunta antes de Enviar */}
+      {pendingMedia && (
+        <div className="mx-2.5 my-1.5 p-2.5 bg-slate-100 dark:bg-[#1A1F2C] border border-blue-200 dark:border-blue-900/60 rounded-xl flex items-center gap-3 animate-in fade-in zoom-in-95 duration-150">
+          <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-[#232A3B] shrink-0 bg-black/10">
+            <img
+              src={pendingMedia.previewUrl}
+              alt="Previsualización"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate">
+                {pendingMedia.file.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPendingMedia(null)}
+                disabled={isUploadingMedia}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md cursor-pointer"
+                title="Quitar imagen"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <input
+              type="text"
+              placeholder="Añade un pie de foto opcional..."
+              value={pendingMedia.caption}
+              onChange={(e) => setPendingMedia({ ...pendingMedia, caption: e.target.value })}
+              disabled={isUploadingMedia}
+              className="w-full text-xs px-2.5 py-1 bg-white dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#0052FF]"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!pendingMedia || !onSendMedia || isUploadingMedia) return;
+              setIsUploadingMedia(true);
+              setMediaError(null);
+              try {
+                const formData = new FormData();
+                formData.append('file', pendingMedia.file);
+                const { url } = await uploadChatMedia(formData);
+                await onSendMedia(url, pendingMedia.caption || undefined);
+                setPendingMedia(null);
+              } catch (err: any) {
+                console.error('[UPLOAD MEDIA ERROR]', err);
+                setMediaError(err?.message || 'Error al enviar imagen.');
+              } finally {
+                setIsUploadingMedia(false);
+              }
+            }}
+            disabled={isUploadingMedia}
+            className="px-3 py-2 bg-[#0052FF] hover:bg-[#0043D4] text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 cursor-pointer shadow-xs disabled:opacity-50"
+          >
+            {isUploadingMedia ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Subiendo...</span>
+              </>
+            ) : (
+              <>
+                <Send className="w-3.5 h-3.5" />
+                <span>Enviar Foto</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {mediaError && (
+        <div className="mx-2.5 my-1 p-2 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 rounded-lg text-rose-600 dark:text-rose-300 text-xs flex items-center justify-between">
+          <span>{mediaError}</span>
+          <button type="button" onClick={() => setMediaError(null)} className="cursor-pointer">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmitText} className="p-2.5 pt-1.5 flex gap-1.5 items-center">
+        {/* Botón de Adjuntar Imagen */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={loading || disabled}
+          className="p-2 text-slate-500 dark:text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl transition cursor-pointer shrink-0 disabled:opacity-40"
+          title="Adjuntar foto (o pega con Ctrl+V)"
+        >
+          <Paperclip className="w-4 h-4" />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            if (file.size > 10 * 1024 * 1024) {
+              setMediaError('La imagen supera el límite máximo de 10 MB.');
+              return;
+            }
+            setMediaError(null);
+            setPendingMedia({
+              file,
+              previewUrl: URL.createObjectURL(file),
+              caption: message.trim(),
+            });
+            setMessage('');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+          }}
+          className="hidden"
+        />
+
         <input
           ref={inputRef}
           type="text"
-          placeholder="Escribe un mensaje o usa /precio, /cuenta (pausa la IA)..."
+          placeholder="Escribe un mensaje o pega una foto con Ctrl+V..."
           value={message}
           onChange={(e) => {
             setMessage(e.target.value);
             onTyping?.();
+          }}
+          onPaste={(e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              if (item.type.indexOf('image') !== -1) {
+                const file = item.getAsFile();
+                if (file) {
+                  if (file.size > 10 * 1024 * 1024) {
+                    setMediaError('La imagen pegada supera el límite de 10 MB.');
+                    return;
+                  }
+                  setMediaError(null);
+                  setPendingMedia({
+                    file,
+                    previewUrl: URL.createObjectURL(file),
+                    caption: message.trim(),
+                  });
+                  setMessage('');
+                  e.preventDefault();
+                  return;
+                }
+              }
+            }
           }}
           disabled={loading}
           className="flex-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0052FF] focus:border-[#0052FF] disabled:opacity-50"
@@ -278,7 +428,7 @@ export function ChatInput({
         <button
           type="submit"
           disabled={loading || !message.trim()}
-          className="bg-[#0052FF] hover:bg-[#0043D4] text-white px-3.5 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center justify-center cursor-pointer"
+          className="bg-[#0052FF] hover:bg-[#0043D4] text-white px-3.5 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center justify-center cursor-pointer shrink-0"
         >
           <Send className="w-3.5 h-3.5" />
         </button>

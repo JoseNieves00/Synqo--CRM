@@ -47,38 +47,58 @@ function formatTimeAgo(isoString: string): string {
   }
 }
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new AudioCtx();
+  }
+  if (sharedAudioCtx.state === 'suspended') {
+    sharedAudioCtx.resume().catch(() => {});
+  }
+  return sharedAudioCtx;
+}
+
 /**
  * Genera un sonido de campana armónico y profesional mediante Web Audio API.
+ * Garantiza reproducción incluso si la pestaña está en segundo plano.
  */
 function playChimeSound(isPriority = true) {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const t = ctx.currentTime;
 
     // Tono 1
     const osc1 = ctx.createOscillator();
     const gain1 = ctx.createGain();
     osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(isPriority ? 587.33 : 440, ctx.currentTime);
-    gain1.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc1.frequency.setValueAtTime(isPriority ? 587.33 : 440, t);
+    gain1.gain.setValueAtTime(0.35, t);
+    gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
     osc1.connect(gain1);
     gain1.connect(ctx.destination);
-    osc1.start(ctx.currentTime);
-    osc1.stop(ctx.currentTime + 0.35);
+    osc1.start(t);
+    osc1.stop(t + 0.35);
 
     // Tono 2 más agudo
     const osc2 = ctx.createOscillator();
     const gain2 = ctx.createGain();
     osc2.type = 'sine';
-    osc2.frequency.setValueAtTime(isPriority ? 880 : 659.25, ctx.currentTime + 0.15);
-    gain2.gain.setValueAtTime(0.4, ctx.currentTime + 0.15);
-    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.65);
+    osc2.frequency.setValueAtTime(isPriority ? 880 : 659.25, t + 0.15);
+    gain2.gain.setValueAtTime(0.45, t + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
     osc2.connect(gain2);
     gain2.connect(ctx.destination);
-    osc2.start(ctx.currentTime + 0.15);
-    osc2.stop(ctx.currentTime + 0.65);
+    osc2.start(t + 0.15);
+    osc2.stop(t + 0.7);
   } catch (err) {
     console.warn('[Audio Alert] No se pudo reproducir el sonido:', err);
   }
@@ -99,13 +119,29 @@ export function HandoffAlertNotifier({
   const [permission, setPermission] = useState<NotificationPermission>('default');
 
   const originalTitleRef = useRef<string>('');
+  const knownAiStatesRef = useRef<Map<string, boolean>>(new Map());
+  const knownAssignmentsRef = useRef<Map<string, string | null>>(new Map());
 
+  // Desbloqueo proactivo del Web Audio API en el primer gesto del usuario
   useEffect(() => {
     if (typeof window !== 'undefined') {
       originalTitleRef.current = document.title;
       if ('Notification' in window) {
         setPermission(Notification.permission);
       }
+
+      const unlockAudio = () => {
+        getSharedAudioContext();
+      };
+      window.addEventListener('click', unlockAudio, { once: true });
+      window.addEventListener('keydown', unlockAudio, { once: true });
+      window.addEventListener('pointerdown', unlockAudio, { once: true });
+
+      return () => {
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('keydown', unlockAudio);
+        window.removeEventListener('pointerdown', unlockAudio);
+      };
     }
   }, []);
 
@@ -113,6 +149,9 @@ export function HandoffAlertNotifier({
     if (typeof window !== 'undefined' && 'Notification' in window) {
       const res = await Notification.requestPermission();
       setPermission(res);
+      if (res === 'granted') {
+        getSharedAudioContext();
+      }
     }
   };
 
@@ -121,6 +160,14 @@ export function HandoffAlertNotifier({
     try {
       const list = await getUnattendedHandoffs();
       setUnattendedList(list);
+
+      // Actualizar mapa de estados conocidos
+      list.forEach((item) => {
+        knownAiStatesRef.current.set(item.id, false);
+        if (item.assignedTo !== undefined) {
+          knownAssignmentsRef.current.set(item.id, item.assignedTo);
+        }
+      });
 
       // Notificar globalmente para actualizar badge del Sidebar
       if (typeof window !== 'undefined') {
@@ -133,12 +180,24 @@ export function HandoffAlertNotifier({
     }
   };
 
-  // 1. Carga inicial y sondeo periódico de respaldo (cada 40s)
+  // Sincronización inmediata al volver a enfocar la pestaña del navegador
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleFocus = () => {
+      syncUnattended();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  // 1. Carga inicial y sondeo periódico de respaldo (cada 30s)
   useEffect(() => {
     if (!organizationId) return;
 
     syncUnattended();
-    const interval = setInterval(syncUnattended, 40000);
+    const interval = setInterval(syncUnattended, 30000);
     return () => clearInterval(interval);
   }, [organizationId]);
 
@@ -178,6 +237,9 @@ export function HandoffAlertNotifier({
         if (originalTitleRef.current) {
           document.title = originalTitleRef.current;
         }
+        if (!document.hidden) {
+          syncUnattended();
+        }
       }
     };
 
@@ -213,10 +275,19 @@ export function HandoffAlertNotifier({
           const oldRecord = payload.old as any;
           const newRecord = payload.new as any;
 
-          // Relevo humano activado
-          if (oldRecord && oldRecord.is_ai_active === true && newRecord.is_ai_active === false) {
+          if (!newRecord) return;
+
+          // Relevo humano activado (detección tolerante a REPLICA IDENTITY)
+          const prevAi = oldRecord?.is_ai_active !== undefined
+            ? oldRecord.is_ai_active
+            : knownAiStatesRef.current.get(newRecord.id);
+
+          const isHandoffTransition = prevAi !== false && newRecord.is_ai_active === false;
+          knownAiStatesRef.current.set(newRecord.id, newRecord.is_ai_active);
+
+          if (isHandoffTransition) {
             const isMyLead = newRecord.assigned_to === currentUserId;
-            if (isMyLead || isAdmin) {
+            if (isMyLead || isAdmin || !newRecord.assigned_to) {
               triggerAlert({
                 id: newRecord.id,
                 name: newRecord.name || 'Prospecto WhatsApp',
@@ -227,11 +298,16 @@ export function HandoffAlertNotifier({
             }
           }
 
-          // Asignación de lead
+          // Asignación de lead al agente actual
+          const prevAssigned = oldRecord?.assigned_to !== undefined
+            ? oldRecord.assigned_to
+            : knownAssignmentsRef.current.get(newRecord.id);
+
+          knownAssignmentsRef.current.set(newRecord.id, newRecord.assigned_to);
+
           if (
             currentUserId &&
-            oldRecord &&
-            oldRecord.assigned_to !== currentUserId &&
+            prevAssigned !== currentUserId &&
             newRecord.assigned_to === currentUserId
           ) {
             triggerAlert({
@@ -253,7 +329,25 @@ export function HandoffAlertNotifier({
           schema: 'public',
           table: 'messages',
         },
-        () => {
+        (payload) => {
+          const newMsg = payload.new as any;
+          if (newMsg && newMsg.sender_type === 'system') {
+            const isHandoffNotice =
+              typeof newMsg.content === 'string' &&
+              (newMsg.content.includes('Relevo Silencioso') ||
+               newMsg.content.includes('Relevo Solicitado') ||
+               newMsg.content.includes('Asesor humano'));
+
+            if (isHandoffNotice && newMsg.contact_id) {
+              triggerAlert({
+                id: newMsg.contact_id,
+                name: 'Relevo Requerido',
+                phone: '',
+                timestamp: Date.now(),
+                type: 'handoff',
+              });
+            }
+          }
           syncUnattended();
         }
       )
@@ -267,23 +361,36 @@ export function HandoffAlertNotifier({
   const triggerAlert = (alert: AlertData) => {
     const isHandoff = alert.type === 'handoff';
 
-    // 1. Sonido
+    // 1. Sonido armónico de notificación (garantizado aun en segundo plano)
     playChimeSound(isHandoff);
 
-    // 2. Notificación push si está autorizada
+    // 2. Notificación push de escritorio con persistencia y acción directa de 1 clic
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
         const title = isHandoff
           ? '🚨 Synqo CRM: Relevo Humano Solicitado'
           : '🔔 Synqo CRM: Nuevo Lead Asignado';
         const body = isHandoff
-          ? `${alert.name} (${alert.phone}) necesita atención inmediata de un asesor humano.`
-          : `Se te ha asignado el lead ${alert.name} (${alert.phone}).`;
+          ? `${alert.name} ${alert.phone ? `(${alert.phone})` : ''} necesita atención inmediata de un asesor humano.`
+          : `Se te ha asignado el lead ${alert.name} ${alert.phone ? `(${alert.phone})` : ''}.`;
 
-        new Notification(title, {
+        const notif = new Notification(title, {
           body,
           icon: '/favicon.ico',
+          tag: `handoff-${alert.id}`,
+          requireInteraction: true,
         });
+
+        notif.onclick = () => {
+          window.focus();
+          notif.close();
+          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/inbox')) {
+            window.history.pushState({ contactId: alert.id }, '', `/inbox/${alert.id}`);
+            window.dispatchEvent(new CustomEvent('synqo-select-contact', { detail: alert.id }));
+          } else {
+            router.push(`/inbox/${alert.id}`);
+          }
+        };
       } catch (e) {
         console.warn('[Push Notification] Error mostrando notificación:', e);
       }
@@ -370,7 +477,12 @@ export function HandoffAlertNotifier({
                     <button
                       onClick={() => {
                         dismissAlert(alert.id);
-                        router.push(`/inbox/${alert.id}`);
+                        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/inbox')) {
+                          window.history.pushState({ contactId: alert.id }, '', `/inbox/${alert.id}`);
+                          window.dispatchEvent(new CustomEvent('synqo-select-contact', { detail: alert.id }));
+                        } else {
+                          router.push(`/inbox/${alert.id}`);
+                        }
                       }}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold text-xs rounded-lg transition shadow-md cursor-pointer text-white ${
                         isHandoff
@@ -477,7 +589,14 @@ export function HandoffAlertNotifier({
 
               <div className="flex items-center gap-2 pt-1">
                 <button
-                  onClick={() => router.push(`/inbox/${latestUnattended.id}`)}
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/inbox')) {
+                      window.history.pushState({ contactId: latestUnattended.id }, '', `/inbox/${latestUnattended.id}`);
+                      window.dispatchEvent(new CustomEvent('synqo-select-contact', { detail: latestUnattended.id }));
+                    } else {
+                      router.push(`/inbox/${latestUnattended.id}`);
+                    }
+                  }}
                   className="flex-1 inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-[#0052FF] hover:bg-[#0047E0] font-semibold text-xs text-white rounded-xl shadow-xs transition cursor-pointer"
                 >
                   <MessageSquare className="w-3.5 h-3.5" />

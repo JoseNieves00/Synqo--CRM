@@ -104,6 +104,11 @@ export async function staffLogin(companyCode: string, accessPin: string) {
     throw new Error('La cuenta de esta empresa se encuentra suspendida.');
   }
 
+  // 🛡️ REGLA DE MÓDULO: Bloquear acceso si staff_mobile_portal está desactivado por Super Admin
+  if (org.enabled_modules?.staff_mobile_portal === false) {
+    throw new Error('El portal móvil de colaboradores está deshabilitado para esta empresa.');
+  }
+
   // 2. Buscar colaborador por PIN y organización
   const { data: spec, error: specErr } = await supabaseAdmin
     .from('specialists')
@@ -164,8 +169,8 @@ export async function getStaffSession(): Promise<StaffSession | null> {
       .eq('id', session.specialistId)
       .maybeSingle();
 
-    if (!spec || !spec.is_active || spec.approval_status !== 'approved') {
-      // Destruir cookie si el colaborador fue desactivado o revocado por el admin
+    if (!spec || !spec.is_active || spec.approval_status !== 'approved' || (spec.organization as any)?.enabled_modules?.staff_mobile_portal === false) {
+      // Destruir cookie si el colaborador fue desactivado o el módulo fue apagado por el super admin
       cookieStore.delete(STAFF_COOKIE_NAME);
       return null;
     }
@@ -798,6 +803,11 @@ export async function staffLoginWithPhone(input: {
     .select('name, company_code, enabled_modules, industry_preset')
     .eq('id', spec.organization_id)
     .single();
+
+  // 🛡️ REGLA DE MÓDULO: Bloquear acceso si staff_mobile_portal está desactivado por Super Admin
+  if (org?.enabled_modules?.staff_mobile_portal === false) {
+    throw new Error('El portal móvil de colaboradores está deshabilitado para esta empresa.');
+  }
 
   const sessionData: StaffSession = {
     specialistId: spec.id,

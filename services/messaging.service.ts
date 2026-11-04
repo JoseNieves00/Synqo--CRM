@@ -131,6 +131,55 @@ export class MessagingService {
   }
 
   /**
+   * Envía un mensaje multimedia (imagen) enrutándolo al proveedor activo (Meta o Evolution API).
+   */
+  static async sendMediaMessage({
+    organization,
+    to,
+    mediaUrl,
+    caption,
+    mediaType = 'image',
+    fileName,
+  }: {
+    organization: MessagingOrganization;
+    to: string;
+    mediaUrl: string;
+    caption?: string;
+    mediaType?: 'image' | 'document' | 'video' | 'audio';
+    fileName?: string;
+  }): Promise<string> {
+    const provider = organization.whatsapp_provider || 'meta';
+
+    if (provider === 'evolution') {
+      const evoConfig = this.resolveEvolutionConfig(organization);
+      return await EvolutionService.sendMediaMessage({
+        apiUrl: evoConfig.apiUrl,
+        apiKey: evoConfig.apiKey,
+        instanceName: evoConfig.instanceName,
+        to,
+        mediaUrl,
+        caption,
+        mediaType,
+        fileName,
+      });
+    }
+
+    // Meta Cloud API
+    if (!organization.whatsapp_phone_number_id || !organization.whatsapp_access_token) {
+      throw new Error('Credenciales de WhatsApp Cloud API no configuradas en la plataforma.');
+    }
+
+    const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+    return await WhatsAppService.sendImageMessage({
+      phoneNumberId: organization.whatsapp_phone_number_id,
+      accessToken: decryptedToken,
+      to,
+      imageUrl: mediaUrl,
+      caption,
+    });
+  }
+
+  /**
    * Envía botones interactivos de 1-toque al proveedor activo.
    */
   static async sendInteractiveButtonsMessage({

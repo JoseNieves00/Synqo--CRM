@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -14,7 +14,7 @@ import {
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
-import { getUnattendedHandoffs } from '@/app/actions/chat';
+import { getUnattendedHandoffs, getContactMessages } from '@/app/actions/chat';
 import { importRecentEvolutionChats } from '@/app/actions/evolution';
 
 interface ContactItem {
@@ -70,8 +70,129 @@ export function InboxView({
 }: InboxViewProps) {
   const router = useRouter();
   const [contactList, setContactList] = useState<ContactItem[]>(contacts);
-  const [messageList, setMessageList] = useState<MessageItem[]>(messages);
   const [search, setSearch] = useState('');
+
+  // Contacto activo y caché de mensajes local para transiciones 0ms ultra-suaves
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(
+    activeContact?.id || (contacts.length > 0 ? contacts[0].id : null)
+  );
+  const messagesCacheRef = useRef<Record<string, MessageItem[]>>({});
+  const [messagesCache, setMessagesCache] = useState<Record<string, MessageItem[]>>(() => {
+    if (activeContact?.id && messages && messages.length > 0) {
+      return { [activeContact.id]: messages };
+    }
+    return {};
+  });
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+  // Inicializar caché de mensajes iniciales
+  useEffect(() => {
+    if (activeContact?.id && messages && messages.length > 0) {
+      messagesCacheRef.current[activeContact.id] = messages;
+      setMessagesCache((prev) => ({
+        ...prev,
+        [activeContact.id]: messages,
+      }));
+    }
+  }, [activeContact?.id, messages]);
+
+  // Selección fluida en cliente: 0ms si ya está en caché, sin recargar la página entera
+  const handleSelectContact = useCallback(async (targetId: string, pushState = true) => {
+    if (!targetId) return;
+    setSelectedContactId(targetId);
+
+    if (pushState && typeof window !== 'undefined') {
+      window.history.pushState({ contactId: targetId }, '', `/inbox/${targetId}`);
+    }
+
+    // Si ya los tenemos en memoria, no hacemos ninguna petición (0ms de latencia)
+    if (messagesCacheRef.current[targetId]) {
+      return;
+    }
+
+    // Si aún no se han cargado, solicitamos únicamente los mensajes de este contacto
+    setIsLoadingMessages(true);
+    try {
+      const fetched = await getContactMessages(targetId);
+      messagesCacheRef.current[targetId] = fetched;
+      setMessagesCache((prev) => ({
+        ...prev,
+        [targetId]: fetched,
+      }));
+    } catch (err) {
+      console.error('[InboxView] Error cargando mensajes:', err);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, []);
+
+  // Agregar mensaje optimista al chat activo sin recarga
+  const handleOptimisticMessage = useCallback((msg: MessageItem) => {
+    if (!selectedContactId) return;
+    const current = messagesCacheRef.current[selectedContactId] || [];
+    const updated = [...current, msg];
+    messagesCacheRef.current[selectedContactId] = updated;
+    setMessagesCache((prev) => ({
+      ...prev,
+      [selectedContactId]: updated,
+    }));
+  }, [selectedContactId]);
+
+  // Actualizar datos del contacto de forma reactiva local (IA toggle, reasignación, etc.)
+  const handleContactUpdate = useCallback((updatedFields: Partial<ContactItem>) => {
+    if (!selectedContactId) return;
+    setContactList((prev) =>
+      prev.map((c) => (c.id === selectedContactId ? { ...c, ...updatedFields } : c))
+    );
+  }, [selectedContactId]);
+
+  // Navegación nativa adelante/atrás del navegador sin recargas de página
+  useEffect(() => {
+    const handlePopState = () => {
+      if (typeof window === 'undefined') return;
+      const pathname = window.location.pathname;
+      const match = pathname.match(/\/inbox\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        handleSelectContact(match[1], false);
+      } else if (pathname === '/inbox') {
+        if (contactList.length > 0) {
+          handleSelectContact(contactList[0].id, false);
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [contactList, handleSelectContact]);
+
+  // Evento personalizado para selección desde notificaciones flotantes (sin recarga)
+  useEffect(() => {
+    const handleCustomSelect = (e: any) => {
+      const contactId = e.detail;
+      if (contactId) {
+        handleSelectContact(contactId, true);
+      }
+    };
+    const handleDeleted = (e: any) => {
+      const deletedId = e.detail;
+      setContactList((prev) => {
+        const remaining = prev.filter((c) => c.id !== deletedId);
+        if (selectedContactId === deletedId && remaining.length > 0) {
+          handleSelectContact(remaining[0].id, true);
+        }
+        return remaining;
+      });
+    };
+
+    window.addEventListener('synqo-select-contact', handleCustomSelect);
+    window.addEventListener('synqo-chat-deleted', handleDeleted);
+    return () => {
+      window.removeEventListener('synqo-select-contact', handleCustomSelect);
+      window.removeEventListener('synqo-chat-deleted', handleDeleted);
+    };
+  }, [selectedContactId, handleSelectContact]);
 
   const isAdmin = currentUserRole === 'admin' || currentUserRole === 'supervisor';
 
@@ -147,31 +268,41 @@ export function InboxView({
     setContactList(contacts);
   }, [contacts]);
 
+  // Suscripción Realtime a mensajes de Supabase para el contacto activo
   useEffect(() => {
-    setMessageList(messages);
-  }, [messages]);
-
-  // Suscripción Realtime a mensajes de Supabase
-  useEffect(() => {
-    if (!activeContact?.id) return;
+    if (!selectedContactId) return;
 
     const supabase = createClient();
     const channel = supabase
-      .channel(`inbox-messages-${activeContact.id}`)
+      .channel(`inbox-messages-${selectedContactId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `contact_id=eq.${activeContact.id}`,
+          filter: `contact_id=eq.${selectedContactId}`,
         },
         (payload) => {
           const newMsg = payload.new as MessageItem;
-          setMessageList((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
+          const current = messagesCacheRef.current[selectedContactId] || [];
+          if (!current.some((m) => m.id === newMsg.id)) {
+            const updated = [...current, newMsg];
+            messagesCacheRef.current[selectedContactId] = updated;
+            setMessagesCache((prev) => ({
+              ...prev,
+              [selectedContactId]: updated,
+            }));
+          }
+
+          // Actualizar hora de interacción en la columna izquierda
+          setContactList((prev) =>
+            prev.map((c) =>
+              c.id === selectedContactId
+                ? { ...c, last_interaction_at: newMsg.created_at }
+                : c
+            )
+          );
         }
       )
       .subscribe();
@@ -179,7 +310,7 @@ export function InboxView({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeContact?.id]);
+  }, [selectedContactId]);
 
   // Suscripción Realtime a actualización de contactos (asignaciones, IA activa, relevos)
   useEffect(() => {
@@ -268,6 +399,16 @@ export function InboxView({
     return true;
   });
 
+  const currentActiveContact =
+    contactList.find((c) => c.id === selectedContactId) ||
+    (activeContact?.id === selectedContactId ? activeContact : null) ||
+    (contactList.length > 0 ? contactList[0] : null);
+
+  const currentMessages =
+    (selectedContactId && messagesCache[selectedContactId]) ||
+    (currentActiveContact?.id && messagesCache[currentActiveContact.id]) ||
+    [];
+
   return (
     <div className="flex h-[calc(100vh-80px)] gap-3 overflow-hidden">
       {/* Columna Izquierda: Directorio de Leads */}
@@ -301,9 +442,8 @@ export function InboxView({
                 buttonLabel="Nuevo Lead"
                 onSuccess={(id) => {
                   if (id) {
-                    router.push(`/inbox/${id}`);
+                    handleSelectContact(id);
                   }
-                  router.refresh();
                 }}
               />
             </div>
@@ -542,7 +682,7 @@ export function InboxView({
             </div>
           ) : (
             filteredContacts.map((c) => {
-              const isActive = activeContact?.id === c.id;
+              const isActive = selectedContactId === c.id;
               const isMine = c.assigned_to === currentUserId;
               const assignedUser = teamMembers.find((m) => m.id === c.assigned_to);
               const isUnattended = unattendedIds.has(c.id);
@@ -553,10 +693,16 @@ export function InboxView({
               });
 
               return (
-                <Link
+                <a
                   key={c.id}
                   href={`/inbox/${c.id}`}
-                  className={`p-3 block transition cursor-pointer relative border-l-2 ${
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && e.button === 0) {
+                      e.preventDefault();
+                      handleSelectContact(c.id);
+                    }
+                  }}
+                  className={`p-3 block transition cursor-pointer relative border-l-2 select-none ${
                     isActive
                       ? 'bg-blue-50/70 dark:bg-[#0052FF]/10 border-l-[#0052FF]'
                       : isUnattended
@@ -642,7 +788,7 @@ export function InboxView({
                       </span>
                     )}
                   </div>
-                </Link>
+                </a>
               );
             })
           )}
@@ -651,12 +797,14 @@ export function InboxView({
 
       {/* Columna Derecha: Ventana de Chat */}
       <div className="flex-1 min-w-0 h-full">
-        {activeContact ? (
+        {currentActiveContact ? (
           <ChatWindow
-            key={activeContact.id}
-            contact={contactList.find((c) => c.id === activeContact.id) || activeContact}
-            messages={messageList}
-            onOptimisticMessage={(msg) => setMessageList((prev) => [...prev, msg])}
+            key={currentActiveContact.id}
+            contact={currentActiveContact}
+            messages={currentMessages}
+            isLoadingMessages={isLoadingMessages && currentMessages.length === 0}
+            onOptimisticMessage={handleOptimisticMessage}
+            onContactUpdate={handleContactUpdate}
             customTemplates={customTemplates}
             whatsappProvider={whatsappProvider}
             currentUserId={currentUserId}

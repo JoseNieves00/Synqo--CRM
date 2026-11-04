@@ -11,7 +11,7 @@ import { MustChangePasswordModal } from '@/components/profile/MustChangePassword
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
 import { SuspendedOrganizationModal } from '@/components/billing/SuspendedOrganizationModal';
-import { SupportModal } from '@/components/support/SupportModal';
+import { SupportModal, SupportHeaderButton } from '@/components/support/SupportModal';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
 
 export const dynamic = 'force-dynamic';
@@ -66,8 +66,12 @@ export default async function DashboardLayout({
           </div>
         </div>
 
-        {/* Menú de Navegación Principal Reactivo con Prefetching */}
-        <SidebarNav isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} />
+        {/* Menú de Navegación Principal Reactivo con Prefetching y Control de Módulos */}
+        <SidebarNav
+          isSuperAdmin={isSuperAdmin}
+          isAdmin={isAdmin}
+          enabledModules={current?.organization?.enabled_modules}
+        />
 
         {/* Estado del Servicio & Suscripción */}
         <div className="p-3 mx-3 mb-2 rounded-xl bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
@@ -138,7 +142,7 @@ export default async function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Espacio limpio para acciones globales o botón de ayuda */}
+            <SupportHeaderButton />
           </div>
         </header>
 

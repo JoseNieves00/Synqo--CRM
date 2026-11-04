@@ -79,6 +79,58 @@ export class WhatsAppService {
   }
 
   /**
+   * Envía una imagen con caption opcional a través de Meta WhatsApp Cloud API.
+   */
+  static async sendImageMessage({
+    phoneNumberId,
+    accessToken,
+    to,
+    imageUrl,
+    caption,
+  }: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    imageUrl: string;
+    caption?: string;
+  }): Promise<string> {
+    const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
+
+    const bodyPayload: any = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'image',
+      image: {
+        link: imageUrl,
+      },
+    };
+
+    if (caption && caption.trim()) {
+      bodyPayload.image.caption = caption.trim();
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bodyPayload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[WHATSAPP API SEND IMAGE ERROR]', errorData);
+      throw new Error(`WhatsApp API Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.messages?.[0]?.id || '';
+  }
+
+  /**
    * Envía un mensaje interactivo con botones de respuesta rápida (Quick Reply Buttons).
    * Ideal para confirmación de citas con un solo toque: [✓ Confirmar] o [↻ Reprogramar].
    */

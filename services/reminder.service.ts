@@ -90,6 +90,12 @@ export class ReminderService {
       result.errors.push(`Error consultando citas no confirmadas a 8h: ${expErr.message}`);
     } else if (expiredAppointments && expiredAppointments.length > 0) {
       for (const appt of expiredAppointments) {
+        // 🛡️ REGLA DE MÓDULO: No auto-cancelar si anti_no_show está desactivado por el Super Admin
+        const orgModules = (appt.organization as any)?.enabled_modules;
+        if (orgModules && orgModules.anti_no_show === false) {
+          continue;
+        }
+
         result.processedCount++;
         try {
           // 1. Marcar cita como cancelada por expiración
@@ -194,6 +200,12 @@ export class ReminderService {
       result.errors.push(`Error consultando citas para recordatorio: ${remErr.message}`);
     } else if (upcomingForReminder && upcomingForReminder.length > 0) {
       for (const appt of upcomingForReminder) {
+        // 🛡️ REGLA DE MÓDULO: No enviar recordatorios automáticos si anti_no_show está desactivado por el Super Admin
+        const orgModules = (appt.organization as any)?.enabled_modules;
+        if (orgModules && orgModules.anti_no_show === false) {
+          continue;
+        }
+
         result.processedCount++;
 
         // 🛡️ REGLA OPERATIVA DE RESPETO Y CURFEW NOCTURNO:

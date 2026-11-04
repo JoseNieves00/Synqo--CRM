@@ -929,7 +929,7 @@ export function SettingsForm({
           </button>
         )}
 
-        {(enabledModules.staff_mobile_portal || (specialistsData && specialistsData.length > 0)) && (
+        {Boolean(enabledModules.staff_mobile_portal) && (
           <button
             type="button"
             onClick={() => setActiveTab('specialists')}
@@ -944,7 +944,7 @@ export function SettingsForm({
           </button>
         )}
 
-        {(enabledModules.physical_rooms || (roomsData && roomsData.length > 0)) && (
+        {Boolean(enabledModules.physical_rooms) && (
           <button
             type="button"
             onClick={() => setActiveTab('rooms')}
@@ -960,7 +960,7 @@ export function SettingsForm({
         )}
       </div>
 
-      {activeTab === 'specialists' ? (
+      {activeTab === 'specialists' && enabledModules.staff_mobile_portal ? (
         <SpecialistsTab
           specialists={specialistsData || []}
           organizationId={teamData?.organization.id || ''}
@@ -968,7 +968,7 @@ export function SettingsForm({
           companyName={initialData.orgName || 'Mi Empresa'}
           specialistLabel={initialData.specialistLabel || 'Colaborador'}
         />
-      ) : activeTab === 'rooms' ? (
+      ) : activeTab === 'rooms' && enabledModules.physical_rooms ? (
         <RoomsTab
           rooms={roomsData || []}
           organizationId={teamData?.organization.id || ''}

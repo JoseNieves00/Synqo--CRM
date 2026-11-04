@@ -475,6 +475,58 @@ export class EvolutionService {
   }
 
   /**
+   * Envía un archivo multimedia (imagen, foto o documento) con caption opcional a través de Evolution API v2.
+   * Endpoint oficial: POST /message/sendMedia/{instance}
+   */
+  static async sendMediaMessage({
+    apiUrl,
+    apiKey,
+    instanceName,
+    to,
+    mediaUrl,
+    caption,
+    mediaType = 'image',
+    fileName = 'imagen.jpg',
+  }: EvolutionCredentials & {
+    to: string;
+    mediaUrl: string;
+    caption?: string;
+    mediaType?: 'image' | 'document' | 'video' | 'audio';
+    fileName?: string;
+  }): Promise<string> {
+    const baseUrl = this.resolveBaseUrl(apiUrl);
+    const cleanInstance = this.sanitizeInstanceName(instanceName);
+    let cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
+    if (!cleanTo.includes('@') && cleanTo.length >= 14 && !cleanTo.startsWith('55') && !cleanTo.startsWith('52') && !cleanTo.startsWith('57')) {
+      cleanTo = `${cleanTo}@lid`;
+    }
+    const url = `${baseUrl}/message/sendMedia/${cleanInstance}`;
+
+    const payload: any = {
+      number: cleanTo,
+      mediatype: mediaType,
+      media: mediaUrl,
+      caption: caption || '',
+      fileName: fileName,
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.buildHeaders(apiKey),
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[EVOLUTION SEND MEDIA ERROR]', errorData);
+      throw new Error(`Evolution API Send Media Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.key?.id || data.messageId || data.id || '';
+  }
+
+  /**
    * Envía opciones interactivas o realiza degradación elegante a texto enriquecido con opciones numeradas.
    */
   static async sendInteractiveButtonsMessage({

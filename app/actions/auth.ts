@@ -158,7 +158,7 @@ export async function getCurrentUserAndOrg() {
     // Leer organización con supabaseAdmin (con fallback si falta alguna columna opcional)
     let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_phone_connected'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_phone_connected, enabled_modules'
       )
       .eq('id', profile.organization_id)
       .single();
@@ -166,7 +166,7 @@ export async function getCurrentUserAndOrg() {
     if (orgError && (orgError.message?.includes('whatsapp_templates') || orgError.message?.includes('cal_com_enabled') || orgError.message?.includes('ai_tokens') || orgError.message?.includes('whatsapp_provider'))) {
       const retry = await (supabaseAdmin.from('organizations') as any)
         .select(
-          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data'
+          'id, name, subscription_status, plan_type, max_users, is_active, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data, enabled_modules'
         )
         .eq('id', profile.organization_id)
         .single();

@@ -76,6 +76,13 @@ export class AppointmentService {
       .single();
 
     const settings = (org?.appointment_settings as any) || {};
+    const modules = (org?.enabled_modules as any) || {};
+
+    // 🛡️ REGLA DE MÓDULO: Si el módulo de calendario nativo está apagado, no hay cupos
+    if (modules.native_calendar === false) {
+      return [];
+    }
+
     const timeZone = settings.timezone || 'America/Bogota';
     const offsetStr = getTimezoneOffsetString(timeZone);
     const bufferMinutes = Number(settings.buffer_minutes || 0);
@@ -132,7 +139,6 @@ export class AppointmentService {
       .gte('end_time', dayStartISO);
 
     // 7. Cargar salones físicos activos si el módulo está habilitado
-    const modules = (org?.enabled_modules as any) || {};
     const requiresRooms = !!modules.physical_rooms;
     let rooms: Array<{ id: string; name: string; capacity: number }> = [];
 
@@ -328,6 +334,17 @@ export class AppointmentService {
 
     const start = new Date(startTime);
     const end = params.endTime ? new Date(params.endTime) : new Date(start.getTime() + durationMinutes * 60 * 1000);
+
+    // 🛡️ REGLA DE MÓDULO: Bloquear creación de citas si native_calendar está apagado
+    const { data: orgModuleData } = await supabaseAdmin
+      .from('organizations')
+      .select('enabled_modules')
+      .eq('id', organizationId)
+      .single();
+
+    if ((orgModuleData?.enabled_modules as any)?.native_calendar === false) {
+      throw new Error('MODULE_DISABLED: El módulo de agenda y citas se encuentra deshabilitado para esta empresa.');
+    }
 
     // 🛡️ REGLA OPERATIVA ANTI-ACAPARAMIENTO (DoS de Agenda vía WhatsApp):
     // Un contacto no puede tener más de 2 citas futuras activas simultáneas sin previa atención.

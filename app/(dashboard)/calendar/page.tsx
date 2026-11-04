@@ -1,5 +1,6 @@
 import React from 'react';
 import dynamicImport from 'next/dynamic';
+import { redirect } from 'next/navigation';
 import { getCalendarData } from '@/app/actions/calendar-admin';
 
 export const dynamic = 'force-dynamic';
@@ -59,6 +60,11 @@ const CalendarViewClient = dynamicImport(
 
 export default async function CalendarPage() {
   const data = await getCalendarData();
+
+  // 🛡️ REGLA DE MÓDULO: Si el Super Admin apagó el módulo de calendario, denegar acceso
+  if (data.organization?.enabled_modules?.native_calendar === false) {
+    redirect('/dashboard');
+  }
 
   return (
     <CalendarViewClient

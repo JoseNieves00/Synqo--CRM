@@ -6,6 +6,7 @@ import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/wha
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
+import { formatImageMessageContent } from '@/lib/media/format';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -191,6 +192,123 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
 }
 
 /**
+ * Sube un archivo multimedia a Supabase Storage (bucket 'chat-media')
+ * con validación de tipo MIME y tamaño máximo de 10 MB.
+ */
+export async function uploadChatMedia(formData: FormData): Promise<{ url: string }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const file = formData.get('file') as File;
+  if (!file) throw new Error('No se recibió ningún archivo.');
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('El archivo supera el tamaño máximo permitido de 10 MB.');
+  }
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error('Solo se permiten imágenes en formato JPG, PNG, WEBP o GIF.');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id || 'general';
+  const fileExt = file.name.split('.').pop() || 'jpg';
+  const fileName = `${orgId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from('chat-media')
+    .upload(fileName, buffer, {
+      contentType: file.type,
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.error('[STORAGE UPLOAD ERROR]', uploadError);
+    throw new Error(`Error al subir imagen: ${uploadError.message}`);
+  }
+
+  const { data: publicData } = supabaseAdmin.storage
+    .from('chat-media')
+    .getPublicUrl(fileName);
+
+  return { url: publicData.publicUrl };
+}
+
+/**
+ * Envía una imagen manual por un agente humano desde el CRM a WhatsApp.
+ * Silencia la IA automáticamente (Human Takeover).
+ */
+export async function sendAgentMediaMessage(contactId: string, mediaUrl: string, caption?: string) {
+  const supabase = createServerSupabaseClient();
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Perfil u organización no encontrada');
+
+  const { data: contact, error: contactError } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, phone, custom_fields, organization_id, channel, last_interaction_at')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (contactError || !contact) throw new Error('Contacto no encontrado o acceso denegado');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
+    .eq('id', orgId)
+    .single();
+
+  if (!org) throw new Error('Organización no encontrada.');
+
+  const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
+
+  // 1. Despachar imagen a WhatsApp
+  const messageId = await MessagingService.sendMediaMessage({
+    organization: org,
+    to: targetRecipient,
+    mediaUrl,
+    caption: caption || undefined,
+  });
+
+  // 2. Silenciar IA (Human Takeover) y actualizar última interacción
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      is_ai_active: false,
+      last_interaction_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
+  // 3. Persistir en la tabla messages
+  const formattedContent = formatImageMessageContent(mediaUrl, caption);
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    sender_type: 'agent_manual',
+    content: formattedContent,
+    meta_message_id: messageId || null,
+  });
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+}
+
+/**
  * Conmuta manualmente el switch de IA para un contacto específico.
  */
 export async function toggleContactAi(contactId: string, newState: boolean) {
@@ -291,6 +409,45 @@ export async function getUnattendedHandoffs(): Promise<Array<{
     console.warn('[getUnattendedHandoffs] Red o conexión temporal con Supabase:', err?.message || err);
     return [];
   }
+}
+
+/**
+ * Obtiene los mensajes históricos de un contacto para la transición fluida en cliente del Inbox
+ */
+export async function getContactMessages(contactId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  // Validar pertenencia del contacto a la organización del usuario
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado o acceso denegado');
+
+  const { data: messages, error } = await (supabaseAdmin.from('messages') as any)
+    .select('id, sender_type, content, created_at')
+    .eq('contact_id', contactId)
+    .order('created_at', { ascending: true })
+    .limit(100);
+
+  if (error) {
+    console.error('[GET CONTACT MESSAGES ERROR]', error);
+    throw new Error('Error al cargar mensajes del contacto');
+  }
+
+  return messages || [];
 }
 
 import {

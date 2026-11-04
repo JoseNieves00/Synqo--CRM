@@ -27,6 +27,13 @@ export function SupportModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'copilot' | 'report' | 'history'>('copilot');
 
+  // Escuchar evento global para abrir el modal desde el Header o Sidebar
+  useEffect(() => {
+    const handleOpenSupport = () => setIsOpen(true);
+    window.addEventListener('synqo-open-support', handleOpenSupport);
+    return () => window.removeEventListener('synqo-open-support', handleOpenSupport);
+  }, []);
+
   // Estado del Copilot de Ayuda
   const [copilotQuery, setCopilotQuery] = useState('');
   const [copilotLoading, setCopilotLoading] = useState(false);
@@ -167,18 +174,7 @@ export function SupportModal() {
 
   return (
     <>
-      {/* Botón Flotante Discreto en Esquina Inferior Derecha */}
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-slate-900 text-white hover:bg-black shadow-lg hover:shadow-xl transition-all duration-200 cursor-pointer border border-slate-700 font-medium text-xs group"
-        title="Centro de Ayuda & Soporte Técnico"
-      >
-        <LifeBuoy className="w-4 h-4 text-[#00D2FF] group-hover:rotate-45 transition-transform duration-300" />
-        <span className="hidden sm:inline">¿Ayuda o Problemas?</span>
-      </button>
-
-      {/* Modal Principal */}
+      {/* Modal Principal (Activado desde SupportHeaderButton en el Header) */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
@@ -560,6 +556,24 @@ export function SupportModal() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Botón de Acceso Limpio para el Header Superior
+ * Siempre accesible desde cualquier pantalla sin bloquear la vista de chat ni formularios.
+ */
+export function SupportHeaderButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new CustomEvent('synqo-open-support'))}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-[#131722] hover:bg-slate-200 dark:hover:bg-[#1A2030] border border-slate-200 dark:border-[#232A3B] transition cursor-pointer shadow-2xs"
+      title="Centro de Ayuda & Soporte Técnico"
+    >
+      <LifeBuoy className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+      <span className="hidden sm:inline">¿Ayuda o Problemas?</span>
+    </button>
   );
 }
 
