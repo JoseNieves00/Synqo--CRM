@@ -2,26 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil } from '@vercel/functions';
 import { checkRateLimit } from '@/lib/security/rate-limiter';
 import { sanitizeLeadMessage } from '@/lib/security/sanitize';
-import { verifyZapiWebhook, isValidMediaUrl } from '@/lib/security/verify-webhook';
+import { verifyEvolutionWebhook } from '@/lib/security/verify-webhook';
 import { decryptSecret } from '@/lib/security/encryption';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
+import { EvolutionService } from '@/services/evolution.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
 
 /**
- * 1. GET: Health-check y prueba de conectividad de webhook para Z-API.
+ * 1. GET: Health-check y prueba de conectividad de webhook para Evolution API.
  */
 export async function GET() {
-  return new NextResponse('Z-API Webhook Receptor Activo - Synqo CRM', {
+  return new NextResponse('Evolution API Webhook Receptor Activo - Synqo CRM', {
     status: 200,
     headers: { 'Content-Type': 'text/plain' },
   });
 }
 
 /**
- * 2. POST: Ingesta de eventos, mensajes y estados de Z-API (WhatsApp QR).
+ * 2. POST: Ingesta de eventos, mensajes y estados de Evolution API v2 (WhatsApp VPS).
  */
 export async function POST(request: NextRequest) {
   let payload: any;
@@ -31,144 +32,163 @@ export async function POST(request: NextRequest) {
     return new NextResponse('Bad Request: Invalid JSON', { status: 400 });
   }
 
-  // 1. Obtener el instanceId del cuerpo, query string o headers
+  // 1. Obtener el instanceName del cuerpo, query string o headers
   const { searchParams } = new URL(request.url);
-  const instanceId =
-    payload.instanceId ||
-    payload.instance_id ||
-    searchParams.get('instanceId') ||
-    searchParams.get('instance_id') ||
-    request.headers.get('x-instance-id');
+  const rawInstance =
+    payload.instance ||
+    payload.instanceName ||
+    payload.instance_name ||
+    searchParams.get('instance') ||
+    searchParams.get('instanceName') ||
+    searchParams.get('instance_name') ||
+    request.headers.get('x-instance-name') ||
+    request.headers.get('x-instance');
 
-  if (!instanceId || typeof instanceId !== 'string') {
-    console.warn('[Z-API WEBHOOK] Petición rechazada: falta instanceId');
-    return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
+  if (!rawInstance || typeof rawInstance !== 'string') {
+    console.warn('[EVOLUTION WEBHOOK] Petición rechazada: falta instanceName');
+    return NextResponse.json({ error: 'Missing instanceName' }, { status: 400 });
   }
+
+  const cleanInstance = EvolutionService.sanitizeInstanceName(rawInstance);
 
   // 2. Localizar la organización en Supabase
   const { data: organization } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, subscription_status, is_active, whatsapp_provider, zapi_instance_id, zapi_token, zapi_client_token, zapi_status, zapi_anti_ban_mode, zapi_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
-    .eq('zapi_instance_id', instanceId.trim())
+    .select(
+      'id, name, subscription_status, is_active, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider'
+    )
+    .eq('evolution_instance_name', cleanInstance)
     .maybeSingle();
 
   if (!organization) {
-    console.warn(`[Z-API WEBHOOK] No se encontró organización para instanceId: ${instanceId}`);
+    console.warn(`[EVOLUTION WEBHOOK] No se encontró organización para instanceName: ${cleanInstance}`);
     return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
   }
 
-  // 🛡️ VERIFICACIÓN CRIPTOGRÁFICA DE WEBHOOK (Anti-Suplantación de Z-API)
-  const providedSecret = searchParams.get('secret');
-  const providedClientToken =
-    request.headers.get('client-token') ||
-    request.headers.get('x-client-token') ||
-    payload.clientToken;
+  // 🛡️ VERIFICACIÓN CRIPTOGRÁFICA DE WEBHOOK (Anti-Suplantación de Evolution API)
+  const providedSecret =
+    searchParams.get('secret') ||
+    request.headers.get('authorization') ||
+    request.headers.get('x-webhook-secret');
 
-  const decryptedClientToken = organization.zapi_client_token
-    ? decryptSecret(organization.zapi_client_token)
-    : null;
-  const decryptedInstanceToken = organization.zapi_token
-    ? decryptSecret(organization.zapi_token)
+  const providedApiKey =
+    request.headers.get('apikey') ||
+    request.headers.get('x-api-key') ||
+    payload.apikey;
+
+  const decryptedApiKey = organization.evolution_api_key
+    ? decryptSecret(organization.evolution_api_key)
     : null;
 
-  const isAuthorized = verifyZapiWebhook({
-    instanceId: organization.zapi_instance_id,
+  const isAuthorized = verifyEvolutionWebhook({
+    instanceName: organization.evolution_instance_name,
     providedSecret,
-    providedClientToken,
-    decryptedClientToken,
-    decryptedInstanceToken,
+    providedApiKey,
+    decryptedApiKey,
   });
 
   if (!isAuthorized) {
-    console.error(`[SECURITY ALERT] Webhook Z-API rechazado: firma HMAC o Client-Token no coinciden para org "${organization.name}".`);
-    return new NextResponse('Unauthorized: Invalid Z-API webhook signature or token', { status: 401 });
+    console.error(`[SECURITY ALERT] Webhook Evolution API rechazado: firma HMAC o API Key no coinciden para org "${organization.name}".`);
+    return new NextResponse('Unauthorized: Invalid Evolution webhook signature or key', { status: 401 });
   }
 
   const orgId = organization.id;
+  const event = String(payload.event || '').toLowerCase();
 
   // 3. Manejo de Eventos de Estado (Conexión / Desconexión)
+  // Evolution API v2 envía 'connection.update'
   const isConnectionEvent =
-    payload.type === 'ConnectedCallback' ||
-    payload.type === 'connected' ||
-    payload.connected === true;
+    event === 'connection.update' ||
+    event === 'connection_update' ||
+    payload.type === 'connected';
 
-  const isDisconnectionEvent =
-    payload.type === 'DisconnectedCallback' ||
-    payload.type === 'disconnected' ||
-    payload.connected === false;
+  if (isConnectionEvent) {
+    const connData = payload.data || {};
+    const state = String(connData.state || '').toLowerCase();
+    const phone = connData.phone || connData.wuid?.replace(/[^0-9]/g, '') || null;
 
-  if (isConnectionEvent && !payload.messageId) {
-    console.log(`[Z-API STATUS] Instancia ${instanceId || organization.zapi_instance_id} CONECTADA exitosamente para org "${organization.name}".`);
-    await (supabaseAdmin.from('organizations') as any)
-      .update({
-        zapi_status: 'connected',
-        zapi_phone_connected: payload.phone || null,
-        zapi_last_heartbeat: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', orgId);
-
-    return NextResponse.json({ status: 'connection_status_updated' }, { status: 200 });
-  }
-
-  if (isDisconnectionEvent && !payload.messageId) {
-    console.warn(`[Z-API STATUS ALERTA] Instancia ${instanceId || organization.zapi_instance_id} DESCONECTADA para org "${organization.name}".`);
-    await (supabaseAdmin.from('organizations') as any)
-      .update({
-        zapi_status: 'disconnected',
-        zapi_last_heartbeat: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', orgId);
-
-    // 🛡️ NOTIFICACIÓN PROACTIVA AL ADMINISTRADOR (Resend)
-    const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
-      .select('email')
-      .eq('organization_id', orgId)
-      .eq('role', 'admin')
-      .maybeSingle();
-
-    if (adminProfile?.email) {
-      waitUntil(
-        NotificationService.sendChannelDisconnectedAlert({
-          adminEmail: adminProfile.email,
-          companyName: organization.name || 'Empresa Synqo',
-          provider: 'zapi',
-          reason: 'El celular comercial perdió conexión Wi-Fi, se apagó o WhatsApp cerró la sesión web de la instancia.',
+    if (state === 'open') {
+      console.log(`[EVOLUTION STATUS] Instancia "${cleanInstance}" CONECTADA exitosamente para org "${organization.name}".`);
+      await (supabaseAdmin.from('organizations') as any)
+        .update({
+          evolution_status: 'connected',
+          evolution_phone_connected: phone,
+          evolution_last_heartbeat: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         })
-      );
+        .eq('id', orgId);
+
+      return NextResponse.json({ status: 'connection_status_updated_open' }, { status: 200 });
     }
 
-    return NextResponse.json({ status: 'disconnection_status_updated' }, { status: 200 });
+    if (state === 'close') {
+      console.warn(`[EVOLUTION STATUS ALERTA] Instancia "${cleanInstance}" DESCONECTADA para org "${organization.name}".`);
+      await (supabaseAdmin.from('organizations') as any)
+        .update({
+          evolution_status: 'disconnected',
+          evolution_last_heartbeat: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', orgId);
+
+      // Notificación inmediata al administrador por correo (Resend)
+      const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
+        .select('email')
+        .eq('organization_id', orgId)
+        .eq('role', 'admin')
+        .maybeSingle();
+
+      if (adminProfile?.email) {
+        waitUntil(
+          NotificationService.sendChannelDisconnectedAlert({
+            adminEmail: adminProfile.email,
+            companyName: organization.name || 'Empresa Synqo',
+            provider: 'evolution',
+            reason: 'El celular comercial perdió conexión en el VPS, se apagó o WhatsApp cerró la sesión de la instancia.',
+          })
+        );
+      }
+
+      return NextResponse.json({ status: 'disconnection_status_updated_close' }, { status: 200 });
+    }
+
+    return NextResponse.json({ status: 'connection_event_processed' }, { status: 200 });
   }
 
-  // Ignorar mensajes de grupos si la configuración no los requiere
-  if (payload.isGroup) {
-    return NextResponse.json({ status: 'group_message_ignored' }, { status: 200 });
+  // 4. Manejo de Eventos de Mensajes (messages.upsert)
+  const isMessageUpsert =
+    event === 'messages.upsert' ||
+    event === 'messages_upsert' ||
+    payload.data?.key?.id;
+
+  if (!isMessageUpsert) {
+    return NextResponse.json({ status: 'ignored_unhandled_event' }, { status: 200 });
   }
 
-  const messageId = payload.messageId || payload.zaapId || payload.id || payload.wamid;
+  const messageData = payload.data || {};
+  const messageKey = messageData.key || {};
+  const remoteJid = String(messageKey.remoteJid || '');
 
-  // Extraer el teléfono del remitente o chat
-  let rawPhone =
-    payload.phone ||
-    payload.senderPhone ||
-    (payload.fromMe ? (payload.phone || payload.to) : payload.from) ||
-    '';
-
-  if (!rawPhone && payload.chatId && !payload.chatId.includes('@g.us')) {
-    rawPhone = payload.chatId.replace('@c.us', '').replace('@s.whatsapp.net', '');
+  // Ignorar estados de WhatsApp y mensajes de grupos
+  if (
+    remoteJid.includes('status@broadcast') ||
+    remoteJid.endsWith('@g.us') ||
+    messageKey.participant
+  ) {
+    return NextResponse.json({ status: 'group_or_status_ignored' }, { status: 200 });
   }
 
-  const cleanPhone = rawPhone.replace(/[^\d]/g, '');
+  const messageId = messageKey.id;
+  const cleanPhone = remoteJid.replace(/@s\.whatsapp\.net|@c\.us|@lid/g, '').replace(/[^\d]/g, '');
+
   if (!cleanPhone || !messageId) {
-    return NextResponse.json({ status: 'ignored_unrecognized_event' }, { status: 200 });
+    return NextResponse.json({ status: 'ignored_invalid_phone_or_id' }, { status: 200 });
   }
 
   const leadPhone = cleanPhone;
 
-  // 4. FILTRO CRÍTICO: Detección de Mensajes Propios (fromMe: true)
+  // 5. FILTRO CRÍTICO: Detección de Mensajes Propios (fromMe: true)
   // Permite la coexistencia natural bot-humano.
-  if (payload.fromMe === true) {
+  if (messageKey.fromMe === true) {
     // Verificar si este mensaje fue emitido por la IA o asesor desde Synqo
     const { data: existingMsg } = await supabaseAdmin
       .from('messages')
@@ -181,8 +201,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'bot_echo_ignored' }, { status: 200 });
     }
 
-    // Si NO fue enviado por Synqo, significa que el ASESOR HUMANO escribió directamente desde el celular
-    console.log(`[Z-API HUMAN TAKEOVER] Asesor intervino desde el celular en el chat con ${leadPhone}.`);
+    // Si NO fue enviado por Synqo, significa que el ASESOR HUMANO escribió directamente desde el celular físico
+    console.log(`[EVOLUTION HUMAN TAKEOVER] Asesor intervino desde el celular en el chat con ${leadPhone}.`);
 
     const { data: contact } = await supabaseAdmin
       .from('contacts')
@@ -202,12 +222,11 @@ export async function POST(request: NextRequest) {
         .eq('id', contact.id);
 
       // 2. Extraer el texto del mensaje enviado por el humano
+      const msgObj = messageData.message || {};
       const rawText =
-        payload.text?.message ||
-        payload.text ||
-        payload.message ||
-        payload.extendedTextMessage?.text ||
-        payload.buttonsResponseMessage?.message ||
+        msgObj.conversation ||
+        msgObj.extendedTextMessage?.text ||
+        msgObj.buttonsResponseMessage?.selectedDisplayText ||
         '[Mensaje enviado desde WhatsApp móvil]';
 
       // 3. Registrar el mensaje en el CRM para que el inbox quede perfectamente sincronizado en tiempo real
@@ -231,84 +250,71 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'human_intervention_recorded' }, { status: 200 });
   }
 
-  // 5. Rate Limiting por Remitente (Prevención de abusos)
+  // 6. Rate Limiting por Remitente (Prevención de abusos o ataques DoS)
   const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
   if (!rateLimitResult.success) {
     console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de mensajes.`);
     return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
   }
 
-  // 6. Extracción Robusta de Contenido del Mensaje
+  // 7. Extracción Robusta de Contenido del Mensaje
+  const msgObj = messageData.message || {};
   let rawContent = '';
-  if (typeof payload.text === 'string' && payload.text.trim()) {
-    rawContent = payload.text.trim();
-  } else if (payload.text?.message && typeof payload.text.message === 'string') {
-    rawContent = payload.text.message.trim();
-  } else if (typeof payload.message === 'string' && payload.message.trim()) {
-    rawContent = payload.message.trim();
-  } else if (payload.extendedTextMessage?.text) {
-    rawContent = payload.extendedTextMessage.text.trim();
-  } else if (payload.buttonsResponseMessage?.message) {
-    rawContent = payload.buttonsResponseMessage.message.trim();
-  } else if (payload.buttonsResponseMessage?.buttonId) {
-    rawContent = payload.buttonsResponseMessage.buttonId.trim();
-  } else if (payload.listResponseMessage?.title) {
-    rawContent = payload.listResponseMessage.title.trim();
-  } else if (payload.listResponseMessage?.singleSelectReply?.selectedRowId) {
-    rawContent = payload.listResponseMessage.singleSelectReply.selectedRowId.trim();
-  } else if (typeof payload.body === 'string' && payload.body.trim()) {
-    rawContent = payload.body.trim();
-  } else if (payload.audio?.audioUrl || payload.audio?.url || payload.voice?.audioUrl) {
-    // Nota de voz entrante vía Z-API con Whisper
+
+  if (typeof msgObj.conversation === 'string' && msgObj.conversation.trim()) {
+    rawContent = msgObj.conversation.trim();
+  } else if (msgObj.extendedTextMessage?.text) {
+    rawContent = msgObj.extendedTextMessage.text.trim();
+  } else if (msgObj.buttonsResponseMessage?.selectedButtonId) {
+    rawContent = msgObj.buttonsResponseMessage.selectedButtonId.trim();
+  } else if (msgObj.listResponseMessage?.singleSelectReply?.selectedRowId) {
+    rawContent = msgObj.listResponseMessage.singleSelectReply.selectedRowId.trim();
+  } else if (msgObj.audioMessage) {
+    // 🎙️ Nota de voz entrante vía Evolution API -> Transcripción con OpenAI Whisper
     try {
-      const audioUrl = payload.audio?.audioUrl || payload.audio?.url || payload.voice?.audioUrl;
-      // 🛡️ BLINDAJE ANTI-SSRF: Validar que el dominio provenga exclusivamente de Z-API o Meta CDN autorizados
-      if (!isValidMediaUrl(audioUrl)) {
-        console.warn('[SECURITY WARNING] Host de nota de voz no autorizado o intento de SSRF bloqueado:', audioUrl);
-        rawContent = '🎤 [Nota de voz recibida - audio externo bloqueado por seguridad]';
+      const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
+      const media = await EvolutionService.getBase64Audio({
+        apiUrl: organization.evolution_api_url,
+        apiKey: finalApiKey,
+        instanceName: cleanInstance,
+        messageId,
+      });
+
+      if (media?.base64) {
+        const audioBuffer = Buffer.from(media.base64, 'base64');
+        const transcription = await OpenAIService.transcribeAudio(
+          audioBuffer,
+          media.mimetype || 'audio/mp4'
+        );
+        rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
       } else {
-        const audioRes = await fetch(audioUrl);
-        if (audioRes.ok) {
-          const arrayBuf = await audioRes.arrayBuffer();
-          const transcription = await OpenAIService.transcribeAudio(
-            Buffer.from(arrayBuf),
-            payload.audio?.mimeType || 'audio/ogg'
-          );
-          rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
-        } else {
-          rawContent = '🎤 [Nota de voz recibida]';
-        }
+        rawContent = '🎤 [Nota de voz recibida]';
       }
     } catch (audioErr) {
-      console.warn('[Z-API AUDIO TRANSCRIPTION ERROR]', audioErr);
+      console.warn('[EVOLUTION AUDIO TRANSCRIPTION ERROR]', audioErr);
       rawContent = '🎤 [Nota de voz recibida]';
     }
-  } else if (payload.image?.imageUrl || payload.image?.url) {
-    const caption = payload.image?.caption || '';
+  } else if (msgObj.imageMessage) {
+    const caption = msgObj.imageMessage.caption || '';
     rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
-  } else if (payload.document?.documentUrl || payload.document?.url) {
-    const fileName = payload.document?.fileName || 'Archivo';
+  } else if (msgObj.documentMessage) {
+    const fileName = msgObj.documentMessage.fileName || 'Archivo';
     rawContent = `📄 [Documento recibido: ${fileName}]`;
-  } else if (payload.location) {
-    rawContent = `📍 [Ubicación compartida: lat ${payload.location.latitude}, lng ${payload.location.longitude}]`;
+  } else if (msgObj.locationMessage) {
+    rawContent = `📍 [Ubicación compartida: lat ${msgObj.locationMessage.degreesLatitude}, lng ${msgObj.locationMessage.degreesLongitude}]`;
   } else {
     rawContent = '[Mensaje no reproducible]';
   }
 
   const sanitizedContent = sanitizeLeadMessage(rawContent);
-  const leadName =
-    payload.senderName ||
-    payload.pushName ||
-    payload.chatName ||
-    payload.name ||
-    'Lead WhatsApp';
+  const leadName = messageData.pushName || 'Lead WhatsApp';
 
-  // 7. Blindaje de Rentabilidad (Estado de suscripción activo)
+  // 8. Blindaje de Rentabilidad (Estado de suscripción activo)
   const isSubscriptionActive =
     organization.is_active !== false &&
     (organization.subscription_status === 'active' || organization.subscription_status === 'trialing');
 
-  // 8. Deduplicación por messageId
+  // 9. Deduplicación por messageId
   const { data: existingMessage } = await supabaseAdmin
     .from('messages')
     .select('id')
@@ -319,7 +325,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
   }
 
-  // 9. Upsert del Contacto
+  // 10. Upsert del Contacto
   let contactId: string;
   let isAiActive = true;
 
@@ -385,7 +391,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 10. Persistir el Mensaje Entrante
+  // 11. Persistir el Mensaje Entrante
   const { data: insertedMsg } = await supabaseAdmin
     .from('messages')
     .insert({
@@ -398,12 +404,12 @@ export async function POST(request: NextRequest) {
     .select('id, created_at')
     .single();
 
-  // 11. Procesamiento Asíncrono de IA con waitUntil
+  // 12. Procesamiento Asíncrono de IA con waitUntil
   if (isSubscriptionActive && isAiActive) {
     waitUntil(
       (async () => {
         try {
-          // Anti-Burst Buffer (Debounce de 3.5 segundos)
+          // Anti-Burst Buffer (Debounce de 3.5 segundos para agrupar mensajes continuos)
           await new Promise((resolve) => setTimeout(resolve, 3500));
 
           if (insertedMsg?.id) {
@@ -417,14 +423,15 @@ export async function POST(request: NextRequest) {
               .maybeSingle();
 
             if (latestMsg && latestMsg.id !== insertedMsg.id) {
-              console.log(`[Z-API DEBOUNCE] Mensaje ${messageId} omitido; worker posterior atenderá la ráfaga.`);
+              console.log(`[EVOLUTION DEBOUNCE] Mensaje ${messageId} omitido; worker posterior atenderá la ráfaga.`);
               return;
             }
           }
 
           // Detección Determinística de Confirmación de Cita
           const isConfirmButton = rawContent.includes('btn_confirm_appt') || rawContent.includes('Confirmar Cita');
-          const confirmationPattern = /\b(s[ií]|confirmo|confirmad[ao]|confirmar|all[aá]\s+(estoy|nos\s+vemos|estar[eé])|asistir[eé]|listo\s+confirmo)\b/i;
+          const confirmationPattern =
+            /\b(s[ií]|confirmo|confirmad[ao]|confirmar|all[aá]\s+(estoy|nos\s+vemos|estar[eé])|asistir[eé]|listo\s+confirmo)\b/i;
           const isConfirmationText = confirmationPattern.test(sanitizedContent);
 
           if (isConfirmButton || isConfirmationText) {
@@ -484,12 +491,13 @@ export async function POST(request: NextRequest) {
               const currentHourMin = `${String(nowBogota.getHours()).padStart(2, '0')}:${String(nowBogota.getMinutes()).padStart(2, '0')}`;
               const currentDay = nowBogota.getDay() === 0 ? 7 : nowBogota.getDay();
               const dayAllowed = Array.isArray(bHours.days) ? bHours.days.includes(currentDay) : true;
-              const timeAllowed = currentHourMin >= (bHours.start || '00:00') && currentHourMin <= (bHours.end || '23:59');
+              const timeAllowed =
+                currentHourMin >= (bHours.start || '00:00') && currentHourMin <= (bHours.end || '23:59');
               isAfterHours = !dayAllowed || !timeAllowed;
             } catch {}
           }
 
-          // Procesar con motor de IA dual (Gemini Flash / OpenAI Backup) y herramientas nativas
+          // Procesar con motor de IA dual (Gemini Flash / OpenAI Backup)
           const aiResponseText = await OpenAIService.processLeadMessage({
             contactId,
             organizationId: orgId,
@@ -519,31 +527,12 @@ export async function POST(request: NextRequest) {
                 meta_message_id: outboundId,
                 channel: 'whatsapp',
               });
-
-              await supabaseAdmin
-                .from('contacts')
-                .update({
-                  last_interaction_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', contactId);
             } catch (sendErr: any) {
-              console.error('[Z-API OUTBOUND SEND ERROR]', sendErr);
-              const errMsg = sendErr?.message || '';
-              const isDisconnected =
-                errMsg.toLowerCase().includes('disconnected') ||
-                errMsg.toLowerCase().includes('405') ||
-                errMsg.toLowerCase().includes('desconectad');
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                sender_type: 'system',
-                content: `⚠️ [Alerta Z-API]: No se pudo entregar la respuesta de la IA (${isDisconnected ? 'Celular o instancia desconectada de WhatsApp' : 'Error de comunicación con Z-API'}). Revisa la conexión en Configuración.`,
-                channel: 'whatsapp',
-              });
+              console.error('[EVOLUTION AI REPLY DISPATCH FAILED]', sendErr);
             }
           }
         } catch (workerErr: any) {
-          console.error('[Z-API ASYNC WORKER ERROR]', workerErr);
+          console.error('[EVOLUTION ASYNC WORKER FAILED]', workerErr);
         }
       })()
     );
@@ -551,3 +540,4 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ status: 'success' }, { status: 200 });
 }
+

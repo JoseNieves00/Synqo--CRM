@@ -102,12 +102,12 @@ export class NotificationService {
   }
 
   /**
-   * Alerta inmediata cuando un canal de mensajería (WhatsApp Z-API o Meta) se desconecta o su token expira
+   * Alerta inmediata cuando un canal de mensajería (WhatsApp Evolution API o Meta) se desconecta o su token expira
    */
   static async sendChannelDisconnectedAlert(params: {
     adminEmail: string;
     companyName: string;
-    provider: 'zapi' | 'meta' | 'instagram';
+    provider: 'meta' | 'instagram' | 'evolution';
     reason?: string;
   }): Promise<void> {
     if (!resend) {
@@ -116,11 +116,12 @@ export class NotificationService {
     }
 
     try {
-      const channelLabel = params.provider === 'zapi'
-        ? 'WhatsApp Z-API (Celular desconectado)'
-        : params.provider === 'meta'
-        ? 'WhatsApp Cloud API (Token expirado/inválido)'
-        : 'Instagram Direct';
+      const channelLabel =
+        params.provider === 'evolution'
+          ? 'WhatsApp Evolution API (Celular desconectado en VPS)'
+          : params.provider === 'meta'
+          ? 'WhatsApp Cloud API (Token expirado/inválido)'
+          : 'Instagram Direct';
 
       await resend.emails.send({
         from: 'Synqo Infraestructura <alertas@synqo.dev>',

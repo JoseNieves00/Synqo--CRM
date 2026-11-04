@@ -165,22 +165,14 @@ Synqo cuenta con arquitectura desacoplada de mensajería dual. Dependiendo del m
    - Pulsa **"Verificar y Guardar"**.
 3. En **Administrar campos**, suscríbete al campo **`messages`**.
 
-### B. Z-API Express (Sesión Clonada / Código QR)
-1. En el panel de administración de **Z-API** (`admin.z-api.io`), selecciona la instancia y ve a la pestaña **Webhooks y configuración general**.
-2. Configura los siguientes campos con el endpoint unificado de Synqo:
-   - **Al recibir (`on-receive`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`  
-     *(🚨 ¡CRÍTICO! Aquí es donde entran los mensajes de los prospectos).*
-   - **Notificar todos los mensajes enviados por mí:** **ACTIVAR (Verde)**  
-     *(🚨 ¡OBLIGATORIO! Permite detectar cuando el dueño o asesor responde desde su celular físico para pausar la IA por 45 minutos y registrar el relevo humano en el CRM).*
-   - **Al desconectar (`on-disconnect`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
-   - **En la conexión (`on-connect`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
-   - **Recibir estado del mensaje (`on-message-status`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
-   - **En el envío (`on-send`):** `https://tudominio.com/api/webhooks/whatsapp/zapi`
-3. **Filtros de recepción recomendados:**
-   - **Ignorar mensajes grupales:** **ACTIVAR** (Evita que el bot responda en grupos de WhatsApp).
-   - **Ignora los mensajes de chat privados:** **DESACTIVAR** (Debe estar apagado para recibir chats 1 a 1 de clientes).
-4. **Seguridad (Client-Token):**
-   - En el menú lateral izquierdo de Z-API $\rightarrow$ **Seguridad** $\rightarrow$ Activa la tarjeta con el ícono de la llave 🗝️ y copia tu **Client-Token**. Pégalo en Synqo al aprovisionar o editar la empresa. (Requerido obligatoriamente por Z-API para generar el código QR y el código de emparejamiento telefónico).
+### B. Evolution API v2 (VPS Propio de la Empresa / WhatsApp Baileys)
+1. **Infraestructura:** Corre de forma centralizada en el VPS de la empresa (`EVOLUTION_API_URL` y `EVOLUTION_API_KEY`).
+2. **Autoconfiguración:** Synqo CRM registra y configura automáticamente los webhooks y las instancias de cada cliente con autenticación HMAC criptográfica.
+3. **Endpoint de Webhook:**
+   - **URL:** `https://tudominio.com/api/webhooks/whatsapp/evolution`
+   - **Eventos:** `CONNECTION_UPDATE` (estados de conexión) y `MESSAGES_UPSERT` (mensajes y notas de voz entrantes).
+4. **Relevo Humano:** Detecta automáticamente cuando un asesor interviene desde el celular físico (`fromMe: true`), pausando la IA y sincronizando el chat en tiempo real.
+5. **Notas de Voz:** Transcripción automática con OpenAI Whisper para audios enviados por prospectos.
 5. **Métodos de Vinculación para el Cliente Final:**
    - **Código QR:** Escaneo directo desde el monitor con rotación segura cada 20 segundos.
    - **Código por Teléfono (Pairing Code):** Generación de código de 8 dígitos para vincular el celular sin requerir cámara ni dos pantallas simultáneas.

@@ -87,6 +87,9 @@ Antes o justo después de desplegar, entra a tu proyecto en **Supabase → SQL E
 18. `20261030010000_add_dual_engine_tokens_and_backup.sql` (Métricas duales Gemini / OpenAI y cuota de backup)
 19. `20261030020000_add_zapi_whatsapp_provider.sql` (Soporte Z-API Express QR y protección anti-ban)
 20. `20261103010000_add_custom_labels_to_organizations.sql` (Nomenclatura multi-nicho personalizable)
+21. `20261103020000_add_soft_delete_to_contacts.sql` (Papelera y soft-delete de contactos)
+22. `20261104010000_add_evolution_whatsapp_provider.sql` (Soporte Evolution API v2 para VPS propio, QR, pairing code y sync)
+23. `20261104020000_purge_zapi_finalize_evolution.sql` (Depuración total de Z-API y consolidación Evolution API + Meta)
 
 ---
 
@@ -103,13 +106,12 @@ Una vez que Vercel termine el despliegue y te asigne tu dominio (ej. `https://cr
 3. En **Verify Token**, escribe el valor de `META_WEBHOOK_VERIFY_TOKEN`.
 4. En **Webhook fields**, suscríbete a `messages`.
 
-### B. Webhook de Z-API Express QR (si usas Z-API):
-1. En el panel de tu instancia Z-API (o en Configuración dentro de Synqo CRM).
-2. Configura la URL del Webhook a:
-   ```text
-   https://tu-dominio.com/api/webhooks/whatsapp/zapi
-   ```
-3. Habilita los eventos: `Al recibir mensaje`, `Al conectar`, `Al desconectar`.
+### B. Webhook de Evolution API v2 (VPS Propio):
+Synqo CRM autoconfigura los webhooks en el VPS automáticamente al vincular WhatsApp o guardar credenciales.
+La URL destino oficial en Synqo CRM es:
+```text
+https://tu-dominio.com/api/webhooks/whatsapp/evolution
+```
 
 ### C. Webhook de Meta Instagram Direct (opcional):
 1. En **Meta for Developers → Instagram → Configuration**.

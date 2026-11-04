@@ -25,10 +25,10 @@ interface CreateCompanyOptions {
   adminPassword: string;
   planType?: 'starter' | 'core' | 'pro' | 'enterprise';
   subscriptionStatus?: 'active' | 'trialing';
-  whatsappProvider?: 'meta' | 'zapi';
-  zapiInstanceId?: string;
-  zapiToken?: string;
-  zapiClientToken?: string;
+  whatsappProvider?: 'meta' | 'evolution';
+  evolutionApiUrl?: string;
+  evolutionApiKey?: string;
+  evolutionInstanceName?: string;
 }
 
 export async function provisionCompany({
@@ -38,10 +38,10 @@ export async function provisionCompany({
   adminPassword,
   planType = 'starter',
   subscriptionStatus = 'active',
-  whatsappProvider = 'meta',
-  zapiInstanceId,
-  zapiToken,
-  zapiClientToken,
+  whatsappProvider = 'evolution',
+  evolutionApiUrl,
+  evolutionApiKey,
+  evolutionInstanceName,
 }: CreateCompanyOptions) {
   console.log(`\n🏢 [SUPER ADMIN] Provisionando organización: "${companyName}"...`);
 
@@ -53,9 +53,9 @@ export async function provisionCompany({
       subscription_status: subscriptionStatus,
       plan_type: planToInsert,
       whatsapp_provider: whatsappProvider,
-      zapi_instance_id: zapiInstanceId?.trim() || null,
-      zapi_token: zapiToken?.trim() || null,
-      zapi_client_token: zapiClientToken?.trim() || null,
+      evolution_api_url: evolutionApiUrl?.trim() || null,
+      evolution_api_key: evolutionApiKey?.trim() || null,
+      evolution_instance_name: evolutionInstanceName?.trim() || null,
       system_prompt: `Eres un asesor comercial experto y empático de ${companyName}. Responde con cortesía en español, resuelve dudas sobre nuestros servicios y guía al cliente a agendar una cita mediante el calendario.`,
     })
     .select('id, name, subscription_status, plan_type, whatsapp_provider')

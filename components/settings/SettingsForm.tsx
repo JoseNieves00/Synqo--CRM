@@ -58,7 +58,7 @@ import { SpecialistsTab } from './SpecialistsTab';
 import { RoomsTab } from './RoomsTab';
 import { StructuredPromptWizard } from './StructuredPromptWizard';
 import { KnowledgeGapsList } from './KnowledgeGapsList';
-import { ZApiQrCard } from './ZApiQrCard';
+import { EvolutionQrCard } from './EvolutionQrCard';
 
 interface SettingsFormProps {
   initialData: {
@@ -87,14 +87,14 @@ interface SettingsFormProps {
     googleCalendarBlockBusy?: boolean;
     instagramAccountId?: string;
     hasInstagramToken?: boolean;
-    whatsappProvider?: 'meta' | 'zapi';
-    zapiInstanceId?: string;
-    hasZapiToken?: boolean;
-    hasZapiClientToken?: boolean;
-    zapiStatus?: 'connected' | 'disconnected' | 'connecting';
-    zapiPhoneConnected?: string;
-    zapiAntiBanMode?: boolean;
-    zapiMaxOutboundPerHour?: number;
+    whatsappProvider?: 'meta' | 'evolution';
+    evolutionApiUrl?: string;
+    evolutionInstanceName?: string;
+    hasEvolutionApiKey?: boolean;
+    evolutionStatus?: 'connected' | 'disconnected' | 'connecting';
+    evolutionPhoneConnected?: string;
+    evolutionAntiBanMode?: boolean;
+    evolutionMaxOutboundPerHour?: number;
     specialistLabel?: string;
     roomLabel?: string;
     enabledModules?: EnabledModules;
@@ -132,8 +132,10 @@ export function SettingsForm({
 }: SettingsFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms'>('integrations');
-  const activeWaEngine: 'meta' | 'zapi' =
-    initialData.whatsappProvider || (initialData.zapiInstanceId ? 'zapi' : 'meta');
+  const activeWaEngine: 'meta' | 'evolution' =
+    initialData.whatsappProvider === 'evolution' || initialData.evolutionInstanceName
+      ? 'evolution'
+      : 'meta';
   const [phoneNumberId, setPhoneNumberId] = useState(initialData.whatsappPhoneNumberId || '');
   const [accessToken, setAccessToken] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -1237,15 +1239,15 @@ export function SettingsForm({
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">
-            {activeWaEngine === 'zapi' ? (
-              <ZApiQrCard
-                initialInstanceId={initialData.zapiInstanceId}
-                hasToken={initialData.hasZapiToken}
-                hasClientToken={initialData.hasZapiClientToken}
-                initialStatus={initialData.zapiStatus}
-                initialPhone={initialData.zapiPhoneConnected}
-                antiBanMode={initialData.zapiAntiBanMode}
-                maxOutboundPerHour={initialData.zapiMaxOutboundPerHour}
+            {activeWaEngine === 'evolution' ? (
+              <EvolutionQrCard
+                initialApiUrl={initialData.evolutionApiUrl}
+                initialInstanceName={initialData.evolutionInstanceName}
+                hasApiKey={initialData.hasEvolutionApiKey}
+                initialStatus={initialData.evolutionStatus}
+                initialPhone={initialData.evolutionPhoneConnected}
+                antiBanMode={initialData.evolutionAntiBanMode}
+                maxOutboundPerHour={initialData.evolutionMaxOutboundPerHour}
                 isSuperAdmin={isSuperAdmin}
               />
             ) : (

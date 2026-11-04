@@ -2,8 +2,8 @@ import assert from 'node:assert';
 import crypto from 'node:crypto';
 import {
   verifyMetaSignature,
-  verifyZapiWebhook,
-  generateZapiWebhookSecret,
+  verifyEvolutionWebhook,
+  generateEvolutionWebhookSecret,
   isValidMediaUrl,
 } from '../lib/security/verify-webhook';
 import {
@@ -141,46 +141,53 @@ console.log('🧪 Iniciando Suite de Pruebas Automatizadas de Seguridad & Lógic
   console.log('   ✅ Lógica de ventana de 24h aprobada.');
 }
 
-// 6. Autenticación Criptográfica de Webhooks Z-API
+// 6. Autenticación Criptográfica de Webhooks Evolution API
 {
-  console.log('6️⃣  Probando Autenticación Criptográfica de Z-API (verifyZapiWebhook)...');
-  const instanceId = 'ZAPI_INSTANCE_TEST_9988';
-  const expectedSecret = generateZapiWebhookSecret(instanceId);
+  console.log('6️⃣  Probando Autenticación Criptográfica de Evolution API (verifyEvolutionWebhook)...');
+  const instanceName = 'synqo_test_instance_9988';
+  const expectedSecret = generateEvolutionWebhookSecret(instanceName);
 
   // Validación mediante query secret (?secret=...)
   assert.strictEqual(
-    verifyZapiWebhook({ instanceId, providedSecret: expectedSecret }),
+    verifyEvolutionWebhook({ instanceName, providedSecret: expectedSecret }),
     true,
     'El secret generado por HMAC debe ser aceptado'
   );
 
-  // Validación mediante Client-Token en header
-  const configuredClientToken = 'ClientTokenSecure123456';
+  // Validación mediante Bearer secret en header
   assert.strictEqual(
-    verifyZapiWebhook({
-      instanceId,
-      providedClientToken: configuredClientToken,
-      decryptedClientToken: configuredClientToken,
+    verifyEvolutionWebhook({ instanceName, providedSecret: `Bearer ${expectedSecret}` }),
+    true,
+    'Bearer token con secret HMAC debe ser aceptado'
+  );
+
+  // Validación mediante API Key en header apikey
+  const configuredApiKey = 'TestEvolutionApiKeySecure123';
+  assert.strictEqual(
+    verifyEvolutionWebhook({
+      instanceName,
+      providedApiKey: configuredApiKey,
+      decryptedApiKey: configuredApiKey,
     }),
     true,
-    'Client-Token válido debe ser aceptado'
+    'API Key válida debe ser aceptada'
   );
 
   // Rechazo de petición anónima
   assert.strictEqual(
-    verifyZapiWebhook({ instanceId, providedSecret: null, providedClientToken: null }),
+    verifyEvolutionWebhook({ instanceName, providedSecret: null, providedApiKey: null }),
     false,
-    'Petición sin secret ni token debe ser rechazada'
+    'Petición sin secret ni apikey debe ser rechazada'
   );
 
   // Rechazo de secret erróneo / manipulado
   assert.strictEqual(
-    verifyZapiWebhook({ instanceId, providedSecret: 'wrong_secret_attack' }),
+    verifyEvolutionWebhook({ instanceName, providedSecret: 'wrong_secret_attack' }),
     false,
     'Secret manipulado debe ser rechazado'
   );
 
-  console.log('   ✅ Autenticación de Z-API aprobada.');
+  console.log('   ✅ Autenticación de Evolution API aprobada.');
 }
 
 // 7. Neutralización de SSRF en Descarga de Multimedia / Whisper

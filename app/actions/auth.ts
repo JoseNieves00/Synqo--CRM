@@ -158,7 +158,7 @@ export async function getCurrentUserAndOrg() {
     // Leer organización con supabaseAdmin (con fallback si falta alguna columna opcional)
     let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data, whatsapp_provider, zapi_instance_id, zapi_token, zapi_client_token, zapi_status, zapi_phone_connected'
+        'id, name, subscription_status, plan_type, max_users, is_active, cal_com_enabled, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, cal_event_type_id, system_prompt, whatsapp_templates, ai_tokens_used, ai_tokens_limit, appointment_settings, structured_prompt_data, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_phone_connected'
       )
       .eq('id', profile.organization_id)
       .single();
@@ -190,8 +190,7 @@ export async function getCurrentUserAndOrg() {
         // 🛡️ OFUSCACIÓN DE SECRETOS: Prevenir fuga de tokens cifrados a componentes cliente
         whatsapp_access_token: org?.whatsapp_access_token ? 'enc:configured' : null,
         whatsapp_app_secret: org?.whatsapp_app_secret ? 'enc:configured' : null,
-        zapi_token: org?.zapi_token ? 'enc:configured' : null,
-        zapi_client_token: org?.zapi_client_token ? 'enc:configured' : null,
+        evolution_api_key: org?.evolution_api_key ? 'enc:configured' : null,
       },
       mustChangePassword: Boolean(user?.user_metadata?.must_change_password),
     };

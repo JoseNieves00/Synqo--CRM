@@ -58,7 +58,7 @@ interface ChatWindowProps {
   messages: MessageItem[];
   onOptimisticMessage?: (msg: MessageItem) => void;
   customTemplates?: Array<{ name: string; label: string }>;
-  whatsappProvider?: 'meta' | 'zapi';
+  whatsappProvider?: 'meta' | 'evolution';
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
@@ -84,10 +84,10 @@ export function ChatWindow({
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [otherTyping, setOtherTyping] = useState<string | null>(null);
 
-  const isZapi = whatsappProvider === 'zapi';
-  const is24hValid = isZapi ? true : isWithin24HourWindow(contact.last_interaction_at);
+  const isBaileys = whatsappProvider === 'evolution';
+  const is24hValid = isBaileys ? true : isWithin24HourWindow(contact.last_interaction_at);
   const remainingHours = getRemainingHoursInWindow(contact.last_interaction_at);
-  const effectiveTemplates = isZapi ? [] : customTemplates;
+  const effectiveTemplates = isBaileys ? [] : customTemplates;
 
   const isAdminOrSupervisor = currentUserRole === 'admin' || currentUserRole === 'supervisor';
   const isAssignedToMe = contact.assigned_to === currentUserId;
@@ -331,13 +331,13 @@ export function ChatWindow({
           )}
 
           {/* Indicador de la Ventana / Protocolo de WhatsApp */}
-          {isZapi ? (
+          {isBaileys ? (
             <div
               className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30"
-              title="Instancia Z-API activa: Sesión clonada directa sin ventana de 24 horas de Meta"
+              title={whatsappProvider === 'evolution' ? 'Instancia Evolution API activa: Sesión Baileys en VPS sin ventana de 24 horas' : 'Instancia Z-API activa: Sesión clonada directa sin ventana de 24 horas de Meta'}
             >
               <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Z-API Directo (Sin restricción 24h)</span>
+              <span>{whatsappProvider === 'evolution' ? 'Evolution API (Sin restricción 24h)' : 'Z-API Directo (Sin restricción 24h)'}</span>
             </div>
           ) : (
             <div

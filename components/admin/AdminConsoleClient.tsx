@@ -101,12 +101,12 @@ export default function AdminConsoleClient({
     anti_no_show: true,
   });
   const [editCompanyCode, setEditCompanyCode] = useState<string>('');
-  const [editWaProvider, setEditWaProvider] = useState<'meta' | 'zapi'>('meta');
-  const [editZapiInstanceId, setEditZapiInstanceId] = useState('');
-  const [editZapiToken, setEditZapiToken] = useState('');
-  const [editZapiClientToken, setEditZapiClientToken] = useState('');
-  const [editZapiAntiBan, setEditZapiAntiBan] = useState(true);
-  const [editZapiMaxOutbound, setEditZapiMaxOutbound] = useState(50);
+  const [editWaProvider, setEditWaProvider] = useState<'meta' | 'evolution'>('meta');
+  const [editEvolutionApiUrl, setEditEvolutionApiUrl] = useState('');
+  const [editEvolutionApiKey, setEditEvolutionApiKey] = useState('');
+  const [editEvolutionInstanceName, setEditEvolutionInstanceName] = useState('');
+  const [editEvolutionAntiBan, setEditEvolutionAntiBan] = useState(true);
+  const [editEvolutionMaxOutbound, setEditEvolutionMaxOutbound] = useState(50);
   const [editSpecialistLabel, setEditSpecialistLabel] = useState('Colaborador');
   const [editRoomLabel, setEditRoomLabel] = useState('Espacio');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -251,12 +251,16 @@ export default function AdminConsoleClient({
       anti_no_show: true,
     });
     setEditCompanyCode(org.company_code || '');
-    setEditWaProvider(org.whatsapp_provider || (org.zapi_instance_id ? 'zapi' : 'meta'));
-    setEditZapiInstanceId(org.zapi_instance_id || '');
-    setEditZapiToken('');
-    setEditZapiClientToken('');
-    setEditZapiAntiBan(org.zapi_anti_ban_mode ?? true);
-    setEditZapiMaxOutbound(org.zapi_max_outbound_per_hour ?? 50);
+    setEditWaProvider(
+      org.whatsapp_provider === 'evolution' || org.evolution_instance_name
+        ? 'evolution'
+        : 'meta'
+    );
+    setEditEvolutionApiUrl(org.evolution_api_url || '');
+    setEditEvolutionApiKey('');
+    setEditEvolutionInstanceName(org.evolution_instance_name || '');
+    setEditEvolutionAntiBan(org.evolution_anti_ban_mode ?? true);
+    setEditEvolutionMaxOutbound(org.evolution_max_outbound_per_hour ?? 50);
     setEditSpecialistLabel(org.specialist_label || 'Colaborador');
     setEditRoomLabel(org.room_label || 'Espacio');
   };
@@ -295,11 +299,11 @@ export default function AdminConsoleClient({
         enabledModules: editModules,
         companyCode: editCompanyCode,
         whatsappProvider: editWaProvider,
-        zapiInstanceId: editZapiInstanceId.trim() || undefined,
-        zapiToken: editZapiToken.trim() || undefined,
-        zapiClientToken: editZapiClientToken.trim() || undefined,
-        zapiAntiBanMode: editZapiAntiBan,
-        zapiMaxOutboundPerHour: editZapiMaxOutbound,
+        evolutionApiUrl: editEvolutionApiUrl.trim() || undefined,
+        evolutionApiKey: editEvolutionApiKey.trim() || undefined,
+        evolutionInstanceName: editEvolutionInstanceName.trim() || undefined,
+        evolutionAntiBanMode: editEvolutionAntiBan,
+        evolutionMaxOutboundPerHour: editEvolutionMaxOutbound,
         specialistLabel: editSpecialistLabel,
         roomLabel: editRoomLabel,
       });
@@ -317,9 +321,10 @@ export default function AdminConsoleClient({
                 enabled_modules: editModules,
                 companyCode: editCompanyCode,
                 whatsapp_provider: editWaProvider,
-                zapi_instance_id: editZapiInstanceId.trim() || null,
-                zapi_anti_ban_mode: editZapiAntiBan,
-                zapi_max_outbound_per_hour: editZapiMaxOutbound,
+                evolution_api_url: editEvolutionApiUrl.trim() || null,
+                evolution_instance_name: editEvolutionInstanceName.trim() || null,
+                evolution_anti_ban_mode: editEvolutionAntiBan,
+                evolution_max_outbound_per_hour: editEvolutionMaxOutbound,
                 specialist_label: editSpecialistLabel,
                 room_label: editRoomLabel,
               }
@@ -1491,9 +1496,9 @@ export default function AdminConsoleClient({
                       <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
                         <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                         Protocolo Anti-No-Show (Confirmación 8h)
-                        {editWaProvider === 'zapi' && (
-                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-semibold">
-                            Z-API (Sin costo por mensaje)
+                        {editWaProvider === 'evolution' && (
+                          <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-semibold">
+                            Evolution API (Sin costo por mensaje)
                           </span>
                         )}
                       </span>
@@ -1505,7 +1510,7 @@ export default function AdminConsoleClient({
                   )}
                 </div>
 
-                {/* Módulo WhatsApp Engine en Edición: Meta vs Z-API */}
+                {/* Módulo WhatsApp Engine en Edición: Meta vs Evolution API */}
                 <div className="border-t border-gray-100 pt-3 space-y-3">
                   <div>
                     <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
@@ -1513,11 +1518,36 @@ export default function AdminConsoleClient({
                       Motor de Mensajería WhatsApp Asignado
                     </h4>
                     <p className="text-[11px] text-gray-500">
-                      Configurado exclusivamente desde esta consola de Super Admin. Si activas Z-API, el cliente solo verá el QR para escanear en sus Ajustes.
+                      Configurado exclusivamente desde esta consola de Super Admin. Si activas Evolution API, el cliente solo verá el QR para escanear en sus Ajustes.
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label
+                      className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
+                        editWaProvider === 'evolution'
+                          ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/20'
+                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="editWaProvider"
+                        value="evolution"
+                        checked={editWaProvider === 'evolution'}
+                        onChange={() => setEditWaProvider('evolution')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">
+                          Evolution API (VPS)
+                        </span>
+                        <span className="text-[10px] text-indigo-700 block font-medium">
+                          Self-Hosted • QR & Código
+                        </span>
+                      </div>
+                    </label>
+
                     <label
                       className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
                         editWaProvider === 'meta'
@@ -1538,90 +1568,65 @@ export default function AdminConsoleClient({
                           Meta Cloud API
                         </span>
                         <span className="text-[10px] text-gray-500 block">
-                          Oficial Meta • WABA & Ventana 24h
-                        </span>
-                      </div>
-                    </label>
-
-                    <label
-                      className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
-                        editWaProvider === 'zapi'
-                          ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20'
-                          : 'bg-white border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="editWaProvider"
-                        value="zapi"
-                        checked={editWaProvider === 'zapi'}
-                        onChange={() => setEditWaProvider('zapi')}
-                        className="text-emerald-600 focus:ring-emerald-500"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-gray-900 block">
-                          Z-API (QR Instantáneo)
-                        </span>
-                        <span className="text-[10px] text-emerald-700 block font-medium">
-                          Sin burocracia • Escaneo QR en 2 min
+                          Oficial Meta • WABA
                         </span>
                       </div>
                     </label>
                   </div>
 
-                  {editWaProvider === 'zapi' && (
-                    <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-3">
-                      <p className="text-[11px] text-emerald-950 font-medium">
-                        Credenciales Z-API (Deja los campos de token en blanco para conservar los existentes):
+                  {editWaProvider === 'evolution' && (
+                    <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-200 space-y-3">
+                      <p className="text-[11px] text-indigo-950 font-medium">
+                        Credenciales Evolution API v2 (Deja la clave en blanco para conservar la existente):
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div>
                           <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                            Instance ID <span className="text-rose-500">*</span>
+                            URL del VPS
                           </label>
                           <input
                             type="text"
-                            placeholder="ej: 3CX..."
-                            value={editZapiInstanceId}
-                            onChange={(e) => setEditZapiInstanceId(e.target.value)}
-                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-emerald-500"
+                            placeholder="https://evolution.synqo.dev o http://ip:8080"
+                            value={editEvolutionApiUrl}
+                            onChange={(e) => setEditEvolutionApiUrl(e.target.value)}
+                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
                           />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                            Nuevo Instance Token
+                            Nombre de Instancia <span className="text-rose-500">*</span>
                           </label>
                           <input
-                            type="password"
-                            placeholder="Dejar en blanco para mantener..."
-                            value={editZapiToken}
-                            onChange={(e) => setEditZapiToken(e.target.value)}
-                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-emerald-500"
+                            type="text"
+                            placeholder="ej: empresa_synqo"
+                            value={editEvolutionInstanceName}
+                            onChange={(e) => setEditEvolutionInstanceName(e.target.value)}
+                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
                           />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                            Nuevo Client Token
+                            Nueva API Key
                           </label>
                           <input
                             type="password"
                             placeholder="Dejar en blanco para mantener..."
-                            value={editZapiClientToken}
-                            onChange={(e) => setEditZapiClientToken(e.target.value)}
-                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-emerald-500"
+                            value={editEvolutionApiKey}
+                            onChange={(e) => setEditEvolutionApiKey(e.target.value)}
+                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
                           />
                         </div>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-emerald-200/60 text-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-indigo-200/60 text-xs">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={editZapiAntiBan}
-                            onChange={(e) => setEditZapiAntiBan(e.target.checked)}
-                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                            checked={editEvolutionAntiBan}
+                            onChange={(e) => setEditEvolutionAntiBan(e.target.checked)}
+                            className="rounded text-indigo-600 focus:ring-indigo-500"
                           />
-                          <span className="text-[11px] font-semibold text-emerald-950">
+                          <span className="text-[11px] font-semibold text-indigo-950">
                             Heurística Anti-Ban (Jitter humano y demoras realistas)
                           </span>
                         </label>
@@ -1631,9 +1636,9 @@ export default function AdminConsoleClient({
                             type="number"
                             min={5}
                             max={500}
-                            value={editZapiMaxOutbound}
-                            onChange={(e) => setEditZapiMaxOutbound(parseInt(e.target.value, 10) || 50)}
-                            className="w-16 px-1.5 py-0.5 text-xs text-right font-mono border border-gray-300 rounded bg-white text-gray-800"
+                            value={editEvolutionMaxOutbound}
+                            onChange={(e) => setEditEvolutionMaxOutbound(Number(e.target.value))}
+                            className="w-16 text-xs text-center border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-900 font-semibold"
                           />
                         </div>
                       </div>

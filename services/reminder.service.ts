@@ -72,7 +72,7 @@ export class ReminderService {
         notes,
         contact:contacts(id, name, phone, last_interaction_at),
         specialist:specialists(id, name),
-        organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour, enabled_modules, appointment_settings)
+        organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
       .eq('status', 'confirmed')
       .eq('confirmation_status', 'unconfirmed')
@@ -175,7 +175,7 @@ export class ReminderService {
         booked_via,
         contact:contacts(id, name, phone, last_interaction_at),
         specialist:specialists(id, name),
-        organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, zapi_instance_id, zapi_token, zapi_client_token, zapi_anti_ban_mode, zapi_max_outbound_per_hour, enabled_modules, appointment_settings)
+        organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
       .eq('status', 'confirmed')
       .eq('confirmation_status', 'unconfirmed')

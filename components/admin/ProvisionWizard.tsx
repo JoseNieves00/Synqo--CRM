@@ -262,8 +262,8 @@ export function ProvisionWizard({ onSuccess, onCancel }: Props) {
   const [specialistLabel, setSpecialistLabel] = useState('Colaborador');
   const [roomLabel, setRoomLabel] = useState('Espacio');
 
-  // WhatsApp Provider (meta o zapi configurable por Super Admin)
-  const [whatsappProvider, setWhatsappProvider] = useState<'meta' | 'zapi'>('meta');
+  // WhatsApp Provider (meta o evolution configurable por Super Admin)
+  const [whatsappProvider, setWhatsappProvider] = useState<'meta' | 'evolution'>('evolution');
 
   // Estados de envío y éxito
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -967,29 +967,29 @@ Por seguridad te sugerimos cambiar tu contraseña una vez ingreses al sistema. �
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <label
                     className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                      whatsappProvider === 'zapi'
-                        ? 'bg-purple-50/80 border-purple-500 ring-2 ring-purple-500/20 shadow-xs'
+                      whatsappProvider === 'evolution'
+                        ? 'bg-indigo-50/80 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs'
                         : 'bg-white border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <input
                       type="radio"
                       name="provisionWaProvider"
-                      value="zapi"
-                      checked={whatsappProvider === 'zapi'}
-                      onChange={() => setWhatsappProvider('zapi')}
-                      className="mt-0.5 w-4 h-4 text-purple-600 focus:ring-purple-500 border-gray-300"
+                      value="evolution"
+                      checked={whatsappProvider === 'evolution'}
+                      onChange={() => setWhatsappProvider('evolution')}
+                      className="mt-0.5 w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
                     />
                     <div>
                       <span className="text-xs font-bold text-gray-900 block flex items-center gap-1.5">
-                        <QrCode className="w-3.5 h-3.5 text-purple-600" />
-                        Z-API Express (Código QR)
+                        <QrCode className="w-3.5 h-3.5 text-indigo-600" />
+                        Evolution API (VPS Propio)
                       </span>
                       <span className="text-[11px] text-gray-500 block leading-tight mt-0.5">
-                        Sin ventana 24h • Vinculación por QR o código de 8 dígitos en segundos. Sin plantillas obligatorias.
+                        Self-Hosted • Vinculación por QR o código de 8 dígitos. Sin costos de Meta ni límites de ventana 24h.
                       </span>
                     </div>
                   </label>
@@ -1062,7 +1062,7 @@ Por seguridad te sugerimos cambiar tu contraseña una vez ingreses al sistema. �
                     {!needsSpecialistLabel && !needsRoomLabel && (
                       <div className="text-gray-400 italic text-[11px]">Sin términos específicos requeridos</div>
                     )}
-                    <div><strong className="text-gray-500 font-medium">Motor WhatsApp:</strong> <span className="text-gray-900 font-semibold ml-1">{whatsappProvider === 'zapi' ? '⚡ Z-API Express (QR)' : '🏢 Meta Cloud API'}</span></div>
+                    <div><strong className="text-gray-500 font-medium">Motor WhatsApp:</strong> <span className="text-gray-900 font-semibold ml-1">{whatsappProvider === 'evolution' ? '⚡ Evolution API (VPS)' : '🏢 Meta Cloud API'}</span></div>
                     <div className="pt-2 border-t border-gray-100">
                       <strong className="text-gray-500 font-medium block mb-1">Módulos habilitados:</strong>
                       <div className="flex flex-wrap gap-1.5">
