@@ -11,7 +11,7 @@ interface ChatInputProps {
   contactId: string;
   isWithin24h: boolean;
   onSendMessage: (text: string) => Promise<void>;
-  onSendMedia?: (mediaUrl: string, caption?: string) => Promise<void>;
+  onSendMedia?: (mediaUrl: string, caption?: string, fileName?: string, isDocument?: boolean) => Promise<void>;
   onSendTemplate: (templateName: string) => Promise<void>;
   customTemplates?: Array<{ name: string; label: string }>;
   disabled?: boolean;
@@ -49,8 +49,9 @@ export function ChatInput({
   // Estado para previsualización y envío de imagen adjunta
   const [pendingMedia, setPendingMedia] = useState<{
     file: File;
-    previewUrl: string;
+    previewUrl?: string;
     caption: string;
+    isDocument?: boolean;
   } | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -274,19 +275,23 @@ export function ChatInput({
         </button>
       </div>
 
-      {/* Previsualización de Imagen Adjunta antes de Enviar */}
+      {/* Previsualización de Imagen o Archivo Adjunto antes de Enviar */}
       {pendingMedia && (
         <div className="mx-2.5 my-1.5 p-2.5 bg-slate-100 dark:bg-[#1A1F2C] border border-blue-200 dark:border-blue-900/60 rounded-xl flex items-center gap-3 animate-in fade-in zoom-in-95 duration-150">
-          <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-[#232A3B] shrink-0 bg-black/10">
-            <img
-              src={pendingMedia.previewUrl}
-              alt="Previsualización"
-              className="w-full h-full object-cover"
-            />
+          <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 dark:border-[#232A3B] shrink-0 bg-black/10 flex items-center justify-center">
+            {pendingMedia.isDocument ? (
+              <FileText className="w-7 h-7 text-[#0052FF] dark:text-[#00D2FF]" />
+            ) : (
+              <img
+                src={pendingMedia.previewUrl}
+                alt="Previsualización"
+                className="w-full h-full object-cover"
+              />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate">
+              <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate" title={pendingMedia.file.name}>
                 {pendingMedia.file.name}
               </span>
               <button
@@ -294,14 +299,14 @@ export function ChatInput({
                 onClick={() => setPendingMedia(null)}
                 disabled={isUploadingMedia}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md cursor-pointer"
-                title="Quitar imagen"
+                title="Quitar adjunto"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
             <input
               type="text"
-              placeholder="Añade un pie de foto opcional..."
+              placeholder={pendingMedia.isDocument ? "Mensaje que acompaña el documento..." : "Añade un pie de foto opcional..."}
               value={pendingMedia.caption}
               onChange={(e) => setPendingMedia({ ...pendingMedia, caption: e.target.value })}
               disabled={isUploadingMedia}
@@ -317,12 +322,17 @@ export function ChatInput({
               try {
                 const formData = new FormData();
                 formData.append('file', pendingMedia.file);
-                const { url } = await uploadChatMedia(formData);
-                await onSendMedia(url, pendingMedia.caption || undefined);
+                const uploadRes = await uploadChatMedia(formData);
+                await onSendMedia(
+                  uploadRes.url,
+                  pendingMedia.caption || undefined,
+                  pendingMedia.file.name,
+                  pendingMedia.isDocument
+                );
                 setPendingMedia(null);
               } catch (err: any) {
                 console.error('[UPLOAD MEDIA ERROR]', err);
-                setMediaError(err?.message || 'Error al enviar imagen.');
+                setMediaError(err?.message || 'Error al enviar archivo.');
               } finally {
                 setIsUploadingMedia(false);
               }
@@ -338,7 +348,7 @@ export function ChatInput({
             ) : (
               <>
                 <Send className="w-3.5 h-3.5" />
-                <span>Enviar Foto</span>
+                <span>{pendingMedia.isDocument ? 'Enviar Archivo' : 'Enviar Foto'}</span>
               </>
             )}
           </button>
@@ -354,33 +364,57 @@ export function ChatInput({
         </div>
       )}
 
-      <form onSubmit={handleSubmitText} className="p-2.5 pt-1.5 flex gap-1.5 items-center">
-        {/* Botón de Adjuntar Imagen */}
+      <form
+        onSubmit={handleSubmitText}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const file = e.dataTransfer.files?.[0];
+          if (!file) return;
+          if (file.size > 15 * 1024 * 1024) {
+            setMediaError('El archivo arrastrado supera el límite de 15 MB.');
+            return;
+          }
+          setMediaError(null);
+          const isDoc = !file.type.startsWith('image/');
+          setPendingMedia({
+            file,
+            previewUrl: isDoc ? undefined : URL.createObjectURL(file),
+            caption: message.trim(),
+            isDocument: isDoc,
+          });
+          setMessage('');
+        }}
+        className="p-2.5 pt-1.5 flex gap-1.5 items-center"
+      >
+        {/* Botón de Adjuntar Foto o Archivo */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={loading || disabled}
           className="p-2 text-slate-500 dark:text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl transition cursor-pointer shrink-0 disabled:opacity-40"
-          title="Adjuntar foto (o pega con Ctrl+V)"
+          title="Adjuntar foto o archivo (PDF, Word, Excel)"
         >
           <Paperclip className="w-4 h-4" />
         </button>
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
+          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            if (file.size > 10 * 1024 * 1024) {
-              setMediaError('La imagen supera el límite máximo de 10 MB.');
+            if (file.size > 15 * 1024 * 1024) {
+              setMediaError('El archivo supera el límite máximo de 15 MB.');
               return;
             }
             setMediaError(null);
+            const isDoc = !file.type.startsWith('image/');
             setPendingMedia({
               file,
-              previewUrl: URL.createObjectURL(file),
+              previewUrl: isDoc ? undefined : URL.createObjectURL(file),
               caption: message.trim(),
+              isDocument: isDoc,
             });
             setMessage('');
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -414,6 +448,7 @@ export function ChatInput({
                     file,
                     previewUrl: URL.createObjectURL(file),
                     caption: message.trim(),
+                    isDocument: false,
                   });
                   setMessage('');
                   e.preventDefault();
