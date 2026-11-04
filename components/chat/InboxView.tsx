@@ -252,8 +252,12 @@ export function InboxView({
 
     fetchUnattended();
 
-    const handleHandoffUpdate = () => {
-      fetchUnattended();
+    const handleHandoffUpdate = (e: any) => {
+      if (Array.isArray(e?.detail?.items)) {
+        setUnattendedIds(new Set(e.detail.items.map((item: any) => item.id)));
+      } else {
+        fetchUnattended();
+      }
     };
 
     window.addEventListener('synqo-unattended-count', handleHandoffUpdate);

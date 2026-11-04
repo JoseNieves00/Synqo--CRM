@@ -1,5 +1,6 @@
 'use server';
 
+import { cache } from 'react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
@@ -127,8 +128,9 @@ export async function signOut() {
 /**
  * Obtener usuario autenticado, perfil y datos de la organización.
  * Usa supabaseAdmin para leer el perfil del usuario verificado de forma segura y sin recursión RLS.
+ * Envuelto en cache() de React para deduplicar llamadas dentro del mismo ciclo HTTP (Layout + Páginas).
  */
-export async function getCurrentUserAndOrg() {
+export const getCurrentUserAndOrg = cache(async () => {
   try {
     const supabase = createServerSupabaseClient();
     const {
@@ -202,4 +204,4 @@ export async function getCurrentUserAndOrg() {
     console.error('[AUTH EXCEPTION in getCurrentUserAndOrg]', err);
     return null;
   }
-}
+});

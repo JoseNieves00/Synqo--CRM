@@ -169,10 +169,10 @@ export function HandoffAlertNotifier({
         }
       });
 
-      // Notificar globalmente para actualizar badge del Sidebar
+      // Notificar globalmente para actualizar badge del Sidebar e InboxView sin refetch duplicado
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
-          new CustomEvent('synqo-unattended-count', { detail: { count: list.length } })
+          new CustomEvent('synqo-unattended-count', { detail: { count: list.length, items: list } })
         );
       }
     } catch (err) {

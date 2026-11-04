@@ -406,9 +406,27 @@ export async function getUnattendedHandoffs(): Promise<Array<{
       .eq('is_ai_active', false)
       .not('pipeline_stage', 'in', '("ganado","perdido")')
       .order('updated_at', { ascending: false })
-      .limit(20);
+      .limit(25);
 
     if (!contacts || contacts.length === 0) return [];
+
+    const contactIds = contacts.map((c: any) => c.id);
+
+    // ⚡ Optimización Anti N+1: Consulta UNIFICADA de los mensajes recientes en un solo roundtrip
+    const { data: recentMsgs } = await (supabaseAdmin.from('messages') as any)
+      .select('id, contact_id, sender_type, content, created_at')
+      .in('contact_id', contactIds)
+      .order('created_at', { ascending: false });
+
+    // Mapear el mensaje más reciente de cada contacto en O(N)
+    const latestMsgMap = new Map<string, any>();
+    if (recentMsgs && recentMsgs.length > 0) {
+      for (const m of recentMsgs) {
+        if (!latestMsgMap.has(m.contact_id)) {
+          latestMsgMap.set(m.contact_id, m);
+        }
+      }
+    }
 
     const unattended: Array<{
       id: string;
@@ -420,12 +438,7 @@ export async function getUnattendedHandoffs(): Promise<Array<{
     }> = [];
 
     for (const c of contacts) {
-      const { data: lastMsg } = await (supabaseAdmin.from('messages') as any)
-        .select('id, sender_type, content, created_at')
-        .eq('contact_id', c.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const lastMsg = latestMsgMap.get(c.id);
 
       // Si el último mensaje es del cliente o del sistema de relevo, el asesor aún no ha contestado
       if (lastMsg && (lastMsg.sender_type === 'lead' || lastMsg.sender_type === 'system')) {
@@ -463,20 +476,21 @@ export async function getContactMessages(contactId: string) {
   const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Organización no encontrada');
 
-  // Validar pertenencia del contacto a la organización del usuario
-  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
-    .select('id')
-    .eq('id', contactId)
-    .eq('organization_id', orgId)
-    .single();
+  // Validar pertenencia del contacto y consultar mensajes en paralelo (Reducción de latencia)
+  const [{ data: contact }, { data: messages, error }] = await Promise.all([
+    (supabaseAdmin.from('contacts') as any)
+      .select('id')
+      .eq('id', contactId)
+      .eq('organization_id', orgId)
+      .single(),
+    (supabaseAdmin.from('messages') as any)
+      .select('id, sender_type, content, created_at')
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: true })
+      .limit(100),
+  ]);
 
   if (!contact) throw new Error('Contacto no encontrado o acceso denegado');
-
-  const { data: messages, error } = await (supabaseAdmin.from('messages') as any)
-    .select('id, sender_type, content, created_at')
-    .eq('contact_id', contactId)
-    .order('created_at', { ascending: true })
-    .limit(100);
 
   if (error) {
     console.error('[GET CONTACT MESSAGES ERROR]', error);
