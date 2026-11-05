@@ -31,8 +31,8 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
     (supabaseAdmin.from('messages') as any)
       .select('id, sender_type, content, created_at')
       .eq('contact_id', contactId)
-      .order('created_at', { ascending: true })
-      .limit(100),
+      .order('created_at', { ascending: false })
+      .limit(50),
     (supabaseAdmin.from('profiles') as any)
       .select('id, full_name, email, role')
       .eq('organization_id', current.organization.id)
@@ -60,7 +60,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
     notFound();
   }
 
-  const messages = messagesRes.data || [];
+  const messages = (messagesRes.data || []).reverse();
   const teamMembers = teamRes.data || [];
 
   return (

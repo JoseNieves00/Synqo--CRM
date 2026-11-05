@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { getOrganizationTokenUsage } from '@/app/actions/usage';
+import { getOrganizationPendingReminders } from '@/app/actions/reminders';
+import { RemindersDashboardWidget } from '@/components/dashboard/RemindersDashboardWidget';
 import { redirect } from 'next/navigation';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import {
@@ -38,7 +40,7 @@ export default async function DashboardPage() {
   }
 
   // Consultas optimizadas en paralelo
-  const [{ data: contacts }, tokenUsage] = await Promise.all([
+  const [{ data: contacts }, tokenUsage, remindersData] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at, assigned_to')
       .eq('organization_id', current.organization.id)
@@ -46,6 +48,7 @@ export default async function DashboardPage() {
       .order('last_interaction_at', { ascending: false })
       .limit(100),
     getOrganizationTokenUsage(),
+    getOrganizationPendingReminders(),
   ]);
 
   const leadList = contacts || [];
@@ -294,6 +297,13 @@ export default async function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* SECCIÓN DE RECORDATORIOS Y DESPACHOS */}
+      <RemindersDashboardWidget
+        initialData={remindersData}
+        currentUserRole={current.profile.role}
+        currentUserId={current.user.id}
+      />
 
       {/* Sección de Leads Recientes y Enlaces Rápidos */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

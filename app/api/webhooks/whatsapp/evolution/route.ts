@@ -241,14 +241,6 @@ export async function POST(request: NextRequest) {
         meta_message_id: messageId,
         channel: 'whatsapp',
       });
-
-      // 4. Registrar auditoría interna en la conversación
-      await (supabaseAdmin.from('messages') as any).insert({
-        contact_id: contact.id,
-        sender_type: 'system',
-        content: '[Sistema: Asesor intervino desde el celular. IA pausada automáticamente.]',
-        channel: 'whatsapp',
-      });
     }
 
     return NextResponse.json({ status: 'human_intervention_recorded' }, { status: 200 });

@@ -33,15 +33,15 @@ export default async function InboxPage() {
   const contactList = contacts || [];
   const activeContact = contactList.length > 0 ? contactList[0] : null;
 
-  // Consultar mensajes del primer contacto si existe
+  // Consultar los 50 mensajes más recientes del primer contacto si existe
   let messages: any[] = [];
   if (activeContact) {
     const { data: msgs } = await (supabaseAdmin.from('messages') as any)
       .select('id, sender_type, content, created_at')
       .eq('contact_id', activeContact.id)
-      .order('created_at', { ascending: true })
-      .limit(100);
-    messages = msgs || [];
+      .order('created_at', { ascending: false })
+      .limit(50);
+    messages = (msgs || []).reverse();
   }
 
   return (

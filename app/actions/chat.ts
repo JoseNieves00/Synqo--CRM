@@ -418,12 +418,23 @@ export async function getUnattendedHandoffs(): Promise<Array<{
       .in('contact_id', contactIds)
       .order('created_at', { ascending: false });
 
-    // Mapear el mensaje más reciente de cada contacto en O(N)
-    const latestMsgMap = new Map<string, any>();
+    // Mapear el último mensaje del cliente, asesor y alertas de relevo para cada contacto
+    const latestLeadMsgMap = new Map<string, any>();
+    const latestAgentMsgMap = new Map<string, any>();
+    const latestHandoffAlertMap = new Map<string, any>();
+
     if (recentMsgs && recentMsgs.length > 0) {
       for (const m of recentMsgs) {
-        if (!latestMsgMap.has(m.contact_id)) {
-          latestMsgMap.set(m.contact_id, m);
+        if (m.sender_type === 'lead' && !latestLeadMsgMap.has(m.contact_id)) {
+          latestLeadMsgMap.set(m.contact_id, m);
+        } else if ((m.sender_type === 'agent' || m.sender_type === 'agent_manual') && !latestAgentMsgMap.has(m.contact_id)) {
+          latestAgentMsgMap.set(m.contact_id, m);
+        } else if (
+          m.sender_type === 'system' &&
+          (m.content?.includes('🚨') || m.content?.includes('Relevo') || m.content?.includes('requerido') || m.content?.includes('Comprobante')) &&
+          !latestHandoffAlertMap.has(m.contact_id)
+        ) {
+          latestHandoffAlertMap.set(m.contact_id, m);
         }
       }
     }
@@ -438,16 +449,30 @@ export async function getUnattendedHandoffs(): Promise<Array<{
     }> = [];
 
     for (const c of contacts) {
-      const lastMsg = latestMsgMap.get(c.id);
+      const leadMsg = latestLeadMsgMap.get(c.id);
+      const agentMsg = latestAgentMsgMap.get(c.id);
+      const handoffAlert = latestHandoffAlertMap.get(c.id);
 
-      // Si el último mensaje es del cliente o del sistema de relevo, el asesor aún no ha contestado
-      if (lastMsg && (lastMsg.sender_type === 'lead' || lastMsg.sender_type === 'system')) {
+      // Si no hay mensaje de lead ni alerta de relevo, no requiere atención
+      if (!leadMsg && !handoffAlert) continue;
+
+      const leadTime = leadMsg ? new Date(leadMsg.created_at).getTime() : 0;
+      const alertTime = handoffAlert ? new Date(handoffAlert.created_at).getTime() : 0;
+      const latestPendingTime = Math.max(leadTime, alertTime);
+
+      const agentTime = agentMsg ? new Date(agentMsg.created_at).getTime() : 0;
+
+      // El contacto REQUIERE ATENCIÓN solo si el requerimiento es posterior a la última respuesta del asesor
+      if (latestPendingTime > agentTime) {
+        const waitingMsg = leadTime >= alertTime ? (leadMsg?.content || '') : (handoffAlert?.content || '');
+        const waitingDate = leadTime >= alertTime ? leadMsg?.created_at : handoffAlert?.created_at;
+
         unattended.push({
           id: c.id,
           name: c.name || 'Prospecto WhatsApp',
           phone: c.phone || '',
-          lastMessage: lastMsg.content || '',
-          waitingSince: lastMsg.created_at || c.updated_at,
+          lastMessage: waitingMsg,
+          waitingSince: waitingDate || c.updated_at,
           assignedTo: c.assigned_to,
         });
       }
@@ -461,9 +486,11 @@ export async function getUnattendedHandoffs(): Promise<Array<{
 }
 
 /**
- * Obtiene los mensajes históricos de un contacto para la transición fluida en cliente del Inbox
+ * Obtiene los mensajes históricos de un contacto para la transición fluida en cliente del Inbox.
+ * Por defecto recupera los 50 mensajes más recientes ordenados cronológicamente.
+ * Soporta paginación ascendente ("cargar mensajes anteriores") pasando `beforeCreatedAt`.
  */
-export async function getContactMessages(contactId: string) {
+export async function getContactMessages(contactId: string, beforeCreatedAt?: string, limit = 50) {
   const supabase = createServerSupabaseClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error('No autorizado');
@@ -476,6 +503,14 @@ export async function getContactMessages(contactId: string) {
   const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Organización no encontrada');
 
+  let query = (supabaseAdmin.from('messages') as any)
+    .select('id, sender_type, content, created_at')
+    .eq('contact_id', contactId);
+
+  if (beforeCreatedAt) {
+    query = query.lt('created_at', beforeCreatedAt);
+  }
+
   // Validar pertenencia del contacto y consultar mensajes en paralelo (Reducción de latencia)
   const [{ data: contact }, { data: messages, error }] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
@@ -483,11 +518,9 @@ export async function getContactMessages(contactId: string) {
       .eq('id', contactId)
       .eq('organization_id', orgId)
       .single(),
-    (supabaseAdmin.from('messages') as any)
-      .select('id, sender_type, content, created_at')
-      .eq('contact_id', contactId)
-      .order('created_at', { ascending: true })
-      .limit(100),
+    query
+      .order('created_at', { ascending: false })
+      .limit(limit),
   ]);
 
   if (!contact) throw new Error('Contacto no encontrado o acceso denegado');
@@ -497,7 +530,8 @@ export async function getContactMessages(contactId: string) {
     throw new Error('Error al cargar mensajes del contacto');
   }
 
-  return messages || [];
+  // Retornar en orden cronológico ascendente para el renderizado natural del chat
+  return (messages || []).reverse();
 }
 
 import {
@@ -616,5 +650,78 @@ export async function saveOrganizationQuickReplies(
 
   revalidatePath('/inbox');
   return { success: true, snippets: cleanSnippets };
+}
+
+/**
+ * Finaliza la atención activa de un contacto ('Dar Fin').
+ * Registra auditoría interna en el chat y actualiza el estado comercial si se indica.
+ */
+export async function endContactConversation(
+  contactId: string,
+  resolution: 'completed' | 'won' | 'lost' = 'completed',
+  note?: string
+) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, organization_id, pipeline_stage, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  const updatedCustom = {
+    ...currentCustom,
+    conversation_status: 'closed',
+    closed_at: new Date().toISOString(),
+    closed_by: profile.full_name || 'Asesor',
+    close_resolution: resolution,
+    close_note: note?.trim() || null,
+  };
+
+  const updatePayload: Record<string, any> = {
+    custom_fields: updatedCustom,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (resolution === 'won') {
+    updatePayload.pipeline_stage = 'ganado';
+  } else if (resolution === 'lost') {
+    updatePayload.pipeline_stage = 'perdido';
+  }
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update(updatePayload)
+    .eq('id', contactId);
+
+  // Inserción de mensaje de auditoría en la conversación
+  const auditLabel = resolution === 'won'
+    ? 'Cierre Ganado'
+    : resolution === 'lost'
+    ? 'No concretado / Perdido'
+    : 'Atención completada';
+
+  const auditNote = note?.trim() ? ` - Nota: "${note.trim()}"` : '';
+
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    sender_type: 'system',
+    content: `[✓ Conversación finalizada por ${profile.full_name || 'Asesor'} (${auditLabel})${auditNote}]`,
+  });
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+  return { success: true };
 }
 

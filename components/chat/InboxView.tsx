@@ -10,6 +10,9 @@ import {
   User,
   Sparkles,
   Download,
+  Clock,
+  Package,
+  RotateCcw,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
@@ -78,6 +81,29 @@ const ContactListItem = React.memo(
       }
     }, [c.last_interaction_at]);
 
+    const activeReminder = c.custom_fields?.active_reminder;
+    const reminderInfo = useMemo(() => {
+      if (!activeReminder?.scheduledFor) return null;
+      try {
+        const d = new Date(activeReminder.scheduledFor);
+        const now = new Date();
+        const isOverdue = d.getTime() < now.getTime();
+        const isToday = d.toDateString() === now.toDateString();
+        const timeStr = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const dateStr = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+        const label = isToday ? `Hoy ${timeStr}` : `${dateStr} ${timeStr}`;
+        const typeLabel =
+          activeReminder.reminderType === 'shipping'
+            ? 'Envío'
+            : activeReminder.reminderType === 'reactivation'
+            ? 'Reactivar'
+            : 'Recordatorio';
+        return { isOverdue, isToday, label, typeLabel, type: activeReminder.reminderType };
+      } catch {
+        return null;
+      }
+    }, [activeReminder]);
+
     return (
       <a
         href={`/inbox/${c.id}`}
@@ -103,6 +129,32 @@ const ContactListItem = React.memo(
               Pendiente de atención
             </span>
             <span className="text-[10px] text-rose-700 dark:text-rose-300 shrink-0 font-medium">Requiere asesor</span>
+          </div>
+        )}
+
+        {/* Badge de Recordatorio Activo */}
+        {reminderInfo && (
+          <div className="mb-1.5 flex items-center gap-1">
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border truncate max-w-full ${
+                reminderInfo.isOverdue
+                  ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/30 animate-pulse'
+                  : reminderInfo.isToday
+                  ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/30'
+                  : 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/20'
+              }`}
+            >
+              {reminderInfo.type === 'shipping' ? (
+                <Package className="w-2.5 h-2.5 shrink-0" />
+              ) : reminderInfo.type === 'reactivation' ? (
+                <RotateCcw className="w-2.5 h-2.5 shrink-0" />
+              ) : (
+                <Clock className="w-2.5 h-2.5 shrink-0" />
+              )}
+              <span className="truncate">
+                {reminderInfo.isOverdue ? 'Vencido: ' : ''}{reminderInfo.typeLabel} ({reminderInfo.label})
+              </span>
+            </span>
           </div>
         )}
 
@@ -189,7 +241,9 @@ const ContactListItem = React.memo(
       prev.contact.name === next.contact.name &&
       prev.contact.phone === next.contact.phone &&
       prev.contact.channel === next.contact.channel &&
-      prev.contact.instagram_username === next.contact.instagram_username
+      prev.contact.instagram_username === next.contact.instagram_username &&
+      prev.contact.custom_fields?.active_reminder?.id === next.contact.custom_fields?.active_reminder?.id &&
+      prev.contact.custom_fields?.active_reminder?.scheduledFor === next.contact.custom_fields?.active_reminder?.scheduledFor
     );
   }
 );
@@ -297,6 +351,28 @@ export function InboxView({
       prev.map((c) => (c.id === selectedContactId ? { ...c, ...updatedFields } : c))
     );
   }, [selectedContactId]);
+
+  // Cargar lote anterior de mensajes para paginación ascendente ("Cargar anteriores")
+  const handleLoadOlderMessages = useCallback(async (targetContactId: string): Promise<number> => {
+    const current = messagesCacheRef.current[targetContactId] || [];
+    if (current.length === 0) return 0;
+    const oldest = current[0];
+    const older = await getContactMessages(targetContactId, oldest.created_at, 50);
+    if (!older || older.length === 0) return 0;
+
+    const existingIds = new Set(current.map((m) => m.id));
+    const newItems = older.filter((m: any) => !existingIds.has(m.id));
+    if (newItems.length === 0) return 0;
+
+    const merged = [...newItems, ...current];
+    messagesCacheRef.current[targetContactId] = merged;
+    setMessagesCache((prev) => ({
+      ...prev,
+      [targetContactId]: merged,
+    }));
+
+    return newItems.length;
+  }, []);
 
   // Navegación nativa adelante/atrás del navegador sin recargas de página
   useEffect(() => {
@@ -443,7 +519,11 @@ export function InboxView({
           const newMsg = payload.new as MessageItem;
           const current = messagesCacheRef.current[selectedContactId] || [];
           if (!current.some((m) => m.id === newMsg.id)) {
-            const updated = [...current, newMsg];
+            // Reemplazar mensaje temporal optimista si coincide para evitar burbujas duplicadas
+            const filtered = current.filter(
+              (m) => !(m.id.startsWith('temp-') && m.sender_type === newMsg.sender_type && m.content === newMsg.content)
+            );
+            const updated = [...filtered, newMsg];
             messagesCacheRef.current[selectedContactId] = updated;
             setMessagesCache((prev) => ({
               ...prev,
@@ -868,12 +948,12 @@ export function InboxView({
       <div className="flex-1 min-w-0 h-full">
         {currentActiveContact ? (
           <ChatWindow
-            key={currentActiveContact.id}
             contact={currentActiveContact}
             messages={currentMessages}
             isLoadingMessages={isLoadingMessages && currentMessages.length === 0}
             onOptimisticMessage={handleOptimisticMessage}
             onContactUpdate={handleContactUpdate}
+            onLoadOlderMessages={handleLoadOlderMessages}
             customTemplates={customTemplates}
             whatsappProvider={whatsappProvider}
             currentUserId={currentUserId}

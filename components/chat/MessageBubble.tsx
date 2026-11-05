@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { MessageSender } from '@/lib/supabase/types';
-import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink } from 'lucide-react';
+import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink, Clock } from 'lucide-react';
 import { parseImageMessageContent, parseDocumentMessageContent } from '@/lib/media/format';
 
 interface MessageBubbleProps {
+  id?: string;
   content: string;
   senderType: MessageSender;
   createdAt: string;
 }
 
 export const MessageBubble = React.memo(
-  function MessageBubble({ content, senderType, createdAt }: MessageBubbleProps) {
+  function MessageBubble({ id, content, senderType, createdAt }: MessageBubbleProps) {
     const formattedTime = useMemo(() => {
       return new Date(createdAt).toLocaleTimeString([], {
         hour: '2-digit',
@@ -18,6 +19,7 @@ export const MessageBubble = React.memo(
       });
     }, [createdAt]);
 
+    const isPending = Boolean(id && (id.startsWith('temp-') || id.startsWith('optimistic-')));
     const isLead = senderType === 'lead';
     const isAi = senderType === 'ai';
     const isAgent = senderType === 'agent_manual';
@@ -101,13 +103,14 @@ export const MessageBubble = React.memo(
             <div className="space-y-1.5 my-1">
               <div
                 onClick={() => setIsLightboxOpen(true)}
-                className="relative group cursor-pointer overflow-hidden rounded-xl border border-black/10 dark:border-white/10 max-w-sm bg-black/5 dark:bg-black/30"
+                className="relative group cursor-pointer overflow-hidden rounded-xl border border-black/10 dark:border-white/10 max-w-sm min-w-[200px] min-h-[140px] aspect-[4/3] bg-slate-100/70 dark:bg-black/30 flex items-center justify-center transition-colors"
               >
                 <img
                   src={imageInfo.url}
                   alt={imageInfo.caption || 'Imagen adjunta'}
                   loading="lazy"
-                  className="max-h-64 w-auto rounded-xl object-cover hover:scale-[1.02] transition-transform duration-200"
+                  decoding="async"
+                  className="max-h-64 w-full h-full rounded-xl object-cover hover:scale-[1.02] transition-transform duration-200"
                 />
                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <span className="px-2.5 py-1 bg-black/60 text-white rounded-full text-[11px] font-medium flex items-center gap-1 backdrop-blur-xs">
@@ -176,9 +179,15 @@ export const MessageBubble = React.memo(
             </p>
           )}
 
-          {/* Hora */}
-          <div suppressHydrationWarning className="text-[10px] mt-1 text-right font-mono opacity-60">
-            {formattedTime}
+          {/* Hora y estado de envío optimista */}
+          <div suppressHydrationWarning className="text-[10px] mt-1 text-right font-mono opacity-65 flex items-center justify-end gap-1 select-none">
+            {isPending && (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-sans opacity-90 animate-pulse">
+                <Clock className="w-2.5 h-2.5" />
+                <span>Enviando</span>
+              </span>
+            )}
+            <span>{formattedTime}</span>
           </div>
         </div>
       </div>
@@ -232,6 +241,7 @@ export const MessageBubble = React.memo(
   );
 }, (prevProps, nextProps) => {
   return (
+    prevProps.id === nextProps.id &&
     prevProps.content === nextProps.content &&
     prevProps.senderType === nextProps.senderType &&
     prevProps.createdAt === nextProps.createdAt
