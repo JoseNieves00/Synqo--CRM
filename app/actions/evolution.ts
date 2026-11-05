@@ -34,6 +34,32 @@ async function checkAdminAuth() {
 }
 
 /**
+ * Permite a cualquier miembro de la organización consultar el estado de conexión
+ * (sin exponer secretos ni permitir modificaciones destructivas).
+ */
+async function checkMemberAuth() {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error('No autorizado');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada.');
+
+  return { user, profile, orgId, isSuperAdmin: Boolean(profile.is_super_admin), isAdmin: profile.role === 'admin' || Boolean(profile.is_super_admin) };
+}
+
+/**
  * Resuelve las credenciales de Evolution API para la organización,
  * utilizando la configuración central del VPS de la empresa (Variables de entorno)
  * con fallback inteligente para que los clientes no tengan que configurar servidores.
@@ -329,7 +355,7 @@ export async function getEvolutionPhoneCode(phone: string) {
  * Consulta el estado de conexión de la instancia de Evolution API en el VPS.
  */
 export async function getEvolutionConnectionStatus() {
-  const { orgId } = await checkAdminAuth();
+  const { orgId } = await checkMemberAuth();
   const { org, instanceName, apiUrl, apiKey } = await resolveOrgEvolutionCredentials(orgId);
 
   const status = await EvolutionService.getStatus({

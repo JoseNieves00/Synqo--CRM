@@ -152,6 +152,15 @@ export class MessagingService {
 
     if (provider === 'evolution') {
       const evoConfig = this.resolveEvolutionConfig(organization);
+      if (mediaType === 'audio') {
+        return await EvolutionService.sendWhatsAppAudio({
+          apiUrl: evoConfig.apiUrl,
+          apiKey: evoConfig.apiKey,
+          instanceName: evoConfig.instanceName,
+          to,
+          audioUrl: mediaUrl,
+        });
+      }
       return await EvolutionService.sendMediaMessage({
         apiUrl: evoConfig.apiUrl,
         apiKey: evoConfig.apiKey,
@@ -170,6 +179,15 @@ export class MessagingService {
     }
 
     const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+
+    if (mediaType === 'audio') {
+      return await WhatsAppService.sendAudioMessage({
+        phoneNumberId: organization.whatsapp_phone_number_id,
+        accessToken: decryptedToken,
+        to,
+        audioUrl: mediaUrl,
+      });
+    }
 
     if (mediaType === 'document') {
       return await WhatsAppService.sendDocumentMessage({

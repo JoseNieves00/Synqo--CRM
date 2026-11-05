@@ -26,6 +26,7 @@ interface ContactItem {
   pipeline_stage: PipelineStage;
   is_ai_active: boolean;
   last_interaction_at: string;
+  custom_fields?: any;
 }
 
 interface KanbanBoardProps {

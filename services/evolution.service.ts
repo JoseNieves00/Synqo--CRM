@@ -419,6 +419,43 @@ export class EvolutionService {
   }
 
   /**
+   * Envía presencia humana en WhatsApp ('composing' | 'recording' | 'available' | 'paused')
+   * Endpoint oficial Evolution API v2: POST /chat/sendPresence/{instance}
+   */
+  static async sendPresence({
+    apiUrl,
+    apiKey,
+    instanceName,
+    to,
+    presence = 'composing',
+    delay = 1200,
+  }: EvolutionCredentials & {
+    to: string;
+    presence?: 'composing' | 'recording' | 'available' | 'paused';
+    delay?: number;
+  }): Promise<boolean> {
+    const baseUrl = this.resolveBaseUrl(apiUrl);
+    const cleanInstance = this.sanitizeInstanceName(instanceName);
+    const cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
+    const url = `${baseUrl}/chat/sendPresence/${cleanInstance}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.buildHeaders(apiKey),
+        body: JSON.stringify({
+          number: cleanTo,
+          presence,
+          delay,
+        }),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Envía un mensaje de texto con simulación opcional de cadencia humana (typing delay).
    * Endpoint oficial: POST /message/sendText/{instance}
    */
@@ -523,6 +560,54 @@ export class EvolutionService {
     }
 
     const data = await response.json();
+    return data.key?.id || data.messageId || data.id || '';
+  }
+
+  /**
+   * Envía una nota de voz oficial de WhatsApp (PTT / Push-To-Talk) a través de Evolution API v2.
+   * Endpoint oficial: POST /message/sendWhatsAppAudio/{instance}
+   */
+  static async sendWhatsAppAudio({
+    apiUrl,
+    apiKey,
+    instanceName,
+    to,
+    audioUrl,
+  }: EvolutionCredentials & {
+    to: string;
+    audioUrl: string;
+  }): Promise<string> {
+    const baseUrl = this.resolveBaseUrl(apiUrl);
+    const cleanInstance = this.sanitizeInstanceName(instanceName);
+    let cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
+    if (!cleanTo.includes('@') && cleanTo.length >= 14 && !cleanTo.startsWith('55') && !cleanTo.startsWith('52') && !cleanTo.startsWith('57')) {
+      cleanTo = `${cleanTo}@lid`;
+    }
+    const url = `${baseUrl}/message/sendWhatsAppAudio/${cleanInstance}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.buildHeaders(apiKey),
+      body: JSON.stringify({
+        number: cleanTo,
+        audio: audioUrl,
+      }),
+    });
+
+    if (!response.ok) {
+      // Fallback elegante a sendMedia si el endpoint específico de PTT no responde
+      return this.sendMediaMessage({
+        apiUrl,
+        apiKey,
+        instanceName,
+        to: cleanTo,
+        mediaUrl: audioUrl,
+        mediaType: 'audio',
+        fileName: 'audio.ogg',
+      });
+    }
+
+    const data = await response.json().catch(() => ({}));
     return data.key?.id || data.messageId || data.id || '';
   }
 

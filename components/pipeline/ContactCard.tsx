@@ -13,6 +13,7 @@ interface ContactCardProps {
   currentStage: PipelineStage;
   isAiActive: boolean;
   lastInteractionAt: string;
+  custom_fields?: any;
   onMoveStage?: (contactId: string, newStage: PipelineStage) => void;
 }
 
@@ -23,6 +24,7 @@ function ContactCardComponent({
   currentStage,
   isAiActive,
   lastInteractionAt,
+  custom_fields,
   onMoveStage,
 }: ContactCardProps) {
   const formattedDate = new Date(lastInteractionAt).toLocaleDateString([], {
@@ -31,6 +33,8 @@ function ContactCardComponent({
     hour: '2-digit',
     minute: '2-digit',
   });
+
+  const dealValue = Number(custom_fields?.deal_value || 0);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', id);
@@ -47,25 +51,32 @@ function ContactCardComponent({
         <h4 className="font-semibold text-xs text-slate-900 dark:text-white truncate">
           {name || 'Lead sin nombre'}
         </h4>
-        <span
-          className={`inline-flex items-center gap-1 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${
-            isAiActive
-              ? 'bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20'
-              : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20'
-          }`}
-        >
-          {isAiActive ? (
-            <>
-              <Bot className="w-2.5 h-2.5" />
-              <span>AI</span>
-            </>
-          ) : (
-            <>
-              <User className="w-2.5 h-2.5" />
-              <span>HUMAN</span>
-            </>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {dealValue > 0 && (
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono text-[10px] bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-500/20">
+              ${dealValue.toLocaleString('es-CO')}
+            </span>
           )}
-        </span>
+          <span
+            className={`inline-flex items-center gap-1 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${
+              isAiActive
+                ? 'bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20'
+                : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20'
+            }`}
+          >
+            {isAiActive ? (
+              <>
+                <Bot className="w-2.5 h-2.5" />
+                <span>AI</span>
+              </>
+            ) : (
+              <>
+                <User className="w-2.5 h-2.5" />
+                <span>HUMAN</span>
+              </>
+            )}
+          </span>
+        </div>
       </div>
 
       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mb-2.5">{phone}</p>
@@ -113,6 +124,7 @@ function areCardsEqual(prev: ContactCardProps, next: ContactCardProps) {
     prev.currentStage === next.currentStage &&
     prev.isAiActive === next.isAiActive &&
     prev.lastInteractionAt === next.lastInteractionAt &&
+    prev.custom_fields?.deal_value === next.custom_fields?.deal_value &&
     prev.onMoveStage === next.onMoveStage
   );
 }

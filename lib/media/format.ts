@@ -223,3 +223,51 @@ export function isPaymentReceiptHint(text?: string | null): boolean {
 
   return paymentKeywords.some((keyword) => lower.includes(keyword));
 }
+
+export interface ParsedAudioMessage {
+  isAudio: boolean;
+  url?: string;
+  transcription?: string;
+}
+
+/**
+ * Formatea el contenido de una nota de voz para almacenamiento estándar en BD.
+ */
+export function formatAudioMessageContent(url: string, transcription?: string): string {
+  const cleanUrl = url.trim();
+  const cleanTrans = transcription?.trim();
+  if (cleanTrans) {
+    return `🎙️ [Audio: ${cleanUrl}]: "${cleanTrans}"`;
+  }
+  return `🎙️ [Audio: ${cleanUrl}]`;
+}
+
+/**
+ * Extrae la URL y la transcripción de un mensaje formateado como audio / nota de voz.
+ */
+export function parseAudioMessageContent(content: string | null | undefined): ParsedAudioMessage {
+  if (!content || typeof content !== 'string') {
+    return { isAudio: false };
+  }
+
+  const audioMatch = content.match(/^(?:🎙️|🎤)\s*\[Audio:\s*(https?:\/\/[^\s()\]]+)\](?::\s*["“]?([\s\S]*?)["”]?)?$/i);
+  if (audioMatch) {
+    return {
+      isAudio: true,
+      url: audioMatch[1].trim(),
+      transcription: audioMatch[2]?.trim() || '',
+    };
+  }
+
+  // Compatibilidad con URLs directas de storage que terminen en formato de audio
+  const directAudioMatch = content.trim().match(/^(https?:\/\/[^\s]+\/chat-media\/[^\s]+(?:\.webm|\.ogg|\.mp3|\.wav|\.m4a)(?:\?[^\s]*)?)$/i);
+  if (directAudioMatch) {
+    return {
+      isAudio: true,
+      url: directAudioMatch[1].trim(),
+      transcription: '',
+    };
+  }
+
+  return { isAudio: false };
+}

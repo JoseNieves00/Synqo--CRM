@@ -28,6 +28,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   }
 
   const org = current.organization;
+  const paymentAccounts = (org?.appointment_settings as any)?.payment_accounts || [];
 
   // Cargar información de equipo y usuarios
   let teamData = null;
@@ -116,6 +117,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       teamData={teamData || undefined}
       specialistsData={specialists}
       roomsData={rooms}
+      paymentAccountsData={paymentAccounts}
       isSuperAdmin={Boolean(current.profile.is_super_admin)}
     />
   );

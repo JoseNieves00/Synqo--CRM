@@ -174,3 +174,50 @@ export async function getOrganizationMembers() {
   return members || [];
 }
 
+/**
+ * Rescata la atención de un lead asignado cuyo asesor lleva más de 5 minutos inactivo.
+ * Permite que cualquier asesor disponible salve la venta.
+ */
+export async function takeoverInactiveLead(contactId: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return { success: false, error: 'No autorizado' };
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('id, full_name, organization_id, role')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) {
+    return { success: false, error: 'Organización no encontrada' };
+  }
+
+  // Actualizar contacto y transferir al asesor que rescata
+  const { error: updateError } = await (supabaseAdmin.from('contacts') as any)
+    .update({
+      assigned_to: user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id);
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  // Registrar auditoría interna en mensajes
+  await (supabaseAdmin.from('messages') as any).insert({
+    organization_id: profile.organization_id,
+    contact_id: contactId,
+    sender_type: 'system',
+    content: `[⚡ Rescate Comercial: Lead transferido a ${profile.full_name || 'asesor'} por inactividad (>5m sin respuesta)]`,
+  });
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+  return { success: true };
+}
+
+

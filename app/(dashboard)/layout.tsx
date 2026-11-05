@@ -11,6 +11,7 @@ import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
 import { SupportHeaderButton } from '@/components/support/SupportHeaderButton';
+import { WhatsAppConnectionIndicator } from '@/components/dashboard/WhatsAppConnectionIndicator';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
 
 const MustChangePasswordModal = nextDynamic(
@@ -156,6 +157,12 @@ export default async function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-3">
+            <WhatsAppConnectionIndicator
+              initialProvider={current?.organization?.whatsapp_provider || 'meta'}
+              initialStatus={current?.organization?.evolution_status || 'disconnected'}
+              initialPhone={current?.organization?.evolution_phone_connected || null}
+              isAdmin={isAdmin}
+            />
             <SupportHeaderButton />
           </div>
         </header>

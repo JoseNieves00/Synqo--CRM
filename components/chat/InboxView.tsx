@@ -13,6 +13,7 @@ import {
   Clock,
   Package,
   RotateCcw,
+  X,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
@@ -104,6 +105,16 @@ const ContactListItem = React.memo(
       }
     }, [activeReminder]);
 
+    const waitingMinutes = useMemo(() => {
+      if (c.is_ai_active && !isUnattended) return 0;
+      try {
+        const elapsed = (Date.now() - new Date(c.last_interaction_at).getTime()) / (1000 * 60);
+        return Math.max(0, Math.floor(elapsed));
+      } catch {
+        return 0;
+      }
+    }, [c.is_ai_active, isUnattended, c.last_interaction_at]);
+
     return (
       <a
         href={`/inbox/${c.id}`}
@@ -121,14 +132,29 @@ const ContactListItem = React.memo(
             : 'border-l-transparent hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
         }`}
       >
-        {/* Badge de Atención Pendiente */}
-        {isUnattended && (
+        {/* Badge de Atención Pendiente & Semáforo SLA */}
+        {(isUnattended || !c.is_ai_active) && (
           <div className="mb-1.5 flex items-center justify-between gap-1">
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400 animate-pulse" />
-              Pendiente de atención
+              {isUnattended ? 'Relevo pendiente' : 'Requiere asesor'}
             </span>
-            <span className="text-[10px] text-rose-700 dark:text-rose-300 shrink-0 font-medium">Requiere asesor</span>
+            {waitingMinutes < 2 ? (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 shrink-0">
+                <span className="w-1 h-1 rounded-full bg-emerald-500" />
+                &lt; 2m
+              </span>
+            ) : waitingMinutes <= 5 ? (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 shrink-0">
+                <span className="w-1 h-1 rounded-full bg-amber-500" />
+                {waitingMinutes}m espera
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0 animate-pulse">
+                <Clock className="w-2.5 h-2.5" />
+                ⏳ {waitingMinutes}m
+              </span>
+            )}
           </div>
         )}
 
@@ -277,6 +303,20 @@ export function InboxView({
   const [contactList, setContactList] = useState<ContactItem[]>(contacts);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Atajo de teclado global Ctrl+K / Cmd+K para enfocar el buscador al instante
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Contacto activo y caché de mensajes local para transiciones 0ms ultra-suaves
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
@@ -426,9 +466,8 @@ export function InboxView({
   const isAdmin = currentUserRole === 'admin' || currentUserRole === 'supervisor';
 
   // Pestañas principales de trabajo:
-  // Para Agente: por defecto 'mine' (Mis Chats)
-  // Para Admin: por defecto 'all' (Todos los chats)
-  const [activeTab, setActiveTab] = useState<'mine' | 'unassigned' | 'all'>(
+  // 'urgent' (🚨 Por Atender), 'mine' (Mis Chats), 'unassigned' (Sin Asignar), 'all' (Todos)
+  const [activeTab, setActiveTab] = useState<'mine' | 'urgent' | 'unassigned' | 'all'>(
     isAdmin ? 'all' : 'mine'
   );
 
@@ -601,12 +640,16 @@ export function InboxView({
     () => contactList.filter((c) => !c.assigned_to).length,
     [contactList]
   );
+  const urgentCount = useMemo(
+    () => contactList.filter((c) => unattendedIds.has(c.id) || !c.is_ai_active).length,
+    [contactList, unattendedIds]
+  );
 
   // Filtrado compuesto no bloqueante a 60 FPS usando deferredSearch
   const filteredContacts = useMemo(() => {
     const q = deferredSearch.toLowerCase().trim();
 
-    return contactList.filter((c) => {
+    const result = contactList.filter((c) => {
       // 1. Filtro de búsqueda por texto diferido (permite tipeo fluido sin bloquear el input)
       if (q) {
         const matchesSearch =
@@ -620,9 +663,15 @@ export function InboxView({
       if (channelFilter === 'whatsapp' && c.channel === 'instagram') return false;
       if (channelFilter === 'instagram' && c.channel !== 'instagram') return false;
 
-      // 3. Filtro por Pestaña de Asignación
-      if (activeTab === 'mine' && c.assigned_to !== currentUserId) return false;
-      if (activeTab === 'unassigned' && c.assigned_to) return false;
+      // 3. Filtro por Pestaña de Asignación / Urgencia
+      if (activeTab === 'urgent') {
+        const isUrgent = unattendedIds.has(c.id) || !c.is_ai_active;
+        if (!isUrgent) return false;
+      } else if (activeTab === 'mine') {
+        if (c.assigned_to !== currentUserId) return false;
+      } else if (activeTab === 'unassigned') {
+        if (c.assigned_to) return false;
+      }
 
       // 4. Filtro por Agente Específico (Admin/Supervisor)
       if (isAdmin && selectedAgentFilter !== 'all') {
@@ -639,7 +688,27 @@ export function InboxView({
 
       return true;
     });
-  }, [contactList, deferredSearch, channelFilter, activeTab, currentUserId, isAdmin, selectedAgentFilter, aiFilter]);
+
+    // Ordenamiento por Semáforo SLA y Prioridad de Espera:
+    // Los leads con relevo pendiente o esperando asesor humano se priorizan arriba del directorio
+    return result.sort((a, b) => {
+      const aUrgent = unattendedIds.has(a.id) || !a.is_ai_active;
+      const bUrgent = unattendedIds.has(b.id) || !b.is_ai_active;
+
+      if (aUrgent && !bUrgent) return -1;
+      if (!aUrgent && bUrgent) return 1;
+
+      // Si ambos están en espera urgente, ordenar primero el que lleva más minutos esperando (SLA)
+      if (aUrgent && bUrgent) {
+        const timeA = new Date(a.last_interaction_at).getTime();
+        const timeB = new Date(b.last_interaction_at).getTime();
+        return timeA - timeB; // Más antiguo esperando primero
+      }
+
+      // Por defecto: interacción más reciente primero
+      return new Date(b.last_interaction_at).getTime() - new Date(a.last_interaction_at).getTime();
+    });
+  }, [contactList, deferredSearch, channelFilter, activeTab, currentUserId, isAdmin, selectedAgentFilter, aiFilter, unattendedIds]);
 
   const currentActiveContact =
     contactList.find((c) => c.id === selectedContactId) ||
@@ -705,16 +774,34 @@ export function InboxView({
             </div>
           )}
 
-          {/* Buscador */}
+          {/* Buscador Rápido con Atajo ⌘K */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
+              ref={searchInputRef}
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por nombre o teléfono..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:ring-1 focus:ring-[#0052FF] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500"
+              className="w-full pl-8 pr-12 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:ring-1 focus:ring-[#0052FF] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500"
             />
+            {search ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  searchInputRef.current?.focus();
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                title="Limpiar búsqueda"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            ) : (
+              <kbd className="hidden sm:inline-block text-[10px] font-mono px-1 py-0.2 rounded bg-slate-100 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 select-none pointer-events-none">
+                ⌘K
+              </kbd>
+            )}
           </div>
 
           {/* Selector Omnicanal: Preparado y visible únicamente cuando existan contactos de Instagram */}
@@ -772,7 +859,7 @@ export function InboxView({
             </Link>
           )}
 
-          {/* Pestañas de Asignación */}
+          {/* Pestañas de Asignación y Prioridad de Atención */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] p-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-medium">
             {isAdmin ? (
               <>
@@ -780,17 +867,33 @@ export function InboxView({
                   onClick={() => setActiveTab('all')}
                   className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'all'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   Todos ({contactList.length})
                 </button>
                 <button
+                  onClick={() => setActiveTab('urgent')}
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                    activeTab === 'urgent'
+                      ? 'bg-white dark:bg-[#131722] text-rose-700 dark:text-rose-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-300'
+                  }`}
+                  title="Chats con relevo humano o esperando asesor"
+                >
+                  <span>Por Atender</span>
+                  {urgentCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-full text-[10px] font-mono font-bold animate-pulse">
+                      {urgentCount}
+                    </span>
+                  )}
+                </button>
+                <button
                   onClick={() => setActiveTab('unassigned')}
                   className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
                     activeTab === 'unassigned'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -805,11 +908,11 @@ export function InboxView({
                   onClick={() => setActiveTab('mine')}
                   className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'mine'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  Mis Chats ({myChatsCount})
+                  Míos ({myChatsCount})
                 </button>
               </>
             ) : (
@@ -818,17 +921,33 @@ export function InboxView({
                   onClick={() => setActiveTab('mine')}
                   className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'mine'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  Mis Chats ({myChatsCount})
+                  Míos ({myChatsCount})
+                </button>
+                <button
+                  onClick={() => setActiveTab('urgent')}
+                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                    activeTab === 'urgent'
+                      ? 'bg-white dark:bg-[#131722] text-rose-700 dark:text-rose-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-300'
+                  }`}
+                  title="Chats con relevo humano o esperando asesor"
+                >
+                  <span>Por Atender</span>
+                  {urgentCount > 0 && (
+                    <span className="px-1.5 py-0.2 bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-full text-[10px] font-mono font-bold animate-pulse">
+                      {urgentCount}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => setActiveTab('unassigned')}
                   className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
                     activeTab === 'unassigned'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -843,7 +962,7 @@ export function InboxView({
                   onClick={() => setActiveTab('all')}
                   className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
                     activeTab === 'all'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >

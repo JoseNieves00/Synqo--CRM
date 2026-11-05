@@ -6,7 +6,7 @@ import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/wha
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
-import { formatImageMessageContent, formatDocumentMessageContent } from '@/lib/media/format';
+import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent } from '@/lib/media/format';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -199,6 +199,7 @@ export async function uploadChatMedia(formData: FormData): Promise<{
   url: string;
   fileName: string;
   isDocument: boolean;
+  isAudio?: boolean;
   fileType: string;
 }> {
   const supabase = createServerSupabaseClient();
@@ -223,10 +224,18 @@ export async function uploadChatMedia(formData: FormData): Promise<{
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/plain',
+    'audio/webm',
+    'audio/ogg',
+    'audio/mp4',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/x-m4a',
   ];
 
-  if (!allowedTypes.includes(file.type) && !file.name.match(/\.(pdf|docx?|xlsx?|txt|png|jpe?g|webp|gif)$/i)) {
-    throw new Error('Formato de archivo no admitido. Se permiten imágenes (JPG, PNG, WEBP) y documentos (PDF, Word, Excel, TXT).');
+  const isAudioFile = file.type.startsWith('audio/') || file.name.match(/\.(ogg|webm|mp3|wav|m4a|aac)$/i);
+
+  if (!allowedTypes.includes(file.type) && !isAudioFile && !file.name.match(/\.(pdf|docx?|xlsx?|txt|png|jpe?g|webp|gif)$/i)) {
+    throw new Error('Formato de archivo no admitido. Se permiten imágenes, documentos y notas de voz (WebM, OGG, MP3, WAV, M4A).');
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
@@ -235,7 +244,7 @@ export async function uploadChatMedia(formData: FormData): Promise<{
     .single();
 
   const orgId = profile?.organization_id || 'general';
-  const fileExt = file.name.split('.').pop() || (file.type.startsWith('image/') ? 'jpg' : 'pdf');
+  const fileExt = file.name.split('.').pop() || (isAudioFile ? 'ogg' : file.type.startsWith('image/') ? 'jpg' : 'pdf');
   const safeBaseName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const fileName = `${orgId}/${Date.now()}_${safeBaseName}`;
 
@@ -258,12 +267,13 @@ export async function uploadChatMedia(formData: FormData): Promise<{
     .from('chat-media')
     .getPublicUrl(fileName);
 
-  const isDocument = !file.type.startsWith('image/');
+  const isDocument = !file.type.startsWith('image/') && !isAudioFile;
 
   return {
     url: publicData.publicUrl,
     fileName: file.name,
     isDocument,
+    isAudio: Boolean(isAudioFile),
     fileType: file.type,
   };
 }
@@ -277,7 +287,8 @@ export async function sendAgentMediaMessage(
   mediaUrl: string,
   caption?: string,
   fileName?: string,
-  isDocument?: boolean
+  isDocument?: boolean,
+  isAudio?: boolean
 ) {
   const supabase = createServerSupabaseClient();
 
@@ -308,15 +319,16 @@ export async function sendAgentMediaMessage(
   if (!org) throw new Error('Organización no encontrada.');
 
   const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
+  const mediaType = isAudio ? 'audio' : isDocument ? 'document' : 'image';
 
-  // 1. Despachar imagen o documento a WhatsApp
+  // 1. Despachar imagen, documento o nota de voz a WhatsApp
   const messageId = await MessagingService.sendMediaMessage({
     organization: org,
     to: targetRecipient,
     mediaUrl,
     caption: caption || undefined,
-    mediaType: isDocument ? 'document' : 'image',
-    fileName: fileName || (isDocument ? 'documento.pdf' : 'imagen.jpg'),
+    mediaType,
+    fileName: fileName || (isAudio ? 'nota_de_voz.ogg' : isDocument ? 'documento.pdf' : 'imagen.jpg'),
   });
 
   // 2. Silenciar IA (Human Takeover) y actualizar última interacción
@@ -329,7 +341,9 @@ export async function sendAgentMediaMessage(
     .eq('id', contactId);
 
   // 3. Persistir en la tabla messages con formato correspondiente
-  const formattedContent = isDocument
+  const formattedContent = isAudio
+    ? formatAudioMessageContent(mediaUrl, caption)
+    : isDocument
     ? formatDocumentMessageContent(mediaUrl, fileName, caption)
     : formatImageMessageContent(mediaUrl, caption);
 

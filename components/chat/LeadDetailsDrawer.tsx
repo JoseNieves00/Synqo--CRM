@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
+  DollarSign,
 } from 'lucide-react';
 import { PipelineStage } from '@/lib/supabase/types';
 import { updateContactDetails, deleteContactWithPassword } from '@/app/actions/contacts';
@@ -56,6 +57,9 @@ export function LeadDetailsDrawer({
   const [name, setName] = useState(contact.name || '');
   const [stage, setStage] = useState<PipelineStage>(contact.pipeline_stage);
   const [notes, setNotes] = useState<string>(contact.custom_fields?.notes || '');
+  const [dealValue, setDealValue] = useState<string>(
+    contact.custom_fields?.deal_value ? String(contact.custom_fields.deal_value) : ''
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -84,8 +88,9 @@ export function LeadDetailsDrawer({
     setName(contact.name || '');
     setStage(contact.pipeline_stage);
     setNotes(contact.custom_fields?.notes || '');
+    setDealValue(contact.custom_fields?.deal_value ? String(contact.custom_fields.deal_value) : '');
     setSavedSuccess(false);
-  }, [contact.id, contact.name, contact.pipeline_stage, contact.custom_fields?.notes]);
+  }, [contact.id, contact.name, contact.pipeline_stage, contact.custom_fields?.notes, contact.custom_fields?.deal_value]);
 
   if (!isOpen) return null;
 
@@ -93,10 +98,12 @@ export function LeadDetailsDrawer({
     setIsSaving(true);
     setSavedSuccess(false);
     try {
+      const parsedValue = dealValue.trim() ? Number(dealValue.replace(/[^0-9.]/g, '')) : null;
       await updateContactDetails(contact.id, {
         name,
         pipelineStage: stage,
         notes,
+        dealValue: isNaN(parsedValue as number) ? null : parsedValue,
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
@@ -199,6 +206,27 @@ export function LeadDetailsDrawer({
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Valor Estimado del Trato / Venta */}
+        <div>
+          <label className="block text-slate-400 font-medium mb-1 flex items-center gap-1">
+            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+            Valor del Trato / Venta ($)
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-xs">$</span>
+            <input
+              type="text"
+              value={dealValue}
+              onChange={(e) => setDealValue(e.target.value)}
+              placeholder="0 (ej: 150000)"
+              className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-[#232A3B] bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF] font-mono text-xs"
+            />
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono mt-0.5 block">
+            Se totaliza automáticamente en la columna correspondiente del tablero Kanban.
+          </span>
         </div>
 
         {/* Notas Internas */}

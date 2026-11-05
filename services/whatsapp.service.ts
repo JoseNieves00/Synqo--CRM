@@ -186,6 +186,52 @@ export class WhatsAppService {
   }
 
   /**
+   * Envía una nota de voz o audio a través de WhatsApp Cloud API (Meta).
+   */
+  static async sendAudioMessage({
+    phoneNumberId,
+    accessToken,
+    to,
+    audioUrl,
+  }: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    audioUrl: string;
+  }): Promise<string> {
+    const cleanTo = to.replace(/[^0-9]/g, '');
+    const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+
+    const bodyPayload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'audio',
+      audio: {
+        link: audioUrl,
+      },
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bodyPayload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[WHATSAPP API SEND AUDIO ERROR]', errorData);
+      throw new Error(`WhatsApp API Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.messages?.[0]?.id || '';
+  }
+
+  /**
    * Envía un mensaje interactivo con botones de respuesta rápida (Quick Reply Buttons).
    * Ideal para confirmación de citas con un solo toque: [✓ Confirmar] o [↻ Reprogramar].
    */

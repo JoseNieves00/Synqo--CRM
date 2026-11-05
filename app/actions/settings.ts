@@ -591,3 +591,94 @@ export async function testWhatsAppConnection(input: {
   }
 }
 
+import { CustomPaymentAccount } from '@/lib/types/payments';
+
+/**
+ * Obtiene las cuentas y métodos de pago configurados en la organización
+ */
+export async function getOrganizationPaymentAccounts(): Promise<CustomPaymentAccount[]> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) return [];
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', profile.organization_id)
+    .single();
+
+  const settings = (org?.appointment_settings as any) || {};
+  return (settings.payment_accounts || []) as CustomPaymentAccount[];
+}
+
+/**
+ * Guarda o actualiza la lista de cuentas de pago 100% personalizables de la organización
+ */
+export async function saveOrganizationPaymentAccounts(
+  accounts: CustomPaymentAccount[]
+): Promise<{ success: boolean; error?: string; accounts?: CustomPaymentAccount[] }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { success: false, error: 'No autorizado' };
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && !profile.is_super_admin)) {
+    return { success: false, error: 'Solo administradores pueden configurar cuentas de pago de la empresa.' };
+  }
+
+  const orgId = profile.organization_id;
+
+  // Sanitizar cuentas
+  const cleanAccounts: CustomPaymentAccount[] = (accounts || [])
+    .filter((a) => a.title && a.accountNumber && a.holderName)
+    .map((a, idx) => ({
+      id: a.id || `acc-${Date.now()}-${idx}`,
+      title: a.title.trim().slice(0, 80),
+      accountNumber: a.accountNumber.trim().slice(0, 100),
+      holderName: a.holderName.trim().slice(0, 120),
+      holderId: a.holderId?.trim().slice(0, 50) || undefined,
+      instructions: a.instructions?.trim().slice(0, 300) || undefined,
+      paymentLink: a.paymentLink?.trim().slice(0, 250) || undefined,
+      isActive: a.isActive ?? true,
+    }));
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', orgId)
+    .single();
+
+  const currentSettings = (org?.appointment_settings as any) || {};
+  const updatedSettings = {
+    ...currentSettings,
+    payment_accounts: cleanAccounts,
+  };
+
+  const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: updatedSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true, accounts: cleanAccounts };
+}
+
+

@@ -146,7 +146,16 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 flex-wrap">
+                    {gap.occurrences && gap.occurrences >= 3 ? (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20 font-bold" title="Esta duda se ha repetido varias veces. Es ideal para definir una regla oficial.">
+                        🔥 Recurrente ({gap.occurrences} veces)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#232A3B] font-medium" title="Caso puntual o aislado. Solo se recomienda entrenar si es una política general.">
+                        Caso puntual ({gap.occurrences || 1} vez)
+                      </span>
+                    )}
                     <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] font-mono">
                       {gap.ai_category || 'general'}
                     </span>

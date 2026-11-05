@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { MessageSender } from '@/lib/supabase/types';
-import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink, Clock } from 'lucide-react';
-import { parseImageMessageContent, parseDocumentMessageContent } from '@/lib/media/format';
+import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink, Clock, Mic, AudioLines } from 'lucide-react';
+import { parseImageMessageContent, parseDocumentMessageContent, parseAudioMessageContent } from '@/lib/media/format';
 
 interface MessageBubbleProps {
   id?: string;
@@ -27,6 +27,27 @@ export const MessageBubble = React.memo(
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
     const imageInfo = useMemo(() => parseImageMessageContent(content), [content]);
     const docInfo = useMemo(() => parseDocumentMessageContent(content), [content]);
+    const audioInfo = useMemo(() => parseAudioMessageContent(content), [content]);
+
+    const voiceNoteInfo = useMemo(() => {
+      if (!content.includes('🎤') && !content.includes('[Nota de voz]')) {
+        return { isVoiceNote: false, transcription: '' };
+      }
+      const match = content.match(/🎤\s*\[Nota de voz\](?::\s*["“]([\s\S]*?)["”])?/);
+      if (match) {
+        return {
+          isVoiceNote: true,
+          transcription: match[1]?.trim() || '',
+        };
+      }
+      if (content.startsWith('🎤')) {
+        return {
+          isVoiceNote: true,
+          transcription: content.replace(/^🎤\s*/, '').trim(),
+        };
+      }
+      return { isVoiceNote: false, transcription: '' };
+    }, [content]);
 
     if (senderType === 'system') {
       const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado');
@@ -170,6 +191,77 @@ export const MessageBubble = React.memo(
                 <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
                   {docInfo.caption}
                 </p>
+              )}
+            </div>
+          ) : audioInfo.isAudio && audioInfo.url ? (
+            /* Renderizado de Audio / Nota de Voz Grabada en CRM */
+            <div className="space-y-1.5 my-1 min-w-[220px] sm:min-w-[260px]">
+              <div
+                className={`p-2.5 rounded-xl border flex flex-col gap-2 ${
+                  isAgent
+                    ? 'bg-white/15 border-white/20 text-white'
+                    : 'bg-slate-50 dark:bg-[#131722] border-slate-200 dark:border-[#232A3B] text-slate-800 dark:text-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`p-1.5 rounded-full ${isAgent ? 'bg-white/20 text-white' : 'bg-emerald-500 text-white'}`}>
+                    <Mic className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[11px] font-semibold truncate block">Nota de Voz</span>
+                    <span className="text-[10px] opacity-75 font-mono">Audio oficial</span>
+                  </div>
+                </div>
+                <audio
+                  src={audioInfo.url}
+                  controls
+                  className="w-full h-8 rounded-lg"
+                  preload="metadata"
+                />
+              </div>
+              {audioInfo.transcription && (
+                <p className="text-xs leading-relaxed italic opacity-90 pl-1">
+                  «{audioInfo.transcription}»
+                </p>
+              )}
+            </div>
+          ) : voiceNoteInfo.isVoiceNote ? (
+            /* Renderizado de Nota de Voz de WhatsApp */
+            <div className="space-y-2 my-1 min-w-[210px] sm:min-w-[240px]">
+              <div
+                className={`flex items-center gap-2.5 p-2 rounded-xl border ${
+                  isAgent
+                    ? 'bg-white/15 border-white/20 text-white'
+                    : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-500/20 text-emerald-950 dark:text-emerald-200'
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    isAgent ? 'bg-white/25 text-white' : 'bg-emerald-500 text-white shadow-xs'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-[11px] font-semibold truncate">Nota de Voz WhatsApp</span>
+                    <AudioLines className="w-3.5 h-3.5 opacity-75 shrink-0" />
+                  </div>
+                  <span className="text-[10px] opacity-75 font-mono">Audio transcrito por IA</span>
+                </div>
+              </div>
+              {voiceNoteInfo.transcription ? (
+                <div
+                  className={`text-xs leading-relaxed pl-2.5 py-0.5 border-l-2 ${
+                    isAgent
+                      ? 'border-white/50 text-white/95'
+                      : 'border-emerald-500/50 dark:border-emerald-400/50 text-slate-800 dark:text-slate-200'
+                  }`}
+                >
+                  <span className="italic">«{voiceNoteInfo.transcription}»</span>
+                </div>
+              ) : (
+                <p className="text-[11px] opacity-75 italic">Nota de voz recibida</p>
               )}
             </div>
           ) : (

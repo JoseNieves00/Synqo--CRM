@@ -11,6 +11,7 @@ interface ContactItem {
   pipeline_stage: PipelineStage;
   is_ai_active: boolean;
   last_interaction_at: string;
+  custom_fields?: any;
 }
 
 interface KanbanColumnProps {
@@ -30,6 +31,14 @@ export function KanbanColumn({
 }: KanbanColumnProps) {
   const [isOver, setIsOver] = React.useState(false);
   const [visibleLimit, setVisibleLimit] = React.useState(20);
+
+  // Sumatoria monetaria de los tratos en esta columna
+  const totalAmount = React.useMemo(() => {
+    return contacts.reduce((sum, c) => {
+      const val = Number(c.custom_fields?.deal_value || 0);
+      return sum + (isNaN(val) ? 0 : val);
+    }, 0);
+  }, [contacts]);
 
   // Si la cantidad de contactos cambia drásticamente, mantener un límite consistente
   const visibleContacts = contacts.slice(0, visibleLimit);
@@ -72,14 +81,22 @@ export function KanbanColumn({
       }`}
     >
       <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-slate-200 dark:border-[#1E2433]">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-md border bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 border-slate-200 dark:border-[#232A3B] shadow-2xs">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-md border bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 border-slate-200 dark:border-[#232A3B] shadow-2xs truncate">
             {label}
           </span>
+          <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-[#131722] px-1.5 py-0.2 rounded-full border border-slate-200 dark:border-[#232A3B] shadow-2xs shrink-0">
+            {contacts.length}
+          </span>
         </div>
-        <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-[#131722] px-2 py-0.2 rounded-full border border-slate-200 dark:border-[#232A3B] shadow-2xs">
-          {contacts.length}
-        </span>
+        {totalAmount > 0 && (
+          <span
+            className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-500/20 shrink-0 shadow-2xs"
+            title={`Valor total en esta fase: $${totalAmount.toLocaleString('es-CO')}`}
+          >
+            ${totalAmount.toLocaleString('es-CO')}
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
@@ -98,6 +115,7 @@ export function KanbanColumn({
                 currentStage={contact.pipeline_stage}
                 isAiActive={contact.is_ai_active}
                 lastInteractionAt={contact.last_interaction_at}
+                custom_fields={contact.custom_fields}
                 onMoveStage={onMoveStage}
               />
             ))}

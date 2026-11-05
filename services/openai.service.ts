@@ -862,18 +862,36 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               content: `[🚨 Relevo Silencioso: Asesor humano requerido - Motivo: "${handoffReason}"]`,
             });
 
-            // Registrar automáticamente vacío de conocimiento en ai_knowledge_gaps
+            // Registrar o acumular frecuencia en ai_knowledge_gaps (Protección anti-ofertas puntuales)
             try {
-              await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
-                organization_id: organizationId,
-                contact_id: contactId,
-                question_text: handoffReason,
-                ai_category: 'general',
-                reason: handoffReason,
-                status: 'pending',
-              });
+              const cleanReason = handoffReason.trim().slice(0, 80);
+              const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                .select('id, occurrences')
+                .eq('organization_id', organizationId)
+                .ilike('question_text', `%${cleanReason}%`)
+                .limit(1);
+
+              if (existingGaps && existingGaps.length > 0) {
+                const gap = existingGaps[0];
+                await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                  .update({
+                    occurrences: (gap.occurrences || 1) + 1,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('id', gap.id);
+              } else {
+                await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
+                  organization_id: organizationId,
+                  contact_id: contactId,
+                  question_text: handoffReason,
+                  ai_category: 'general',
+                  reason: handoffReason,
+                  status: 'pending',
+                  occurrences: 1,
+                });
+              }
             } catch (gapErr) {
-              console.warn('[AI KNOWLEDGE GAP INSERT WARN]', gapErr);
+              console.warn('[AI KNOWLEDGE GAP INSERT/ACCUMULATE WARN]', gapErr);
             }
 
             const isSilent = handoffMode === 'silent';
@@ -916,14 +934,32 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
             try {
               const parsedArgs = JSON.parse(toolCall.function.arguments || '{}');
               if (parsedArgs.question_text) {
-                await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
-                  organization_id: organizationId,
-                  contact_id: contactId,
-                  question_text: parsedArgs.question_text,
-                  ai_category: parsedArgs.category || 'general',
-                  reason: parsedArgs.reason || null,
-                  status: 'pending',
-                });
+                const qText = parsedArgs.question_text.trim();
+                const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                  .select('id, occurrences')
+                  .eq('organization_id', organizationId)
+                  .ilike('question_text', `%${qText.slice(0, 60)}%`)
+                  .limit(1);
+
+                if (existingGaps && existingGaps.length > 0) {
+                  const gap = existingGaps[0];
+                  await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                    .update({
+                      occurrences: (gap.occurrences || 1) + 1,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', gap.id);
+                } else {
+                  await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
+                    organization_id: organizationId,
+                    contact_id: contactId,
+                    question_text: qText,
+                    ai_category: parsedArgs.category || 'general',
+                    reason: parsedArgs.reason || null,
+                    status: 'pending',
+                    occurrences: 1,
+                  });
+                }
               }
               toolResult = JSON.stringify({ status: 'recorded' });
             } catch (err: any) {

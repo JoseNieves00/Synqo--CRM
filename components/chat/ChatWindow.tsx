@@ -9,10 +9,10 @@ import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
 import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation } from '@/app/actions/chat';
-import { formatImageMessageContent, formatDocumentMessageContent } from '@/lib/media/format';
-import { claimUnassignedLead, assignLeadByAdmin } from '@/app/actions/assignment';
+import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent } from '@/lib/media/format';
+import { claimUnassignedLead, assignLeadByAdmin, takeoverInactiveLead } from '@/app/actions/assignment';
 import dynamic from 'next/dynamic';
-import { deleteContactWithPassword } from '@/app/actions/contacts';
+import { deleteContactWithPassword, updateContactDetails } from '@/app/actions/contacts';
 import { completeContactReminder, cancelContactReminder, type ActiveReminderData } from '@/app/actions/reminders';
 import { META_TEMPLATES } from '@/services/whatsapp.service';
 import { createClient } from '@/lib/supabase/client';
@@ -192,10 +192,91 @@ export function ChatWindow({
   const isUnassigned = !contact.assigned_to;
   const isAssignedToOther = Boolean(contact.assigned_to && contact.assigned_to !== currentUserId);
 
-  // Modo Solo Lectura: Si está asignado a otro agente y el usuario actual es un agente regular
-  const isReadOnly = isAssignedToOther && !isAdminOrSupervisor;
+  // Desenganche de Asesor Inactivo (> 5 minutos de espera sin respuesta del asesor asignado)
+  const inactiveAdvisorMinutes = React.useMemo(() => {
+    if (!isAssignedToOther || contact.is_ai_active) return 0;
+    try {
+      const elapsed = (Date.now() - new Date(contact.last_interaction_at).getTime()) / (1000 * 60);
+      return Math.max(0, elapsed);
+    } catch {
+      return 0;
+    }
+  }, [isAssignedToOther, contact.is_ai_active, contact.last_interaction_at]);
+
+  const canTakeoverInactive = isAssignedToOther && inactiveAdvisorMinutes >= 5;
+
+  // Modo Solo Lectura: Si está asignado a otro agente y el usuario actual es un agente regular,
+  // se libera si el asesor asignado lleva > 5 min inactivo para que otro asesor rescate al cliente
+  const isReadOnly = isAssignedToOther && !isAdminOrSupervisor && !canTakeoverInactive;
 
   const assignedMember = teamMembers.find((m) => m.id === contact.assigned_to);
+
+  // Edición Rápida del Nombre del Lead en Cabecera
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(contact.name || '');
+  const [isSavingName, setIsSavingName] = useState(false);
+
+  useEffect(() => {
+    setTempName(contact.name || '');
+    setIsEditingName(false);
+  }, [contact.id, contact.name]);
+
+  const handleSaveQuickName = async () => {
+    const newName = tempName.trim();
+    if (!newName) return;
+    setIsSavingName(true);
+    try {
+      await updateContactDetails(contact.id, { name: newName });
+      onContactUpdate?.({ name: newName });
+      setIsEditingName(false);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error al actualizar nombre del lead');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  // Rescate de Lead por Inactividad de Asesor (> 5m)
+  const handleTakeoverInactive = async () => {
+    if (isClaiming || !currentUserId) return;
+    setIsClaiming(true);
+    try {
+      const res = await takeoverInactiveLead(contact.id);
+      if (res.success) {
+        onContactUpdate?.({ assigned_to: currentUserId });
+        setClaimSuccess(true);
+        setTimeout(() => setClaimSuccess(false), 3000);
+      } else {
+        setErrorMessage(res.error || 'No se pudo tomar el cliente.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error al rescatar el cliente.');
+    } finally {
+      setIsClaiming(false);
+    }
+  };
+
+  // Detección de Motivo de Relevo de IA para Banner de Contexto
+  const [dismissedHandoffBanner, setDismissedHandoffBanner] = useState(false);
+  useEffect(() => {
+    setDismissedHandoffBanner(false);
+  }, [contact.id]);
+
+  const latestHandoffReason = React.useMemo(() => {
+    if (contact.is_ai_active) return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (
+        m.sender_type === 'system' &&
+        (m.content.includes('Relevo') || m.content.includes('Asesor humano requerido'))
+      ) {
+        const match = m.content.match(/Motivo:\s*["']?([^"'\]]+)["']?/i);
+        if (match && match[1]) return match[1].trim();
+        return m.content.replace(/^\[🚨\s*/, '').replace(/\]$/, '').trim();
+      }
+    }
+    return null;
+  }, [messages, contact.is_ai_active]);
 
   const lastMessage = messages[messages.length - 1];
   const isWaitingForHuman = !contact.is_ai_active && lastMessage && lastMessage.sender_type === 'lead';
@@ -412,9 +493,17 @@ export function ChatWindow({
     }
   };
 
-  const handleSendMedia = async (mediaUrl: string, caption?: string, fileName?: string, isDocument?: boolean) => {
+  const handleSendMedia = async (
+    mediaUrl: string,
+    caption?: string,
+    fileName?: string,
+    isDocument?: boolean,
+    isAudio?: boolean
+  ) => {
     setErrorMessage(null);
-    const formatted = isDocument
+    const formatted = isAudio
+      ? formatAudioMessageContent(mediaUrl, caption)
+      : isDocument
       ? formatDocumentMessageContent(mediaUrl, fileName, caption)
       : formatImageMessageContent(mediaUrl, caption);
     onOptimisticMessage?.({
@@ -424,10 +513,10 @@ export function ChatWindow({
       created_at: new Date().toISOString(),
     });
     try {
-      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument);
+      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument, isAudio);
     } catch (err: any) {
       console.error('[SEND MEDIA ERROR]', err);
-      setErrorMessage(`Error al enviar archivo: ${err?.message || 'Error de conexión con WhatsApp'}`);
+      setErrorMessage(`Error al enviar archivo o audio: ${err?.message || 'Error de conexión con WhatsApp'}`);
       throw err;
     }
   };
@@ -527,14 +616,61 @@ export function ChatWindow({
         {/* Info del Contacto y Asignación */}
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-xs">
-              {contact.name ||
-                (contact.channel === 'instagram'
-                  ? contact.instagram_username
-                    ? `@${contact.instagram_username}`
-                    : 'Contacto Instagram'
-                  : 'Lead de WhatsApp')}
-            </h2>
+            {isEditingName ? (
+              <div className="flex items-center gap-1.5 animate-in fade-in">
+                <input
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveQuickName();
+                    if (e.key === 'Escape') setIsEditingName(false);
+                  }}
+                  autoFocus
+                  placeholder="Nombre del cliente..."
+                  className="text-xs px-2.5 py-1 border border-[#0052FF] rounded-lg bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white focus:outline-none font-semibold w-40 sm:w-56 shadow-2xs"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveQuickName}
+                  disabled={isSavingName}
+                  className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg cursor-pointer"
+                  title="Guardar nombre"
+                >
+                  {isSavingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingName(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+                  title="Cancelar"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 group">
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-[180px] sm:max-w-xs">
+                  {contact.name ||
+                    (contact.channel === 'instagram'
+                      ? contact.instagram_username
+                        ? `@${contact.instagram_username}`
+                        : 'Contacto Instagram'
+                      : 'Lead de WhatsApp')}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempName(contact.name || '');
+                    setIsEditingName(true);
+                  }}
+                  className="opacity-60 group-hover:opacity-100 p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] rounded transition cursor-pointer"
+                  title="Editar nombre rápidamente con 1 clic"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
+            )}
             <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-0.5 text-xs">
               <Flag className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
               <select
@@ -620,6 +756,17 @@ export function ChatWindow({
             <span className="px-2.5 py-1 bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 rounded-lg text-xs font-medium flex items-center gap-1">
               <User className="w-3 h-3" /> Asignado a ti
             </span>
+          ) : isAssignedToOther && canTakeoverInactive ? (
+            <button
+              type="button"
+              onClick={handleTakeoverInactive}
+              disabled={isClaiming}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs animate-pulse"
+              title={`El asesor ${assignedMember?.full_name || 'asignado'} lleva ${Math.round(inactiveAdvisorMinutes)}m sin responder al cliente. Haz clic para rescatar la atención.`}
+            >
+              {isClaiming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+              <span>⚡ Rescatar Lead (&gt;5m)</span>
+            </button>
           ) : (
             <span className="px-2.5 py-1 bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] rounded-lg text-xs font-medium flex items-center gap-1">
               <User className="w-3 h-3 text-slate-400" /> {assignedMember?.full_name || 'Otro asesor'}
@@ -826,6 +973,47 @@ export function ChatWindow({
         </div>
       )}
 
+      {/* Banner de Contexto de Relevo de IA (Motivo específico) */}
+      {latestHandoffReason && !dismissedHandoffBanner && (
+        <div className="mx-4 mt-2.5 p-3 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border border-amber-500/30 rounded-xl text-xs text-amber-950 dark:text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 flex-wrap">
+                <span>Relevo de IA: Atención Requerida</span>
+                <span className="px-1.5 py-0.2 text-[10px] font-bold uppercase rounded bg-amber-500/20 text-amber-800 dark:text-amber-300">
+                  Duda Puntual
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5 font-medium">
+                <strong className="text-amber-900 dark:text-amber-200">Motivo:</strong> "{latestHandoffReason}"
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleToggleAi(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shrink-0 transition shadow-xs cursor-pointer"
+              title="Reactivar IA si la consulta ya fue resuelta"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Reactivar IA</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedHandoffBanner(true)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              title="Ocultar aviso"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Banner de Atención Pendiente */}
       {isWaitingForHuman && (
         <div className="mx-4 mt-2.5 p-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3">
@@ -942,6 +1130,8 @@ export function ChatWindow({
             onTyping={handleTypingBroadcast}
             draftText={draftText}
             onDraftChange={onDraftChange}
+            isAiActive={contact.is_ai_active}
+            onToggleAi={handleToggleAi}
           />
         </div>
 

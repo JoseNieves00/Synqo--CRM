@@ -85,6 +85,13 @@ const EvolutionQrCard = dynamic(() => import('./EvolutionQrCard').then((m) => m.
   ssr: false,
 });
 
+const PaymentAccountsSettings = dynamic(() => import('./PaymentAccountsSettings').then((m) => m.PaymentAccountsSettings), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando métodos de pago...</div>,
+  ssr: false,
+});
+
+import { CustomPaymentAccount } from '@/lib/types/payments';
+
 interface SettingsFormProps {
   initialData: {
     whatsappPhoneNumberId?: string | null;
@@ -137,6 +144,7 @@ interface SettingsFormProps {
   };
   specialistsData?: any[];
   roomsData?: any[];
+  paymentAccountsData?: CustomPaymentAccount[];
   isSuperAdmin?: boolean;
 }
 
@@ -153,10 +161,11 @@ export function SettingsForm({
   teamData,
   specialistsData,
   roomsData,
+  paymentAccountsData = [],
   isSuperAdmin = false,
 }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments'>('integrations');
   const activeWaEngine: 'meta' | 'evolution' =
     initialData.whatsappProvider === 'evolution' || initialData.evolutionInstanceName
       ? 'evolution'
@@ -992,9 +1001,24 @@ export function SettingsForm({
             {initialData.roomLabel ? `${initialData.roomLabel}s` : 'Espacios Físicos'} ({roomsData?.length || 0})
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('payments')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            activeTab === 'payments'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          Cuentas de Pago ({paymentAccountsData?.length || 0})
+        </button>
       </div>
 
-      {activeTab === 'specialists' && enabledModules.staff_mobile_portal ? (
+      {activeTab === 'payments' ? (
+        <PaymentAccountsSettings initialAccounts={paymentAccountsData || []} />
+      ) : activeTab === 'specialists' && enabledModules.staff_mobile_portal ? (
         <SpecialistsTab
           specialists={specialistsData || []}
           organizationId={teamData?.organization.id || ''}

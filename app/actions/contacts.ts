@@ -91,6 +91,7 @@ export async function updateContactDetails(
     name?: string;
     pipelineStage?: PipelineStage;
     notes?: string;
+    dealValue?: number | null;
     customFields?: Record<string, any>;
   }
 ) {
@@ -118,7 +119,7 @@ export async function updateContactDetails(
   if (updates.pipelineStage !== undefined) {
     payload.pipeline_stage = updates.pipelineStage;
   }
-  if (updates.notes !== undefined || updates.customFields !== undefined) {
+  if (updates.notes !== undefined || updates.dealValue !== undefined || updates.customFields !== undefined) {
     // Obtener campos existentes
     const { data: currentContact } = await (supabaseAdmin.from('contacts') as any)
       .select('custom_fields')
@@ -131,6 +132,7 @@ export async function updateContactDetails(
       ...existingFields,
       ...(updates.customFields || {}),
       ...(updates.notes !== undefined ? { notes: updates.notes } : {}),
+      ...(updates.dealValue !== undefined ? { deal_value: updates.dealValue } : {}),
     };
   }
 
