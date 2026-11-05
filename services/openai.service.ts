@@ -40,19 +40,27 @@ async function createChatCompletionWithFallback(params: {
   organizationId?: string;
   contactId?: string;
 }): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; modelUsed: string }> {
-  const isGeminiKeyValid = Boolean(geminiApiKey && geminiApiKey.startsWith('AIzaSy'));
+  const isGeminiKeyValid = Boolean(geminiApiKey && geminiApiKey.trim().length > 20);
   const prefersGemini = (params.aiProvider === 'gemini' || !params.aiProvider) && isGeminiKeyValid && Boolean(gemini);
 
   if (prefersGemini && gemini) {
     try {
-      const geminiModel = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      const response = await gemini.chat.completions.create({
-        model: geminiModel,
-        messages: params.messages,
-        tools: params.tools,
-        tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
-        temperature: params.temperature ?? 0.3,
-      });
+      const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+      // Control de tiempo para fallback instantáneo ante 503 o 429 de Google
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const response = await gemini.chat.completions.create(
+        {
+          model: geminiModel,
+          messages: params.messages,
+          tools: params.tools,
+          tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
+          temperature: params.temperature ?? 0.3,
+        },
+        { signal: controller.signal }
+      );
+      clearTimeout(timeoutId);
 
       if (response.usage && params.organizationId && params.contactId) {
         await recordTokenUsage({
@@ -68,7 +76,7 @@ async function createChatCompletionWithFallback(params: {
 
       return { response, modelUsed: geminiModel };
     } catch (geminiError: any) {
-      console.warn(`[GEMINI FLASH FALLBACK] Gemini error (${geminiError?.message || geminiError}), conmutando automáticamente a OpenAI...`);
+      console.warn(`[GEMINI FLASH] Indisponible o cuota agotada temporalmente (${geminiError?.message || geminiError}), recurriendo a OpenAI de emergencia...`);
     }
   }
 
@@ -500,11 +508,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
        * Si pide hablar con alguien: "¡Hola! Claro que sí, con mucho gusto. Ya mismo te atiendo por aquí, dame un instante."
      - El cliente NUNCA debe notar que hubo un cambio técnico. La conversación debe fluir 100% transparente y humana.
 
-6. IMÁGENES Y COMPROBANTES ENVIADOS POR EL CLIENTE:
-   - Si el cliente envía una imagen identificada como foto o comprobante de pago / transferencia (o recibo bancario): NUNCA apruebes ni valides el dinero por tu cuenta. Responde breve y natural: "¡Listo, recibido! Ya lo verifico aquí en sistema y te confirmo." y ejecuta request_human_handoff(reason: 'Comprobante de pago recibido').
-   - Si el cliente envía una foto de un producto o referencia preguntando si lo tienes o cuánto vale:
-     * Si el producto o modelo coincide claramente con tu catálogo, responde sobre ese modelo.
-     * Si no tienes certeza de qué producto es, responde cálido: "¡Hola! Déjame validar ya mismo con bodega si tenemos disponibilidad de esa referencia exacta. Ya te aviso." y ejecuta request_human_handoff(reason: 'Cliente envió foto de producto para verificar disponibilidad').
+6. IMÁGENES, FOTOS Y PUBLICACIONES ENVIADAS POR EL CLIENTE (VISIÓN MULTIMODAL):
+   - Cuentas con capacidad de VISIÓN COMPUTACIONAL activa: cuando el cliente envíe una imagen, foto, captura o publicación compartida de Instagram:
+     * ANALIZA LA IMAGEN VISUALMENTE y compárala con los productos, descripciones, modelos y fotos de tu catálogo interno (revisa formas, módulos, si tiene nevera separada, alacena vertical, cocinita compacta o casita).
+     * Si la imagen coincide claramente con un modelo específico de tu catálogo:
+       - Identifícalo directamente: "¡Hola! La de la foto es nuestra Cocina [Modelo] ($[Precio]). [Detalles del catálogo]. ¿Te gustaría apartarla o personalizarla con los stickers?".
+     * Si la imagen muestra varios modelos juntos o la colección completa:
+       - Lista los modelos y sus respectivos precios de manera ordenada, cálida y breve.
+     * Si la foto no coincide con ningún producto de tu catálogo:
+       - Responde con calidez como asesor humano: "¡Hola! Déjame consultar directamente con bodega si tenemos disponibilidad de esa referencia exacta. Ya te aviso." y ejecuta request_human_handoff(reason: 'Cliente envió foto de producto no identificado en catálogo').
+   - Si la imagen es un comprobante de pago o transferencia bancaria: NUNCA apruebes el dinero por tu cuenta. Responde breve: "¡Listo, recibido! Ya lo verifico aquí en sistema y te confirmo." y ejecuta request_human_handoff(reason: 'Comprobante de pago recibido').
 
 7. NOTAS DE VOZ (AUDIOS DE WHATSAPP):
    - Cuando el mensaje provenga de una nota de voz (identificado con el prefijo "🎤 [Nota de voz]"), responde con naturalidad: "¡Hola! Escuché tu audio con atención...", "Claro, sobre lo que me decías en tu nota de voz...".
@@ -551,7 +564,23 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
     if (dbMessages && dbMessages.length > 0) {
       for (const msg of dbMessages) {
         if (msg.sender_type === 'lead') {
-          conversationHistory.push({ role: 'user', content: msg.content });
+          // Detección de imágenes entrantes (fotos de WhatsApp, capturas o miniaturas de Instagram)
+          const imageMatch =
+            msg.content.match(/https?:\/\/[^\s"'<>\)]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>\)]*)?/i) ||
+            msg.content.match(/https?:\/\/[^\s"'<>\)]+\/chat-media\/[^\s"'<>\)]+/i) ||
+            msg.content.match(/https?:\/\/[^\s"'<>\)]+fbcdn[^\s"'<>\)]+/i);
+
+          if (imageMatch) {
+            conversationHistory.push({
+              role: 'user',
+              content: [
+                { type: 'text', text: msg.content },
+                { type: 'image_url', image_url: { url: imageMatch[0], detail: 'low' } },
+              ],
+            });
+          } else {
+            conversationHistory.push({ role: 'user', content: msg.content });
+          }
         } else if (msg.sender_type === 'ai' || msg.sender_type === 'agent_manual') {
           conversationHistory.push({ role: 'assistant', content: msg.content });
         }

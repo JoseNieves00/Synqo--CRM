@@ -264,11 +264,13 @@ export async function POST(request: NextRequest) {
     const adReply = msgObj.extendedTextMessage.contextInfo?.externalAdReply;
     const adTitle = (adReply?.title || msgObj.extendedTextMessage.title || '').trim();
     const adBody = (adReply?.body || msgObj.extendedTextMessage.description || '').trim();
+    const adThumbnail = adReply?.thumbnailUrl || '';
 
-    if (adTitle || adBody) {
+    if (adTitle || adBody || adThumbnail) {
       const adParts: string[] = [];
       if (adTitle) adParts.push(`"${adTitle}"`);
       if (adBody) adParts.push(`"${adBody}"`);
+      if (adThumbnail) adParts.push(`[Foto: ${adThumbnail}]`);
       rawContent = `[Publicación/Anuncio compartido de Instagram: ${adParts.join(' - ')}] ${text}`.trim();
     } else {
       rawContent = text;
