@@ -106,14 +106,14 @@ const ContactListItem = React.memo(
     }, [activeReminder]);
 
     const waitingMinutes = useMemo(() => {
-      if (c.is_ai_active && !isUnattended) return 0;
+      if (!isUnattended) return 0;
       try {
         const elapsed = (Date.now() - new Date(c.last_interaction_at).getTime()) / (1000 * 60);
         return Math.max(0, Math.floor(elapsed));
       } catch {
         return 0;
       }
-    }, [c.is_ai_active, isUnattended, c.last_interaction_at]);
+    }, [isUnattended, c.last_interaction_at]);
 
     return (
       <a
@@ -133,11 +133,11 @@ const ContactListItem = React.memo(
         }`}
       >
         {/* Badge de Atención Pendiente & Semáforo SLA */}
-        {(isUnattended || !c.is_ai_active) && (
+        {isUnattended && (
           <div className="mb-1.5 flex items-center justify-between gap-1">
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400 animate-pulse" />
-              {isUnattended ? 'Relevo pendiente' : 'Requiere asesor'}
+              Requiere asesor
             </span>
             {waitingMinutes < 2 ? (
               <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 shrink-0">
@@ -383,6 +383,26 @@ export function InboxView({
       ...prev,
       [selectedContactId]: updated,
     }));
+
+    // Despejar inmediatamente el badge de atención en 0ms cuando el asesor responde
+    setUnattendedIds((prev) => {
+      if (!prev.has(selectedContactId)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedContactId);
+      window.dispatchEvent(
+        new CustomEvent('synqo-unattended-count', { detail: { count: next.size, items: [] } })
+      );
+      return next;
+    });
+
+    // Actualizar última interacción del contacto localmente
+    setContactList((prev) =>
+      prev.map((c) =>
+        c.id === selectedContactId
+          ? { ...c, last_interaction_at: new Date().toISOString() }
+          : c
+      )
+    );
   }, [selectedContactId]);
 
   // Actualizar datos del contacto de forma reactiva local (IA toggle, reasignación, etc.)
@@ -579,6 +599,33 @@ export function InboxView({
                 : c
             )
           );
+
+          // Si el asesor respondió (desde la web o desde el móvil WhatsApp), despejar atención inmediatamente
+          if (newMsg.sender_type === 'agent' || newMsg.sender_type === 'agent_manual') {
+            setUnattendedIds((prev) => {
+              if (!prev.has(selectedContactId)) return prev;
+              const next = new Set(prev);
+              next.delete(selectedContactId);
+              window.dispatchEvent(
+                new CustomEvent('synqo-unattended-count', { detail: { count: next.size, items: [] } })
+              );
+              return next;
+            });
+          } else if (newMsg.sender_type === 'lead') {
+            // Si el cliente habla y la IA está apagada, marcar como pendiente de atención
+            setUnattendedIds((prev) => {
+              const currentContact = contactList.find((c) => c.id === selectedContactId);
+              if (currentContact && !currentContact.is_ai_active) {
+                const next = new Set(prev);
+                next.add(selectedContactId);
+                window.dispatchEvent(
+                  new CustomEvent('synqo-unattended-count', { detail: { count: next.size, items: [] } })
+                );
+                return next;
+              }
+              return prev;
+            });
+          }
         }
       )
       .subscribe();
@@ -641,7 +688,7 @@ export function InboxView({
     [contactList]
   );
   const urgentCount = useMemo(
-    () => contactList.filter((c) => unattendedIds.has(c.id) || !c.is_ai_active).length,
+    () => contactList.filter((c) => unattendedIds.has(c.id)).length,
     [contactList, unattendedIds]
   );
 
@@ -665,7 +712,7 @@ export function InboxView({
 
       // 3. Filtro por Pestaña de Asignación / Urgencia
       if (activeTab === 'urgent') {
-        const isUrgent = unattendedIds.has(c.id) || !c.is_ai_active;
+        const isUrgent = unattendedIds.has(c.id);
         if (!isUrgent) return false;
       } else if (activeTab === 'mine') {
         if (c.assigned_to !== currentUserId) return false;
@@ -692,8 +739,8 @@ export function InboxView({
     // Ordenamiento por Semáforo SLA y Prioridad de Espera:
     // Los leads con relevo pendiente o esperando asesor humano se priorizan arriba del directorio
     return result.sort((a, b) => {
-      const aUrgent = unattendedIds.has(a.id) || !a.is_ai_active;
-      const bUrgent = unattendedIds.has(b.id) || !b.is_ai_active;
+      const aUrgent = unattendedIds.has(a.id);
+      const bUrgent = unattendedIds.has(b.id);
 
       if (aUrgent && !bUrgent) return -1;
       if (!aUrgent && bUrgent) return 1;

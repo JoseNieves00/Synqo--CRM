@@ -415,7 +415,7 @@ export async function getUnattendedHandoffs(): Promise<Array<{
 
     // Obtener prospectos con IA apagada activos (no archivados ni ganados/perdidos)
     const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, updated_at, last_interaction_at, assigned_to')
+      .select('id, name, phone, updated_at, last_interaction_at, assigned_to, custom_fields')
       .eq('organization_id', orgId)
       .eq('is_ai_active', false)
       .not('pipeline_stage', 'in', '("ganado","perdido")')
@@ -463,6 +463,8 @@ export async function getUnattendedHandoffs(): Promise<Array<{
     }> = [];
 
     for (const c of contacts) {
+      // Ignorar conversaciones finalizadas formalmente
+      if (c.custom_fields?.conversation_status === 'closed') continue;
       const leadMsg = latestLeadMsgMap.get(c.id);
       const agentMsg = latestAgentMsgMap.get(c.id);
       const handoffAlert = latestHandoffAlertMap.get(c.id);

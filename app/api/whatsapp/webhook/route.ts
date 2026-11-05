@@ -140,8 +140,12 @@ export async function POST(request: NextRequest) {
 
     // F2. Procesar contenido del mensaje: Texto, Botones, Interactivo, Multimedia o Notas de Voz
     let rawContent = '';
+    const referral = incomingMessage.referral;
+    const refTitle = (referral?.headline || referral?.body || '').trim();
+    const referralPrefix = refTitle ? `[Anuncio/Publicación de Instagram: "${refTitle}"] ` : '';
+
     if (msgType === 'text') {
-      rawContent = incomingMessage.text?.body || '';
+      rawContent = `${referralPrefix}${incomingMessage.text?.body || ''}`.trim();
     } else if (msgType === 'button') {
       // Clic en botón de plantilla rápida de Meta
       rawContent = incomingMessage.button?.text || incomingMessage.button?.payload || '[Botón presionado]';

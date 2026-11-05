@@ -40,11 +40,12 @@ async function createChatCompletionWithFallback(params: {
   organizationId?: string;
   contactId?: string;
 }): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; modelUsed: string }> {
-  const prefersGemini = params.aiProvider === 'gemini' || (!params.aiProvider && Boolean(geminiApiKey));
+  const isGeminiKeyValid = Boolean(geminiApiKey && geminiApiKey.startsWith('AIzaSy'));
+  const prefersGemini = (params.aiProvider === 'gemini' || !params.aiProvider) && isGeminiKeyValid && Boolean(gemini);
 
   if (prefersGemini && gemini) {
     try {
-      const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+      const geminiModel = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
       const response = await gemini.chat.completions.create({
         model: geminiModel,
         messages: params.messages,
@@ -75,12 +76,17 @@ async function createChatCompletionWithFallback(params: {
   if (params.organizationId) {
     const backupQuota = await checkBackupTokenQuota(params.organizationId);
     if (!backupQuota.allowed) {
-      console.warn(
-        `[OPENAI BACKUP EXCEEDED] Org ${params.organizationId} ha agotado su bolsa mensual de emergencia de OpenAI (${backupQuota.used}/${backupQuota.limit}). Protegiendo saldo del Super Admin.`
-      );
-      throw new Error(
-        'La cuota de emergencia mensual de IA de respaldo ha sido completada para esta empresa. Por favor comunícate con soporte para recargar o atiende directamente desde la bandeja.'
-      );
+      // Verificar si la empresa aún tiene bolsa mensual general disponible (ai_tokens_limit)
+      const mainQuota = await checkTokenQuota(params.organizationId);
+      if (!mainQuota.allowed) {
+        console.warn(
+          `[OPENAI BACKUP EXCEEDED] Org ${params.organizationId} ha agotado su bolsa mensual de OpenAI (${backupQuota.used}/${backupQuota.limit}) y general (${mainQuota.used}/${mainQuota.limit}). Protegiendo saldo.`
+        );
+        throw new Error(
+          'La cuota mensual de IA ha sido completada para esta empresa. Por favor comunícate con soporte para recargar o atiende directamente desde la bandeja.'
+        );
+      }
+      // Si la empresa tiene saldo en su plan principal (ej. 1.5M tokens), permitir el servicio con normalidad
     }
   }
 
@@ -512,7 +518,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - Si el cliente necesita cambiar o mover su cita, usa 'reschedule_native_appointment'. Ten en cuenta que solo tiene 2 reprogramaciones permitidas; en la primera, infórmale amablemente que solo le queda 1 reprogramación disponible.
    - Si el cliente cancela formalmente su cita ("cancélamela", "no voy a poder ir"), usa 'cancel_native_appointment' para liberar el cupo de inmediato y confírmale educadamente.
 
-9. CALIFICACIÓN INTELIGENTE (update_pipeline_stage):
+9. PUBLICACIONES DE INSTAGRAM, ANUNCIOS (ADS) Y PREGUNTAS DE PRECIO ("VALOR", "PRECIO", "INFO", "¿CUÁNTO CUESTA?"):
+   - Si el mensaje incluye una referencia a una publicación compartida o anuncio de Instagram / Facebook (ej: [Publicación/Anuncio compartido de Instagram: "..."] o enlaces de Instagram):
+     * ASUME INMEDIATAMENTE QUE EL CLIENTE PREGUNTA POR ESE PRODUCTO ESPECÍFICO.
+     * Si el cliente escribe palabras breves como "Valor", "Precio", "Cuánto cuesta", "Info", "¿A cómo?":
+       - RESPONDE DIRECTAMENTE en la primera línea con los modelos y precios disponibles de ese producto (ejemplo para cocinitas: "¡Hola! Con gusto. Nuestras cocinitas vienen en 3 modelos: Pequeña ($360.000), Mediana ($410.000) y con Nevera ($550.000), todas incluyen personalización con stickers. ¿Cuál tamaño te gustaría para tu pequeño?").
+       - PROHIBICIÓN ABSOLUTA: NUNCA respondas con saludos vacíos o frases como "Si necesitas información sobre nuestros productos o precios no dudes en preguntar" ni "¿En qué te puedo ayudar?". El cliente ya te está preguntando el precio del producto que envió.
+   - Si el cliente escribe únicamente "Valor" o "Precio" sin contexto de publicación:
+     * NUNCA digas "si necesitas precios no dudes en preguntar". Responde directamente: "¡Hola! Claro que sí, con mucho gusto. ¿De cuál de nuestros productos o modelos te gustaría conocer el precio?".
+
+10. CALIFICACIÓN INTELIGENTE (update_pipeline_stage):
    - Ejecuta update_pipeline_stage('calificado') cuando el lead cumpla al menos uno de los siguientes criterios:
      a) Muestra interés concreto en un servicio, cotización, plan o solución específica.
      b) Proporciona información sobre su empresa, rubro, requerimiento o presupuesto.

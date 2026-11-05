@@ -259,8 +259,20 @@ export async function POST(request: NextRequest) {
 
   if (typeof msgObj.conversation === 'string' && msgObj.conversation.trim()) {
     rawContent = msgObj.conversation.trim();
-  } else if (msgObj.extendedTextMessage?.text) {
-    rawContent = msgObj.extendedTextMessage.text.trim();
+  } else if (msgObj.extendedTextMessage) {
+    const text = (msgObj.extendedTextMessage.text || '').trim();
+    const adReply = msgObj.extendedTextMessage.contextInfo?.externalAdReply;
+    const adTitle = (adReply?.title || msgObj.extendedTextMessage.title || '').trim();
+    const adBody = (adReply?.body || msgObj.extendedTextMessage.description || '').trim();
+
+    if (adTitle || adBody) {
+      const adParts: string[] = [];
+      if (adTitle) adParts.push(`"${adTitle}"`);
+      if (adBody) adParts.push(`"${adBody}"`);
+      rawContent = `[Publicación/Anuncio compartido de Instagram: ${adParts.join(' - ')}] ${text}`.trim();
+    } else {
+      rawContent = text;
+    }
   } else if (msgObj.buttonsResponseMessage?.selectedButtonId) {
     rawContent = msgObj.buttonsResponseMessage.selectedButtonId.trim();
   } else if (msgObj.listResponseMessage?.singleSelectReply?.selectedRowId) {
