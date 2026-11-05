@@ -225,6 +225,7 @@ export async function POST(request: NextRequest) {
               afterHoursMessage: organization.after_hours_message || null,
               businessHours: organization.business_hours || null,
               aiProvider: organization.ai_provider || null,
+              enabledModules: organization.enabled_modules || null,
             });
 
             if (decryptedToken && aiResponseText && aiResponseText.trim() !== '') {

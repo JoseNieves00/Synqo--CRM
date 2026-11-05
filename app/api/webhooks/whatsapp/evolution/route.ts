@@ -566,6 +566,7 @@ export async function POST(request: NextRequest) {
             isAfterHours,
             businessHours: organization.business_hours || null,
             aiProvider: organization.ai_provider || null,
+            enabledModules: organization.enabled_modules || null,
           });
 
           if (aiResponseText && aiResponseText.trim() !== '') {
