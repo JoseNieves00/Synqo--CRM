@@ -72,8 +72,12 @@ export async function getKnowledgeGapsCount(): Promise<number> {
  */
 export async function resolveKnowledgeGapAndTrainAI(
   gapId: string,
-  answer: string
-): Promise<{ success: boolean; error?: string; updatedPrompt?: string }> {
+  answer: string,
+  options?: {
+    createQuickSnippet?: boolean;
+    shortcut?: string;
+  }
+): Promise<{ success: boolean; error?: string; updatedPrompt?: string; snippetCreated?: boolean }> {
   const current = await getCurrentUserAndOrg();
   if (!current) {
     return { success: false, error: 'Sesión no autorizada' };
@@ -103,9 +107,9 @@ export async function resolveKnowledgeGapAndTrainAI(
       return { success: false, error: 'Registro de pregunta no encontrado.' };
     }
 
-    // 2. Obtener prompt actual de la organización
+    // 2. Obtener prompt actual y configuración de la organización
     const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
-      .select('system_prompt, structured_prompt_data')
+      .select('system_prompt, structured_prompt_data, appointment_settings')
       .eq('id', current.organization.id)
       .single();
 
@@ -133,16 +137,46 @@ export async function resolveKnowledgeGapAndTrainAI(
       });
     }
 
-    // 5. Guardar en organizations
+    // 5. Manejar creación opcional de Atajo Rápido para los asesores
+    let appointmentSettings = (org.appointment_settings as any) || {};
+    let snippetCreated = false;
+    if (options?.createQuickSnippet) {
+      const existingSnippets = Array.isArray(appointmentSettings.quick_replies)
+        ? [...appointmentSettings.quick_replies]
+        : [];
+
+      let rawCode = (options.shortcut || gap.ai_category || 'info').trim().toLowerCase();
+      if (!rawCode.startsWith('/')) rawCode = '/' + rawCode;
+      const cleanShortcut = '/' + rawCode.slice(1).replace(/[^a-z0-9_-]/g, '');
+
+      // Evitar duplicados exactos
+      const filtered = existingSnippets.filter((s: any) => s.shortcut !== cleanShortcut);
+      filtered.push({
+        id: `gap-${Date.now()}`,
+        shortcut: cleanShortcut,
+        label: gap.question_text.slice(0, 30),
+        text: answer.trim(),
+        isAiGenerated: true,
+      });
+
+      appointmentSettings = {
+        ...appointmentSettings,
+        quick_replies: filtered.slice(0, 35),
+      };
+      snippetCreated = true;
+    }
+
+    // 6. Guardar en organizations
     await (supabaseAdmin.from('organizations') as any)
       .update({
         system_prompt: newSystemPrompt,
         structured_prompt_data: updatedStructuredData,
+        appointment_settings: appointmentSettings,
         updated_at: new Date().toISOString(),
       })
       .eq('id', current.organization.id);
 
-    // 6. Actualizar estado del vacío en ai_knowledge_gaps
+    // 7. Actualizar estado del vacío en ai_knowledge_gaps
     await (supabaseAdmin.from('ai_knowledge_gaps') as any)
       .update({
         status: 'resolved',
@@ -156,7 +190,7 @@ export async function resolveKnowledgeGapAndTrainAI(
     revalidatePath('/inbox');
     revalidatePath('/dashboard');
 
-    return { success: true, updatedPrompt: newSystemPrompt };
+    return { success: true, updatedPrompt: newSystemPrompt, snippetCreated };
   } catch (err: any) {
     console.error('[RESOLVE KNOWLEDGE GAP ERROR]', err);
     return { success: false, error: err.message || 'Error al entrenar la IA.' };

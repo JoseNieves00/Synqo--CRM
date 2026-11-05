@@ -226,11 +226,26 @@ const ContactListItem = React.memo(
           </span>
         </div>
 
-        {/* Fila 3: Pipeline Stage & Chip de Asignación */}
+        {/* Fila 3: Pipeline Stage, Temperatura & Chip de Asignación */}
         <div className="flex items-center justify-between gap-1 text-[10px]">
-          <span className="font-mono uppercase bg-slate-100 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] px-1.5 py-0.5 rounded">
-            {c.pipeline_stage}
-          </span>
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="font-mono uppercase bg-slate-100 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] px-1.5 py-0.5 rounded shrink-0">
+              {c.pipeline_stage}
+            </span>
+            {c.custom_fields?.lead_temperature === 'hot' || c.pipeline_stage === 'calificado' || c.pipeline_stage === 'cita_agendada' ? (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 shrink-0" title="Lead Caliente: Alta intención de compra">
+                🔥 Caliente
+              </span>
+            ) : c.custom_fields?.lead_temperature === 'cold' || c.pipeline_stage === 'perdido' ? (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 shrink-0" title="Lead Frío: Sin intención definida">
+                ❄️ Frío
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded font-semibold bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20 shrink-0" title="Lead Tibio: Evaluando precios o catálogo">
+                🌤️ Tibio
+              </span>
+            )}
+          </div>
 
           {/* Chip de Agente Asignado */}
           {c.assigned_to ? (
@@ -269,7 +284,8 @@ const ContactListItem = React.memo(
       prev.contact.channel === next.contact.channel &&
       prev.contact.instagram_username === next.contact.instagram_username &&
       prev.contact.custom_fields?.active_reminder?.id === next.contact.custom_fields?.active_reminder?.id &&
-      prev.contact.custom_fields?.active_reminder?.scheduledFor === next.contact.custom_fields?.active_reminder?.scheduledFor
+      prev.contact.custom_fields?.active_reminder?.scheduledFor === next.contact.custom_fields?.active_reminder?.scheduledFor &&
+      prev.contact.custom_fields?.lead_temperature === next.contact.custom_fields?.lead_temperature
     );
   }
 );
@@ -486,8 +502,8 @@ export function InboxView({
   const isAdmin = currentUserRole === 'admin' || currentUserRole === 'supervisor';
 
   // Pestañas principales de trabajo:
-  // 'urgent' (🚨 Por Atender), 'mine' (Mis Chats), 'unassigned' (Sin Asignar), 'all' (Todos)
-  const [activeTab, setActiveTab] = useState<'mine' | 'urgent' | 'unassigned' | 'all'>(
+  // 'hot' (🔥 Calientes), 'today_reminders' (⏰ Hoy), 'urgent' (🚨 Por Atender), 'mine' (Mis Chats), 'unassigned' (Sin Asignar), 'all' (Todos)
+  const [activeTab, setActiveTab] = useState<'mine' | 'hot' | 'today_reminders' | 'urgent' | 'unassigned' | 'all'>(
     isAdmin ? 'all' : 'mine'
   );
 
@@ -691,6 +707,30 @@ export function InboxView({
     () => contactList.filter((c) => unattendedIds.has(c.id)).length,
     [contactList, unattendedIds]
   );
+  const hotCount = useMemo(
+    () =>
+      contactList.filter((c) => {
+        const temp = c.custom_fields?.lead_temperature;
+        return (
+          temp === 'hot' ||
+          c.pipeline_stage === 'calificado' ||
+          c.pipeline_stage === 'cita_agendada'
+        );
+      }).length,
+    [contactList]
+  );
+  const todayRemindersCount = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    return contactList.filter((c) => {
+      const scheduled = c.custom_fields?.active_reminder?.scheduledFor;
+      if (!scheduled) return false;
+      try {
+        return new Date(scheduled).toDateString() === todayStr;
+      } catch {
+        return false;
+      }
+    }).length;
+  }, [contactList]);
 
   // Filtrado compuesto no bloqueante a 60 FPS usando deferredSearch
   const filteredContacts = useMemo(() => {
@@ -710,10 +750,25 @@ export function InboxView({
       if (channelFilter === 'whatsapp' && c.channel === 'instagram') return false;
       if (channelFilter === 'instagram' && c.channel !== 'instagram') return false;
 
-      // 3. Filtro por Pestaña de Asignación / Urgencia
+      // 3. Filtro por Pestaña de Asignación / Focos de Cierre
       if (activeTab === 'urgent') {
         const isUrgent = unattendedIds.has(c.id);
         if (!isUrgent) return false;
+      } else if (activeTab === 'hot') {
+        const temp = c.custom_fields?.lead_temperature;
+        const isHot =
+          temp === 'hot' ||
+          c.pipeline_stage === 'calificado' ||
+          c.pipeline_stage === 'cita_agendada';
+        if (!isHot) return false;
+      } else if (activeTab === 'today_reminders') {
+        const scheduled = c.custom_fields?.active_reminder?.scheduledFor;
+        if (!scheduled) return false;
+        try {
+          if (new Date(scheduled).toDateString() !== new Date().toDateString()) return false;
+        } catch {
+          return false;
+        }
       } else if (activeTab === 'mine') {
         if (c.assigned_to !== currentUserId) return false;
       } else if (activeTab === 'unassigned') {
@@ -906,117 +961,91 @@ export function InboxView({
             </Link>
           )}
 
-          {/* Pestañas de Asignación y Prioridad de Atención */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] p-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-medium">
-            {isAdmin ? (
-              <>
-                <button
-                  onClick={() => setActiveTab('all')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
-                    activeTab === 'all'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Todos ({contactList.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab('urgent')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
-                    activeTab === 'urgent'
-                      ? 'bg-white dark:bg-[#131722] text-rose-700 dark:text-rose-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-300'
-                  }`}
-                  title="Chats con relevo humano o esperando asesor"
-                >
-                  <span>Por Atender</span>
-                  {urgentCount > 0 && (
-                    <span className="px-1.5 py-0.2 bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-full text-[10px] font-mono font-bold animate-pulse">
-                      {urgentCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('unassigned')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
-                    activeTab === 'unassigned'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Por Asignar
-                  {unassignedCount > 0 && (
-                    <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
-                      {unassignedCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('mine')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
-                    activeTab === 'mine'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Míos ({myChatsCount})
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setActiveTab('mine')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
-                    activeTab === 'mine'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Míos ({myChatsCount})
-                </button>
-                <button
-                  onClick={() => setActiveTab('urgent')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
-                    activeTab === 'urgent'
-                      ? 'bg-white dark:bg-[#131722] text-rose-700 dark:text-rose-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-300'
-                  }`}
-                  title="Chats con relevo humano o esperando asesor"
-                >
-                  <span>Por Atender</span>
-                  {urgentCount > 0 && (
-                    <span className="px-1.5 py-0.2 bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-full text-[10px] font-mono font-bold animate-pulse">
-                      {urgentCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('unassigned')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
-                    activeTab === 'unassigned'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Sin Asignar
-                  {unassignedCount > 0 && (
-                    <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
-                      {unassignedCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('all')}
-                  className={`flex-1 py-1 rounded-md text-center transition cursor-pointer ${
-                    activeTab === 'all'
-                      ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  Todos
-                </button>
-              </>
-            )}
+          {/* Pestañas de Asignación y Focos de Cierre de Ventas */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] p-1 rounded-xl border border-slate-200 dark:border-[#232A3B] text-xs font-medium overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer shrink-0 ${
+                activeTab === 'all'
+                  ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Todos ({contactList.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('mine')}
+              className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer shrink-0 ${
+                activeTab === 'mine'
+                  ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Míos ({myChatsCount})
+            </button>
+            <button
+              onClick={() => setActiveTab('hot')}
+              className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
+                activeTab === 'hot'
+                  ? 'bg-white dark:bg-[#131722] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400'
+              }`}
+              title="Leads Calientes: Alta intención de compra"
+            >
+              <span>🔥 Calientes</span>
+              {hotCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
+                  {hotCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('today_reminders')}
+              className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
+                activeTab === 'today_reminders'
+                  ? 'bg-white dark:bg-[#131722] text-blue-600 dark:text-[#00D2FF] border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-[#00D2FF]'
+              }`}
+              title="Recordatorios comerciales agendados para hoy"
+            >
+              <span>⏰ Hoy</span>
+              {todayRemindersCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 rounded-full text-[10px] font-mono font-bold">
+                  {todayRemindersCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('urgent')}
+              className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
+                activeTab === 'urgent'
+                  ? 'bg-white dark:bg-[#131722] text-rose-700 dark:text-rose-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-300'
+              }`}
+              title="Chats con relevo humano o esperando asesor"
+            >
+              <span>Por Atender</span>
+              {urgentCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 rounded-full text-[10px] font-mono font-bold animate-pulse">
+                  {urgentCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('unassigned')}
+              className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
+                activeTab === 'unassigned'
+                  ? 'bg-white dark:bg-[#131722] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Sin Asignar
+              {unassignedCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
+                  {unassignedCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Filtro Dropdown para Administrador: Ver por Vendedor Específico */}

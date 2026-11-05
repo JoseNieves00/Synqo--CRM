@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Sparkles,
   HelpCircle,
@@ -11,6 +11,7 @@ import {
   ArrowRight,
   BookOpen,
   Filter,
+  Zap,
 } from 'lucide-react';
 import { KnowledgeGapRow, resolveKnowledgeGapAndTrainAI, dismissKnowledgeGap } from '@/app/actions/knowledge-gaps';
 
@@ -22,15 +23,38 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
   const [gaps, setGaps] = useState<KnowledgeGapRow[]>(initialGaps);
   const [activeGapId, setActiveGapId] = useState<string | null>(null);
   const [answerText, setAnswerText] = useState('');
+  const [createSnippet, setCreateSnippet] = useState(false);
+  const [snippetShortcut, setSnippetShortcut] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const pendingGaps = gaps.filter((g) => g.status === 'pending');
+  const pendingGaps = useMemo(() => gaps.filter((g) => g.status === 'pending'), [gaps]);
+
+  // Categorías únicas con sus respectivos conteos
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const g of pendingGaps) {
+      const cat = g.ai_category || 'general';
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
+  }, [pendingGaps]);
+
+  const categories = useMemo(() => Object.keys(categoryCounts), [categoryCounts]);
+
+  const filteredPendingGaps = useMemo(() => {
+    if (selectedCategory === 'all') return pendingGaps;
+    return pendingGaps.filter((g) => (g.ai_category || 'general') === selectedCategory);
+  }, [pendingGaps, selectedCategory]);
 
   const handleOpenAnswer = (gap: KnowledgeGapRow) => {
     setActiveGapId(gap.id);
     setAnswerText(gap.suggested_answer || '');
+    setCreateSnippet(false);
+    const catCode = (gap.ai_category || 'info').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+    setSnippetShortcut(`/${catCode}`);
     setErrorMsg(null);
     setSuccessMsg(null);
   };
@@ -46,14 +70,19 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
     setSuccessMsg(null);
 
     try {
-      const res = await resolveKnowledgeGapAndTrainAI(gapId, answerText.trim());
+      const res = await resolveKnowledgeGapAndTrainAI(gapId, answerText.trim(), {
+        createQuickSnippet: createSnippet,
+        shortcut: snippetShortcut,
+      });
       if (res.success) {
-        setSuccessMsg('¡Respuesta guardada con éxito! El sistema responderá automáticamente con esta información a partir de ahora.');
+        const extraNote = res.snippetCreated ? ' Además, se agregó a tus Atajos Rápidos (/).' : '';
+        setSuccessMsg(`¡Respuesta guardada con éxito! La IA ahora responderá con esta directriz automáticamente.${extraNote}`);
         setGaps((prev) =>
           prev.map((g) => (g.id === gapId ? { ...g, status: 'resolved', suggested_answer: answerText.trim() } : g))
         );
         setActiveGapId(null);
         setAnswerText('');
+        setCreateSnippet(false);
       } else {
         setErrorMsg(res.error || 'Error al guardar la respuesta.');
       }
@@ -102,6 +131,37 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
         </div>
       </div>
 
+      {/* Píldoras de Filtro por Categoría / Tópico */}
+      {categories.length > 1 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          <button
+            type="button"
+            onClick={() => setSelectedCategory('all')}
+            className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+              selectedCategory === 'all'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#1A1F2C] dark:text-slate-400 dark:hover:bg-[#232A3B]'
+            }`}
+          >
+            Todas ({pendingGaps.length})
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer capitalize ${
+                selectedCategory === cat
+                  ? 'bg-[#0052FF] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-[#1A1F2C] dark:text-slate-400 dark:hover:bg-[#232A3B]'
+              }`}
+            >
+              {cat} ({categoryCounts[cat]})
+            </button>
+          ))}
+        </div>
+      )}
+
       {successMsg && (
         <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-xl flex items-center gap-2 animate-in fade-in duration-200">
           <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
@@ -116,7 +176,7 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
         </div>
       )}
 
-      {pendingGaps.length === 0 ? (
+      {filteredPendingGaps.length === 0 ? (
         <div className="p-8 text-center bg-white dark:bg-[#131722] border border-dashed border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-2 shadow-xs">
           <CheckCircle2 className="w-8 h-8 text-emerald-500 dark:text-emerald-400 mx-auto" />
           <h5 className="text-xs font-bold text-slate-900 dark:text-white">Cero Preguntas Pendientes</h5>
@@ -127,7 +187,7 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
         </div>
       ) : (
         <div className="space-y-3">
-          {pendingGaps.map((gap) => {
+          {filteredPendingGaps.map((gap) => {
             const isAnswering = activeGapId === gap.id;
             const isSubmitting = submittingId === gap.id;
 
@@ -185,6 +245,33 @@ export function KnowledgeGapsList({ initialGaps }: KnowledgeGapsListProps) {
                       placeholder="Ej: Sí, realizamos envíos a todo el país por Servientrega con flete gratis en compras sobre $150.000..."
                       className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF]"
                     />
+
+                    {/* Checkbox opcional de Crear Atajo Rápido (/) */}
+                    <div className="p-2.5 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={createSnippet}
+                          onChange={(e) => setCreateSnippet(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF]"
+                        />
+                        <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Crear también como Atajo Rápido (/) para el equipo comercial</span>
+                      </label>
+                      {createSnippet && (
+                        <div className="flex items-center gap-2 pl-5 pt-1 animate-in fade-in duration-100">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Comando:</span>
+                          <input
+                            type="text"
+                            value={snippetShortcut}
+                            onChange={(e) => setSnippetShortcut(e.target.value)}
+                            placeholder="/atajo"
+                            className="px-2 py-1 text-xs rounded border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white font-mono focus:outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center justify-end gap-2 pt-1">
                       <button
                         type="button"

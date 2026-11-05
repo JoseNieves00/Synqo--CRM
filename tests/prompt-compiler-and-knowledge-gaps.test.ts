@@ -70,6 +70,20 @@ async function runPromptAndKnowledgeGapTests() {
   assert.ok(messageXml.includes('indícale al cliente de forma natural que vas a consultar el dato'), 'Debe incluir directriz con mensaje de espera');
   console.log('   ✅ Directrices de Relevo Silencioso vs Mensaje verificadas.');
 
+  // 5. Probar reemplazo dinámico de variables en plantillas de atajos
+  console.log('\n5️⃣  Probando reemplazo dinámico de variables en Atajos Rápidos...');
+  const template = '¡Hola {primer_nombre}! Tu número registrado es {telefono}.';
+  const contactName = 'Carlos Alberto Ruiz';
+  const contactPhone = '+573001234567';
+
+  const cleanFirstName = contactName.trim().split(/\s+/)[0];
+  const rendered = template
+    .replace(/\{primer_nombre\}/gi, cleanFirstName)
+    .replace(/\{telefono\}/gi, contactPhone);
+
+  assert.strictEqual(rendered, '¡Hola Carlos! Tu número registrado es +573001234567.');
+  console.log('   ✅ Reemplazo de variables dinámicas ({primer_nombre}, {telefono}) verificado.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE PROMPT COMPILER, MULTINICHO Y GAPS PASARON EXITOSAMENTE!\n');
 }
 

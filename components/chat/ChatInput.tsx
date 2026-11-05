@@ -16,6 +16,8 @@ const ManageQuickRepliesModal = dynamic(
 
 interface ChatInputProps {
   contactId: string;
+  contactName?: string;
+  contactPhone?: string;
   isWithin24h: boolean;
   onSendMessage: (text: string) => Promise<void>;
   onSendMedia?: (mediaUrl: string, caption?: string, fileName?: string, isDocument?: boolean, isAudio?: boolean) => Promise<void>;
@@ -32,6 +34,8 @@ interface ChatInputProps {
 
 export function ChatInput({
   contactId,
+  contactName,
+  contactPhone,
   isWithin24h,
   onSendMessage,
   onSendMedia,
@@ -285,8 +289,21 @@ export function ChatInput({
   }, [message, showSnippets]);
 
   const handleApplySnippet = (snippetText: string) => {
-    setMessage(snippetText);
-    onDraftChange?.(snippetText);
+    // Sustitución de variables dinámicas: {nombre}, {primer_nombre}, {telefono}
+    const cleanName = (contactName || '').trim();
+    const isPhoneNumberOnly = /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
+    const displayFullName = cleanName && !isPhoneNumberOnly ? cleanName : 'estimado cliente';
+    const displayFirstName = cleanName && !isPhoneNumberOnly ? cleanName.split(' ')[0] : 'hola';
+
+    let processed = snippetText
+      .replace(/\{primer_nombre\}/gi, displayFirstName)
+      .replace(/\{nombre\}/gi, displayFullName)
+      .replace(/\{first_name\}/gi, displayFirstName)
+      .replace(/\{name\}/gi, displayFullName)
+      .replace(/\{telefono\}/gi, contactPhone || '');
+
+    setMessage(processed);
+    onDraftChange?.(processed);
     setShowSnippets(false);
     inputRef.current?.focus();
   };

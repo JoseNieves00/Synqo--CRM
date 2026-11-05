@@ -415,6 +415,74 @@ export class OpenAIService {
     if (m.includes('webm')) return 'webm';
     return 'ogg';
   }
+
+  /**
+   * Genera un resumen ejecutivo de la negociación en 3 puntos clave usando Gemini Flash (con fallback OpenAI).
+   */
+  static async generateDealSummary(messages: Array<{ sender_type: string; content: string }>): Promise<{
+    product_interest: string;
+    objections_doubts: string;
+    next_step: string;
+    summary_text: string;
+  }> {
+    if (!messages || messages.length === 0) {
+      return {
+        product_interest: 'Sin mensajes suficientes para analizar',
+        objections_doubts: 'Ninguna detectada',
+        next_step: 'Iniciar contacto comercial con el cliente',
+        summary_text: 'El prospecto aún no cuenta con historial de mensajes.',
+      };
+    }
+
+    const conversationText = messages
+      .slice(-25)
+      .map((m) => `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor'}: ${m.content}`)
+      .join('\n');
+
+    const prompt = `Analiza la siguiente conversación de WhatsApp entre un Cliente y un Asesor de ventas:
+"""
+${conversationText}
+"""
+
+Extrae un resumen ejecutivo para el equipo comercial en formato JSON con exactamente estos campos:
+{
+  "product_interest": "Breve frase con el producto, modelo o servicio exacto que busca o preguntó el cliente.",
+  "objections_doubts": "Dudas u objeciones pendientes (precio, flete, garantía, tiempo de entrega, métodos de pago). Si no hay objeciones, pon 'Ninguna detectada'.",
+  "next_step": "Acción concreta y directa recomendada para que el asesor cierre la venta (ej: Enviar número de cuenta, Confirmar stock en bodega, Enviar fotos de modelo grande)."
+}
+Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitadores markdown.`;
+
+    try {
+      const { response } = await createChatCompletionWithFallback({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+      });
+
+      const raw = response.choices[0].message.content?.trim() || '{}';
+      const cleanJson = raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      const product_interest = parsed.product_interest || 'No especificado aún';
+      const objections_doubts = parsed.objections_doubts || 'Ninguna detectada';
+      const next_step = parsed.next_step || 'Hacer seguimiento comercial';
+      const summary_text = `🎯 Interés: ${product_interest}\n⚠️ Duda/Objeción: ${objections_doubts}\n👉 Siguiente paso: ${next_step}`;
+
+      return {
+        product_interest,
+        objections_doubts,
+        next_step,
+        summary_text,
+      };
+    } catch (e: any) {
+      console.warn('[AI DEAL SUMMARY ERROR]', e?.message || e);
+      return {
+        product_interest: 'Revisar detalles en chat',
+        objections_doubts: 'No detectadas automáticamente',
+        next_step: 'Retomar conversación con el cliente',
+        summary_text: 'Resumen temporal no disponible. Consulta los mensajes del chat.',
+      };
+    }
+  }
   /**
    * Ejecuta el ciclo conversacional del agente autónomo con gestión de Tool Calls y defensa contra inyecciones.
    */

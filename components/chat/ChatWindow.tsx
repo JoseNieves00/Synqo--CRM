@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageSender } from '@/lib/supabase/types';
 import { MessageBubble } from './MessageBubble';
@@ -8,7 +8,7 @@ import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
-import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation } from '@/app/actions/chat';
+import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation, markContactReactivationDismissed } from '@/app/actions/chat';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin, takeoverInactiveLead } from '@/app/actions/assignment';
 import dynamic from 'next/dynamic';
@@ -19,6 +19,10 @@ import { createClient } from '@/lib/supabase/client';
 
 const ScheduleReminderModal = dynamic(
   () => import('./ScheduleReminderModal').then((m) => m.ScheduleReminderModal),
+  { ssr: false }
+);
+const AiSummaryModal = dynamic(
+  () => import('./AiSummaryModal'),
   { ssr: false }
 );
 import {
@@ -128,6 +132,7 @@ export function ChatWindow({
 
   // Estados de Recordatorio Comercial
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const [isAiSummaryModalOpen, setIsAiSummaryModalOpen] = useState(false);
   const [activeReminder, setActiveReminder] = useState<ActiveReminderData | null>(
     contact.custom_fields?.active_reminder || null
   );
@@ -477,6 +482,15 @@ export function ChatWindow({
     });
     try {
       await sendAgentMessage(contact.id, text);
+      if (isReactivationEligible) {
+        markContactReactivationDismissed(contact.id).catch(() => {});
+        onContactUpdate?.({
+          custom_fields: {
+            ...(contact.custom_fields || {}),
+            reactivation_attempted: true,
+          },
+        });
+      }
     } catch (err: any) {
       console.error('[SEND MESSAGE ERROR]', err);
       const msg = err?.message || '';
@@ -578,6 +592,42 @@ export function ChatWindow({
       });
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error al cancelar recordatorio');
+    }
+  };
+
+  // 🛡️ Lógica de Reactivación de Leads Fríos (Blindaje Anti-Spam: 1 Solo Intento)
+  const isReactivationEligible = useMemo(() => {
+    if (contact.pipeline_stage === 'ganado' || contact.pipeline_stage === 'perdido') return false;
+    if (contact.custom_fields?.reactivation_attempted) return false;
+    try {
+      const elapsed = Date.now() - new Date(contact.last_interaction_at).getTime();
+      const hours = elapsed / (1000 * 3600);
+      return hours >= 24 && hours <= 240;
+    } catch {
+      return false;
+    }
+  }, [contact.pipeline_stage, contact.custom_fields?.reactivation_attempted, contact.last_interaction_at]);
+
+  const handleApplyReactivationMessage = () => {
+    const cleanName = (contact.name || '').trim();
+    const isPhoneOnly = /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
+    const firstName = cleanName && !isPhoneOnly ? cleanName.split(' ')[0] : '';
+    const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
+    const text = `${greeting} ¿Cómo estás? Quería saber si alcanzaste a ver los modelos o si tienes alguna duda con las medidas para ayudarte con gusto 😊`;
+    onDraftChange?.(text);
+  };
+
+  const handleDismissReactivation = async () => {
+    try {
+      await markContactReactivationDismissed(contact.id);
+      onContactUpdate?.({
+        custom_fields: {
+          ...(contact.custom_fields || {}),
+          reactivation_attempted: true,
+        },
+      });
+    } catch (e) {
+      console.warn(e);
     }
   };
 
@@ -864,6 +914,17 @@ export function ChatWindow({
             </button>
           )}
 
+          {/* Botón Resumen IA */}
+          <button
+            type="button"
+            onClick={() => setIsAiSummaryModalOpen(true)}
+            title="Ver o generar resumen ejecutivo de la negociación con IA"
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#0052FF]/10 dark:to-indigo-950/20 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-blue-500/30 hover:border-blue-400 dark:hover:border-blue-400 shadow-2xs"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+            <span className="hidden sm:inline">Resumen IA</span>
+          </button>
+
           {/* Botón Dar Fin a la Conversación */}
           <button
             type="button"
@@ -1113,9 +1174,42 @@ export function ChatWindow({
             </div>
           ) : null}
 
+          {/* Banner de Reactivación Inteligente de 1 solo intento (Anti-Spam) */}
+          {isReactivationEligible && (
+            <div className="mx-4 my-2 p-2.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-300/80 dark:border-amber-500/30 flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+              <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 min-w-0">
+                <RotateCcw className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <div className="truncate">
+                  <span className="font-bold">Reactivar Lead (&gt;24h en silencio):</span>{' '}
+                  <span className="opacity-90">1 solo intento permitido por protección anti-spam.</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleApplyReactivationMessage}
+                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-xs transition"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Sugerir Reactivación</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDismissReactivation}
+                  title="No insistir más con este contacto"
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Input de Chat con Bloqueo Anti-Colisión (Solo Lectura) */}
           <ChatInput
             contactId={contact.id}
+            contactName={contact.name || contact.phone}
+            contactPhone={contact.phone}
             isWithin24h={is24hValid}
             onSendMessage={handleSendMessage}
             onSendMedia={handleSendMedia}
@@ -1209,6 +1303,23 @@ export function ChatWindow({
         </div>,
         document.body
       )}
+
+      {/* Modal de Resumen Ejecutivo con IA */}
+      <AiSummaryModal
+        isOpen={isAiSummaryModalOpen}
+        onClose={() => setIsAiSummaryModalOpen(false)}
+        contactId={contact.id}
+        contactName={contact.name || contact.phone}
+        initialSummary={contact.custom_fields?.ai_summary || null}
+        onSummaryUpdated={(newSummary) => {
+          onContactUpdate?.({
+            custom_fields: {
+              ...(contact.custom_fields || {}),
+              ai_summary: newSummary,
+            },
+          });
+        }}
+      />
 
       {/* Modal de Programar Recordatorio */}
       <ScheduleReminderModal

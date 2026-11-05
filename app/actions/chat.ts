@@ -7,6 +7,7 @@ import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent } from '@/lib/media/format';
+import { OpenAIService } from '@/services/openai.service';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -737,6 +738,93 @@ export async function endContactConversation(
   });
 
   revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+  return { success: true };
+}
+
+/**
+ * Genera o actualiza el resumen ejecutivo del chat con IA (3 puntos clave).
+ * Se persiste en contacts.custom_fields.ai_summary para consulta instantánea.
+ */
+export async function generateContactAiSummary(contactId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, organization_id, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  // Obtener los últimos 30 mensajes para contexto exhaustivo
+  const { data: rawMessages } = await (supabaseAdmin.from('messages') as any)
+    .select('sender_type, content, created_at')
+    .eq('contact_id', contactId)
+    .in('sender_type', ['lead', 'ai', 'agent_manual'])
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  const chronological = rawMessages ? [...rawMessages].reverse() : [];
+  const summary = await OpenAIService.generateDealSummary(chronological);
+
+  const summaryData = {
+    ...summary,
+    generated_at: new Date().toISOString(),
+  };
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      custom_fields: {
+        ...currentCustom,
+        ai_summary: summaryData,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
+  revalidatePath(`/inbox/${contactId}`);
+  return summaryData;
+}
+
+/**
+ * Marca un contacto como ya intentado para reactivación o descartado.
+ * Blindaje Anti-Spam estricto: evita que se envíe más de 1 recordatorio comercial al mismo cliente.
+ */
+export async function markContactReactivationDismissed(contactId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) throw new Error('No autorizado');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, custom_fields')
+    .eq('id', contactId)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      custom_fields: {
+        ...currentCustom,
+        reactivation_attempted: true,
+        reactivation_attempted_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
   revalidatePath(`/inbox/${contactId}`);
   return { success: true };
 }

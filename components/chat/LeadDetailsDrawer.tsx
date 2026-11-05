@@ -19,6 +19,8 @@ import {
   Eye,
   EyeOff,
   DollarSign,
+  Sparkles,
+  Flame,
 } from 'lucide-react';
 import { PipelineStage } from '@/lib/supabase/types';
 import { updateContactDetails, deleteContactWithPassword } from '@/app/actions/contacts';
@@ -60,6 +62,14 @@ export function LeadDetailsDrawer({
   const [dealValue, setDealValue] = useState<string>(
     contact.custom_fields?.deal_value ? String(contact.custom_fields.deal_value) : ''
   );
+  const [temperature, setTemperature] = useState<'hot' | 'warm' | 'cold'>(
+    contact.custom_fields?.lead_temperature ||
+      (contact.pipeline_stage === 'calificado' || contact.pipeline_stage === 'cita_agendada' || contact.pipeline_stage === 'ganado'
+        ? 'hot'
+        : contact.pipeline_stage === 'perdido'
+        ? 'cold'
+        : 'warm')
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -89,8 +99,16 @@ export function LeadDetailsDrawer({
     setStage(contact.pipeline_stage);
     setNotes(contact.custom_fields?.notes || '');
     setDealValue(contact.custom_fields?.deal_value ? String(contact.custom_fields.deal_value) : '');
+    setTemperature(
+      contact.custom_fields?.lead_temperature ||
+        (contact.pipeline_stage === 'calificado' || contact.pipeline_stage === 'cita_agendada' || contact.pipeline_stage === 'ganado'
+          ? 'hot'
+          : contact.pipeline_stage === 'perdido'
+          ? 'cold'
+          : 'warm')
+    );
     setSavedSuccess(false);
-  }, [contact.id, contact.name, contact.pipeline_stage, contact.custom_fields?.notes, contact.custom_fields?.deal_value]);
+  }, [contact.id, contact.name, contact.pipeline_stage, contact.custom_fields?.notes, contact.custom_fields?.deal_value, contact.custom_fields?.lead_temperature]);
 
   if (!isOpen) return null;
 
@@ -104,6 +122,10 @@ export function LeadDetailsDrawer({
         pipelineStage: stage,
         notes,
         dealValue: isNaN(parsedValue as number) ? null : parsedValue,
+        customFields: {
+          ...(contact.custom_fields || {}),
+          lead_temperature: temperature,
+        },
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
@@ -208,6 +230,49 @@ export function LeadDetailsDrawer({
           </select>
         </div>
 
+        {/* Semáforo de Temperatura del Lead (Lead Scoring) */}
+        <div>
+          <label className="block text-slate-400 font-medium mb-1 flex items-center gap-1">
+            <Flame className="w-3.5 h-3.5 text-amber-500" />
+            Temperatura del Lead
+          </label>
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setTemperature('hot')}
+              className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-1 cursor-pointer ${
+                temperature === 'hot'
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 shadow-xs'
+                  : 'bg-[#090A0F] border-[#232A3B] text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🔥 Caliente
+            </button>
+            <button
+              type="button"
+              onClick={() => setTemperature('warm')}
+              className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition flex items-center justify-center gap-1 cursor-pointer ${
+                temperature === 'warm'
+                  ? 'bg-blue-500/20 border-blue-500/40 text-[#00D2FF] shadow-xs'
+                  : 'bg-[#090A0F] border-[#232A3B] text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🌤️ Tibio
+            </button>
+            <button
+              type="button"
+              onClick={() => setTemperature('cold')}
+              className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition flex items-center justify-center gap-1 cursor-pointer ${
+                temperature === 'cold'
+                  ? 'bg-slate-700/40 border-slate-600 text-slate-300 shadow-xs'
+                  : 'bg-[#090A0F] border-[#232A3B] text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              ❄️ Frío
+            </button>
+          </div>
+        </div>
+
         {/* Valor Estimado del Trato / Venta */}
         <div>
           <label className="block text-slate-400 font-medium mb-1 flex items-center gap-1">
@@ -243,6 +308,27 @@ export function LeadDetailsDrawer({
             className="w-full p-2.5 rounded-lg border border-[#232A3B] bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
           />
         </div>
+
+        {/* Resumen Comercial de IA */}
+        {contact.custom_fields?.ai_summary && (
+          <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-2 text-xs">
+            <div className="flex items-center justify-between text-[#00D2FF] font-semibold text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Resumen Ejecutivo IA
+              </span>
+              {contact.custom_fields.ai_summary.generated_at && (
+                <span className="text-[10px] opacity-75 font-mono">
+                  {new Date(contact.custom_fields.ai_summary.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5 text-slate-200 text-[11px] leading-relaxed">
+              <p><strong className="text-white">Interés:</strong> {contact.custom_fields.ai_summary.product_interest}</p>
+              <p><strong className="text-white">Duda/Objeción:</strong> {contact.custom_fields.ai_summary.objections_doubts}</p>
+              <p><strong className="text-white">Siguiente paso:</strong> {contact.custom_fields.ai_summary.next_step}</p>
+            </div>
+          </div>
+        )}
 
         {/* Metadata de interacción */}
         <div className="p-2.5 rounded-lg bg-[#090A0F] border border-[#232A3B] space-y-1.5 text-[11px] text-slate-400">

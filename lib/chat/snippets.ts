@@ -8,28 +8,40 @@ export interface QuickSnippet {
 
 export const BASE_DEFAULT_SNIPPETS: QuickSnippet[] = [
   {
+    id: 'default-saludo',
+    shortcut: '/hola',
+    label: 'Saludo Personalizado',
+    text: '¡Hola {primer_nombre}! ¿Cómo estás? Con mucho gusto te atiendo el día de hoy. ¿En qué te podemos asesorar?',
+  },
+  {
     id: 'default-cuenta',
     shortcut: '/cuenta',
     label: 'Cuentas Bancarias',
-    text: 'Nuestros medios de pago oficiales son Nequi, Bancolombia y Daviplata. Por favor envíanos la captura de tu comprobante una vez realizada la transferencia para verificarla.',
+    text: '¡Hola {primer_nombre}! Nuestros medios de pago oficiales son Nequi, Bancolombia y Daviplata. Por favor envíanos la captura de tu comprobante una vez realizada la transferencia para verificarla con tesorería.',
   },
   {
     id: 'default-ubicacion',
     shortcut: '/ubicacion',
     label: 'Ubicación & Horario',
-    text: 'Estamos ubicados en nuestra sede principal. Horario de atención: Lunes a Sábado de 8:00 AM a 7:00 PM. ¡Te esperamos!',
+    text: '¡Hola {primer_nombre}! Estamos ubicados en nuestra sede principal. Horario de atención: Lunes a Sábado de 8:00 AM a 7:00 PM. ¡Te esperamos!',
   },
   {
     id: 'default-agenda',
     shortcut: '/agenda',
     label: 'Agendar Cita',
-    text: '¿Para qué día y hora te gustaría agendar tu servicio o visita? Con gusto te confirmo la disponibilidad de inmediato.',
+    text: '{primer_nombre}, ¿para qué día y hora te gustaría agendar tu servicio o cita? Con gusto te confirmo la disponibilidad de inmediato.',
   },
   {
     id: 'default-catalogo',
     shortcut: '/catalogo',
     label: 'Servicios & Tarifas',
-    text: 'Ofrecemos atención profesional personalizada y paquetes a tu medida. ¿En qué servicio o producto estás interesado hoy?',
+    text: '¡Hola {primer_nombre}! Ofrecemos atención profesional personalizada y paquetes a tu medida. ¿En qué producto o modelo estás interesado hoy?',
+  },
+  {
+    id: 'default-reactivacion',
+    shortcut: '/reactivar',
+    label: 'Reactivar Lead Frío',
+    text: '¡Hola {primer_nombre}! ¿Cómo estás? Quería saber si alcanzaste a ver los modelos o si te quedó alguna inquietud con las medidas para ayudarte con mucho gusto 😊',
   },
 ];
 

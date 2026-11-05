@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { MessageSender } from '@/lib/supabase/types';
-import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink, Clock, Mic, AudioLines } from 'lucide-react';
+import { Bot, User, ShieldCheck, Maximize2, X, Download, FileText, ExternalLink, Clock, Mic, AudioLines, Sparkles } from 'lucide-react';
 import { parseImageMessageContent, parseDocumentMessageContent, parseAudioMessageContent } from '@/lib/media/format';
 
 interface MessageBubbleProps {
@@ -220,9 +220,21 @@ export const MessageBubble = React.memo(
                 />
               </div>
               {audioInfo.transcription && (
-                <p className="text-xs leading-relaxed italic opacity-90 pl-1">
-                  «{audioInfo.transcription}»
-                </p>
+                <div
+                  className={`mt-1.5 p-2 rounded-xl border text-xs leading-relaxed ${
+                    isAgent
+                      ? 'bg-white/10 border-white/20 text-white'
+                      : 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-500/20 text-slate-800 dark:text-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-1 select-none">
+                    <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Transcripción del audio</span>
+                  </div>
+                  <p className="select-text font-normal italic pl-0.5">
+                    «{audioInfo.transcription}»
+                  </p>
+                </div>
               )}
             </div>
           ) : voiceNoteInfo.isVoiceNote ? (
@@ -252,16 +264,22 @@ export const MessageBubble = React.memo(
               </div>
               {voiceNoteInfo.transcription ? (
                 <div
-                  className={`text-xs leading-relaxed pl-2.5 py-0.5 border-l-2 ${
+                  className={`mt-1.5 p-2 rounded-xl border text-xs leading-relaxed ${
                     isAgent
-                      ? 'border-white/50 text-white/95'
-                      : 'border-emerald-500/50 dark:border-emerald-400/50 text-slate-800 dark:text-slate-200'
+                      ? 'bg-white/10 border-white/20 text-white'
+                      : 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-500/20 text-slate-800 dark:text-slate-100'
                   }`}
                 >
-                  <span className="italic">«{voiceNoteInfo.transcription}»</span>
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-1 select-none">
+                    <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Transcripción del audio</span>
+                  </div>
+                  <p className="select-text font-normal italic pl-0.5">
+                    «{voiceNoteInfo.transcription}»
+                  </p>
                 </div>
               ) : (
-                <p className="text-[11px] opacity-75 italic">Nota de voz recibida</p>
+                <p className="text-[11px] opacity-75 italic pl-1">Nota de voz recibida</p>
               )}
             </div>
           ) : (
