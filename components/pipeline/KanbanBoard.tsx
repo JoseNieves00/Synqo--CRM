@@ -1,14 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useDeferredValue } from 'react';
 import { PipelineStage } from '@/lib/supabase/types';
+import dynamic from 'next/dynamic';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { KanbanColumn } from './KanbanColumn';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { createClient } from '@/lib/supabase/client';
 import { Search, Bot, User, Upload, Settings2, Download, Lock } from 'lucide-react';
-import { EditStageLabelsModal } from './EditStageLabelsModal';
-import { ImportContactsModal } from './ImportContactsModal';
+
+const EditStageLabelsModal = dynamic(
+  () => import('./EditStageLabelsModal').then((m) => m.EditStageLabelsModal),
+  { ssr: false }
+);
+
+const ImportContactsModal = dynamic(
+  () => import('./ImportContactsModal').then((m) => m.ImportContactsModal),
+  { ssr: false }
+);
 
 interface ContactItem {
   id: string;
@@ -23,15 +32,18 @@ interface KanbanBoardProps {
   initialContacts: ContactItem[];
   customStageLabels?: Record<string, string>;
   userRole?: string;
+  organizationId?: string;
 }
 
 export function KanbanBoard({
   initialContacts,
   customStageLabels = {},
   userRole = 'agent',
+  organizationId,
 }: KanbanBoardProps) {
   const [contacts, setContacts] = useState<ContactItem[]>(initialContacts);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [aiFilter, setAiFilter] = useState<'all' | 'ai' | 'human'>('all');
   const [stageLabels, setStageLabels] = useState<Record<string, string>>(customStageLabels);
   const [isEditLabelsOpen, setIsEditLabelsOpen] = useState(false);
@@ -48,17 +60,19 @@ export function KanbanBoard({
   const isAdminOrSupervisor = userRole === 'admin' || userRole === 'supervisor';
   const isAdmin = userRole === 'admin';
 
-  // Sincronización Realtime con Supabase
+  // Sincronización Realtime con Supabase aislada por organización
   useEffect(() => {
     const supabase = createClient();
+    const channelName = organizationId ? `kanban-contacts-${organizationId}` : 'kanban-contacts-live';
     const channel = supabase
-      .channel('kanban-contacts-live')
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'contacts',
+          filter: organizationId ? `organization_id=eq.${organizationId}` : undefined,
         },
         (payload) => {
           if (payload.eventType === 'UPDATE') {
@@ -80,7 +94,7 @@ export function KanbanBoard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [organizationId]);
 
   const handleMoveStage = async (contactId: string, newStage: PipelineStage) => {
     // Actualización optimista de la UI
@@ -98,9 +112,10 @@ export function KanbanBoard({
   };
 
   const filteredContacts = contacts.filter((c) => {
+    const query = deferredSearch.toLowerCase();
     const matchesSearch =
-      (c.name?.toLowerCase() || '').includes(search.toLowerCase()) ||
-      c.phone.includes(search);
+      (c.name?.toLowerCase() || '').includes(query) ||
+      c.phone.includes(deferredSearch);
 
     if (!matchesSearch) return false;
 

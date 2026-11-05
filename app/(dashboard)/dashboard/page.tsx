@@ -1,12 +1,17 @@
 import React from 'react';
 import Link from 'next/link';
+import nextDynamic from 'next/dynamic';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { getOrganizationTokenUsage } from '@/app/actions/usage';
 import { getOrganizationPendingReminders } from '@/app/actions/reminders';
 import { RemindersDashboardWidget } from '@/components/dashboard/RemindersDashboardWidget';
 import { redirect } from 'next/navigation';
-import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
+
+const NewLeadModal = nextDynamic(
+  () => import('@/components/pipeline/NewLeadModal').then((m) => m.NewLeadModal),
+  { ssr: false }
+);
 import {
   Users,
   MessageSquare,

@@ -282,6 +282,7 @@ export function InboxView({
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     activeContact?.id || (contacts.length > 0 ? contacts[0].id : null)
   );
+  const draftsRef = useRef<Record<string, string>>({});
   const messagesCacheRef = useRef<Record<string, MessageItem[]>>({});
   const [messagesCache, setMessagesCache] = useState<Record<string, MessageItem[]>>(() => {
     if (activeContact?.id && messages && messages.length > 0) {
@@ -959,6 +960,12 @@ export function InboxView({
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             teamMembers={teamMembers}
+            draftText={selectedContactId ? (draftsRef.current[selectedContactId] || '') : ''}
+            onDraftChange={(val) => {
+              if (selectedContactId) {
+                draftsRef.current[selectedContactId] = val;
+              }
+            }}
           />
         ) : (
           <div className="h-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] flex flex-col items-center justify-center p-8 text-center text-slate-800 dark:text-slate-100 shadow-xs transition-colors">

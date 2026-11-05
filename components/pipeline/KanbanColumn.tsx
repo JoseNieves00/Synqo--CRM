@@ -29,6 +29,11 @@ export function KanbanColumn({
   onMoveStage,
 }: KanbanColumnProps) {
   const [isOver, setIsOver] = React.useState(false);
+  const [visibleLimit, setVisibleLimit] = React.useState(20);
+
+  // Si la cantidad de contactos cambia drásticamente, mantener un límite consistente
+  const visibleContacts = contacts.slice(0, visibleLimit);
+  const remainingCount = contacts.length - visibleLimit;
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -83,18 +88,30 @@ export function KanbanColumn({
             <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">Sin prospectos en esta fase</span>
           </div>
         ) : (
-          contacts.map((contact) => (
-            <ContactCard
-              key={contact.id}
-              id={contact.id}
-              name={contact.name}
-              phone={contact.phone}
-              currentStage={contact.pipeline_stage}
-              isAiActive={contact.is_ai_active}
-              lastInteractionAt={contact.last_interaction_at}
-              onMoveStage={onMoveStage}
-            />
-          ))
+          <>
+            {visibleContacts.map((contact) => (
+              <ContactCard
+                key={contact.id}
+                id={contact.id}
+                name={contact.name}
+                phone={contact.phone}
+                currentStage={contact.pipeline_stage}
+                isAiActive={contact.is_ai_active}
+                lastInteractionAt={contact.last_interaction_at}
+                onMoveStage={onMoveStage}
+              />
+            ))}
+
+            {remainingCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setVisibleLimit((prev) => prev + 25)}
+                className="w-full py-2 text-xs font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:text-blue-700 dark:hover:text-cyan-300 bg-white/70 dark:bg-[#131722]/80 hover:bg-white dark:hover:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl transition text-center shadow-2xs"
+              >
+                + Ver {remainingCount} prospectos más
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

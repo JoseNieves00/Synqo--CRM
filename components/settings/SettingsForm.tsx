@@ -53,12 +53,37 @@ import {
   Shield,
   Loader2,
 } from 'lucide-react';
-import { TeamTab } from './TeamTab';
-import { SpecialistsTab } from './SpecialistsTab';
-import { RoomsTab } from './RoomsTab';
-import { StructuredPromptWizard } from './StructuredPromptWizard';
-import { KnowledgeGapsList } from './KnowledgeGapsList';
-import { EvolutionQrCard } from './EvolutionQrCard';
+import dynamic from 'next/dynamic';
+
+const TeamTab = dynamic(() => import('./TeamTab').then((m) => m.TeamTab), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando módulo de equipo...</div>,
+  ssr: false,
+});
+
+const SpecialistsTab = dynamic(() => import('./SpecialistsTab').then((m) => m.SpecialistsTab), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando colaboradores...</div>,
+  ssr: false,
+});
+
+const RoomsTab = dynamic(() => import('./RoomsTab').then((m) => m.RoomsTab), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando espacios...</div>,
+  ssr: false,
+});
+
+const StructuredPromptWizard = dynamic(() => import('./StructuredPromptWizard').then((m) => m.StructuredPromptWizard), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando asistente de configuración IA...</div>,
+  ssr: false,
+});
+
+const KnowledgeGapsList = dynamic(() => import('./KnowledgeGapsList').then((m) => m.KnowledgeGapsList), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando preguntas pendientes...</div>,
+  ssr: false,
+});
+
+const EvolutionQrCard = dynamic(() => import('./EvolutionQrCard').then((m) => m.EvolutionQrCard), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando código QR...</div>,
+  ssr: false,
+});
 
 interface SettingsFormProps {
   initialData: {

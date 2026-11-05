@@ -2,10 +2,15 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2 } from 'lucide-react';
 import { getOrganizationQuickReplies, uploadChatMedia } from '@/app/actions/chat';
 import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
-import { ManageQuickRepliesModal } from './ManageQuickRepliesModal';
+
+const ManageQuickRepliesModal = dynamic(
+  () => import('./ManageQuickRepliesModal').then((m) => m.ManageQuickRepliesModal),
+  { ssr: false }
+);
 
 interface ChatInputProps {
   contactId: string;
@@ -17,6 +22,8 @@ interface ChatInputProps {
   disabled?: boolean;
   disabledReason?: string;
   onTyping?: () => void;
+  draftText?: string;
+  onDraftChange?: (text: string) => void;
 }
 
 export function ChatInput({
@@ -29,8 +36,10 @@ export function ChatInput({
   disabled,
   disabledReason,
   onTyping,
+  draftText,
+  onDraftChange,
 }: ChatInputProps) {
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(draftText || '');
   const availableTemplates = customTemplates && customTemplates.length > 0
     ? customTemplates
     : [];
@@ -40,11 +49,17 @@ export function ChatInput({
   );
   const [loading, setLoading] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
+  const [selectedSnippetIndex, setSelectedSnippetIndex] = useState(0);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [activeSnippets, setActiveSnippets] = useState<QuickSnippet[]>(BASE_DEFAULT_SNIPPETS);
   const [aiSuggestions, setAiSuggestions] = useState<QuickSnippet[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sincronizar borrador al cambiar de contacto activo
+  useEffect(() => {
+    setMessage(draftText || '');
+  }, [contactId]);
 
   // Estado para previsualización y envío de imagen adjunta
   const [pendingMedia, setPendingMedia] = useState<{
@@ -89,10 +104,44 @@ export function ChatInput({
     ? activeSnippets.filter((s) => s.shortcut.toLowerCase().startsWith(message.toLowerCase()))
     : activeSnippets;
 
+  // Reiniciar cursor de selección rápida al cambiar el filtro
+  useEffect(() => {
+    setSelectedSnippetIndex(0);
+  }, [message, showSnippets]);
+
   const handleApplySnippet = (snippetText: string) => {
     setMessage(snippetText);
+    onDraftChange?.(snippetText);
     setShowSnippets(false);
     inputRef.current?.focus();
+  };
+
+  const handleTextChange = (newVal: string) => {
+    setMessage(newVal);
+    onDraftChange?.(newVal);
+    onTyping?.();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const isPopoverOpen = showSnippets || (isTypingShortcut && filteredSnippets.length > 0);
+    if (!isPopoverOpen || filteredSnippets.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedSnippetIndex((prev) => (prev + 1) % filteredSnippets.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedSnippetIndex((prev) => (prev - 1 + filteredSnippets.length) % filteredSnippets.length);
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const currentSnippet = filteredSnippets[selectedSnippetIndex] || filteredSnippets[0];
+      if (currentSnippet) {
+        handleApplySnippet(currentSnippet.text);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowSnippets(false);
+    }
   };
 
   const handleSubmitText = async (e: React.FormEvent) => {
@@ -102,12 +151,14 @@ export function ChatInput({
     setLoading(true);
     const textToSend = message;
     setMessage('');
+    onDraftChange?.('');
     setShowSnippets(false);
 
     try {
       await onSendMessage(textToSend);
     } catch {
       setMessage(textToSend);
+      onDraftChange?.(textToSend);
     } finally {
       setLoading(false);
     }
@@ -219,24 +270,31 @@ export function ChatInput({
             </div>
           </div>
           <div className="max-h-48 overflow-y-auto space-y-0.5">
-            {filteredSnippets.map((s) => (
-              <button
-                key={s.shortcut}
-                type="button"
-                onClick={() => handleApplySnippet(s.text)}
-                className="w-full text-left p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[#1A1F2C] border border-transparent hover:border-slate-200 dark:hover:border-[#232A3B] transition group cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white">
-                    {s.label}
-                  </span>
-                  <code className="text-[10px] font-mono text-[#0052FF] dark:text-[#00D2FF] bg-slate-100 dark:bg-[#090A0F] px-1.5 py-0.5 rounded border border-slate-200 dark:border-[#232A3B]">
-                    {s.shortcut}
-                  </code>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{s.text}</p>
-              </button>
-            ))}
+            {filteredSnippets.map((s, idx) => {
+              const isSelected = idx === selectedSnippetIndex;
+              return (
+                <button
+                  key={s.shortcut}
+                  type="button"
+                  onClick={() => handleApplySnippet(s.text)}
+                  className={`w-full text-left p-2 rounded-lg transition group cursor-pointer border ${
+                    isSelected
+                      ? 'bg-blue-50 dark:bg-[#1A1F2C] border-blue-300 dark:border-[#0052FF]/60 ring-1 ring-[#0052FF]/30'
+                      : 'hover:bg-slate-50 dark:hover:bg-[#1A1F2C] border-transparent hover:border-slate-200 dark:border-[#232A3B]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white">
+                      {s.label}
+                    </span>
+                    <code className="text-[10px] font-mono text-[#0052FF] dark:text-[#00D2FF] bg-slate-100 dark:bg-[#090A0F] px-1.5 py-0.5 rounded border border-slate-200 dark:border-[#232A3B]">
+                      {s.shortcut}
+                    </code>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{s.text}</p>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -427,10 +485,8 @@ export function ChatInput({
           type="text"
           placeholder="Escribe un mensaje o pega una foto con Ctrl+V..."
           value={message}
-          onChange={(e) => {
-            setMessage(e.target.value);
-            onTyping?.();
-          }}
+          onChange={(e) => handleTextChange(e.target.value)}
+          onKeyDown={handleKeyDown}
           onPaste={(e) => {
             const items = e.clipboardData?.items;
             if (!items) return;

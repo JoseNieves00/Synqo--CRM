@@ -7,15 +7,20 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
-import { isWithin24HourWindow, getRemainingHoursInWindow } from '@/services/contact.service';
+import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
 import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation } from '@/app/actions/chat';
 import { formatImageMessageContent, formatDocumentMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin } from '@/app/actions/assignment';
+import dynamic from 'next/dynamic';
 import { deleteContactWithPassword } from '@/app/actions/contacts';
 import { completeContactReminder, cancelContactReminder, type ActiveReminderData } from '@/app/actions/reminders';
-import { ScheduleReminderModal } from './ScheduleReminderModal';
 import { META_TEMPLATES } from '@/services/whatsapp.service';
 import { createClient } from '@/lib/supabase/client';
+
+const ScheduleReminderModal = dynamic(
+  () => import('./ScheduleReminderModal').then((m) => m.ScheduleReminderModal),
+  { ssr: false }
+);
 import {
   Phone,
   Clock,
@@ -39,7 +44,10 @@ import {
   Pencil,
   Flag,
   X,
+  Receipt,
 } from 'lucide-react';
+import { updateLeadStage } from '@/app/actions/pipeline';
+import { PipelineStage } from '@/lib/supabase/types';
 import { useRouter } from 'next/navigation';
 
 interface MessageItem {
@@ -80,6 +88,8 @@ interface ChatWindowProps {
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
+  draftText?: string;
+  onDraftChange?: (text: string) => void;
 }
 
 export function ChatWindow({
@@ -94,6 +104,8 @@ export function ChatWindow({
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
+  draftText,
+  onDraftChange,
 }: ChatWindowProps) {
   const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -187,6 +199,15 @@ export function ChatWindow({
 
   const lastMessage = messages[messages.length - 1];
   const isWaitingForHuman = !contact.is_ai_active && lastMessage && lastMessage.sender_type === 'lead';
+
+  // Detección de Comprobante de Pago pendiente de verificación por asesor humano
+  const hasPendingReceipt =
+    contact.pipeline_stage !== 'ganado' &&
+    messages.some(
+      (m) =>
+        m.content?.includes('Comprobante de pago recibido') ||
+        m.content?.toLowerCase().includes('comprobante de pago')
+    );
 
   // Preservar la posición de scroll individual por conversación al cambiar de contacto
   useEffect(() => {
@@ -325,6 +346,43 @@ export function ChatWindow({
       onContactUpdate?.({ assigned_to: targetAssigned });
     } catch (err: any) {
       setErrorMessage(err.message || 'Error al reasignar lead.');
+    }
+  };
+
+  // Estados y acciones de Embudo y Validación de Pago
+  const [isUpdatingStage, setIsUpdatingStage] = useState(false);
+  const [isApprovingPayment, setIsApprovingPayment] = useState(false);
+
+  const handleStageChange = async (newStage: PipelineStage) => {
+    setIsUpdatingStage(true);
+    try {
+      onContactUpdate?.({ pipeline_stage: newStage });
+      await updateLeadStage(contact.id, newStage);
+    } catch (err: any) {
+      console.error('[UPDATE STAGE ERROR]', err);
+      setErrorMessage(err?.message || 'Error al actualizar fase del embudo');
+    } finally {
+      setIsUpdatingStage(false);
+    }
+  };
+
+  const handleVerifyAndApprovePayment = async () => {
+    if (isApprovingPayment) return;
+    setIsApprovingPayment(true);
+    setErrorMessage(null);
+    try {
+      // 1. Actualizar fase en BD
+      await updateLeadStage(contact.id, 'ganado');
+      onContactUpdate?.({ pipeline_stage: 'ganado' });
+
+      // 2. Enviar mensaje de confirmación amigable al cliente
+      const confirmationText = '¡Excelente! Hemos verificado tu comprobante de pago exitosamente. 🎉 Tu orden ha sido confirmada y pasará a despacho. ¡Muchas gracias por tu compra!';
+      await handleSendMessage(confirmationText);
+    } catch (err: any) {
+      console.error('[APPROVE PAYMENT ERROR]', err);
+      setErrorMessage(err?.message || 'Error al verificar y aprobar el comprobante');
+    } finally {
+      setIsApprovingPayment(false);
     }
   };
 
@@ -477,11 +535,23 @@ export function ChatWindow({
                     : 'Contacto Instagram'
                   : 'Lead de WhatsApp')}
             </h2>
-            {contact.pipeline_stage && (
-              <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B]">
-                {contact.pipeline_stage}
-              </span>
-            )}
+            <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-0.5 text-xs">
+              <Flag className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
+              <select
+                value={contact.pipeline_stage || 'nuevo'}
+                onChange={(e) => handleStageChange(e.target.value as PipelineStage)}
+                disabled={isUpdatingStage}
+                title="Fase del embudo de ventas"
+                className="bg-transparent text-[11px] font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+              >
+                {PIPELINE_STAGES.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200">
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              {isUpdatingStage && <Loader2 className="w-2.5 h-2.5 animate-spin text-[#0052FF]" />}
+            </div>
           </div>
           {contact.channel === 'instagram' ? (
             <div className="flex items-center gap-1.5 text-xs text-pink-700 dark:text-pink-300 font-mono mt-0.5">
@@ -716,6 +786,46 @@ export function ChatWindow({
         </div>
       )}
 
+      {/* Banner de Validación Humana de Comprobante de Pago */}
+      {hasPendingReceipt && (
+        <div className="mx-4 mt-2.5 p-3 bg-gradient-to-r from-emerald-500/15 via-emerald-500/10 to-transparent border border-emerald-500/30 rounded-xl text-xs text-emerald-950 dark:text-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+              <Receipt className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                <span>Comprobante de Pago Recibido</span>
+                <span className="px-1.5 py-0.2 text-[10px] font-bold uppercase rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                  Validación Asesor Requerida
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                Por seguridad anti-fraude bancario, valida el extracto antes de confirmar la venta al cliente.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleVerifyAndApprovePayment}
+            disabled={isApprovingPayment}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shrink-0 transition shadow-xs cursor-pointer disabled:opacity-50"
+          >
+            {isApprovingPayment ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Aprobando...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Aprobar Pago & Marcar Ganado</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Banner de Atención Pendiente */}
       {isWaitingForHuman && (
         <div className="mx-4 mt-2.5 p-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3">
@@ -830,6 +940,8 @@ export function ChatWindow({
                 : undefined
             }
             onTyping={handleTypingBroadcast}
+            draftText={draftText}
+            onDraftChange={onDraftChange}
           />
         </div>
 

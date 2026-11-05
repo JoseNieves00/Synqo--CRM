@@ -16,7 +16,7 @@ interface ContactCardProps {
   onMoveStage?: (contactId: string, newStage: PipelineStage) => void;
 }
 
-export function ContactCard({
+function ContactCardComponent({
   id,
   name,
   phone,
@@ -78,6 +78,7 @@ export function ContactCard({
 
         <Link
           href={`/inbox/${id}`}
+          prefetch={false}
           className="text-[11px] text-[#0052FF] dark:text-[#00D2FF] hover:underline font-medium flex items-center gap-0.5"
         >
           Chat <ArrowRight className="w-3 h-3" />
@@ -103,3 +104,17 @@ export function ContactCard({
     </div>
   );
 }
+
+function areCardsEqual(prev: ContactCardProps, next: ContactCardProps) {
+  return (
+    prev.id === next.id &&
+    prev.name === next.name &&
+    prev.phone === next.phone &&
+    prev.currentStage === next.currentStage &&
+    prev.isAiActive === next.isAiActive &&
+    prev.lastInteractionAt === next.lastInteractionAt &&
+    prev.onMoveStage === next.onMoveStage
+  );
+}
+
+export const ContactCard = React.memo(ContactCardComponent, areCardsEqual);

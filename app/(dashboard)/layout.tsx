@@ -5,14 +5,28 @@ import {
   ShieldCheck,
   Building2,
 } from 'lucide-react';
+import nextDynamic from 'next/dynamic';
 import { SidebarNav } from '@/components/dashboard/SidebarNav';
 import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
-import { MustChangePasswordModal } from '@/components/profile/MustChangePasswordModal';
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
-import { SuspendedOrganizationModal } from '@/components/billing/SuspendedOrganizationModal';
-import { SupportModal, SupportHeaderButton } from '@/components/support/SupportModal';
+import { SupportHeaderButton } from '@/components/support/SupportHeaderButton';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
+
+const MustChangePasswordModal = nextDynamic(
+  () => import('@/components/profile/MustChangePasswordModal').then((m) => m.MustChangePasswordModal),
+  { ssr: false }
+);
+
+const SuspendedOrganizationModal = nextDynamic(
+  () => import('@/components/billing/SuspendedOrganizationModal').then((m) => m.SuspendedOrganizationModal),
+  { ssr: false }
+);
+
+const SupportModal = nextDynamic(
+  () => import('@/components/support/SupportModal').then((m) => m.SupportModal),
+  { ssr: false }
+);
 
 export const dynamic = 'force-dynamic';
 

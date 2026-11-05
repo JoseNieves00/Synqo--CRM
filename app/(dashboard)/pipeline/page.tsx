@@ -1,10 +1,15 @@
 import React from 'react';
+import nextDynamic from 'next/dynamic';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { redirect } from 'next/navigation';
 import { KanbanBoard } from '@/components/pipeline/KanbanBoard';
-import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { Users } from 'lucide-react';
+
+const NewLeadModal = nextDynamic(
+  () => import('@/components/pipeline/NewLeadModal').then((m) => m.NewLeadModal),
+  { ssr: false }
+);
 
 export const dynamic = 'force-dynamic';
 
