@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
 import { decryptSecret } from '@/lib/security/encryption';
+import { isWithin24HourWindow } from '@/services/contact.service';
 
 interface ProcessResult {
   processedCount: number;
@@ -70,6 +71,7 @@ export class ReminderService {
         start_time,
         booked_via,
         notes,
+        reminder_sent_at,
         contact:contacts(id, name, phone, last_interaction_at),
         specialist:specialists(id, name),
         organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
@@ -77,6 +79,7 @@ export class ReminderService {
       .eq('status', 'confirmed')
       .eq('confirmation_status', 'unconfirmed')
       .neq('booked_via', 'walk_in')
+      .not('reminder_sent_at', 'is', null)
       .gte('start_time', nowIso)
       .lte('start_time', eightHoursFromNow);
 
@@ -233,25 +236,43 @@ export class ReminderService {
 
           const bodyText = `Hola ${appt.contact.name || ''} 👋 Te recordamos tu cita programada para mañana a las ${startFormatted}${specialistName} (${appt.service_name}).\n\nPor favor confirma tu asistencia a continuación. Recuerda que las citas no confirmadas se liberan con 8 horas de antelación.`;
 
-          // Intentar enviar con botones interactivos de 1-toque
-          try {
-            await MessagingService.sendInteractiveButtonsMessage({
-              organization: appt.organization,
-              to: appt.contact.phone,
-              bodyText,
-              buttons: [
-                { id: 'btn_confirm_appt', title: '✓ Confirmar Cita' },
-                { id: 'btn_reschedule_appt', title: '↻ Reprogramar' },
-              ],
-            });
-          } catch (interactiveErr: any) {
-            // Si el envío interactivo falla, fallback a texto plano
-            await MessagingService.sendTextMessage({
-              organization: appt.organization,
-              to: appt.contact.phone,
-              body: `${bodyText}\n\nResponde *"Sí confirmo"* para validar tu asistencia o *"Reprogramar"* si necesitas cambiar de horario.`,
-              simulateTyping: false,
-            });
+          const is24hOpen = isWithin24HourWindow(appt.contact.last_interaction_at);
+          const provider = appt.organization.whatsapp_provider || 'meta';
+
+          if (provider === 'meta' && !is24hOpen) {
+            // Ventana de 24h cerrada en Meta Cloud API -> Enviar plantilla oficial aprobada para no ser rechazado
+            try {
+              await MessagingService.sendTemplateMessage({
+                organization: appt.organization,
+                to: appt.contact.phone,
+                templateKey: 'recordatorio_cita',
+              });
+            } catch (tplErr: any) {
+              console.warn('[REMINDER TEMPLATE SEND FAILED]', tplErr);
+              result.errors.push(`Error enviando plantilla a ${appt.contact.phone}: ${tplErr?.message}`);
+              continue;
+            }
+          } else {
+            // Intentar enviar con botones interactivos de 1-toque
+            try {
+              await MessagingService.sendInteractiveButtonsMessage({
+                organization: appt.organization,
+                to: appt.contact.phone,
+                bodyText,
+                buttons: [
+                  { id: 'btn_confirm_appt', title: '✓ Confirmar Cita' },
+                  { id: 'btn_reschedule_appt', title: '↻ Reprogramar' },
+                ],
+              });
+            } catch (interactiveErr: any) {
+              // Si el envío interactivo falla, fallback a texto plano
+              await MessagingService.sendTextMessage({
+                organization: appt.organization,
+                to: appt.contact.phone,
+                body: `${bodyText}\n\nResponde *"Sí confirmo"* para validar tu asistencia o *"Reprogramar"* si necesitas cambiar de horario.`,
+                simulateTyping: false,
+              });
+            }
           }
 
           // Marcar recordatorio como despachado
