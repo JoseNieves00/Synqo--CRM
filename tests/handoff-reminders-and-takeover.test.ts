@@ -11,6 +11,7 @@ import {
   getOrganizationPendingReminders,
 } from '../app/actions/reminders';
 import { endContactConversation, getUnattendedHandoffs } from '../app/actions/chat';
+import { LeadReactivationService } from '../services/reactivation.service';
 
 function assert(condition: boolean, msg: string) {
   if (!condition) {
@@ -213,6 +214,24 @@ async function runTests() {
     assert(contactAfterClose?.pipeline_stage === 'ganado', 'Pipeline stage debe ser "ganado"');
     assert(contactAfterClose?.custom_fields?.conversation_status === 'closed', 'conversation_status debe ser "closed"');
     console.log('   ✅ Conversación finalizada, pipeline actualizado a ganado y auditado en mensajes.');
+
+    // 7. Probar Motor de Reactivación Autónoma y Blindaje Anti-Spam (1 Solo Intento)
+    console.log('\n7️⃣  Probando Reactivación Autónoma de Leads & Blindaje Anti-Spam...');
+    const reactMsgContextual = LeadReactivationService.buildReactivationMessage('María Gómez', {
+      ai_summary: { product_of_interest: 'Cocina pequeña' },
+    });
+    assert(reactMsgContextual.includes('María'), 'El mensaje debe contener el primer nombre del cliente');
+    assert(reactMsgContextual.includes('Cocina pequeña'), 'El mensaje debe referenciar el producto de interés contextual');
+
+    const reactMsgGeneric = LeadReactivationService.buildReactivationMessage('+573001234567', {});
+    assert(reactMsgGeneric.startsWith('¡Hola!'), 'En teléfonos sin nombre debe iniciar con saludo cortés genérico');
+    assert(!reactMsgGeneric.includes('+57'), 'No debe concatenar el número en el saludo');
+
+    // Comprobar que LeadReactivationService procesa sin excepciones
+    const reactResult = await LeadReactivationService.processAutonomousLeadReactivations(org.id);
+    assert(typeof reactResult.processedCount === 'number', 'processedCount debe ser numérico');
+    assert(Array.isArray(reactResult.errors), 'errors debe ser un array');
+    console.log(`   ✅ Motor de Reactivación Autónoma verificado: ${reactResult.reactivationsSent} enviadas, ${reactResult.skippedCurfewCount} en toque de queda.`);
 
   } finally {
     // Limpieza de datos de prueba

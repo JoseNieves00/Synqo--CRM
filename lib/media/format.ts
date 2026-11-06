@@ -43,7 +43,7 @@ export function parseImageMessageContent(content: string | null | undefined): Pa
   }
 
   // 2. Formato alternativo con URL de Supabase Storage directa o markdown ![img](url)
-  const mdMatch = content.match(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp|gif)[^\s)]*)\)/i);
+  const mdMatch = content.match(/!\[([\s\S]*?)\]\(\s*(https?:\/\/[^\s)]+(?:\.(?:jpg|jpeg|png|webp|gif)|chat-media\/[^\s)]+)[^\s)]*)\s*\)/i);
   if (mdMatch) {
     return {
       isImage: true,
@@ -257,10 +257,12 @@ export function parseAudioMessageContent(content: string | null | undefined): Pa
 
   const audioMatch = content.match(/^(?:🎙️|🎤)\s*\[Audio:\s*(https?:\/\/[^\s()\]]+)\](?::\s*["“]?([\s\S]*?)["”]?)?$/i);
   if (audioMatch) {
+    const rawTrans = audioMatch[2]?.trim() || '';
+    const isPlaceholder = /\[Nota de voz/i.test(rawTrans);
     return {
       isAudio: true,
       url: audioMatch[1].trim(),
-      transcription: audioMatch[2]?.trim() || '',
+      transcription: isPlaceholder ? '' : rawTrans,
     };
   }
 

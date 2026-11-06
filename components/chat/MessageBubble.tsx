@@ -21,6 +21,7 @@ import {
   ThumbsDown,
   Pencil,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { submitAiFeedback } from '@/app/actions/chat';
 import {
@@ -114,22 +115,32 @@ export const MessageBubble = React.memo(
 
     const voiceNoteInfo = useMemo(() => {
       if (!content.includes('🎤') && !content.includes('[Nota de voz]')) {
-        return { isVoiceNote: false, transcription: '' };
+        return { isVoiceNote: false, transcription: '', isFailed: false };
+      }
+      const isPlaceholder = /\[Nota de voz (?:recibida|inaudible|no reproducible)\]/i.test(content);
+      if (isPlaceholder) {
+        return { isVoiceNote: true, transcription: '', isFailed: true };
       }
       const match = content.match(/🎤\s*\[Nota de voz\](?::\s*["“]([\s\S]*?)["”])?/);
-      if (match) {
+      if (match && match[1]) {
+        const text = match[1].trim();
+        const isFallback = /\[Nota de voz/i.test(text);
         return {
           isVoiceNote: true,
-          transcription: match[1]?.trim() || '',
+          transcription: isFallback ? '' : text,
+          isFailed: isFallback,
         };
       }
       if (content.startsWith('🎤')) {
+        const text = content.replace(/^🎤\s*/, '').trim();
+        const isFallback = /\[Nota de voz/i.test(text);
         return {
           isVoiceNote: true,
-          transcription: content.replace(/^🎤\s*/, '').trim(),
+          transcription: isFallback ? '' : text,
+          isFailed: isFallback,
         };
       }
-      return { isVoiceNote: false, transcription: '' };
+      return { isVoiceNote: false, transcription: '', isFailed: false };
     }, [content]);
 
     if (senderType === 'system') {
@@ -426,7 +437,7 @@ export const MessageBubble = React.memo(
                     preload="metadata"
                   />
                 </div>
-                {audioInfo.transcription && (
+                {audioInfo.transcription && !/\[Nota de voz/i.test(audioInfo.transcription) && (
                   <div
                     className={`mt-1.5 p-2 rounded-xl border text-xs leading-relaxed ${
                       isAgent
@@ -486,7 +497,10 @@ export const MessageBubble = React.memo(
                     </p>
                   </div>
                 ) : (
-                  <p className="text-[11px] opacity-75 italic pl-1">Nota de voz recibida</p>
+                  <div className="mt-1 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 select-none">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className="text-[11px] font-medium">Nota de voz no se pudo transcribir (escuchar en WhatsApp)</span>
+                  </div>
                 )}
               </div>
             ) : (

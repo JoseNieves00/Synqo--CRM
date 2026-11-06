@@ -679,8 +679,8 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - Si la imagen es un comprobante de pago o transferencia bancaria: NUNCA apruebes el dinero por tu cuenta. Responde breve: "¡Listo, recibido! Ya lo verifico aquí en sistema y te confirmo." y ejecuta request_human_handoff(reason: 'Comprobante de pago recibido').
 
 7. NOTAS DE VOZ (AUDIOS DE WHATSAPP):
-   - Cuando el mensaje provenga de una nota de voz (identificado con el prefijo "🎤 [Nota de voz]"), responde con naturalidad: "¡Hola! Escuché tu audio con atención...", "Claro, sobre lo que me decías en tu nota de voz...".
-   - Si el audio no se entiende, responde brevemente: "Disculpa, no alcancé a escuchar con claridad tu audio. ¿Me lo podrías reenviar o contarme por aquí en qué te puedo ayudar?".
+   - Cuando el mensaje provenga de una nota de voz con transcripción exitosa ("🎤 [Nota de voz]: ..."), responde con total naturalidad al contenido que el cliente expresó.
+   - PROHIBICIÓN ESTRICTA DE ALUCINAR AUDIOS: Si el mensaje indica que la nota de voz fue inaudible, no transcrita o dice "[El cliente envió una nota de voz pero no fue posible transcribirla...]", NUNCA digas "Escuché tu audio con atención", NUNCA finjas que entendiste el mensaje ni inventes lo que dijo. Responde de forma muy amable y humana: "Disculpa, no alcancé a escuchar con claridad tu audio o no se pudo reproducir bien. ¿Me podrías escribir por aquí en texto lo que necesitas o prefieres que te comunique con un asesor humano?".
 
 8. AGENDAMIENTO NATIVO DE CITAS Y CLASES:
    - Cuando el cliente quiera agendar una cita o clase, utiliza 'check_native_availability' para consultar los turnos libres reales en la agenda de la empresa.
@@ -734,6 +734,21 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
           }
 
           if (msg.sender_type === 'lead') {
+            // Detección e intercepción de notas de voz no transcritas para evitar alucinaciones
+            const isUntranscribedVoice =
+              contentText.includes('[Nota de voz recibida]') ||
+              contentText.includes('[Nota de voz inaudible]') ||
+              contentText.includes('[Nota de voz no reproducible]') ||
+              (contentText.startsWith('🎙️ [Audio:') && !contentText.includes(']: "'));
+
+            if (isUntranscribedVoice) {
+              conversationHistory.push({
+                role: 'user',
+                content: '[El cliente envió una nota de voz por WhatsApp, pero no fue posible transcribirla o no se escuchó con claridad. INSTRUCCIÓN OBLIGATORIA: NUNCA digas "escuché tu audio", "escuché tu audio con atención", ni finjas que sabes lo que dijo. Responde de manera muy amable y humana disculpándote porque no alcanzaste a escuchar el audio con claridad y pidiéndole por favor que te escriba en texto lo que necesita o si prefiere que lo comuniques con un asesor comercial humano].',
+              });
+              continue;
+            }
+
             // Detección de imágenes entrantes (fotos de WhatsApp, capturas o miniaturas de Instagram)
             const imageMatch =
               contentText.match(/https?:\/\/[^\s"'<>\)]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>\)]*)?/i) ||
@@ -860,8 +875,7 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
 
                 toolResult = JSON.stringify({
                   status: 'sent',
-                  image_url: validated.image_url,
-                  message: `Foto enviada exitosamente al chat de ${effectiveChannel} del cliente.`,
+                  message: `Foto despachada y entregada con éxito directamente al WhatsApp del cliente. PROHIBICIÓN ESTRICTA: NO vuelvas a incluir la URL de la imagen ni uses sintaxis markdown ![foto](url) en tu respuesta; el cliente ya recibió la foto en su chat. Solo complementa con un mensaje de texto cálido, breve y enfocado en la venta.`,
                 });
               } catch (dispatchErr: any) {
                 console.warn('[AI SEND MEDIA DISPATCH WARN]', dispatchErr?.message);
