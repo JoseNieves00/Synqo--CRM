@@ -47,6 +47,28 @@ export async function getPendingKnowledgeGaps(): Promise<KnowledgeGapRow[]> {
 }
 
 /**
+ * Obtiene todas las preguntas de la organización (pendientes y resueltas) para la gestión completa.
+ */
+export async function getOrganizationKnowledgeGaps(): Promise<KnowledgeGapRow[]> {
+  const current = await getCurrentUserAndOrg();
+  if (!current) return [];
+
+  const { data, error } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+    .select('*')
+    .eq('organization_id', current.organization.id)
+    .in('status', ['pending', 'resolved'])
+    .order('updated_at', { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.error('[GET KNOWLEDGE GAPS ERROR]', error);
+    return [];
+  }
+
+  return (data || []) as KnowledgeGapRow[];
+}
+
+/**
  * Obtiene el conteo rápido de vacíos pendientes para insignias y banners en el Inbox.
  */
 export async function getKnowledgeGapsCount(): Promise<number> {
@@ -77,7 +99,7 @@ export async function resolveKnowledgeGapAndTrainAI(
     createQuickSnippet?: boolean;
     shortcut?: string;
   }
-): Promise<{ success: boolean; error?: string; updatedPrompt?: string; snippetCreated?: boolean }> {
+): Promise<{ success: boolean; error?: string; updatedPrompt?: string; snippetCreated?: boolean; updatedStructuredData?: any }> {
   const current = await getCurrentUserAndOrg();
   if (!current) {
     return { success: false, error: 'Sesión no autorizada' };
@@ -117,8 +139,8 @@ export async function resolveKnowledgeGapAndTrainAI(
       return { success: false, error: 'Organización no encontrada.' };
     }
 
-    // 3. Anexar conocimiento al prompt
-    const newSystemPrompt = appendKnowledgeToPrompt(
+    // 3. Anexar conocimiento al prompt o re-compilar con datos estructurados
+    let finalPrompt = appendKnowledgeToPrompt(
       org.system_prompt,
       gap.question_text,
       answer.trim()
@@ -131,10 +153,24 @@ export async function resolveKnowledgeGapAndTrainAI(
       if (!Array.isArray(updatedStructuredData.policies.customFaqs)) {
         updatedStructuredData.policies.customFaqs = [];
       }
-      updatedStructuredData.policies.customFaqs.push({
-        question: gap.question_text,
-        answer: answer.trim(),
-      });
+      const existingIdx = updatedStructuredData.policies.customFaqs.findIndex(
+        (f: any) => f.question?.toLowerCase().trim() === gap.question_text.toLowerCase().trim()
+      );
+      if (existingIdx >= 0) {
+        updatedStructuredData.policies.customFaqs[existingIdx].answer = answer.trim();
+      } else {
+        updatedStructuredData.policies.customFaqs.push({
+          question: gap.question_text,
+          answer: answer.trim(),
+        });
+      }
+
+      try {
+        const recompiled = compileStructuredPrompt(updatedStructuredData);
+        if (recompiled) finalPrompt = recompiled;
+      } catch (cErr) {
+        console.warn('[RECOMPILE PROMPT FROM FAQ WARN]', cErr);
+      }
     }
 
     // 5. Manejar creación opcional de Atajo Rápido para los asesores
@@ -166,18 +202,23 @@ export async function resolveKnowledgeGapAndTrainAI(
       snippetCreated = true;
     }
 
-    // 6. Guardar en organizations
-    await (supabaseAdmin.from('organizations') as any)
+    // 6. Guardar en organizations con validación estricta de error
+    const { error: orgUpdateErr } = await (supabaseAdmin.from('organizations') as any)
       .update({
-        system_prompt: newSystemPrompt,
+        system_prompt: finalPrompt,
         structured_prompt_data: updatedStructuredData,
         appointment_settings: appointmentSettings,
         updated_at: new Date().toISOString(),
       })
       .eq('id', current.organization.id);
 
-    // 7. Actualizar estado del vacío en ai_knowledge_gaps
-    await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+    if (orgUpdateErr) {
+      console.error('[RESOLVE GAP ORG UPDATE ERROR]', orgUpdateErr);
+      return { success: false, error: `Error guardando en la organización: ${orgUpdateErr.message}` };
+    }
+
+    // 7. Actualizar estado del vacío en ai_knowledge_gaps con validación estricta
+    const { error: gapUpdateErr } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
       .update({
         status: 'resolved',
         suggested_answer: answer.trim(),
@@ -186,11 +227,21 @@ export async function resolveKnowledgeGapAndTrainAI(
       })
       .eq('id', gapId);
 
+    if (gapUpdateErr) {
+      console.error('[RESOLVE GAP DB ERROR]', gapUpdateErr);
+      return { success: false, error: `Error actualizando el registro de la pregunta: ${gapUpdateErr.message}` };
+    }
+
     revalidatePath('/settings');
     revalidatePath('/inbox');
     revalidatePath('/dashboard');
 
-    return { success: true, updatedPrompt: newSystemPrompt, snippetCreated };
+    return {
+      success: true,
+      updatedPrompt: finalPrompt,
+      updatedStructuredData,
+      snippetCreated,
+    };
   } catch (err: any) {
     console.error('[RESOLVE KNOWLEDGE GAP ERROR]', err);
     return { success: false, error: err.message || 'Error al entrenar la IA.' };

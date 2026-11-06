@@ -15,6 +15,7 @@ import {
   RotateCcw,
   X,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
@@ -988,11 +989,10 @@ export function InboxView({
                   type="button"
                   onClick={handleSyncChats}
                   disabled={syncingChats}
-                  title="Sincronizar últimos chats de WhatsApp al CRM"
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                  title="Sincronizar mensajes recientes de WhatsApp"
+                  className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1E2433] border border-slate-200 dark:border-[#232A3B] transition cursor-pointer disabled:opacity-50 shadow-2xs"
                 >
-                  <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce text-indigo-600' : ''}`} />
-                  <span className="hidden sm:inline">{syncingChats ? 'Sincronizando...' : 'Sincronizar'}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingChats ? 'animate-spin text-[#0052FF]' : ''}`} />
                 </button>
               )}
               <NewLeadModal
@@ -1008,7 +1008,7 @@ export function InboxView({
 
           {/* Banner de Feedback de Sincronización */}
           {syncFeedback && (
-            <div className="p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-700 dark:text-purple-300 flex items-center justify-between gap-2">
+            <div className="mx-3 mt-2.5 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-[11px] text-blue-900 dark:text-blue-200 flex items-center justify-between gap-2 animate-in fade-in">
               <span className="leading-tight">{syncFeedback}</span>
               <button
                 type="button"
@@ -1252,10 +1252,10 @@ export function InboxView({
                   type="button"
                   onClick={handleSyncChats}
                   disabled={syncingChats}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition shadow-xs cursor-pointer disabled:opacity-50 mx-auto"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs cursor-pointer disabled:opacity-50 mx-auto"
                 >
-                  <Download className={`w-3.5 h-3.5 ${syncingChats ? 'animate-bounce' : ''}`} />
-                  {syncingChats ? 'Sincronizando...' : 'Sincronizar Últimos 50 Chats'}
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingChats ? 'animate-spin' : ''}`} />
+                  <span>{syncingChats ? 'Sincronizando...' : 'Sincronizar Conversaciones'}</span>
                 </button>
               )}
             </div>

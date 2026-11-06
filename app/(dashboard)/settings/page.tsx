@@ -1,7 +1,7 @@
 import React from 'react';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { getTeamInfo } from '@/app/actions/team';
-import { getPendingKnowledgeGaps } from '@/app/actions/knowledge-gaps';
+import { getOrganizationKnowledgeGaps } from '@/app/actions/knowledge-gaps';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
@@ -38,10 +38,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     console.warn('[SETTINGS] Could not load team info:', err);
   }
 
-  // Cargar preguntas no respondidas (Knowledge Gaps)
+  // Cargar preguntas frecuentes y vacíos de conocimiento (Pendientes y Resueltas)
   let knowledgeGaps: any[] = [];
   try {
-    knowledgeGaps = await getPendingKnowledgeGaps();
+    knowledgeGaps = await getOrganizationKnowledgeGaps();
   } catch (err) {
     console.warn('[SETTINGS] Could not load knowledge gaps:', err);
   }

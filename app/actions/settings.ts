@@ -680,8 +680,8 @@ export async function saveOrganizationPaymentAccounts(
     .eq('id', user.id)
     .single();
 
-  if (!profile || (profile.role !== 'admin' && !profile.is_super_admin)) {
-    return { success: false, error: 'Solo administradores pueden configurar cuentas de pago de la empresa.' };
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    return { success: false, error: 'Solo administradores o supervisores pueden configurar cuentas de pago de la empresa.' };
   }
 
   const orgId = profile.organization_id;
@@ -700,26 +700,61 @@ export async function saveOrganizationPaymentAccounts(
       isActive: a.isActive ?? true,
     }));
 
-  const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('appointment_settings')
+  const { data: org, error: orgReadErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings, structured_prompt_data, system_prompt')
     .eq('id', orgId)
     .single();
 
-  const currentSettings = (org?.appointment_settings as any) || {};
+  if (orgReadErr || !org) {
+    return { success: false, error: 'Organización no encontrada.' };
+  }
+
+  const currentSettings = (org.appointment_settings as any) || {};
   const updatedSettings = {
     ...currentSettings,
     payment_accounts: cleanAccounts,
   };
 
+  const updatePayload: Record<string, any> = {
+    appointment_settings: updatedSettings,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Sincronizar cuentas con el catálogo estructurado de la IA si está configurado
+  const updatedStructured = org.structured_prompt_data as any;
+  if (updatedStructured && typeof updatedStructured === 'object') {
+    if (!updatedStructured.policies) updatedStructured.policies = {};
+
+    const nequiAcc = cleanAccounts.find((a) => a.isActive && /nequi/i.test(a.title));
+    const daviAcc = cleanAccounts.find((a) => a.isActive && /daviplata/i.test(a.title));
+    const bancoAcc = cleanAccounts.find((a) => a.isActive && /bancolombia/i.test(a.title));
+    const otherAccs = cleanAccounts
+      .filter((a) => a.isActive && a !== nequiAcc && a !== daviAcc && a !== bancoAcc)
+      .map((a) => `${a.title}: ${a.accountNumber} (${a.holderName})`)
+      .join(' | ');
+
+    updatedStructured.policies.paymentDetails = {
+      nequi: nequiAcc ? `${nequiAcc.accountNumber} (${nequiAcc.holderName})` : '',
+      daviplata: daviAcc ? `${daviAcc.accountNumber} (${daviAcc.holderName})` : '',
+      bancolombia: bancoAcc ? `${bancoAcc.accountNumber} (${bancoAcc.holderName})` : '',
+      other: otherAccs,
+    };
+
+    updatePayload.structured_prompt_data = updatedStructured;
+    try {
+      const compiled = compileStructuredPrompt(updatedStructured);
+      if (compiled) updatePayload.system_prompt = compiled;
+    } catch (compileErr) {
+      console.warn('[SAVE PAYMENT ACCOUNTS COMPILE PROMPT WARN]', compileErr);
+    }
+  }
+
   const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
-    .update({
-      appointment_settings: updatedSettings,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', orgId);
 
   if (updateErr) {
-    return { success: false, error: updateErr.message };
+    return { success: false, error: `Error guardando cuentas en base de datos: ${updateErr.message}` };
   }
 
   revalidatePath('/settings');

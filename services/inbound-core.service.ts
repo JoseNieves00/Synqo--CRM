@@ -594,8 +594,9 @@ export class InboundCoreService {
       let outboundMessageId: string | null = null;
       try {
         // --- INTERCEPTOR ANTI-FUGA DE ENLACES E IMÁGENES ---
-        // Detecta si la IA incluyó sintaxis markdown ![alt](url), etiquetas [foto: url] o URLs de Supabase Storage en el texto
-        const mdImgRegex = /!\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/g;
+        // Detecta si la IA incluyó sintaxis markdown ![alt](url), [alt](url), etiquetas [foto: url] o URLs directas en el texto
+        const mdImgRegex = /!\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/gi;
+        const mdLinkMediaRegex = /\[([^\]]*)\]\((https?:\/\/[^\s\)]*(?:chat-media|[^\s\)]+\.(?:jpe?g|png|webp|gif|pdf))[^\s\)]*)\)/gi;
         const tagImgRegex = /\[(?:foto|imagen):\s*(https?:\/\/[^\s\]]+)\]/gi;
         const rawSupabaseImgRegex = /(https:\/\/[^\s\)]+\.supabase\.co\/storage\/v1\/object\/public\/[^\s\)]+(?:\.jpe?g|\.png|\.webp|\.gif|\b))/gi;
 
@@ -605,12 +606,22 @@ export class InboundCoreService {
         while ((match = mdImgRegex.exec(aiResponseText)) !== null) {
           leakedMedia.push({ caption: match[1]?.trim() || '', url: match[2].trim() });
         }
+        while ((match = mdLinkMediaRegex.exec(aiResponseText)) !== null) {
+          const url = match[2].trim();
+          if (!leakedMedia.some((m) => m.url === url)) {
+            leakedMedia.push({ caption: match[1]?.trim() || '', url });
+          }
+        }
         while ((match = tagImgRegex.exec(aiResponseText)) !== null) {
-          leakedMedia.push({ url: match[1].trim() });
+          const url = match[1].trim();
+          if (!leakedMedia.some((m) => m.url === url)) {
+            leakedMedia.push({ url });
+          }
         }
         while ((match = rawSupabaseImgRegex.exec(aiResponseText)) !== null) {
-          if (!leakedMedia.some((m) => m.url === match![1].trim())) {
-            leakedMedia.push({ url: match[1].trim() });
+          const url = match[1].trim();
+          if (!leakedMedia.some((m) => m.url === url)) {
+            leakedMedia.push({ url });
           }
         }
 
@@ -649,13 +660,14 @@ export class InboundCoreService {
         }
 
         // Limpiar el texto removiendo markdown y URLs
-        const cleanedAiText = aiResponseText
+        let cleanedAiText = aiResponseText
           .replace(mdImgRegex, '')
+          .replace(mdLinkMediaRegex, '')
           .replace(tagImgRegex, '')
           .replace(rawSupabaseImgRegex, '')
           .split('\n')
           .map((line) => line.trim())
-          .filter((line) => line && line !== '•' && line !== '*' && line !== '-')
+          .filter((line) => line && line !== '•' && line !== '*' && line !== '-' && !/^[•\-\*]?\s*\*?[^:\n]+\*?:\s*$/.test(line))
           .join('\n')
           .trim();
 

@@ -668,7 +668,14 @@ export function ChatInput({
         <div className="relative" ref={paymentMenuRef}>
           <button
             type="button"
-            onClick={() => setShowPaymentMenu((prev) => !prev)}
+            onClick={() => {
+              setShowPaymentMenu((prev) => {
+                if (!prev) {
+                  getOrganizationPaymentAccounts().then((accs) => setPaymentAccounts(accs || [])).catch(() => {});
+                }
+                return !prev;
+              });
+            }}
             className="px-2 py-0.5 rounded-md font-semibold bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 flex items-center gap-1 transition shrink-0 cursor-pointer"
             title="Insertar datos bancarios y cuentas de pago de la empresa"
           >

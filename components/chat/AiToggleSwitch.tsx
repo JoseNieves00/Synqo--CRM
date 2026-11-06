@@ -39,14 +39,14 @@ export function AiToggleSwitch({
   };
 
   return (
-    <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm">
+    <div className="flex items-center gap-2 bg-slate-50 dark:bg-[#090A0F] px-2.5 py-1 rounded-xl border border-slate-200 dark:border-[#232A3B] shadow-2xs transition-colors">
       <div className="flex items-center gap-1.5">
         {isActive ? (
-          <Bot className="w-4 h-4 text-[#0052FF] animate-pulse" />
+          <Bot className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
         ) : (
-          <UserCheck className="w-4 h-4 text-amber-600" />
+          <UserCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
         )}
-        <span className="text-xs font-semibold text-gray-700">
+        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 hidden sm:inline">
           {isActive ? 'IA Activa' : 'Control Humano'}
         </span>
       </div>
@@ -57,13 +57,13 @@ export function AiToggleSwitch({
         aria-checked={isActive}
         disabled={isUpdating}
         onClick={handleToggle}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#0052FF] focus:ring-offset-1 disabled:opacity-50 ${
-          isActive ? 'bg-[#0052FF]' : 'bg-gray-300'
+        className={`relative inline-flex h-4.5 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50 ${
+          isActive ? 'bg-[#0052FF]' : 'bg-slate-300 dark:bg-slate-700'
         }`}
       >
         <span
-          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-            isActive ? 'translate-x-4' : 'translate-x-0'
+          className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+            isActive ? 'translate-x-3.5' : 'translate-x-0'
           }`}
         />
       </button>
