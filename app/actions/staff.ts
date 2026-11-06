@@ -2,6 +2,7 @@
 
 import crypto from 'node:crypto';
 import { cookies, headers } from 'next/headers';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { AppointmentService } from '@/services/appointment.service';
 import { WhatsAppService } from '@/services/whatsapp.service';
@@ -577,15 +578,48 @@ export async function sendStaffChatMessage(content: string) {
  */
 
 /**
- * El Administrador genera una invitación efímera (24h) con token HMAC único de un solo uso
+ * Valida que el usuario que invoca la acción esté autenticado y posea rol de administrador o supervisor
  */
-export async function createStaffInvitation(organizationId: string) {
+async function checkStaffAdminAuth() {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error('No autorizado: Inicia sesión para continuar.');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores pueden gestionar colaboradores.');
+  }
+
+  const orgId = profile.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada.');
+
+  return { user, profile, orgId };
+}
+
+/**
+ * El Administrador genera una invitación efímera (24h) con token HMAC único de un solo uso.
+ * Toma siempre la organización de la sesión autenticada.
+ */
+export async function createStaffInvitation(organizationId?: string) {
+  const { orgId } = await checkStaffAdminAuth();
+  const targetOrgId = orgId;
+
   const { rawToken, tokenHash } = generateInviteToken();
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 horas
 
   const { data: inv, error } = await (supabaseAdmin.from('staff_invitations') as any)
     .insert({
-      organization_id: organizationId,
+      organization_id: targetOrgId,
       token_hash: tokenHash,
       expires_at: expiresAt,
       is_used: false,
@@ -835,21 +869,26 @@ export async function staffLoginWithPhone(input: {
 }
 
 /**
- * El Administrador aprueba o rechaza a un colaborador registrado
+ * El Administrador aprueba o rechaza a un colaborador registrado.
+ * Requiere autenticación de administrador y valida que el colaborador pertenezca a la empresa.
  */
 export async function approveSpecialist(specialistId: string, approved: boolean) {
+  const { orgId } = await checkStaffAdminAuth();
   const newStatus = approved ? 'approved' : 'rejected';
 
-  const { error } = await (supabaseAdmin.from('specialists') as any)
+  const { data: updated, error } = await (supabaseAdmin.from('specialists') as any)
     .update({
       approval_status: newStatus,
       is_active: approved,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', specialistId);
+    .eq('id', specialistId)
+    .eq('organization_id', orgId)
+    .select('id')
+    .maybeSingle();
 
-  if (error) {
-    throw new Error(`Error al actualizar estado de colaborador: ${error.message}`);
+  if (error || !updated) {
+    throw new Error('Colaborador no encontrado en tu organización o error al actualizar.');
   }
 
   revalidatePath('/settings');
@@ -857,12 +896,15 @@ export async function approveSpecialist(specialistId: string, approved: boolean)
 }
 
 /**
- * Listar colaboradores para la pantalla de Ajustes del Admin
+ * Listar colaboradores para la pantalla de Ajustes del Admin.
+ * Protegido con autenticación de admin y omitiendo estrictamente access_pin.
  */
-export async function listSpecialistsForAdmin(organizationId: string) {
+export async function listSpecialistsForAdmin(organizationId?: string) {
+  const { orgId } = await checkStaffAdminAuth();
+
   const { data, error } = await (supabaseAdmin.from('specialists') as any)
-    .select('id, name, phone, specialty, access_pin, approval_status, is_active, created_at')
-    .eq('organization_id', organizationId)
+    .select('id, name, phone, specialty, approval_status, is_active, created_at')
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false });
 
   if (error) {
