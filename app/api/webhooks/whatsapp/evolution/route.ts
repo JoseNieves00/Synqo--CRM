@@ -10,7 +10,7 @@ import { EvolutionService } from '@/services/evolution.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
-import { formatImageMessageContent, formatVideoMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
+import { formatImageMessageContent, formatVideoMessageContent, formatAudioMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
 import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
 
@@ -328,29 +328,69 @@ export async function POST(request: NextRequest) {
   } else if (msgObj.listResponseMessage?.singleSelectReply?.selectedRowId) {
     rawContent = msgObj.listResponseMessage.singleSelectReply.selectedRowId.trim();
   } else if (msgObj.audioMessage) {
-    // 🎙️ Nota de voz entrante vía Evolution API -> Transcripción con OpenAI Whisper
+    // 🎙️ Nota de voz entrante vía Evolution API -> Transcripción con OpenAI Whisper y almacenamiento de audio
     try {
-      const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
-      const media = await EvolutionService.getBase64Audio({
-        apiUrl: organization.evolution_api_url,
-        apiKey: finalApiKey,
-        instanceName: cleanInstance,
-        messageId,
-      });
+      let audioBuffer: Buffer | null = null;
+      let audioMime = msgObj.audioMessage.mimetype || 'audio/ogg; codecs=opus';
 
-      if (media?.base64) {
-        const audioBuffer = Buffer.from(media.base64, 'base64');
-        const transcription = await OpenAIService.transcribeAudio(
-          audioBuffer,
-          media.mimetype || 'audio/mp4'
-        );
-        rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
+      // 1. Detección directa de base64 en el webhook si Evolution lo incluye
+      if (messageData.base64) {
+        audioBuffer = Buffer.from(messageData.base64, 'base64');
+      } else if (msgObj.audioMessage.base64) {
+        audioBuffer = Buffer.from(msgObj.audioMessage.base64, 'base64');
+      }
+
+      // 2. Si no venía en el webhook, solicitarlo a Evolution API pasando el payload del mensaje
+      if (!audioBuffer) {
+        const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
+        const media = await EvolutionService.getBase64Audio({
+          apiUrl: organization.evolution_api_url,
+          apiKey: finalApiKey,
+          instanceName: cleanInstance,
+          messageId,
+          messagePayload: messageData,
+        });
+
+        if (media?.base64) {
+          audioBuffer = Buffer.from(media.base64, 'base64');
+          audioMime = media.mimetype || audioMime;
+        }
+      }
+
+      let audioUrl: string | null = null;
+      let transcription = '';
+
+      if (audioBuffer) {
+        // Subir nota de voz a Supabase Storage para que los asesores puedan escuchar el audio directamente en el CRM
+        try {
+          audioUrl = await uploadIncomingChatMedia({
+            buffer: audioBuffer,
+            mimeType: audioMime,
+            organizationId: orgId,
+            contactId: leadPhone || 'incoming',
+          });
+        } catch (uploadErr) {
+          console.warn('[EVOLUTION AUDIO UPLOAD WARN]', uploadErr);
+        }
+
+        // Transcripción de alta fidelidad con OpenAI Whisper
+        try {
+          transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime);
+        } catch (transcribeErr) {
+          console.warn('[EVOLUTION AUDIO TRANSCRIPTION WARN]', transcribeErr);
+        }
+      }
+
+      if (audioUrl) {
+        rawContent = formatAudioMessageContent(audioUrl, transcription || undefined);
+      } else if (transcription) {
+        rawContent = `🎤 [Nota de voz]: "${transcription}"`;
       } else {
-        rawContent = '🎤 [Nota de voz recibida]';
+        rawContent = '🎤 [Nota de voz inaudible]';
       }
     } catch (audioErr) {
-      console.warn('[EVOLUTION AUDIO TRANSCRIPTION ERROR]', audioErr);
-      rawContent = '🎤 [Nota de voz recibida]';
+      console.warn('[EVOLUTION AUDIO HANDLING ERROR]', audioErr);
+      rawContent = '🎤 [Nota de voz inaudible]';
     }
   } else if (msgObj.imageMessage) {
     const caption = (msgObj.imageMessage.caption || '').trim();

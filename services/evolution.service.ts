@@ -683,8 +683,9 @@ export class EvolutionService {
     apiKey,
     instanceName,
     messageId,
+    messagePayload,
     convertToMp4 = false,
-  }: EvolutionCredentials & { messageId: string; convertToMp4?: boolean }): Promise<{ base64: string; mimetype: string } | null> {
+  }: EvolutionCredentials & { messageId: string; messagePayload?: any; convertToMp4?: boolean }): Promise<{ base64: string; mimetype: string } | null> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
     const url = `${baseUrl}/chat/getBase64FromMediaMessage/${cleanInstance}`;
@@ -694,7 +695,7 @@ export class EvolutionService {
         method: 'POST',
         headers: this.buildHeaders(apiKey),
         body: JSON.stringify({
-          message: {
+          message: messagePayload || {
             key: {
               id: messageId,
             },
@@ -710,7 +711,7 @@ export class EvolutionService {
 
       return {
         base64: data.base64,
-        mimetype: data.mimetype || (convertToMp4 ? 'audio/mp4' : 'image/jpeg'),
+        mimetype: data.mimetype || (convertToMp4 ? 'audio/mp4' : 'audio/ogg; codecs=opus'),
       };
     } catch (e: any) {
       console.warn('[EVOLUTION GET BASE64 MEDIA ERROR]', e.message);
@@ -727,13 +728,15 @@ export class EvolutionService {
     apiKey,
     instanceName,
     messageId,
-  }: EvolutionCredentials & { messageId: string }): Promise<{ base64: string; mimetype: string } | null> {
+    messagePayload,
+  }: EvolutionCredentials & { messageId: string; messagePayload?: any }): Promise<{ base64: string; mimetype: string } | null> {
     return this.getBase64Media({
       apiUrl,
       apiKey,
       instanceName,
       messageId,
-      convertToMp4: true,
+      messagePayload,
+      convertToMp4: false, // Whisper transcribe nativamente OGG Opus sin requerir ffmpeg en el VPS
     });
   }
 
