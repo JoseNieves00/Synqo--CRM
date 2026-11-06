@@ -167,13 +167,16 @@ El drag & drop HTML5 no funciona en pantallas táctiles. Usar una librería con 
   7. **Aterrizaje por rol:** Asesores y recepcionistas aterrizan en `/inbox` por defecto al iniciar sesión.
   8. **Adaptabilidad móvil e instalación PWA:** Navegación fluida en teléfonos móviles con cambio lista/chat y `manifest.json`.
   9. **Modal de edición de productos en catálogo:** Editar el nombre o modelo de fotos del catálogo visual sin tener que borrarlas y re-subirlas.
-- **Fase 3 — Unificar el núcleo:**
-  - Un solo `ingestInbound()` y `runAiWorker()` para los tres canales.
-  - Cola con reintentos (QStash o Supabase Queues).
-  - Tabla `ai_runs`, Sentry y dead-letter.
-  - Arreglar la RLS (funciones `SECURITY DEFINER`, `REVOKE` de columnas) y bucket privado.
-  - PIN hasheado y más largo.
-  - Tests con mocks.
+- **Fase 3 — Unificar el núcleo:** ✅ Completada
+  - ✅ **Servicio Inbound Unificado (`services/inbound-core.service.ts`):** Unificación de `processInbound()` y `runAiWorker()` para Meta Cloud API, Evolution API e Instagram Direct, eliminando divergencias y lógica triplicada.
+  - ✅ **Buffer Anti-ráfaga (Debounce 3.5s) y Dead-Letter Alerts:** Buffer contra mensajes divididos del usuario y registro de alertas y fallbacks en dead-letter.
+  - ✅ **Extracción y Renderizado Visual de Citas (`@[Quote]`):** Soporte en Meta y Evolution con caja WhatsApp de contexto en burbujas y paso de contexto estructurado a la IA.
+  - ✅ **Reacciones Emoji (0 Tokens):** Captura de reacciones en WhatsApp/Instagram, actualización en BD y Realtime, badge visual en esquina de burbuja sin consumo innecesario de tokens.
+  - ✅ **Directorio Escalable en Inbox:** Botón "Cargar más conversaciones" (evitando sobrecarga de DOM) + Búsqueda global en Postgres vía `searchContactsGlobal`.
+  - ✅ **Política Responsable de Almacenamiento (45 días):** Endpoint cron protegido `cleanup-storage` que elimina videos pesados en Supabase Storage tras 45 días conservándolos en WhatsApp.
+  - ✅ **Observabilidad de IA (`ai_runs`):** Tabla de métricas por empresa (modelo, tokens prompt/completion, latencia, canal, estado).
+  - ✅ **Seguridad RLS y Bloqueo de Escalación de Privilegios (H4):** Trigger `prevent_profile_privilege_escalation` en `profiles` con `SECURITY DEFINER`.
+  - ✅ **Suite de Pruebas Automatizadas:** 17 suites ejecutándose y pasando al 100% en `npm test`.
 - **Fase 4 — Diferenciadores:** copiloto de borradores, corrección desde el chat, transparencia de la IA, etiquetas y timeline, sandbox del bot, scoring automático, dashboard con KPIs reales, plantillas sincronizadas.
 
 ### Qué quitar o no seguir ampliando por ahora

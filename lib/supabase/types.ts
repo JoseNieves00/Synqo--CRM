@@ -364,6 +364,54 @@ export interface Database {
         };
         Relationships: [];
       };
+      ai_runs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          contact_id: string | null;
+          channel: string;
+          provider: string;
+          model: string;
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+          latency_ms: number;
+          status: string;
+          error_message: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          contact_id?: string | null;
+          channel?: string;
+          provider?: string;
+          model?: string;
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+          latency_ms?: number;
+          status?: string;
+          error_message?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          contact_id?: string | null;
+          channel?: string;
+          provider?: string;
+          model?: string;
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+          latency_ms?: number;
+          status?: string;
+          error_message?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       scheduled_reminders: {
         Row: {
           id: string;

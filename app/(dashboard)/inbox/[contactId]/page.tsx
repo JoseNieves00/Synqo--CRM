@@ -29,7 +29,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
       .order('updated_at', { ascending: false })
       .limit(50),
     (supabaseAdmin.from('messages') as any)
-      .select('id, sender_type, content, created_at, status, reply_to_message_id')
+      .select('id, sender_type, content, created_at, status, reply_to_message_id, reactions')
       .eq('contact_id', contactId)
       .order('created_at', { ascending: false })
       .limit(50),

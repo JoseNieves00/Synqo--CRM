@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { InstagramService } from '@/services/instagram.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
+import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
 
 /**
  * 1. GET: Handshake de verificación de Meta Instagram Webhook.
@@ -122,186 +123,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
     }
 
-    const orgId = organization.id;
-    const sanitizedContent = sanitizeLeadMessage(rawContent);
-
-    // Deduplicación de mensaje
-    const { data: existingMessage } = await supabaseAdmin
-      .from('messages')
-      .select('id')
-      .eq('meta_message_id', metaMessageId)
-      .single();
-
-    if (existingMessage) {
-      return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
-    }
-
-    // Upsert de contacto por canal Instagram
-    let contactId: string;
-    let isAiActive = true;
-
-    const { data: existingContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, is_ai_active')
-      .eq('organization_id', orgId)
-      .eq('instagram_id', senderId)
-      .single();
-
-    if (existingContact) {
-      contactId = existingContact.id;
-      isAiActive = existingContact.is_ai_active;
-
-      await (supabaseAdmin.from('contacts') as any)
-        .update({
-          last_interaction_at: new Date().toISOString(),
-          channel: 'instagram',
-        })
-        .eq('id', contactId);
-    } else {
-      const bestAgentId = await AssignmentService.findBestAvailableAgent(orgId);
-
-      const { data: newContact, error: createError } = await (supabaseAdmin.from('contacts') as any)
-        .insert({
-          organization_id: orgId,
-          phone: `ig_${senderId}`, // Identificador unívoco para cumplir restricción no nula
-          name: `Usuario Instagram (${senderId.slice(-4)})`,
-          pipeline_stage: 'nuevo',
-          channel: 'instagram',
-          instagram_id: senderId,
-          is_ai_active: true,
-          assigned_to: bestAgentId || null,
-          last_interaction_at: new Date().toISOString(),
-        })
-        .select('id, is_ai_active')
-        .single();
-
-      if (createError || !newContact) {
-        throw new Error(`Error creando contacto de Instagram: ${createError?.message}`);
-      }
-      contactId = newContact.id;
-      isAiActive = newContact.is_ai_active;
-    }
-
-    // Guardar mensaje entrante de Instagram
-    const { data: insertedMsg } = await (supabaseAdmin.from('messages') as any)
-      .insert({
-        contact_id: contactId,
-        sender_type: 'lead',
-        content: sanitizedContent,
-        meta_message_id: metaMessageId,
-        channel: 'instagram',
-      })
-      .select('id, created_at')
-      .single();
-
-    const currentCustom = existingContact?.custom_fields || {};
-    const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
-    const lastMsgPayload = {
-      text: sanitizedContent,
-      sender_type: 'lead',
-      created_at: new Date().toISOString(),
+    const inboundPayload: InboundPayload = {
+      organization,
+      channel: "instagram",
+      channelMessageId: metaMessageId,
+      senderId,
+      senderName: "Usuario Instagram (" + senderId.slice(-4) + ")",
+      rawContent,
+      replyToChannelMessageId: messagingEvent.message.reply_to?.mid || null,
     };
 
-    await (supabaseAdmin.from('contacts') as any)
-      .update({
-        unread_count: unreadCount,
-        last_message: lastMsgPayload,
-        custom_fields: {
-          ...currentCustom,
-          unread_count: unreadCount,
-          last_message: lastMsgPayload,
-        },
-        last_interaction_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', contactId);
+    const result = await InboundCoreService.processInbound(inboundPayload);
 
-    const isSubscriptionActive =
-      organization.is_active !== false &&
-      (organization.subscription_status === 'active' || organization.subscription_status === 'trialing');
+    if (result.status === "duplicate_ignored") {
+      return NextResponse.json({ status: "duplicate_message_ignored" }, { status: 200 });
+    }
 
-    // Procesamiento en segundo plano con Buffer Anti-Burst (3.5s Debounce)
-    if (isSubscriptionActive && isAiActive) {
+    if (result.status === "success" && result.contactId && result.messageId) {
       waitUntil(
-        (async () => {
-          try {
-            await new Promise((resolve) => setTimeout(resolve, 3500));
-
-            // Verificar si entró otro mensaje más reciente
-            if (insertedMsg?.id) {
-              const { data: latestMsg } = await (supabaseAdmin.from('messages') as any)
-                .select('id')
-                .eq('contact_id', contactId)
-                .eq('sender_type', 'lead')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-              if (latestMsg && latestMsg.id !== insertedMsg.id) {
-                console.log(`[INSTAGRAM DEBOUNCE] Mensaje ${metaMessageId} omitido; worker posterior atenderá la ráfaga.`);
-                return;
-              }
-            }
-
-            const decryptedToken = decryptSecret(organization.instagram_access_token || '');
-
-            // Procesar con Gemini Flash
-            const aiResponseText = await OpenAIService.processLeadMessage({
-              contactId,
-              organizationId: orgId,
-              leadPhone: `ig_${senderId}`,
-              leadName: 'Usuario Instagram',
-              systemPromptConfig: organization.system_prompt,
-              handoffMode: organization.handoff_mode || 'message',
-              afterHoursMessage: organization.after_hours_message || null,
-              businessHours: organization.business_hours || null,
-              aiProvider: organization.ai_provider || null,
-              enabledModules: organization.enabled_modules || null,
-              timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
-            });
-
-            if (decryptedToken && aiResponseText && aiResponseText.trim() !== '') {
-              const outboundMid = await InstagramService.sendDirectMessage({
-                instagramAccountId: recipientId,
-                accessToken: decryptedToken,
-                recipientId: senderId,
-                text: aiResponseText,
-              });
-
-              await (supabaseAdmin.from('messages') as any).insert({
-                contact_id: contactId,
-                sender_type: 'ai',
-                content: aiResponseText,
-                meta_message_id: outboundMid || null,
-                channel: 'instagram',
-                status: 'sent',
-              });
-
-              const aiLastMsg = {
-                text: aiResponseText,
-                sender_type: 'ai',
-                created_at: new Date().toISOString(),
-              };
-              await (supabaseAdmin.from('contacts') as any)
-                .update({
-                  last_message: aiLastMsg,
-                  custom_fields: {
-                    ...currentCustom,
-                    last_message: aiLastMsg,
-                  },
-                })
-                .eq('id', contactId);
-            }
-          } catch (asyncErr) {
-            console.error('[INSTAGRAM ASYNC WORKER ERROR]', asyncErr);
-          }
-        })()
+        InboundCoreService.runAiWorker({
+          payload: inboundPayload,
+          contactId: result.contactId,
+          insertedMessageId: result.messageId,
+        })
       );
     }
 
-    return NextResponse.json({ status: 'success' }, { status: 200 });
+    return NextResponse.json({ status: "success" }, { status: 200 });
   } catch (error: any) {
-    console.error('[INSTAGRAM WEBHOOK ERROR]', error);
-    return NextResponse.json({ error: error?.message || 'Internal processing error' }, { status: 500 });
+    console.error("[INSTAGRAM WEBHOOK ERROR]", error);
+    return NextResponse.json({ error: error?.message || "Internal processing error" }, { status: 500 });
   }
 }
-

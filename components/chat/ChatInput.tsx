@@ -3,11 +3,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard } from 'lucide-react';
+import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard, Camera } from 'lucide-react';
 import { getOrganizationQuickReplies, uploadChatMedia } from '@/app/actions/chat';
 import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
-import { getOrganizationPaymentAccounts } from '@/app/actions/settings';
+import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { CustomPaymentAccount, formatPaymentAccountText, formatAllPaymentAccountsText } from '@/lib/types/payments';
+import { GalleryPhotoItem } from '@/lib/media/format';
 
 const ManageQuickRepliesModal = dynamic(
   () => import('./ManageQuickRepliesModal').then((m) => m.ManageQuickRepliesModal),
@@ -75,7 +76,14 @@ export function ChatInput({
   const [showPaymentMenu, setShowPaymentMenu] = useState(false);
   const paymentMenuRef = useRef<HTMLDivElement>(null);
 
-  // Cargar cuentas de pago configuradas al montar
+  // Catálogo visual para envío rápido por asesores humanos
+  const [catalogItems, setCatalogItems] = useState<GalleryPhotoItem[]>([]);
+  const [showCatalogMenu, setShowCatalogMenu] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [isSendingCatalogPhoto, setIsSendingCatalogPhoto] = useState<string | null>(null);
+  const catalogMenuRef = useRef<HTMLDivElement>(null);
+
+  // Cargar cuentas de pago y catálogo de fotos configurados al montar
   useEffect(() => {
     let isMounted = true;
     getOrganizationPaymentAccounts()
@@ -83,10 +91,46 @@ export function ChatInput({
         if (isMounted) setPaymentAccounts(accs || []);
       })
       .catch((err) => console.warn('[ChatInput] Error cargando cuentas de pago:', err));
+
+    getOrganizationCatalogGallery()
+      .then((items) => {
+        if (isMounted) setCatalogItems(items || []);
+      })
+      .catch((err) => console.warn('[ChatInput] Error cargando catálogo:', err));
+
     return () => {
       isMounted = false;
     };
   }, []);
+
+  // Cerrar popover de catálogo al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (catalogMenuRef.current && !catalogMenuRef.current.contains(e.target as Node)) {
+        setShowCatalogMenu(false);
+      }
+    };
+    if (showCatalogMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showCatalogMenu]);
+
+  const handleSendCatalogItem = async (item: GalleryPhotoItem) => {
+    if (!onSendMedia) return;
+    try {
+      setIsSendingCatalogPhoto(item.id);
+      const caption = `${item.name}${item.price ? ` (${item.price})` : ''}`;
+      await onSendMedia(item.url, caption, undefined, false, false, false);
+      setShowCatalogMenu(false);
+    } catch (err) {
+      console.error('[ChatInput] Error enviando foto de catálogo:', err);
+    } finally {
+      setIsSendingCatalogPhoto(null);
+    }
+  };
 
   // Cerrar popover de pago al hacer clic fuera
   useEffect(() => {
@@ -613,6 +657,123 @@ export function ChatInput({
                         <span className="font-semibold text-slate-800 dark:text-slate-200">{acc.title}</span>
                         <span className="text-[10px] text-slate-500 font-mono truncate">{acc.accountNumber} • {acc.holderName}</span>
                       </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Botón y Popover del Catálogo Visual de Productos */}
+        <div className="relative" ref={catalogMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowCatalogMenu((prev) => !prev)}
+            className="px-2 py-0.5 rounded-md font-semibold bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-500/30 flex items-center gap-1 transition shrink-0 cursor-pointer"
+            title="Enviar fotos y precios oficiales de productos en 1 clic"
+          >
+            <Camera className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
+            <span>Catálogo</span>
+            {catalogItems.length > 0 && (
+              <span className="text-[9px] bg-blue-200 dark:bg-blue-900/60 text-[#0052FF] dark:text-[#00D2FF] px-1 rounded-full font-bold">
+                {catalogItems.length}
+              </span>
+            )}
+          </button>
+
+          {showCatalogMenu && (
+            <div className="absolute left-0 bottom-full mb-2 z-50 w-80 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl shadow-xl p-2.5 space-y-2 animate-in fade-in zoom-in-95">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-[#1E2433] px-1">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <Camera className="w-3 h-3 text-[#0052FF]" /> Catálogo Visual
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowCatalogMenu(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* Filtro de búsqueda rápida en el popover */}
+              <input
+                type="text"
+                placeholder="Buscar por nombre, tag o modelo..."
+                value={catalogSearch}
+                onChange={(e) => setCatalogSearch(e.target.value)}
+                className="w-full text-xs px-2.5 py-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                autoFocus
+              />
+
+              {catalogItems.length === 0 ? (
+                <div className="p-3 text-center text-[11px] text-slate-500 dark:text-slate-400">
+                  <p>No hay fotos vinculadas en el catálogo.</p>
+                  <Link
+                    href="/settings"
+                    className="text-[#0052FF] dark:text-[#00D2FF] font-semibold hover:underline block mt-1"
+                  >
+                    Vincular fotos en Ajustes →
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                  {catalogItems
+                    .filter((item) => {
+                      if (!catalogSearch.trim()) return true;
+                      const q = catalogSearch.toLowerCase();
+                      return (
+                        item.name.toLowerCase().includes(q) ||
+                        item.price?.toLowerCase().includes(q) ||
+                        item.keywords?.some((k) => k.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50/50 dark:bg-[#090A0F]/50 flex items-center gap-2 transition"
+                      >
+                        <img
+                          src={item.url}
+                          alt={item.name}
+                          className="w-11 h-11 rounded-md object-cover shrink-0 border border-slate-200 dark:border-[#232A3B]"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title={item.name}>
+                              {item.name}
+                            </span>
+                            {item.isHero && (
+                              <span className="text-[9px] bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 px-1 rounded font-bold shrink-0">
+                                ⭐
+                              </span>
+                            )}
+                          </div>
+                          {item.price && (
+                            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 block">
+                              {item.price}
+                            </span>
+                          )}
+                          {item.keywords && item.keywords.length > 0 && (
+                            <p className="text-[9px] text-slate-400 truncate">
+                              {item.keywords.slice(0, 2).map((k) => `#${k}`).join(' ')}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSendCatalogItem(item)}
+                          disabled={Boolean(isSendingCatalogPhoto)}
+                          className="px-2 py-1 rounded-md bg-[#0052FF] hover:bg-[#0047E0] text-white text-[11px] font-bold shrink-0 transition cursor-pointer disabled:opacity-50"
+                          title="Enviar esta foto al cliente por WhatsApp"
+                        >
+                          {isSendingCatalogPhoto === item.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            'Enviar'
+                          )}
+                        </button>
+                      </div>
                     ))}
                 </div>
               )}

@@ -12,6 +12,7 @@ import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { formatImageMessageContent, formatVideoMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
+import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
 
 /**
  * 1. GET: Health-check y prueba de conectividad de webhook para Evolution API.
@@ -417,6 +418,20 @@ export async function POST(request: NextRequest) {
     const cName = msgObj.contactMessage?.displayName || msgObj.contactsArrayMessage?.contacts?.[0]?.displayName || 'Contacto';
     rawContent = `👤 [Tarjeta de contacto: ${cName}]`;
   } else if (msgObj.reactionMessage) {
+    const reactionEmoji = msgObj.reactionMessage.text;
+    const targetMsgId = msgObj.reactionMessage.key?.id;
+    if (reactionEmoji && targetMsgId) {
+      await InboundCoreService.processInbound({
+        organization,
+        channel: 'whatsapp_evolution',
+        channelMessageId: messageId,
+        senderId: leadPhone,
+        senderName: messageData.pushName || 'Lead WhatsApp',
+        rawContent: reactionEmoji,
+        reactionEmoji,
+        replyToChannelMessageId: targetMsgId,
+      });
+    }
     return NextResponse.json({ status: 'reaction_acknowledged' }, { status: 200 });
   } else if (msgObj.documentMessage) {
     const fileName = msgObj.documentMessage.fileName || 'Archivo';
@@ -427,338 +442,45 @@ export async function POST(request: NextRequest) {
     rawContent = '[Mensaje no reproducible]';
   }
 
-  const sanitizedContent = sanitizeLeadMessage(rawContent);
-  const leadName = messageData.pushName || 'Lead WhatsApp';
-  const isPaymentReceipt = Boolean(msgObj.imageMessage && isPaymentReceiptHint(msgObj.imageMessage.caption || ''));
+  const leadName = messageData.pushName || "Lead WhatsApp";
+  const isPaymentReceipt = Boolean(msgObj.imageMessage && isPaymentReceiptHint(msgObj.imageMessage.caption || ""));
 
-  // 8. Blindaje de Rentabilidad (Estado de suscripción activo)
-  const isSubscriptionActive =
-    organization.is_active !== false &&
-    (organization.subscription_status === 'active' || organization.subscription_status === 'trialing');
+  const quotedSnippet =
+    msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.conversation ||
+    msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.text ||
+    (msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage ? "Foto" : "") ||
+    (msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage ? "Video" : "");
 
-  // 9. Deduplicación por messageId
-  const { data: existingMessage } = await supabaseAdmin
-    .from('messages')
-    .select('id')
-    .eq('meta_message_id', messageId)
-    .maybeSingle();
+  const replyToId = msgObj.extendedTextMessage?.contextInfo?.stanzaId || null;
 
-  if (existingMessage) {
-    return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
-  }
-
-  // 10. Upsert del Contacto
-  let contactId: string;
-  let isAiActive = true;
-
-  const { data: existingContact } = await supabaseAdmin
-    .from('contacts')
-    .select('id, name, is_ai_active, custom_fields')
-    .eq('organization_id', orgId)
-    .or(`phone.eq.${leadPhone},phone.eq.+${leadPhone}`)
-    .maybeSingle();
-
-  if (existingContact) {
-    contactId = existingContact.id;
-    isAiActive = existingContact.is_ai_active;
-
-    const contactUpdate: any = {
-      last_interaction_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      custom_fields: {
-        ...((existingContact.custom_fields as Record<string, any>) || {}),
-        remote_jid: remoteJid,
-      },
-    };
-    if (leadName && leadName !== 'Lead WhatsApp') {
-      contactUpdate.name = leadName;
-    }
-    if (isPaymentReceipt) {
-      contactUpdate.is_ai_active = false;
-      isAiActive = false;
-    }
-
-    await supabaseAdmin
-      .from('contacts')
-      .update(contactUpdate)
-      .eq('id', contactId);
-  } else {
-    const bestAgentId = await AssignmentService.findBestAvailableAgent(orgId);
-
-    const { data: newContact, error: createError } = await (supabaseAdmin.from('contacts') as any)
-      .insert({
-        organization_id: orgId,
-        phone: leadPhone,
-        name: leadName,
-        pipeline_stage: 'nuevo',
-        is_ai_active: !isPaymentReceipt,
-        channel: 'whatsapp',
-        assigned_to: bestAgentId || null,
-        custom_fields: { remote_jid: remoteJid },
-        last_interaction_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select('id, is_ai_active, assigned_to')
-      .single();
-
-    if (createError || !newContact) {
-      throw new Error(`Error creando nuevo contacto: ${createError?.message}`);
-    }
-    contactId = newContact.id;
-    isAiActive = newContact.is_ai_active;
-
-    if (bestAgentId) {
-      const { data: assignedAgent } = await (supabaseAdmin.from('profiles') as any)
-        .select('full_name')
-        .eq('id', bestAgentId)
-        .single();
-
-      await (supabaseAdmin.from('messages') as any).insert({
-        contact_id: contactId,
-        sender_type: 'system',
-        content: `[Sistema: Lead asignado automáticamente a ${assignedAgent?.full_name || 'Agente'}]`,
-        channel: 'whatsapp',
-      });
-    }
-  }
-
-  // 11. Persistir el Mensaje Entrante
-  const { data: insertedMsg, error: insertMsgError } = await supabaseAdmin
-    .from('messages')
-    .insert({
-      contact_id: contactId,
-      sender_type: 'lead',
-      content: sanitizedContent,
-      meta_message_id: messageId,
-      channel: 'whatsapp',
-    })
-    .select('id, created_at')
-    .single();
-
-  if (insertMsgError) {
-    if ((insertMsgError as any).code === '23505') {
-      return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
-    }
-    console.warn('[EVOLUTION WEBHOOK INSERT MSG ERROR]', insertMsgError);
-  }
-
-  // Actualizar unread_count, last_message y verificar auto-reanudación de IA (Snooze)
-  const currentCustom = ((existingContact as any)?.custom_fields as Record<string, any>) || {};
-  const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
-  const lastMsgPayload = {
-    text: sanitizedContent,
-    sender_type: 'lead',
-    created_at: new Date().toISOString(),
+  const inboundPayload: InboundPayload = {
+    organization,
+    channel: "whatsapp_evolution",
+    channelMessageId: messageId,
+    senderId: leadPhone,
+    senderName: leadName,
+    rawContent,
+    replyToChannelMessageId: replyToId,
+    quotedTextSnippet: quotedSnippet || null,
+    isPaymentReceipt,
   };
 
-  const aiSnoozeUntil = (existingContact as any)?.ai_snooze_until || currentCustom.ai_snooze_until;
-  let effectiveAiActive = isAiActive;
-  let clearSnooze = false;
-  if (aiSnoozeUntil) {
-    if (new Date(aiSnoozeUntil).getTime() <= Date.now()) {
-      effectiveAiActive = true;
-      clearSnooze = true;
-    } else {
-      effectiveAiActive = false;
-    }
+  const result = await InboundCoreService.processInbound(inboundPayload);
+
+  if (result.status === "duplicate_ignored") {
+    return NextResponse.json({ status: "duplicate_message_ignored" }, { status: 200 });
   }
 
-  await (supabaseAdmin.from('contacts') as any)
-    .update({
-      unread_count: unreadCount,
-      last_message: lastMsgPayload,
-      is_ai_active: effectiveAiActive,
-      ai_snooze_until: clearSnooze ? null : ((existingContact as any)?.ai_snooze_until || null),
-      custom_fields: {
-        ...currentCustom,
-        unread_count: unreadCount,
-        last_message: lastMsgPayload,
-        ai_snooze_until: clearSnooze ? null : currentCustom.ai_snooze_until,
-      },
-      last_interaction_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', contactId);
-
-  isAiActive = effectiveAiActive;
-
-  if (isPaymentReceipt) {
-    await supabaseAdmin.from('messages').insert({
-      contact_id: contactId,
-      sender_type: 'system',
-      content: '[🚨 Comprobante de pago recibido en imagen: Asesor humano requerido para verificar extracto bancario. IA pausada.]',
-      channel: 'whatsapp',
-    });
-  }
-
-  // 12. Procesamiento Asíncrono de IA con waitUntil
-  if (isSubscriptionActive && isAiActive && !isRateLimited) {
+  // Ejecución asíncrona de IA en segundo plano
+  if (result.status === "success" && result.contactId && result.messageId && !isRateLimited) {
     waitUntil(
-      (async () => {
-        try {
-          // Anti-Burst Buffer (Debounce de 3.5 segundos para agrupar mensajes continuos)
-          await new Promise((resolve) => setTimeout(resolve, 3500));
-
-          if (insertedMsg?.id) {
-            const { data: latestMsg } = await supabaseAdmin
-              .from('messages')
-              .select('id')
-              .eq('contact_id', contactId)
-              .eq('sender_type', 'lead')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (latestMsg && latestMsg.id !== insertedMsg.id) {
-              console.log(`[EVOLUTION DEBOUNCE] Mensaje ${messageId} omitido; worker posterior atenderá la ráfaga.`);
-              return;
-            }
-          }
-
-          // Detección Determinística de Confirmación de Cita
-          const isConfirmButton = rawContent.includes('btn_confirm_appt') || rawContent.includes('Confirmar Cita');
-          const normalizedContent = sanitizedContent.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const confirmationPattern =
-            /\b(si|confirmo|confirmado|confirmada|confirmar|alla\s+(estoy|nos\s+vemos|estare)|asistire|listo\s+confirmo)\b/i;
-          const negationOrChangePattern =
-            /\b(pero|cambiar|cambio|cancelar|cancela|otra fecha|otro dia|otra hora|no puedo|no voy|no llego|reprogramar|posponer)\b/i;
-          const hasNegationOrChange = negationOrChangePattern.test(normalizedContent);
-          const isConfirmationText = confirmationPattern.test(normalizedContent) && !hasNegationOrChange;
-
-          if (isConfirmButton || isConfirmationText) {
-            const nowIso = new Date().toISOString();
-            const { data: pendingAppt } = await (supabaseAdmin.from('appointments') as any)
-              .select('id, service_name, start_time, specialist_id, confirmation_status')
-              .eq('contact_id', contactId)
-              .eq('organization_id', orgId)
-              .eq('status', 'confirmed')
-              .eq('confirmation_status', 'unconfirmed')
-              .gte('start_time', nowIso)
-              .order('start_time', { ascending: true })
-              .limit(1)
-              .maybeSingle();
-
-            if (pendingAppt) {
-              await (supabaseAdmin.from('appointments') as any)
-                .update({
-                  confirmation_status: 'confirmed',
-                  confirmed_at: nowIso,
-                  updated_at: nowIso,
-                })
-                .eq('id', pendingAppt.id);
-
-              const dateFormatted = new Date(pendingAppt.start_time).toLocaleTimeString('es-CO', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true,
-              });
-
-              const confirmText = `¡Excelente! Tu cita para ${pendingAppt.service_name} a las ${dateFormatted} ha quedado formalmente confirmada. ¡Te esperamos puntualmente! ✨`;
-
-              const outboundId = await MessagingService.sendTextMessage({
-                organization,
-                to: targetRecipient || leadPhone,
-                body: confirmText,
-                simulateTyping: true,
-              });
-
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                sender_type: 'ai',
-                content: confirmText,
-                meta_message_id: outboundId,
-                channel: 'whatsapp',
-              });
-              return;
-            }
-          }
-
-          // Calcular si está fuera de horario laboral (hora Colombia)
-          let isAfterHours = false;
-          const bHours = organization.business_hours as any;
-          if (bHours?.enabled) {
-            try {
-              const nowBogota = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
-              const currentHourMin = `${String(nowBogota.getHours()).padStart(2, '0')}:${String(nowBogota.getMinutes()).padStart(2, '0')}`;
-              const currentDay = nowBogota.getDay() === 0 ? 7 : nowBogota.getDay();
-              const dayAllowed = Array.isArray(bHours.days) ? bHours.days.includes(currentDay) : true;
-              const timeAllowed =
-                currentHourMin >= (bHours.start || '00:00') && currentHourMin <= (bHours.end || '23:59');
-              isAfterHours = !dayAllowed || !timeAllowed;
-            } catch {}
-          }
-
-          // Procesar con motor de IA dual (Gemini Flash / OpenAI Backup)
-          const aiResponseText = await OpenAIService.processLeadMessage({
-            contactId,
-            organizationId: orgId,
-            leadPhone,
-            leadName,
-            systemPromptConfig: organization.system_prompt,
-            handoffMode: organization.handoff_mode || 'message',
-            afterHoursMessage: organization.after_hours_message || null,
-            isAfterHours,
-            businessHours: organization.business_hours || null,
-            aiProvider: organization.ai_provider || null,
-            enabledModules: organization.enabled_modules || null,
-            timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
-          });
-
-          // Re-verificar si un asesor humano intervino o pausó la IA durante la inferencia
-          const { data: latestContactState } = await supabaseAdmin
-            .from('contacts')
-            .select('is_ai_active')
-            .eq('id', contactId)
-            .single();
-
-          if (latestContactState && !latestContactState.is_ai_active) {
-            console.log(`[EVOLUTION AI ABORT] Asesor tomó el chat con ${leadPhone} durante inferencia. Respuesta cancelada.`);
-            return;
-          }
-
-          if (aiResponseText && aiResponseText.trim() !== '') {
-            try {
-              const outboundId = await MessagingService.sendTextMessage({
-                organization,
-                to: targetRecipient || leadPhone,
-                body: aiResponseText,
-                simulateTyping: true,
-              });
-
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                sender_type: 'ai',
-                content: aiResponseText,
-                meta_message_id: outboundId,
-                channel: 'whatsapp',
-                status: 'sent',
-              });
-
-              const aiLastMsg = {
-                text: aiResponseText,
-                sender_type: 'ai',
-                created_at: new Date().toISOString(),
-              };
-              await (supabaseAdmin.from('contacts') as any)
-                .update({
-                  last_message: aiLastMsg,
-                  custom_fields: {
-                    ...currentCustom,
-                    last_message: aiLastMsg,
-                  },
-                })
-                .eq('id', contactId);
-            } catch (sendErr: any) {
-              console.error('[EVOLUTION AI REPLY DISPATCH FAILED]', sendErr);
-            }
-          }
-        } catch (workerErr: any) {
-          console.error('[EVOLUTION ASYNC WORKER FAILED]', workerErr);
-        }
-      })()
+      InboundCoreService.runAiWorker({
+        payload: inboundPayload,
+        contactId: result.contactId,
+        insertedMessageId: result.messageId,
+      })
     );
   }
 
-  return NextResponse.json({ status: 'success' }, { status: 200 });
+  return NextResponse.json({ status: "success" }, { status: 200 });
 }
-

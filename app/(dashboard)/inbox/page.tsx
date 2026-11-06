@@ -37,7 +37,7 @@ export default async function InboxPage() {
   let messages: any[] = [];
   if (activeContact) {
     const { data: msgs } = await (supabaseAdmin.from('messages') as any)
-      .select('id, sender_type, content, created_at, status, reply_to_message_id')
+      .select('id, sender_type, content, created_at, status, reply_to_message_id, reactions')
       .eq('contact_id', activeContact.id)
       .order('created_at', { ascending: false })
       .limit(50);

@@ -62,6 +62,7 @@ interface MessageItem {
   created_at: string;
   status?: string | null;
   reply_to_message_id?: string | null;
+  reactions?: any;
 }
 
 interface TeamMember {
@@ -1233,6 +1234,8 @@ export function ChatWindow({
                     senderType={msg.sender_type}
                     createdAt={msg.created_at}
                     status={msg.status}
+                    replyToMessageId={msg.reply_to_message_id}
+                    reactions={msg.reactions}
                     onReply={(target) => setReplyingToMessage(target)}
                   />
                 ))}

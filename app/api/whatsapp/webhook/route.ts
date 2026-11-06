@@ -11,6 +11,7 @@ import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { formatImageMessageContent, formatVideoMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
+import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
 
 /**
  * 1. GET: Handshake de verificación inicial de Meta WhatsApp Webhook.
@@ -91,12 +92,7 @@ export async function POST(request: NextRequest) {
 
   // C. Filtrar tipos de mensajes
   const msgType = incomingMessage.type;
-  // Descartar reacciones silenciosamente (no requieren procesamiento ni IA)
-  if (msgType === 'reaction') {
-    return NextResponse.json({ status: 'reaction_acknowledged' }, { status: 200 });
-  }
-
-  const supportedTypes = ['text', 'audio', 'button', 'interactive', 'image', 'document', 'location', 'video', 'sticker', 'contacts'];
+  const supportedTypes = ['text', 'audio', 'button', 'interactive', 'image', 'document', 'location', 'video', 'sticker', 'contacts', 'reaction'];
   if (!supportedTypes.includes(msgType)) {
     return NextResponse.json({ status: 'unsupported_message_type_ignored' }, { status: 200 });
   }
@@ -157,6 +153,24 @@ export async function POST(request: NextRequest) {
     }
 
     const orgId = organization.id;
+
+    if (msgType === 'reaction') {
+      const reactionEmoji = incomingMessage.reaction?.emoji;
+      const targetMsgId = incomingMessage.reaction?.message_id;
+      if (reactionEmoji && targetMsgId) {
+        await InboundCoreService.processInbound({
+          organization,
+          channel: 'whatsapp_meta',
+          channelMessageId: metaMessageId,
+          senderId: leadPhone,
+          senderName: leadName,
+          rawContent: reactionEmoji,
+          reactionEmoji,
+          replyToChannelMessageId: targetMsgId,
+        });
+      }
+      return NextResponse.json({ status: 'reaction_acknowledged' }, { status: 200 });
+    }
 
     // F2. Procesar contenido del mensaje: Texto, Botones, Interactivo, Multimedia o Notas de Voz
     let rawContent = '';
@@ -257,145 +271,24 @@ export async function POST(request: NextRequest) {
       rawContent = `👤 [Tarjeta de contacto: ${cName}${cPhone ? ` (${cPhone})` : ''}]`;
     }
 
-    const sanitizedContent = sanitizeLeadMessage(rawContent);
     const isPaymentReceipt = msgType === 'image' && isPaymentReceiptHint(incomingMessage.image?.caption || '');
 
-    // G. Parche 1: Blindaje de Rentabilidad (Esquema de Suscripción & Estado Activo)
-    const isSubscriptionActive =
-      organization.is_active !== false &&
-      (organization.subscription_status === 'active' || organization.subscription_status === 'trialing');
-
-    // H. Deduplicación de Mensaje (Evitar reprocesar el mismo meta_message_id)
-    const { data: existingMessage } = await supabaseAdmin
-      .from('messages')
-      .select('id')
-      .eq('meta_message_id', metaMessageId)
-      .single();
-
-    if (existingMessage) {
-      return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
-    }
-
-    // I. Upsert del Contacto
-    let contactId: string;
-    let isAiActive = true;
-
-    const { data: existingContact } = await supabaseAdmin
-      .from('contacts')
-      .select('id, is_ai_active, custom_fields, unread_count, ai_snooze_until')
-      .eq('organization_id', orgId)
-      .eq('phone', leadPhone)
-      .single();
-
-    if (existingContact) {
-      contactId = existingContact.id;
-      isAiActive = isPaymentReceipt ? false : existingContact.is_ai_active;
-
-      // Actualizar timestamp de última interacción y nombre si viene provisto
-      await supabaseAdmin
-        .from('contacts')
-        .update({
-          last_interaction_at: new Date().toISOString(),
-          name: leadName,
-          ...(isPaymentReceipt ? { is_ai_active: false } : {}),
-        })
-        .eq('id', contactId);
-    } else {
-      // Asignación automática por disponibilidad (Load Balancing) con fallback a cola del Admin
-      const bestAgentId = await AssignmentService.findBestAvailableAgent(orgId);
-
-      const { data: newContact, error: createError } = await (supabaseAdmin.from('contacts') as any)
-        .insert({
-          organization_id: orgId,
-          phone: leadPhone,
-          name: leadName,
-          pipeline_stage: 'nuevo',
-          is_ai_active: !isPaymentReceipt,
-          assigned_to: bestAgentId || null,
-          last_interaction_at: new Date().toISOString(),
-        })
-        .select('id, is_ai_active, assigned_to')
-        .single();
-
-      if (createError || !newContact) {
-        throw new Error(`Error creando nuevo contacto: ${createError?.message}`);
-      }
-      contactId = newContact.id;
-      isAiActive = newContact.is_ai_active;
-
-      // Si se asignó a un agente disponible, registrar auditoría interna
-      if (bestAgentId) {
-        const { data: assignedAgent } = await (supabaseAdmin.from('profiles') as any)
-          .select('full_name')
-          .eq('id', bestAgentId)
-          .single();
-
-        await (supabaseAdmin.from('messages') as any).insert({
-          contact_id: contactId,
-          sender_type: 'system',
-          content: `[Sistema: Lead asignado automáticamente a ${assignedAgent?.full_name || 'Agente'}]`,
-        });
-      }
-    }
-
-    // J. Persistir el Mensaje Entrante en Supabase de Inmediato
-    const { data: insertedMsg, error: insertMsgError } = await supabaseAdmin
-      .from('messages')
-      .insert({
-        contact_id: contactId,
-        sender_type: 'lead',
-        content: sanitizedContent,
-        meta_message_id: metaMessageId,
-      })
-      .select('id, created_at')
-      .single();
-
-    if (insertMsgError) {
-      if ((insertMsgError as any).code === '23505') {
-        return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
-      }
-      console.warn('[WHATSAPP WEBHOOK INSERT MSG ERROR]', insertMsgError);
-    }
-
-    // Actualizar unread_count, last_message y verificar auto-reanudación de IA (Snooze)
-    const currentCustom = ((existingContact as any)?.custom_fields as Record<string, any>) || {};
-    const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
-    const lastMsgPayload = {
-      text: sanitizedContent,
-      sender_type: 'lead',
-      created_at: new Date().toISOString(),
+    const inboundPayload: InboundPayload = {
+      organization,
+      channel: 'whatsapp_meta',
+      channelMessageId: metaMessageId,
+      senderId: leadPhone,
+      senderName: leadName,
+      rawContent,
+      replyToChannelMessageId: incomingMessage.context?.id || null,
+      isPaymentReceipt,
     };
 
-    const aiSnoozeUntil = (existingContact as any)?.ai_snooze_until || currentCustom.ai_snooze_until;
-    let effectiveAiActive = isAiActive;
-    let clearSnooze = false;
-    if (aiSnoozeUntil) {
-      if (new Date(aiSnoozeUntil).getTime() <= Date.now()) {
-        effectiveAiActive = true;
-        clearSnooze = true;
-      } else {
-        effectiveAiActive = false;
-      }
+    const result = await InboundCoreService.processInbound(inboundPayload);
+
+    if (result.status === 'duplicate_ignored') {
+      return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
     }
-
-    await (supabaseAdmin.from('contacts') as any)
-      .update({
-        unread_count: unreadCount,
-        last_message: lastMsgPayload,
-        is_ai_active: effectiveAiActive,
-        ai_snooze_until: clearSnooze ? null : ((existingContact as any)?.ai_snooze_until || null),
-        custom_fields: {
-          ...currentCustom,
-          unread_count: unreadCount,
-          last_message: lastMsgPayload,
-          ai_snooze_until: clearSnooze ? null : currentCustom.ai_snooze_until,
-        },
-        last_interaction_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', contactId);
-
-    isAiActive = effectiveAiActive;
 
     // Persistir mensajes adicionales si Meta los envió en el mismo webhook
     if (value.messages && value.messages.length > 1) {
@@ -412,285 +305,41 @@ export async function POST(request: NextRequest) {
           else extraContent = `[Mensaje ${extraMsg.type}]`;
 
           if (extraContent.trim()) {
-            try {
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                sender_type: 'lead',
-                content: sanitizeLeadMessage(extraContent),
-                meta_message_id: extraMsg.id,
-              });
-            } catch {}
+            await InboundCoreService.processInbound({
+              organization,
+              channel: 'whatsapp_meta',
+              channelMessageId: extraMsg.id,
+              senderId: leadPhone,
+              senderName: leadName,
+              rawContent: extraContent,
+            });
           }
         }
       }
     }
 
-    if (isPaymentReceipt) {
-      await supabaseAdmin.from('messages').insert({
-        contact_id: contactId,
-        sender_type: 'system',
-        content: '[🚨 Comprobante de pago recibido en imagen: Asesor humano requerido para verificar extracto bancario. IA pausada.]',
-      });
-    }
+    // Ejecución asíncrona de IA en segundo plano
+    if (result.status === 'success' && result.contactId && result.messageId && !isRateLimited) {
+      // Marcar como leído en WhatsApp oficial (doble tilde azul)
+      try {
+        const decryptedWhatsAppToken = decryptSecret(organization.whatsapp_access_token || '');
+        if (decryptedWhatsAppToken) {
+          WhatsAppService.markAsRead(phoneNumberId, decryptedWhatsAppToken, metaMessageId).catch(() => {});
+        }
+      } catch {}
 
-    // K. Parche 2: Resolución de Timeout con waitUntil (Ejecución Asíncrona en Segundo Plano)
-    if (isSubscriptionActive && isAiActive && !isRateLimited) {
       waitUntil(
-        (async () => {
-          try {
-            // 🛡️ ANTI-BURST BUFFER (Debounce 3.5s):
-            // Si el cliente envía varios mensajes seguidos ("Hola", "¿Cuánto cuesta?", "Para lavar mi auto"),
-            // esperamos 3500ms. Si ingresó un mensaje posterior de este mismo cliente, el worker actual se retira en silencio.
-            // Únicamente el worker del último mensaje procesará la conversación completa en una sola llamada de IA.
-            await new Promise((resolve) => setTimeout(resolve, 3500));
-
-            if (insertedMsg?.id) {
-              const { data: latestMsg } = await supabaseAdmin
-                .from('messages')
-                .select('id')
-                .eq('contact_id', contactId)
-                .eq('sender_type', 'lead')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-              if (latestMsg && latestMsg.id !== insertedMsg.id) {
-                console.log(`[DEBOUNCE] Mensaje ${metaMessageId} omitido; worker posterior procesará la ráfaga.`);
-                return;
-              }
-            }
-
-            const decryptedWhatsAppToken = decryptSecret(organization.whatsapp_access_token || '');
-
-            // 1. Marcar como leído en WhatsApp (doble tilde azul)
-            if (decryptedWhatsAppToken) {
-              await WhatsAppService.markAsRead(phoneNumberId, decryptedWhatsAppToken, metaMessageId);
-            }
-
-            // 🛡️ REGLA OPERATIVA ANTI-NO-SHOW: Detección Determinística de Confirmación de Cita
-            const isConfirmButton = rawContent.includes('btn_confirm_appt') || rawContent.includes('Confirmar Cita');
-            const normalizedContent = sanitizedContent.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            const confirmationPattern = /\b(si|confirmo|confirmado|confirmada|confirmar|alla\s+(estoy|nos\s+vemos|estare)|asistire|listo\s+confirmo)\b/i;
-            const negationOrChangePattern = /\b(pero|cambiar|cambio|cancelar|cancela|otra fecha|otro dia|otra hora|no puedo|no voy|no llego|reprogramar|posponer)\b/i;
-            const hasNegationOrChange = negationOrChangePattern.test(normalizedContent);
-            const isConfirmationText = confirmationPattern.test(normalizedContent) && !hasNegationOrChange;
-
-            if (isConfirmButton || isConfirmationText) {
-              const nowIso = new Date().toISOString();
-              const twoDaysFromNow = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
-
-              const { data: pendingAppt } = await (supabaseAdmin.from('appointments') as any)
-                .select('id, service_name, start_time, specialist_id, confirmation_status')
-                .eq('contact_id', contactId)
-                .eq('organization_id', orgId)
-                .eq('status', 'confirmed')
-                .eq('confirmation_status', 'unconfirmed')
-                .gte('start_time', nowIso)
-                .lte('start_time', twoDaysFromNow)
-                .order('start_time', { ascending: true })
-                .limit(1)
-                .maybeSingle();
-
-              if (pendingAppt) {
-                // Actualizar estado de confirmación a confirmed
-                await (supabaseAdmin.from('appointments') as any)
-                  .update({
-                    confirmation_status: 'confirmed',
-                    updated_at: new Date().toISOString(),
-                  })
-                  .eq('id', pendingAppt.id);
-
-                const startFormatted = new Date(pendingAppt.start_time).toLocaleTimeString('es-CO', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: true,
-                });
-
-                // Notificar en el chat interno al especialista
-                if (pendingAppt.specialist_id) {
-                  try {
-                    await (supabaseAdmin.from('internal_chat_messages') as any).insert({
-                      organization_id: orgId,
-                      specialist_id: pendingAppt.specialist_id,
-                      sender_type: 'admin',
-                      sender_name: 'Sistema Synqo',
-                      content: `✅ Asistencia confirmada: ${leadName} confirmó su cita de las ${startFormatted} (${pendingAppt.service_name}).`,
-                    });
-                  } catch (chatErr) {
-                    console.warn('[WEBHOOK] Error notificando confirmación a colaborador:', chatErr);
-                  }
-                }
-              }
-            }
-
-            // Detección Determinística de Solicitud de Asesor Humano (Cero Fuga)
-            const humanHandoffPatterns = [
-              /\b(asesor|humano|persona\s+real|agente\s+humano|operador)\b/i,
-              /hablar\s+con\s+(un|una|alguien)/i,
-              /atenci[oó]n\s+human[ao]/i,
-              /soporte\s+human[ao]/i,
-              /quiero\s+(un|una)\s+asesor/i,
-              /comunicar(me)?\s+con\s+(un|una)/i,
-              /p[aá]same\s+(con|a)\s+(un|alguien)/i,
-              /necesito\s+(un|una)\s+asesor/i,
-              /necesito\s+hablar\s+con\s+/i,
-            ];
-
-            const isDirectHandoffRequest = humanHandoffPatterns.some((p) => p.test(sanitizedContent));
-
-            let aiResponseText = '';
-
-            if (isDirectHandoffRequest) {
-              // Apagar la IA determinísticamente para activar la campana y notificaciones
-              await supabaseAdmin
-                .from('contacts')
-                .update({
-                  is_ai_active: false,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', contactId);
-
-              // Registrar nota interna en el CRM para el asesor
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                sender_type: 'system',
-                content: '[🚨 Relevo: Cliente solicita atención personalizada]',
-              });
-
-              if (organization.handoff_mode !== 'silent') {
-                aiResponseText =
-                  '¡Claro que sí! Con gusto te comunico con uno de nuestros asesores para que te atienda personalmente. Ya mismo le paso tu conversación.';
-              } else {
-                // Silencio total: el humano atiende directamente sin mensaje artificial
-                aiResponseText = '';
-              }
-            } else {
-              // Calcular si está fuera de horario laboral (hora Colombia)
-              let isAfterHours = false;
-              const bHours = organization.business_hours as any;
-              if (bHours?.enabled) {
-                try {
-                  const nowBogota = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
-                  const currentHourMin = `${String(nowBogota.getHours()).padStart(2, '0')}:${String(nowBogota.getMinutes()).padStart(2, '0')}`;
-                  const currentDay = nowBogota.getDay() === 0 ? 7 : nowBogota.getDay();
-                  const dayAllowed = Array.isArray(bHours.days) ? bHours.days.includes(currentDay) : true;
-                  const timeAllowed = currentHourMin >= (bHours.start || '00:00') && currentHourMin <= (bHours.end || '23:59');
-                  isAfterHours = !dayAllowed || !timeAllowed;
-                } catch {}
-              }
-
-              // 2. Procesar con OpenAI y herramientas (Agenda Nativa + Pipeline Stage)
-              aiResponseText = await OpenAIService.processLeadMessage({
-                contactId,
-                organizationId: orgId,
-                leadPhone,
-                leadName,
-                systemPromptConfig: organization.system_prompt,
-                handoffMode: organization.handoff_mode || 'message',
-                afterHoursMessage: organization.after_hours_message || null,
-                isAfterHours,
-                businessHours: organization.business_hours || null,
-                aiProvider: organization.ai_provider || null,
-                enabledModules: organization.enabled_modules || null,
-                timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
-              });
-            }
-
-            // 2.5 Re-verificar si un asesor humano intervino o pausó la IA durante la inferencia
-            const { data: latestContactState } = await supabaseAdmin
-              .from('contacts')
-              .select('is_ai_active')
-              .eq('id', contactId)
-              .single();
-
-            if (latestContactState && !latestContactState.is_ai_active) {
-              console.log(`[AI ABORT] Asesor tomó el chat con ${leadPhone} durante inferencia. Respuesta cancelada.`);
-              return;
-            }
-
-            // 3. Enviar respuesta por WhatsApp (solo si hay texto para enviar; el relevo silencioso no manda nada)
-            if (decryptedWhatsAppToken && aiResponseText && aiResponseText.trim() !== '') {
-              try {
-                const outboundMetaId = await WhatsAppService.sendTextMessage({
-                  phoneNumberId,
-                  accessToken: decryptedWhatsAppToken,
-                  to: leadPhone,
-                  body: aiResponseText,
-                });
-
-                // 4. Guardar la respuesta de la IA en la base de datos
-                await supabaseAdmin.from('messages').insert({
-                  contact_id: contactId,
-                  sender_type: 'ai',
-                  content: aiResponseText,
-                  meta_message_id: outboundMetaId || null,
-                  status: 'sent',
-                });
-
-                const aiLastMsg = {
-                  text: aiResponseText,
-                  sender_type: 'ai',
-                  created_at: new Date().toISOString(),
-                };
-                await (supabaseAdmin.from('contacts') as any)
-                  .update({
-                    last_message: aiLastMsg,
-                    custom_fields: {
-                      ...currentCustom,
-                      last_message: aiLastMsg,
-                    },
-                  })
-                  .eq('id', contactId);
-              } catch (sendError: any) {
-                console.error('[WHATSAPP OUTBOUND SEND ERROR]', sendError);
-                const errMessage = sendError?.message || '';
-                if (errMessage.includes('190') || errMessage.includes('expired') || errMessage.includes('OAuthException')) {
-                  await supabaseAdmin.from('messages').insert({
-                    contact_id: contactId,
-                    sender_type: 'system',
-                    content: '⚠️ No se pudo enviar la respuesta de la IA porque el token de WhatsApp de Meta expiró. Reconecta la cuenta en Configuración.',
-                  });
-
-                  // 🛡️ ALERTA INMEDIATA AL ADMINISTRADOR (Resend)
-                  try {
-                    const { data: adminProfile } = await (supabaseAdmin.from('profiles') as any)
-                      .select('email')
-                      .eq('organization_id', orgId)
-                      .eq('role', 'admin')
-                      .maybeSingle();
-
-                    if (adminProfile?.email) {
-                      NotificationService.sendChannelDisconnectedAlert({
-                        adminEmail: adminProfile.email,
-                        companyName: organization.name || 'Empresa Synqo',
-                        provider: 'meta',
-                        reason: 'El token de Meta WhatsApp Cloud API expiró o fue revocado (Error 190 OAuthException).',
-                      }).catch((e) => console.warn('[META DISCONNECT RESEND WARN]', e));
-                    }
-                  } catch (alertErr) {
-                    console.warn('[META DISCONNECT ALERT WARN]', alertErr);
-                  }
-                }
-              }
-            }
-          } catch (asyncErr) {
-            console.error('[ASYNC AI WORKER ERROR]', asyncErr);
-          }
-        })()
+        InboundCoreService.runAiWorker({
+          payload: inboundPayload,
+          contactId: result.contactId,
+          insertedMessageId: result.messageId,
+        })
       );
-    } else if (!isSubscriptionActive) {
-      console.warn(
-        `[BILLING SUSPENDED] Organización ${orgId} tiene estado de suscripción: ${organization.subscription_status}. OpenAI no se ejecutará.`
-      );
-    } else {
-      console.log(`[AI SILENCED] El lead ${leadPhone} está bajo atención humana. No se genera respuesta IA.`);
     }
 
-    // L. Responder a Meta INMEDIATAMENTE (< 500 ms) para prevenir reintentos duplicados
     return NextResponse.json({ status: 'success' }, { status: 200 });
   } catch (error: any) {
     console.error('[WEBHOOK ROUTE ERROR]', error);
     return NextResponse.json({ error: error?.message || 'Internal processing error' }, { status: 500 });
   }
 }
-

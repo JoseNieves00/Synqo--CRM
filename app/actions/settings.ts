@@ -6,6 +6,7 @@ import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
 import { Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { WhatsAppService } from '@/services/whatsapp.service';
+import { GalleryPhotoItem } from '@/lib/media/format';
 
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
@@ -107,7 +108,7 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
  * de manera atómica e instantánea sin forzar recarga de página (zero flicker).
  */
 export async function saveProductGallery(
-  gallery: Array<{ id: string; name: string; url: string }>,
+  gallery: GalleryPhotoItem[],
   compiledPrompt: string
 ) {
   const supabase = createServerSupabaseClient();
@@ -149,6 +150,34 @@ export async function saveProductGallery(
   }
 
   return { success: true };
+}
+
+/**
+ * Obtiene el catálogo visual de fotos de la organización para el selector rápido de asesores humanos.
+ */
+export async function getOrganizationCatalogGallery(): Promise<GalleryPhotoItem[]> {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.organization_id) return [];
+
+    const { data: org } = await (supabaseAdmin.from('organizations') as any)
+      .select('structured_prompt_data')
+      .eq('id', profile.organization_id)
+      .single();
+
+    return (org?.structured_prompt_data?.gallery as GalleryPhotoItem[]) || [];
+  } catch (err) {
+    console.warn('[GET CATALOG GALLERY ERROR]', err);
+    return [];
+  }
 }
 
 /**

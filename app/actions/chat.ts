@@ -689,7 +689,7 @@ export async function getContactMessages(contactId: string, beforeCreatedAt?: st
   if (!orgId) throw new Error('Organización no encontrada');
 
   let query = (supabaseAdmin.from('messages') as any)
-    .select('id, sender_type, content, created_at, status, reply_to_message_id')
+    .select('id, sender_type, content, created_at, status, reply_to_message_id, reactions')
     .eq('contact_id', contactId);
 
   if (beforeCreatedAt) {
@@ -915,6 +915,80 @@ export async function endContactConversation(
 }
 
 /**
+ * Carga el siguiente lote de contactos ordenados por updated_at DESC (Paginación escalable del Inbox).
+ */
+export async function loadMoreContacts({ offset, limit = 30 }: { offset: number; limit?: number }) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const safeLimit = Math.min(Math.max(1, limit), 50);
+  const safeOffset = Math.max(0, offset);
+
+  const { data: contacts, error, count } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until', { count: 'exact' })
+    .eq('organization_id', orgId)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .range(safeOffset, safeOffset + safeLimit - 1);
+
+  if (error) {
+    console.error('[LOAD MORE CONTACTS ERROR]', error);
+    throw new Error('Error al cargar más contactos');
+  }
+
+  return { contacts: contacts || [], totalCount: count ?? null };
+}
+
+/**
+ * Búsqueda global de contactos en el servidor (Postgres ILIKE por nombre o teléfono).
+ * Permite encontrar cualquier contacto de la organización sin importar si está cargado en el DOM o memoria.
+ */
+export async function searchContactsGlobal(query: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const cleanQuery = query.trim();
+  if (!cleanQuery) return { contacts: [] };
+
+  const sanitized = cleanQuery.replace(/[%_]/g, '');
+  if (!sanitized) return { contacts: [] };
+
+  const { data: contacts, error } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
+    .eq('organization_id', orgId)
+    .is('deleted_at', null)
+    .or(`name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,instagram_username.ilike.%${sanitized}%`)
+    .order('updated_at', { ascending: false })
+    .limit(30);
+
+  if (error) {
+    console.error('[SEARCH CONTACTS GLOBAL ERROR]', error);
+    throw new Error('Error al buscar contactos');
+  }
+
+  return { contacts: contacts || [] };
+}
+
+
+/**
  * Genera o actualiza el resumen ejecutivo del chat con IA (3 puntos clave).
  * Se persiste en contacts.custom_fields.ai_summary para consulta instantánea.
  */
@@ -1009,4 +1083,5 @@ export async function markContactReactivationDismissed(contactId: string) {
   revalidatePath(`/inbox/${contactId}`);
   return { success: true };
 }
+
 

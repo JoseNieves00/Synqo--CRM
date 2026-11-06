@@ -24,11 +24,16 @@ import {
   X,
   Upload,
   Pencil,
+  Tag,
+  DollarSign,
+  Star,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { saveProductGallery } from '@/app/actions/settings';
+import { suggestProductCatalogAi } from '@/app/actions/ai-catalog';
+import { compressImageClient } from '@/lib/media/client-compression';
 
 interface StructuredPromptWizardProps {
   initialPrompt?: string | null;
@@ -78,6 +83,11 @@ export function StructuredPromptWizard({
   // Modal para agregar nueva foto al catálogo interno
   const [isAddPhotoModalOpen, setIsAddPhotoModalOpen] = useState(false);
   const [photoName, setPhotoName] = useState('');
+  const [photoPrice, setPhotoPrice] = useState('');
+  const [photoKeywords, setPhotoKeywords] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState('');
+  const [isHero, setIsHero] = useState(false);
+  const [isGeneratingAiTags, setIsGeneratingAiTags] = useState(false);
   const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -87,9 +97,14 @@ export function StructuredPromptWizard({
   const modalFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Modal para editar nombre de foto existente en el catálogo
+  // Modal para editar foto existente en el catálogo
   const [editingPhoto, setEditingPhoto] = useState<GalleryPhotoItem | null>(null);
   const [editPhotoName, setEditPhotoName] = useState('');
+  const [editPhotoPrice, setEditPhotoPrice] = useState('');
+  const [editPhotoKeywords, setEditPhotoKeywords] = useState<string[]>([]);
+  const [editKeywordInput, setEditKeywordInput] = useState('');
+  const [editIsHero, setEditIsHero] = useState(false);
+  const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -99,8 +114,15 @@ export function StructuredPromptWizard({
     let compiled = clean;
     if (currentGallery.length > 0) {
       const galleryBlock =
-        '\n\n=== CATÁLOGO VISUAL DE FOTOS (DISPATCH INTERNO) ===\n' +
-        currentGallery.map((g) => `- ${g.name}: ${g.url}`).join('\n');
+        '\n\n=== CATÁLOGO VISUAL DE PRODUCTOS (DISPATCH INTERNO) ===\n' +
+        currentGallery
+          .map((g) => {
+            const tags = g.keywords && g.keywords.length > 0 ? ` (Búsqueda/Sinónimos: ${g.keywords.join(', ')})` : '';
+            const priceStr = g.price ? ` - Precio: ${g.price}` : '';
+            const heroStr = g.isHero ? ' [Modelo Principal/Estrella]' : '';
+            return `- ${g.name}${priceStr}${heroStr}${tags}: [foto: ${g.url}] (Despachar con send_whatsapp_image cuando el cliente pregunte por este modelo; PROHIBIDO colocar la URL en el texto)`;
+          })
+          .join('\n');
       compiled += galleryBlock;
     }
 
@@ -120,6 +142,10 @@ export function StructuredPromptWizard({
 
   const handleOpenAddModal = () => {
     setPhotoName('');
+    setPhotoPrice('');
+    setPhotoKeywords([]);
+    setKeywordInput('');
+    setIsHero(false);
     setSelectedPhotoFile(null);
     setPhotoPreviewUrl(null);
     setPhotoUploadError(null);
@@ -134,6 +160,10 @@ export function StructuredPromptWizard({
     setSelectedPhotoFile(null);
     setPhotoPreviewUrl(null);
     setPhotoName('');
+    setPhotoPrice('');
+    setPhotoKeywords([]);
+    setKeywordInput('');
+    setIsHero(false);
     setPhotoUploadError(null);
   };
 
@@ -149,12 +179,20 @@ export function StructuredPromptWizard({
   const handleOpenEditModal = (item: GalleryPhotoItem) => {
     setEditingPhoto(item);
     setEditPhotoName(item.name);
+    setEditPhotoPrice(item.price || '');
+    setEditPhotoKeywords(item.keywords || []);
+    setEditKeywordInput('');
+    setEditIsHero(Boolean(item.isHero));
     setEditError(null);
   };
 
   const handleCloseEditModal = () => {
     setEditingPhoto(null);
     setEditPhotoName('');
+    setEditPhotoPrice('');
+    setEditPhotoKeywords([]);
+    setEditKeywordInput('');
+    setEditIsHero(false);
     setEditError(null);
     setIsSavingEdit(false);
   };
@@ -172,7 +210,15 @@ export function StructuredPromptWizard({
     setEditError(null);
     try {
       const updatedGallery = gallery.map((item) =>
-        item.id === editingPhoto.id ? { ...item, name: editPhotoName.trim() } : item
+        item.id === editingPhoto.id
+          ? {
+              ...item,
+              name: editPhotoName.trim(),
+              price: editPhotoPrice.trim() || undefined,
+              keywords: editPhotoKeywords.length > 0 ? editPhotoKeywords : undefined,
+              isHero: editIsHero || undefined,
+            }
+          : item
       );
       setGallery(updatedGallery);
       const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
@@ -180,30 +226,107 @@ export function StructuredPromptWizard({
 
       setFeedbackBanner({
         type: 'success',
-        text: `Foto actualizada a "${editPhotoName.trim()}" y sincronizada con éxito.`,
+        text: `Producto "${editPhotoName.trim()}" actualizado y sincronizado con éxito.`,
       });
       setTimeout(() => setFeedbackBanner(null), 5000);
       handleCloseEditModal();
     } catch (err: any) {
       console.error('[EDIT PHOTO ERROR]', err);
-      setEditError(err?.message || 'Error al guardar el nuevo nombre en la base de datos.');
+      setEditError(err?.message || 'Error al guardar los cambios en la base de datos.');
     } finally {
       setIsSavingEdit(false);
     }
   };
 
-  const handleFileSelection = (file: File) => {
+  const handleAutocompleteWithGemini = async (isEdit = false) => {
+    const nameToUse = isEdit ? editPhotoName : photoName;
+    if (!nameToUse.trim()) {
+      if (isEdit) {
+        setEditError('Escribe primero el nombre o modelo del producto para sugerir.');
+      } else {
+        setPhotoUploadError('Escribe primero el nombre o modelo del producto para sugerir.');
+      }
+      return;
+    }
+
+    if (isEdit) {
+      setIsGeneratingEditAiTags(true);
+      setEditError(null);
+    } else {
+      setIsGeneratingAiTags(true);
+      setPhotoUploadError(null);
+    }
+
+    try {
+      const res = await suggestProductCatalogAi({
+        productName: nameToUse,
+        imageUrl: isEdit ? editingPhoto?.url : undefined,
+      });
+
+      if (res.success && res.data) {
+        if (isEdit) {
+          if (res.data.name && (!editPhotoName.trim() || editPhotoName.length < 5)) {
+            setEditPhotoName(res.data.name);
+          }
+          const mergedTags = Array.from(new Set([...editPhotoKeywords, ...(res.data.keywords || [])]));
+          setEditPhotoKeywords(mergedTags);
+        } else {
+          if (res.data.name && (!photoName.trim() || photoName.length < 5)) {
+            setPhotoName(res.data.name);
+          }
+          const mergedTags = Array.from(new Set([...photoKeywords, ...(res.data.keywords || [])]));
+          setPhotoKeywords(mergedTags);
+        }
+      } else {
+        throw new Error(res.error || 'No se pudieron generar sugerencias.');
+      }
+    } catch (err: any) {
+      if (isEdit) setEditError(err.message);
+      else setPhotoUploadError(err.message);
+    } finally {
+      if (isEdit) setIsGeneratingEditAiTags(false);
+      else setIsGeneratingAiTags(false);
+    }
+  };
+
+  const handleAddKeyword = (kw: string, isEdit = false) => {
+    const clean = kw.trim().replace(/^,|,$/g, '');
+    if (!clean) return;
+    if (isEdit) {
+      if (!editPhotoKeywords.includes(clean)) {
+        setEditPhotoKeywords([...editPhotoKeywords, clean]);
+      }
+      setEditKeywordInput('');
+    } else {
+      if (!photoKeywords.includes(clean)) {
+        setPhotoKeywords([...photoKeywords, clean]);
+      }
+      setKeywordInput('');
+    }
+  };
+
+  const handleRemoveKeyword = (kwToRemove: string, isEdit = false) => {
+    if (isEdit) {
+      setEditPhotoKeywords(editPhotoKeywords.filter((k) => k !== kwToRemove));
+    } else {
+      setPhotoKeywords(photoKeywords.filter((k) => k !== kwToRemove));
+    }
+  };
+
+  const handleFileSelection = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       setPhotoUploadError('Por favor selecciona una imagen válida (JPG, PNG o WebP).');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setPhotoUploadError('La imagen no debe superar los 10 MB.');
-      return;
-    }
     setPhotoUploadError(null);
-    setSelectedPhotoFile(file);
-    setPhotoPreviewUrl(URL.createObjectURL(file));
+    try {
+      const compressed = await compressImageClient(file, 1200, 0.82);
+      setSelectedPhotoFile(compressed);
+      setPhotoPreviewUrl(URL.createObjectURL(compressed));
+    } catch {
+      setSelectedPhotoFile(file);
+      setPhotoPreviewUrl(URL.createObjectURL(file));
+    }
 
     // Si aún no ha escrito un nombre, sugerir el nombre base del archivo sin extensión
     if (!photoName.trim()) {
@@ -242,6 +365,9 @@ export function StructuredPromptWizard({
         id: `photo-${Date.now()}`,
         name: photoName.trim(),
         url: result.url,
+        price: photoPrice.trim() || undefined,
+        keywords: photoKeywords.length > 0 ? photoKeywords : undefined,
+        isHero: isHero || undefined,
       };
 
       const updatedGallery = [...gallery, newPhotoItem];
@@ -580,6 +706,16 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                   />
+                  {item.isHero && (
+                    <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-xs flex items-center gap-0.5">
+                      <Star className="w-2.5 h-2.5 fill-white" /> Principal
+                    </span>
+                  )}
+                  {item.price && (
+                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-slate-900/80 text-emerald-300 text-[10px] font-bold backdrop-blur-xs">
+                      {item.price}
+                    </span>
+                  )}
                   <a
                     href={item.url}
                     target="_blank"
@@ -591,36 +727,50 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   </a>
                 </div>
 
-                <div className="p-2.5 flex items-center justify-between gap-1.5 bg-white dark:bg-[#131722]">
-                  <span
-                    className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex-1"
-                    title={item.name}
-                  >
-                    {item.name}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditModal(item)}
-                      className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
-                      title="Cambiar nombre o modelo del producto"
+                <div className="p-2.5 flex flex-col gap-1 bg-white dark:bg-[#131722]">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span
+                      className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex-1"
+                      title={item.name}
                     >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isDeletingId === item.id}
-                      onClick={() => handleDeletePhoto(item.id, item.name)}
-                      className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md transition cursor-pointer disabled:opacity-50"
-                      title="Eliminar foto del catálogo"
-                    >
-                      {isDeletingId === item.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                      {item.name}
+                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(item)}
+                        className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
+                        title="Cambiar datos o palabras clave"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isDeletingId === item.id}
+                        onClick={() => handleDeletePhoto(item.id, item.name)}
+                        className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md transition cursor-pointer disabled:opacity-50"
+                        title="Eliminar foto del catálogo"
+                      >
+                        {isDeletingId === item.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
                   </div>
+                  {item.keywords && item.keywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {item.keywords.slice(0, 2).map((k, i) => (
+                        <span key={i} className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium truncate max-w-[80px]">
+                          #{k}
+                        </span>
+                      ))}
+                      {item.keywords.length > 2 && (
+                        <span className="text-[9px] text-slate-400 font-medium">+{item.keywords.length - 2}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -728,9 +878,25 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
             <div className="space-y-3.5">
               {/* Campo Nombre del Producto */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nombre o Modelo del Producto <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Nombre o Modelo del Producto <span className="text-rose-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleAutocompleteWithGemini(false)}
+                    disabled={isGeneratingAiTags || isUploadingPhoto || !photoName.trim()}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer disabled:opacity-50"
+                    title="Genera sinónimos de búsqueda y optimiza el nombre usando Gemini 1.5 Flash (Gratuito)"
+                  >
+                    {isGeneratingAiTags ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-purple-600" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                    )}
+                    <span>✨ Autocompletar con Gemini</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   required
@@ -742,6 +908,91 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 />
                 <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
                   Este nombre permite a la IA asociar la foto cuando un cliente pregunte por este modelo en WhatsApp.
+                </p>
+              </div>
+
+              {/* Precio y Modelo Principal */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Precio (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: $250.000 COP"
+                    value={photoPrice}
+                    onChange={(e) => setPhotoPrice(e.target.value)}
+                    disabled={isUploadingPhoto}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+                <div className="flex items-center pt-5">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 select-none">
+                    <input
+                      type="checkbox"
+                      checked={isHero}
+                      onChange={(e) => setIsHero(e.target.checked)}
+                      disabled={isUploadingPhoto}
+                      className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1">
+                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                      Modelo o foto principal (estrella)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Palabras clave / Sinónimos para WhatsApp */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Palabras clave y sinónimos de WhatsApp (Tags de búsqueda rápida)
+                </label>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <input
+                    type="text"
+                    placeholder="Escribe un sinónimo (ej: cocinita, madera) y presiona Enter"
+                    value={keywordInput}
+                    onChange={(e) => setKeywordInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        handleAddKeyword(keywordInput, false);
+                      }
+                    }}
+                    disabled={isUploadingPhoto}
+                    className="flex-1 text-xs px-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddKeyword(keywordInput, false)}
+                    disabled={!keywordInput.trim() || isUploadingPhoto}
+                    className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-40"
+                  >
+                    + Tag
+                  </button>
+                </div>
+                {photoKeywords.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-100 dark:border-[#1E2433]">
+                    {photoKeywords.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
+                      >
+                        #{tag}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveKeyword(tag, false)}
+                          className="hover:text-rose-500 cursor-pointer ml-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                  La IA vinculará esta foto cuando los prospectos pregunten usando cualquiera de estas palabras o sinónimos.
                 </p>
               </div>
 
@@ -876,12 +1127,28 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 />
               </div>
 
-              {/* Input de Nombre */}
+              {/* Input de Nombre y Autocompletar */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <span>Nombre / Modelo del Producto:</span>
-                  <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <span>Nombre / Modelo del Producto:</span>
+                    <span className="text-rose-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleAutocompleteWithGemini(true)}
+                    disabled={isGeneratingEditAiTags || isSavingEdit || !editPhotoName.trim()}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer disabled:opacity-50"
+                    title="Genera sinónimos de búsqueda y optimiza el nombre usando Gemini 1.5 Flash (Gratuito)"
+                  >
+                    {isGeneratingEditAiTags ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-purple-600" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                    )}
+                    <span>✨ Autocompletar con Gemini</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={editPhotoName}
@@ -900,6 +1167,88 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   La IA enviará esta imagen cuando el cliente pregunte o pida fotos de este producto exacto.
                 </p>
+              </div>
+
+              {/* Precio y Modelo Principal */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Precio (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: $250.000 COP"
+                    value={editPhotoPrice}
+                    onChange={(e) => setEditPhotoPrice(e.target.value)}
+                    disabled={isSavingEdit}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+                <div className="flex items-center pt-5">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 select-none">
+                    <input
+                      type="checkbox"
+                      checked={editIsHero}
+                      onChange={(e) => setEditIsHero(e.target.checked)}
+                      disabled={isSavingEdit}
+                      className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1">
+                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                      Modelo o foto principal
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Palabras clave / Sinónimos para WhatsApp */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Palabras clave y sinónimos de WhatsApp (Tags de búsqueda rápida)
+                </label>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <input
+                    type="text"
+                    placeholder="Escribe un sinónimo (ej: cocinita, madera) y presiona Enter"
+                    value={editKeywordInput}
+                    onChange={(e) => setEditKeywordInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        handleAddKeyword(editKeywordInput, true);
+                      }
+                    }}
+                    disabled={isSavingEdit}
+                    className="flex-1 text-xs px-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddKeyword(editKeywordInput, true)}
+                    disabled={!editKeywordInput.trim() || isSavingEdit}
+                    className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-40"
+                  >
+                    + Tag
+                  </button>
+                </div>
+                {editPhotoKeywords.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-100 dark:border-[#1E2433]">
+                    {editPhotoKeywords.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
+                      >
+                        #{tag}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveKeyword(tag, true)}
+                          className="hover:text-rose-500 cursor-pointer ml-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {editError && (

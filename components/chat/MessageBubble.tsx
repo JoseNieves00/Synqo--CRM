@@ -32,11 +32,13 @@ interface MessageBubbleProps {
   senderType: MessageSender;
   createdAt: string;
   status?: string | null;
+  replyToMessageId?: string | null;
+  reactions?: { emoji: string; from?: string; reacted_at?: string } | any;
   onReply?: (msg: { id?: string; senderType: MessageSender; content: string }) => void;
 }
 
 export const MessageBubble = React.memo(
-  function MessageBubble({ id, content, senderType, createdAt, status, onReply }: MessageBubbleProps) {
+  function MessageBubble({ id, content, senderType, createdAt, status, reactions, onReply }: MessageBubbleProps) {
     const formattedTime = useMemo(() => {
       return new Date(createdAt).toLocaleTimeString([], {
         hour: '2-digit',
@@ -394,6 +396,16 @@ export const MessageBubble = React.memo(
               <span>{formattedTime}</span>
               {renderTicks()}
             </div>
+
+            {/* Reacción de WhatsApp con Emoji si existe */}
+            {reactions?.emoji && (
+              <div
+                className={`absolute -bottom-2.5 ${isLead ? 'right-2' : 'left-2'} px-1.5 py-0.5 rounded-full bg-white dark:bg-[#1E2433] border border-slate-200 dark:border-[#2E384D] shadow-xs text-xs flex items-center justify-center select-none z-10 animate-in zoom-in-75 duration-150`}
+                title={reactions.from === 'lead' ? 'Reacción del cliente' : 'Reacción'}
+              >
+                <span className="text-[13px] leading-none">{reactions.emoji}</span>
+              </div>
+            )}
           </div>
 
           {/* Botón de Citar (para mensajes entrantes a la derecha) */}

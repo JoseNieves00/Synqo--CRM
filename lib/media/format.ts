@@ -142,6 +142,9 @@ export interface GalleryPhotoItem {
   id: string;
   name: string;
   url: string;
+  keywords?: string[];
+  price?: string;
+  isHero?: boolean;
 }
 
 /**
@@ -154,14 +157,16 @@ export function extractPhotoUrlsFromText(text: string | null | undefined): Galle
   const seenUrls = new Set<string>();
 
   // 1. Extraer del bloque estructurado de catálogo visual si existe
-  const catalogBlockMatch = text.match(/===\s*CATÁLOGO VISUAL DE FOTOS[^\n]*===([\s\S]*?)(?=\n\n[#=]|$)/i);
+  const catalogBlockMatch = text.match(/===\s*CATÁLOGO VISUAL DE (?:FOTOS|PRODUCTOS)[^\n]*===([\s\S]*?)(?=\n\n[#=]|$)/i);
   if (catalogBlockMatch) {
     const lines = catalogBlockMatch[1].split(/\r?\n/);
     for (const line of lines) {
-      const match = line.match(/[-*]\s*([^:\n]+):\s*(https?:\/\/[^\s]+)/i);
-      if (match) {
-        const name = match[1].trim();
-        const url = match[2].trim();
+      // Soporta "- Nombre - Precio: [foto: URL]" o "- Nombre: URL"
+      const urlMatch = line.match(/(https?:\/\/[^\s\]\)]+)/i);
+      const nameMatch = line.match(/[-*]\s*([^:\n(]+)/i);
+      if (urlMatch && nameMatch) {
+        const name = nameMatch[1].trim();
+        const url = urlMatch[1].trim();
         if (!seenUrls.has(url)) {
           seenUrls.add(url);
           items.push({ id: `photo-${Date.now()}-${items.length}`, name, url });
@@ -298,8 +303,8 @@ export function parseVideoMessageContent(content: string | null | undefined): Pa
     return { isVideo: false };
   }
 
-  // 1. Formato canónico Synqo: 📹 [Video: https://...]: Caption
-  const canonicalMatch = content.match(/^📹\s*\[(?:Video|Clip):\s*(https?:\/\/[^\]\s]+)\](?::\s*([\s\S]*))?$/i);
+  // 1. Formato canónico Synqo: 📹 [Video: https://...]: Caption (con o sin emoji de cámara)
+  const canonicalMatch = content.match(/^(?:📹\s*)?\[(?:Video|Clip):\s*(https?:\/\/[^\]\s]+)\](?::\s*([\s\S]*))?$/i);
   if (canonicalMatch) {
     return {
       isVideo: true,

@@ -14,11 +14,12 @@ import {
   Package,
   RotateCcw,
   X,
+  Loader2,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
-import { getUnattendedHandoffs, getContactMessages, markContactAsRead } from '@/app/actions/chat';
+import { getUnattendedHandoffs, getContactMessages, markContactAsRead, loadMoreContacts, searchContactsGlobal } from '@/app/actions/chat';
 import { importRecentEvolutionChats } from '@/app/actions/evolution';
 
 interface ContactItem {
@@ -43,6 +44,9 @@ interface MessageItem {
   sender_type: any;
   content: string;
   created_at: string;
+  status?: string | null;
+  reply_to_message_id?: string | null;
+  reactions?: any;
 }
 
 interface TeamMember {
@@ -370,6 +374,69 @@ export function InboxView({
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     activeContact?.id || (contacts.length > 0 ? contacts[0].id : null)
   );
+
+  // Paginación bajo demanda y búsqueda global para escalar a miles de conversaciones sin sobrecargar el DOM
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreContacts, setHasMoreContacts] = useState(contacts.length >= 50);
+  const [totalContactsCount, setTotalContactsCount] = useState<number | null>(null);
+  const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
+
+  // Búsqueda global en Postgres con debounce cuando el usuario busca un contacto específico
+  useEffect(() => {
+    const q = deferredSearch.trim();
+    if (q.length < 3) return;
+
+    let isCancelled = false;
+    const timer = setTimeout(async () => {
+      setIsSearchingGlobal(true);
+      try {
+        const res = await searchContactsGlobal(q);
+        if (!isCancelled && res.contacts && res.contacts.length > 0) {
+          setContactList((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const newOnes = (res.contacts as ContactItem[]).filter((c) => !existingIds.has(c.id));
+            return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+          });
+        }
+      } catch (err) {
+        console.error('[InboxView] Error en búsqueda global:', err);
+      } finally {
+        if (!isCancelled) setIsSearchingGlobal(false);
+      }
+    }, 450);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [deferredSearch]);
+
+  const handleLoadMoreContacts = useCallback(async () => {
+    if (isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const res = await loadMoreContacts({ offset: contactList.length, limit: 30 });
+      if (!res.contacts || res.contacts.length === 0) {
+        setHasMoreContacts(false);
+      } else {
+        setContactList((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id));
+          const newItems = (res.contacts as ContactItem[]).filter((c) => !existingIds.has(c.id));
+          return [...prev, ...newItems];
+        });
+        if (res.contacts.length < 30) {
+          setHasMoreContacts(false);
+        }
+      }
+      if (res.totalCount !== null) {
+        setTotalContactsCount(res.totalCount);
+      }
+    } catch (err) {
+      console.error('[InboxView] Error al cargar más contactos:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, contactList.length]);
   const draftsRef = useRef<Record<string, string>>({});
   const messagesCacheRef = useRef<Record<string, MessageItem[]>>({});
   const [messagesCache, setMessagesCache] = useState<Record<string, MessageItem[]>>(() => {
@@ -964,7 +1031,9 @@ export function InboxView({
               placeholder="Buscar por nombre o teléfono..."
               className="w-full pl-8 pr-12 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:ring-1 focus:ring-[#0052FF] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500"
             />
-            {search ? (
+            {isSearchingGlobal ? (
+              <Loader2 className="w-3.5 h-3.5 text-[#0052FF] animate-spin absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            ) : search ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1195,24 +1264,46 @@ export function InboxView({
               No hay conversaciones en esta sección.
             </div>
           ) : (
-            filteredContacts.map((c) => {
-              const isActive = selectedContactId === c.id;
-              const isMine = c.assigned_to === currentUserId;
-              const assignedUser = teamMembers.find((m) => m.id === c.assigned_to);
-              const isUnattended = unattendedIds.has(c.id);
+            <>
+              {filteredContacts.map((c) => {
+                const isActive = selectedContactId === c.id;
+                const isMine = c.assigned_to === currentUserId;
+                const assignedUser = teamMembers.find((m) => m.id === c.assigned_to);
+                const isUnattended = unattendedIds.has(c.id);
 
-              return (
-                <ContactListItem
-                  key={c.id}
-                  contact={c}
-                  isActive={isActive}
-                  isMine={isMine}
-                  assignedUserName={assignedUser?.full_name}
-                  isUnattended={isUnattended}
-                  onSelect={handleSelectContact}
-                />
-              );
-            })
+                return (
+                  <ContactListItem
+                    key={c.id}
+                    contact={c}
+                    isActive={isActive}
+                    isMine={isMine}
+                    assignedUserName={assignedUser?.full_name}
+                    isUnattended={isUnattended}
+                    onSelect={handleSelectContact}
+                  />
+                );
+              })}
+
+              {!deferredSearch.trim() && hasMoreContacts && (
+                <div className="p-3 text-center border-t border-slate-100 dark:border-[#1E2433]">
+                  <button
+                    type="button"
+                    onClick={handleLoadMoreContacts}
+                    disabled={isLoadingMore}
+                    className="w-full py-2 px-3 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-50 dark:bg-[#151923] hover:bg-slate-100 dark:hover:bg-[#1E2433] border border-slate-200 dark:border-[#1E2433] rounded-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0052FF]" />
+                        <span>Cargando conversaciones...</span>
+                      </>
+                    ) : (
+                      <span>Cargar más conversaciones ({contactList.length}{totalContactsCount ? ` de ${totalContactsCount}` : ''})</span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
