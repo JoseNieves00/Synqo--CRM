@@ -489,7 +489,10 @@ export async function POST(request: NextRequest) {
           const isConfirmButton = rawContent.includes('btn_confirm_appt') || rawContent.includes('Confirmar Cita');
           const confirmationPattern =
             /\b(s[ií]|confirmo|confirmad[ao]|confirmar|all[aá]\s+(estoy|nos\s+vemos|estar[eé])|asistir[eé]|listo\s+confirmo)\b/i;
-          const isConfirmationText = confirmationPattern.test(sanitizedContent);
+          const negationOrChangePattern =
+            /\b(pero|cambiar|cambio|cancelar|cancela|otra fecha|otro d[ií]a|otra hora|no puedo|no voy|no llego|reprogramar|posponer)\b/i;
+          const hasNegationOrChange = negationOrChangePattern.test(sanitizedContent);
+          const isConfirmationText = confirmationPattern.test(sanitizedContent) && !hasNegationOrChange;
 
           if (isConfirmButton || isConfirmationText) {
             const nowIso = new Date().toISOString();

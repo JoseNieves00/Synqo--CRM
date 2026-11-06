@@ -1180,7 +1180,7 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         }
 
         // Guardrail Silencioso: si el texto final indica consulta o espera, garantizar is_ai_active = false
-        const handoffPattern = /(asesor se pondr[aá]|notificado a (nuestro|un)|equipo comercial|asesor humano|pausad[ao] mis respuestas|d[eé]jame (consultar|revisar|validar|chequear|confirmar)|dame unos minutos|ya mismo te (aviso|confirmo|atiendo)|consultar con (gerencia|bodega|despachos|el equipo))/i;
+        const handoffPattern = /(asesor (se pondr[aá]|humano|comercial)|notificado a (nuestro|un) (asesor|equipo)|(transferir|transferirte|comunicarte|pasarte) con un (asesor|humano|agente|compañero)|pausad[ao] mis respuestas|consultar con (gerencia|bodega|despachos|el equipo) y (te responder[aá]|un asesor))/i;
         if (handoffPattern.test(finalResponse)) {
           await supabaseAdmin
             .from('contacts')
@@ -1198,7 +1198,7 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       }
 
       // Guardrail Silencioso: si el modelo respondió texto prometiendo consulta o relevo sin haber llamado la tool
-      const handoffPattern = /(asesor se pondr[aá]|notificado a (nuestro|un)|equipo comercial|asesor humano|pausad[ao] mis respuestas|d[eé]jame (consultar|revisar|validar|chequear|confirmar)|dame unos minutos|ya mismo te (aviso|confirmo|atiendo)|consultar con (gerencia|bodega|despachos|el equipo))/i;
+      const handoffPattern = /(asesor (se pondr[aá]|humano|comercial)|notificado a (nuestro|un) (asesor|equipo)|(transferir|transferirte|comunicarte|pasarte) con un (asesor|humano|agente|compañero)|pausad[ao] mis respuestas|consultar con (gerencia|bodega|despachos|el equipo) y (te responder[aá]|un asesor))/i;
       if (handoffPattern.test(directResponse)) {
         await supabaseAdmin
           .from('contacts')
