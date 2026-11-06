@@ -504,12 +504,13 @@ export async function POST(request: NextRequest) {
 
           // Detección Determinística de Confirmación de Cita
           const isConfirmButton = rawContent.includes('btn_confirm_appt') || rawContent.includes('Confirmar Cita');
+          const normalizedContent = sanitizedContent.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           const confirmationPattern =
-            /\b(s[ií]|confirmo|confirmad[ao]|confirmar|all[aá]\s+(estoy|nos\s+vemos|estar[eé])|asistir[eé]|listo\s+confirmo)\b/i;
+            /\b(si|confirmo|confirmado|confirmada|confirmar|alla\s+(estoy|nos\s+vemos|estare)|asistire|listo\s+confirmo)\b/i;
           const negationOrChangePattern =
-            /\b(pero|cambiar|cambio|cancelar|cancela|otra fecha|otro d[ií]a|otra hora|no puedo|no voy|no llego|reprogramar|posponer)\b/i;
-          const hasNegationOrChange = negationOrChangePattern.test(sanitizedContent);
-          const isConfirmationText = confirmationPattern.test(sanitizedContent) && !hasNegationOrChange;
+            /\b(pero|cambiar|cambio|cancelar|cancela|otra fecha|otro dia|otra hora|no puedo|no voy|no llego|reprogramar|posponer)\b/i;
+          const hasNegationOrChange = negationOrChangePattern.test(normalizedContent);
+          const isConfirmationText = confirmationPattern.test(normalizedContent) && !hasNegationOrChange;
 
           if (isConfirmButton || isConfirmationText) {
             const nowIso = new Date().toISOString();
