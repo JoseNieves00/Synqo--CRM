@@ -721,8 +721,8 @@ export class InboundCoreService {
       try {
         // --- INTERCEPTOR ANTI-FUGA DE ENLACES E IMÁGENES ---
         // Detecta si la IA incluyó sintaxis markdown ![alt](url), [alt](url), etiquetas [foto: url] o URLs directas en el texto
-        const mdImgRegex = /!\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/gi;
-        const mdLinkMediaRegex = /\[([^\]]*)\]\((https?:\/\/[^\s\)]*(?:chat-media|[^\s\)]+\.(?:jpe?g|png|webp|gif|pdf))[^\s\)]*)\)/gi;
+        const mdImgRegex = /!\[([\s\S]*?)\]\(\s*(https?:\/\/[^\s\)]+)\s*\)/gi;
+        const mdLinkMediaRegex = /\[([\s\S]*?)\]\(\s*(https?:\/\/[^\s\)]*(?:chat-media|[^\s\)]+\.(?:jpe?g|png|webp|gif|pdf))[^\s\)]*)\s*\)/gi;
         const tagImgRegex = /\[(?:foto|imagen):\s*(https?:\/\/[^\s\]]+)\]/gi;
         const rawSupabaseImgRegex = /(https:\/\/[^\s\)]+\.supabase\.co\/storage\/v1\/object\/public\/[^\s\)]+(?:\.jpe?g|\.png|\.webp|\.gif|\b))/gi;
 
@@ -787,10 +787,10 @@ export class InboundCoreService {
 
         // Limpiar el texto removiendo markdown y URLs
         let cleanedAiText = aiResponseText
-          .replace(mdImgRegex, '')
-          .replace(mdLinkMediaRegex, '')
-          .replace(tagImgRegex, '')
-          .replace(rawSupabaseImgRegex, '')
+          .replace(/!\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]+\s*\)/gi, '')
+          .replace(/\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]*(?:chat-media|[^\s\)]+\.(?:jpe?g|png|webp|gif|pdf))[^\s\)]*\s*\)/gi, '')
+          .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\s\]]+\]/gi, '')
+          .replace(/https:\/\/[^\s\)]+\.supabase\.co\/storage\/v1\/object\/public\/[^\s\)]+(?:\.jpe?g|\.png|\.webp|\.gif|\b)/gi, '')
           .split('\n')
           .map((line) => line.trim())
           .filter((line) => line && line !== '•' && line !== '*' && line !== '-' && !/^[•\-\*]?\s*\*?[^:\n]+\*?:\s*$/.test(line))

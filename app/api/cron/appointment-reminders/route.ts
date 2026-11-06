@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { ReminderService } from '@/services/reminder.service';
 import { AssignmentService } from '@/services/assignment.service';
+import { LeadReactivationService } from '@/services/reactivation.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -57,12 +58,14 @@ async function handleCron(request: NextRequest) {
 
     const result = await ReminderService.processAppointmentRemindersAndCancellations(orgId);
     const slaResult = await AssignmentService.reassignStaleHandoffs(orgId);
+    const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
 
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
       ...result,
       reallocatedHandoffs: slaResult.reallocatedCount,
+      autonomousReactivations: reactivationResult,
     });
   } catch (err: any) {
     console.error('[CRON APPOINTMENT REMINDERS ERROR]', err);

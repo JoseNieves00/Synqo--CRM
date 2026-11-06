@@ -91,6 +91,16 @@ export class MessagingService {
   }: SendTextMessageOptions): Promise<string> {
     const provider = organization.whatsapp_provider || 'meta';
 
+    // Desinfección de salida: WhatsApp no interpreta markdown de imágenes ![alt](url) ni etiquetas [foto: url]
+    let outgoingBody = (body || '')
+      .replace(/!\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]+\s*\)/gi, '')
+      .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\s\]]+\]/gi, '')
+      .trim();
+
+    if (!outgoingBody) {
+      outgoingBody = body; // Respaldo de seguridad si el mensaje contenía únicamente la referencia
+    }
+
     // 1. Ruta Evolution API (VPS / Baileys)
     if (provider === 'evolution') {
       const evoConfig = this.resolveEvolutionConfig(organization);
@@ -111,7 +121,7 @@ export class MessagingService {
         apiKey: evoConfig.apiKey,
         instanceName: evoConfig.instanceName,
         to,
-        message: body,
+        message: outgoingBody,
         simulateTyping,
       });
     }
@@ -126,7 +136,7 @@ export class MessagingService {
       phoneNumberId: organization.whatsapp_phone_number_id,
       accessToken: decryptedToken,
       to,
-      body,
+      body: outgoingBody,
     });
   }
 
