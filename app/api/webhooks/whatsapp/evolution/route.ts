@@ -235,13 +235,24 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', contact.id);
 
-      // 2. Extraer el texto del mensaje enviado por el humano
+      // 2. Extraer el texto o descripción del mensaje enviado por el humano
       const msgObj = messageData.message || {};
-      const rawText =
+      let rawText =
         msgObj.conversation ||
         msgObj.extendedTextMessage?.text ||
         msgObj.buttonsResponseMessage?.selectedDisplayText ||
-        '[Mensaje enviado desde WhatsApp móvil]';
+        '';
+
+      if (!rawText) {
+        if (msgObj.imageMessage) rawText = msgObj.imageMessage.caption ? `📷 [Foto]: ${msgObj.imageMessage.caption}` : '📷 [Foto enviada]';
+        else if (msgObj.videoMessage) rawText = msgObj.videoMessage.caption ? `📹 [Video]: ${msgObj.videoMessage.caption}` : '📹 [Video enviado]';
+        else if (msgObj.audioMessage) rawText = '🎤 [Nota de voz enviada]';
+        else if (msgObj.documentMessage) rawText = `📄 [Documento: ${msgObj.documentMessage.fileName || 'Archivo'}]`;
+        else if (msgObj.stickerMessage) rawText = '🏷️ [Sticker enviado]';
+        else if (msgObj.contactMessage || msgObj.contactsArrayMessage) rawText = '👤 [Tarjeta de contacto enviada]';
+        else if (msgObj.locationMessage) rawText = '📍 [Ubicación compartida]';
+        else rawText = '[Mensaje enviado desde WhatsApp móvil]';
+      }
 
       // 3. Registrar el mensaje en el CRM para que el inbox quede perfectamente sincronizado en tiempo real
       await (supabaseAdmin.from('messages') as any).insert({
@@ -345,6 +356,16 @@ export async function POST(request: NextRequest) {
     } else {
       rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
     }
+  } else if (msgObj.videoMessage) {
+    const caption = (msgObj.videoMessage.caption || '').trim();
+    rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+  } else if (msgObj.stickerMessage) {
+    rawContent = '🏷️ [Sticker recibido]';
+  } else if (msgObj.contactMessage || msgObj.contactsArrayMessage) {
+    const cName = msgObj.contactMessage?.displayName || msgObj.contactsArrayMessage?.contacts?.[0]?.displayName || 'Contacto';
+    rawContent = `👤 [Tarjeta de contacto: ${cName}]`;
+  } else if (msgObj.reactionMessage) {
+    return NextResponse.json({ status: 'reaction_acknowledged' }, { status: 200 });
   } else if (msgObj.documentMessage) {
     const fileName = msgObj.documentMessage.fileName || 'Archivo';
     rawContent = `📄 [Documento recibido: ${fileName}]`;

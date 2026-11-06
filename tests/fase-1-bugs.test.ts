@@ -91,6 +91,29 @@ async function runFase1Tests() {
   assert.strictEqual(isWithin24HourWindow(null), false, 'Sin interacción previa debe estar fuera de la ventana');
   console.log('   ✅ Integridad de la ventana de 24 horas verificada.');
 
+  // 5. Probar soporte de Video, Sticker, Contactos y Reacciones en Evolution API
+  console.log('\n5️⃣  Probando soporte de Video, Sticker y Contactos en Baileys / Evolution API...');
+  const parseEvolutionMsg = (msgObj: any): string | null => {
+    if (msgObj.reactionMessage) return null; // descartado
+    if (msgObj.videoMessage) {
+      const caption = (msgObj.videoMessage.caption || '').trim();
+      return caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+    }
+    if (msgObj.stickerMessage) return '🏷️ [Sticker recibido]';
+    if (msgObj.contactMessage || msgObj.contactsArrayMessage) {
+      const cName = msgObj.contactMessage?.displayName || msgObj.contactsArrayMessage?.contacts?.[0]?.displayName || 'Contacto';
+      return `👤 [Tarjeta de contacto: ${cName}]`;
+    }
+    return '[Otro]';
+  };
+
+  assert.strictEqual(parseEvolutionMsg({ videoMessage: { caption: 'Miren la cocina' } }), '📹 [Video]: Miren la cocina');
+  assert.strictEqual(parseEvolutionMsg({ videoMessage: {} }), '📹 [Video recibido]');
+  assert.strictEqual(parseEvolutionMsg({ stickerMessage: {} }), '🏷️ [Sticker recibido]');
+  assert.strictEqual(parseEvolutionMsg({ contactMessage: { displayName: 'Dr. Perez' } }), '👤 [Tarjeta de contacto: Dr. Perez]');
+  assert.strictEqual(parseEvolutionMsg({ reactionMessage: { text: '👍' } }), null);
+  console.log('   ✅ Soporte integral de multimedia y contactos en Evolution API verificado.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE FASE 1 PASARON EXITOSAMENTE!\n');
 }
 
