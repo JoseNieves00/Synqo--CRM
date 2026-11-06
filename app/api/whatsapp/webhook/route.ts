@@ -9,7 +9,7 @@ import { WhatsAppService } from '@/services/whatsapp.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
-import { formatImageMessageContent, formatVideoMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
+import { formatImageMessageContent, formatVideoMessageContent, formatAudioMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
 import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
 
@@ -233,14 +233,39 @@ export async function POST(request: NextRequest) {
         try {
           const decryptedToken = decryptSecret(organization.whatsapp_access_token);
           const media = await WhatsAppService.downloadMedia(audioId, decryptedToken);
-          const transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType);
-          rawContent = transcription ? `🎤 [Nota de voz]: "${transcription}"` : '🎤 [Nota de voz inaudible]';
+
+          let audioUrl: string | null = null;
+          try {
+            audioUrl = await uploadIncomingChatMedia({
+              buffer: media.buffer,
+              mimeType: media.mimeType || 'audio/ogg; codecs=opus',
+              organizationId: organization.id,
+              contactId: leadPhone || 'incoming',
+            });
+          } catch (uploadErr) {
+            console.warn('[WHATSAPP AUDIO UPLOAD WARN]', uploadErr);
+          }
+
+          let transcription = '';
+          try {
+            transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType);
+          } catch (transcribeErr) {
+            console.warn('[WHATSAPP AUDIO TRANSCRIBE WARN]', transcribeErr);
+          }
+
+          if (audioUrl) {
+            rawContent = formatAudioMessageContent(audioUrl, transcription || undefined);
+          } else if (transcription) {
+            rawContent = `🎤 [Nota de voz]: "${transcription}"`;
+          } else {
+            rawContent = '🎤 [Nota de voz inaudible]';
+          }
         } catch (audioErr: any) {
           console.error('[WHATSAPP AUDIO TRANSCRIPTION ERROR]', audioErr);
           rawContent = '🎤 [Nota de voz no reproducible]';
         }
       } else {
-        rawContent = '🎤 [Nota de voz]';
+        rawContent = '🎤 [Nota de voz inaudible]';
       }
     } else if (msgType === 'video') {
       const videoId = incomingMessage.video?.id;

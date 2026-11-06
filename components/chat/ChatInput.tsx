@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard, Camera } from 'lucide-react';
+import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard, Camera, Pencil } from 'lucide-react';
 import { getOrganizationQuickReplies, uploadChatMedia, generateDraftAiReply } from '@/app/actions/chat';
 import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
@@ -66,6 +66,7 @@ export function ChatInput({
   const [showSnippets, setShowSnippets] = useState(false);
   const [selectedSnippetIndex, setSelectedSnippetIndex] = useState(0);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+  const [manageModalInitialShortcut, setManageModalInitialShortcut] = useState<string | null>(null);
   const [activeSnippets, setActiveSnippets] = useState<QuickSnippet[]>(BASE_DEFAULT_SNIPPETS);
   const [aiSuggestions, setAiSuggestions] = useState<QuickSnippet[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -600,12 +601,13 @@ export function ChatInput({
                 type="button"
                 onClick={() => {
                   setShowSnippets(false);
+                  setManageModalInitialShortcut(null);
                   setIsManageModalOpen(true);
                 }}
                 className="text-[11px] font-medium text-[#0052FF] dark:text-[#00D2FF] hover:underline cursor-pointer"
-                title="Personalizar atajos o ver sugerencias de la IA"
+                title="Personalizar o editar atajos"
               >
-                Gestionar
+                Gestionar / Editar
               </button>
               <button
                 type="button"
@@ -620,26 +622,43 @@ export function ChatInput({
             {filteredSnippets.map((s, idx) => {
               const isSelected = idx === selectedSnippetIndex;
               return (
-                <button
+                <div
                   key={s.shortcut}
-                  type="button"
-                  onClick={() => handleApplySnippet(s.text)}
-                  className={`w-full text-left p-2 rounded-lg transition group cursor-pointer border ${
+                  className={`w-full flex items-center justify-between p-2 rounded-lg transition group border ${
                     isSelected
                       ? 'bg-blue-50 dark:bg-[#1A1F2C] border-blue-300 dark:border-[#0052FF]/60 ring-1 ring-[#0052FF]/30'
                       : 'hover:bg-slate-50 dark:hover:bg-[#1A1F2C] border-transparent hover:border-slate-200 dark:border-[#232A3B]'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white">
-                      {s.label}
-                    </span>
-                    <code className="text-[10px] font-mono text-[#0052FF] dark:text-[#00D2FF] bg-slate-100 dark:bg-[#090A0F] px-1.5 py-0.5 rounded border border-slate-200 dark:border-[#232A3B]">
-                      {s.shortcut}
-                    </code>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{s.text}</p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplySnippet(s.text)}
+                    className="flex-1 text-left cursor-pointer overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white truncate">
+                        {s.label}
+                      </span>
+                      <code className="text-[10px] font-mono text-[#0052FF] dark:text-[#00D2FF] bg-slate-100 dark:bg-[#090A0F] px-1.5 py-0.5 rounded border border-slate-200 dark:border-[#232A3B] shrink-0">
+                        {s.shortcut}
+                      </code>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{s.text}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSnippets(false);
+                      setManageModalInitialShortcut(s.shortcut);
+                      setIsManageModalOpen(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-200 dark:hover:bg-[#232A3B] transition shrink-0 ml-1 cursor-pointer"
+                    title={`Editar atajo ${s.shortcut}`}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1334,10 +1353,14 @@ export function ChatInput({
       {/* Modal de Gestión de Atajos y Sugerencias de IA */}
       <ManageQuickRepliesModal
         isOpen={isManageModalOpen}
-        onClose={() => setIsManageModalOpen(false)}
+        onClose={() => {
+          setIsManageModalOpen(false);
+          setManageModalInitialShortcut(null);
+        }}
         activeSnippets={activeSnippets}
         aiSuggestions={aiSuggestions}
         onSnippetsUpdated={(updated) => setActiveSnippets(updated)}
+        initialEditShortcut={manageModalInitialShortcut}
       />
     </div>
   );

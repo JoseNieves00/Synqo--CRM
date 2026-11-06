@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Copy,
   ChevronRight,
+  Pencil,
 } from 'lucide-react';
 import { QuickSnippet, saveOrganizationQuickReplies } from '@/app/actions/chat';
 
@@ -22,6 +23,7 @@ interface ManageQuickRepliesModalProps {
   activeSnippets: QuickSnippet[];
   aiSuggestions: QuickSnippet[];
   onSnippetsUpdated: (updated: QuickSnippet[]) => void;
+  initialEditShortcut?: string | null;
 }
 
 export function ManageQuickRepliesModal({
@@ -30,11 +32,18 @@ export function ManageQuickRepliesModal({
   activeSnippets,
   aiSuggestions,
   onSnippetsUpdated,
+  initialEditShortcut,
 }: ManageQuickRepliesModalProps) {
   const [snippets, setSnippets] = useState<QuickSnippet[]>(activeSnippets);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Estado para la edición de un atajo existente
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editShortcut, setEditShortcut] = useState('');
+  const [editLabel, setEditLabel] = useState('');
+  const [editText, setEditText] = useState('');
 
   // Formulario de nuevo atajo
   const [newShortcut, setNewShortcut] = useState('');
@@ -44,17 +53,102 @@ export function ManageQuickRepliesModal({
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
+      setSnippets(activeSnippets);
+      setError(null);
+      setSuccessMsg(null);
+
+      // Si se abre para editar un atajo específico
+      if (initialEditShortcut) {
+        const idx = activeSnippets.findIndex(
+          (s) => s.shortcut.toLowerCase() === initialEditShortcut.toLowerCase()
+        );
+        if (idx !== -1) {
+          const target = activeSnippets[idx];
+          setEditingIndex(idx);
+          setEditShortcut(target.shortcut);
+          setEditLabel(target.label);
+          setEditText(target.text);
+        } else {
+          setEditingIndex(null);
+        }
+      } else {
+        setEditingIndex(null);
+      }
+
       return () => {
         document.body.style.overflow = '';
       };
     }
-  }, [isOpen]);
+  }, [isOpen, activeSnippets, initialEditShortcut]);
 
   if (!isOpen) return null;
 
   const existingShortcuts = new Set(snippets.map((s) => s.shortcut.toLowerCase()));
 
-  const handleAddAiSuggestion = (suggestion: QuickSnippet) => {
+  const startEditing = (idx: number) => {
+    const target = snippets[idx];
+    if (!target) return;
+    setEditingIndex(idx);
+    setEditShortcut(target.shortcut);
+    setEditLabel(target.label);
+    setEditText(target.text);
+    setError(null);
+  };
+
+  const cancelEditing = () => {
+    setEditingIndex(null);
+    setEditShortcut('');
+    setEditLabel('');
+    setEditText('');
+  };
+
+  const handleSaveEdit = async (idx: number) => {
+    if (!editShortcut.trim() || !editText.trim()) {
+      setError('El código y el texto del atajo son obligatorios.');
+      return;
+    }
+
+    let cleanCode = editShortcut.trim();
+    if (!cleanCode.startsWith('/')) cleanCode = '/' + cleanCode;
+    cleanCode = '/' + cleanCode.slice(1).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+
+    // Validar que no choque con otro atajo diferente
+    const duplicate = snippets.some(
+      (s, i) => i !== idx && s.shortcut.toLowerCase() === cleanCode.toLowerCase()
+    );
+    if (duplicate) {
+      setError(`Ya existe otro atajo con el comando "${cleanCode}". Elige otro diferente.`);
+      return;
+    }
+
+    const updated = [...snippets];
+    updated[idx] = {
+      ...updated[idx],
+      shortcut: cleanCode,
+      label: editLabel.trim() || cleanCode,
+      text: editText.trim(),
+    };
+
+    setSnippets(updated);
+    setEditingIndex(null);
+    setError(null);
+    setLoading(true);
+
+    try {
+      const res = await saveOrganizationQuickReplies(updated);
+      if (res.success) {
+        onSnippetsUpdated(res.snippets);
+        setSuccessMsg(`Atajo "${cleanCode}" actualizado y guardado exitosamente.`);
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error al persistir la edición del atajo.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddAiSuggestion = async (suggestion: QuickSnippet) => {
     if (existingShortcuts.has(suggestion.shortcut.toLowerCase())) {
       return;
     }
@@ -68,22 +162,69 @@ export function ManageQuickRepliesModal({
       },
     ];
     setSnippets(updated);
-    setSuccessMsg(`Atajo "${suggestion.shortcut}" agregado. Guarda los cambios.`);
+    setLoading(true);
+    try {
+      const res = await saveOrganizationQuickReplies(updated);
+      if (res.success) {
+        onSnippetsUpdated(res.snippets);
+        setSuccessMsg(`Atajo "${suggestion.shortcut}" agregado.`);
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error al guardar el atajo sugerido.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCustomizeAiSuggestion = (suggestion: QuickSnippet) => {
+    setNewShortcut(suggestion.shortcut);
+    setNewLabel(suggestion.label);
+    setNewText(suggestion.text);
+    setSuccessMsg(`Sugerencia "${suggestion.shortcut}" cargada en el formulario para personalizar.`);
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
-  const handleDeleteSnippet = (indexToRemove: number) => {
+  const handleDeleteSnippet = async (indexToRemove: number) => {
+    const target = snippets[indexToRemove];
     const updated = snippets.filter((_, idx) => idx !== indexToRemove);
     setSnippets(updated);
+    if (editingIndex === indexToRemove) {
+      cancelEditing();
+    } else if (editingIndex !== null && editingIndex > indexToRemove) {
+      setEditingIndex(editingIndex - 1);
+    }
+
+    setLoading(true);
+    try {
+      const res = await saveOrganizationQuickReplies(updated);
+      if (res.success) {
+        onSnippetsUpdated(res.snippets);
+        setSuccessMsg(`Atajo "${target?.shortcut || 'seleccionado'}" eliminado.`);
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error al eliminar el atajo.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCreateCustomSnippet = (e: React.FormEvent) => {
+  const handleCreateCustomSnippet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newShortcut.trim() || !newText.trim()) return;
 
     let cleanCode = newShortcut.trim();
     if (!cleanCode.startsWith('/')) cleanCode = '/' + cleanCode;
     cleanCode = '/' + cleanCode.slice(1).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+
+    const existsDuplicate = snippets.some(
+      (s) => s.shortcut.toLowerCase() === cleanCode.toLowerCase()
+    );
+    if (existsDuplicate) {
+      setError(`Ya existe un atajo con el código "${cleanCode}". Elige otro.`);
+      return;
+    }
 
     const newSnippetItem: QuickSnippet = {
       id: `custom-${Date.now()}`,
@@ -97,8 +238,21 @@ export function ManageQuickRepliesModal({
     setNewShortcut('');
     setNewLabel('');
     setNewText('');
-    setSuccessMsg(`Atajo "${cleanCode}" creado. Guarda los cambios.`);
-    setTimeout(() => setSuccessMsg(null), 3000);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await saveOrganizationQuickReplies(updated);
+      if (res.success) {
+        onSnippetsUpdated(res.snippets);
+        setSuccessMsg(`Atajo "${cleanCode}" creado y guardado.`);
+        setTimeout(() => setSuccessMsg(null), 3000);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error al guardar el nuevo atajo.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveAll = async () => {
@@ -124,11 +278,11 @@ export function ManageQuickRepliesModal({
         <div className="flex items-center justify-between border-b border-[#1E2433] pb-3">
           <div className="flex items-center gap-2.5 text-white">
             <div className="w-8 h-8 rounded-lg bg-[#090A0F] text-[#00D2FF] border border-[#232A3B] flex items-center justify-center">
-              <Sparkles className="w-4 h-4" />
+              <Zap className="w-4 h-4 text-amber-400" />
             </div>
             <div>
               <h3 className="font-semibold text-sm text-white">Atajos & Respuestas Rápidas (/)</h3>
-              <p className="text-xs text-slate-400">Crea tus propios comandos o adopta sugerencias generadas por la IA.</p>
+              <p className="text-xs text-slate-400">Edita, personaliza o crea tus comandos para responder con 1 clic en el chat.</p>
             </div>
           </div>
           <button
@@ -147,8 +301,9 @@ export function ManageQuickRepliesModal({
         )}
 
         {successMsg && (
-          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl font-medium animate-in fade-in duration-150">
-            {successMsg}
+          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl font-medium animate-in fade-in duration-150 flex items-center gap-2">
+            <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{successMsg}</span>
           </div>
         )}
 
@@ -167,7 +322,7 @@ export function ManageQuickRepliesModal({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                La IA detectó información de tu negocio para sugerirte estos atajos listos para usar:
+                La IA analizó las políticas y servicios de tu negocio para proponerte estos atajos pre-redactados:
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -190,7 +345,15 @@ export function ManageQuickRepliesModal({
                         </p>
                       </div>
 
-                      <div className="pt-1 flex justify-end">
+                      <div className="pt-1 flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleCustomizeAiSuggestion(sug)}
+                          className="text-[10px] font-medium text-slate-400 hover:text-[#00D2FF] px-2 py-1 rounded-md hover:bg-[#1A1F2C] transition flex items-center gap-1 cursor-pointer"
+                          title="Cargar en el formulario para personalizar antes de guardar"
+                        >
+                          <Pencil className="w-3 h-3" /> Personalizar
+                        </button>
                         {isAlreadyAdded ? (
                           <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded flex items-center gap-1">
                             <Check className="w-3 h-3" /> Añadido
@@ -212,12 +375,15 @@ export function ManageQuickRepliesModal({
             </div>
           )}
 
-          {/* SECCIÓN 2: Lista de Atajos Activos */}
+          {/* SECCIÓN 2: Lista de Atajos Activos con Soporte Completo de Edición */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
               <span className="flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-slate-400" />
                 <span>Tus Atajos Activos ({snippets.length})</span>
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Haz clic en el lápiz para editar cualquier atajo
               </span>
             </div>
 
@@ -227,29 +393,146 @@ export function ManageQuickRepliesModal({
               </div>
             ) : (
               <div className="divide-y divide-[#1E2433] border border-[#232A3B] rounded-xl bg-[#090A0F] overflow-hidden">
-                {snippets.map((item, idx) => (
-                  <div key={item.id || idx} className="p-2.5 flex items-start justify-between gap-3 text-xs hover:bg-[#131722] transition">
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-center gap-2">
-                        <code className="text-xs font-mono font-bold text-[#00D2FF] bg-[#131722] px-1.5 py-0.5 rounded border border-[#232A3B]">
-                          {item.shortcut}
-                        </code>
-                        <span className="font-semibold text-white">{item.label}</span>
+                {snippets.map((item, idx) => {
+                  const isEditing = editingIndex === idx;
+
+                  if (isEditing) {
+                    return (
+                      <div
+                        key={item.id || idx}
+                        className="p-3.5 bg-[#131722] border-l-4 border-l-[#0052FF] space-y-3 animate-in fade-in duration-150"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-[#00D2FF] flex items-center gap-1.5">
+                            <Pencil className="w-3.5 h-3.5 text-[#00D2FF]" />
+                            <span>Editando atajo:</span>
+                            <code className="font-mono text-white bg-[#090A0F] px-1.5 py-0.5 rounded border border-[#232A3B]">
+                              {item.shortcut}
+                            </code>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={cancelEditing}
+                            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer"
+                            title="Cancelar edición"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-medium text-slate-400 block mb-1">
+                              Código de atajo (ej. /cuenta)
+                            </label>
+                            <input
+                              type="text"
+                              value={editShortcut}
+                              onChange={(e) => setEditShortcut(e.target.value)}
+                              placeholder="/comando"
+                              className="w-full text-xs px-2.5 py-1.5 border border-[#232A3B] rounded-lg bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-medium text-slate-400 block mb-1">
+                              Nombre o Etiqueta
+                            </label>
+                            <input
+                              type="text"
+                              value={editLabel}
+                              onChange={(e) => setEditLabel(e.target.value)}
+                              placeholder="Nombre visible del atajo"
+                              className="w-full text-xs px-2.5 py-1.5 border border-[#232A3B] rounded-lg bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-medium text-slate-400">
+                              Texto del mensaje
+                            </label>
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {"{primer_nombre}"} se reemplaza por el nombre del lead
+                            </span>
+                          </div>
+                          <textarea
+                            rows={3}
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            placeholder="Texto completo que el asesor enviará..."
+                            className="w-full text-xs px-2.5 py-2 border border-[#232A3B] rounded-lg bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#1E2433]">
+                          <button
+                            type="button"
+                            onClick={cancelEditing}
+                            className="px-3 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={loading || !editShortcut.trim() || !editText.trim()}
+                            onClick={() => handleSaveEdit(idx)}
+                            className="px-3.5 py-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                          >
+                            {loading ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Guardando...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Guardar cambios</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed whitespace-pre-line">
-                        {item.text}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSnippet(idx)}
-                      className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition cursor-pointer"
-                      title="Eliminar atajo"
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="p-2.5 flex items-start justify-between gap-3 text-xs hover:bg-[#131722] transition group"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs font-mono font-bold text-[#00D2FF] bg-[#131722] px-1.5 py-0.5 rounded border border-[#232A3B]">
+                            {item.shortcut}
+                          </code>
+                          <span className="font-semibold text-white">{item.label}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed whitespace-pre-line">
+                          {item.text}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => startEditing(idx)}
+                          className="text-slate-400 hover:text-[#00D2FF] p-1.5 rounded-lg hover:bg-[#1E2433] transition cursor-pointer"
+                          title="Editar atajo"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSnippet(idx)}
+                          className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition cursor-pointer"
+                          title="Eliminar atajo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -290,9 +573,14 @@ export function ManageQuickRepliesModal({
               </div>
 
               <div>
-                <label className="text-[11px] font-medium text-slate-400 block mb-1">
-                  Texto del mensaje
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-slate-400">
+                    Texto del mensaje
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    Usa {"{primer_nombre}"} para el nombre del cliente
+                  </span>
+                </div>
                 <textarea
                   rows={2}
                   value={newText}
@@ -305,11 +593,11 @@ export function ManageQuickRepliesModal({
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  disabled={!newShortcut.trim() || !newText.trim()}
-                  className="px-3 py-1.5 bg-[#131722] hover:bg-[#1A1F2C] border border-[#232A3B] text-slate-200 hover:text-white text-xs font-semibold rounded-lg transition disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                  disabled={loading || !newShortcut.trim() || !newText.trim()}
+                  className="px-3 py-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg transition disabled:opacity-40 cursor-pointer flex items-center gap-1"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Añadir a la lista</span>
+                  <span>Añadir y Guardar</span>
                 </button>
               </div>
             </form>
@@ -317,35 +605,39 @@ export function ManageQuickRepliesModal({
         </div>
 
         {/* Footer con Guardar Cambios */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#1E2433]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleSaveAll}
-            disabled={loading}
-            className="px-4 py-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg transition shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Guardando...</span>
-              </>
-            ) : (
-              <>
-                <Check className="w-3.5 h-3.5" />
-                <span>Guardar Atajos ({snippets.length})</span>
-              </>
-            )}
-          </button>
+        <div className="flex items-center justify-between pt-3 border-t border-[#1E2433]">
+          <span className="text-[11px] text-slate-500 font-medium">
+            {snippets.length} atajo{snippets.length === 1 ? '' : 's'} activo{snippets.length === 1 ? '' : 's'}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
+            >
+              Cerrar
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveAll}
+              disabled={loading}
+              className="px-4 py-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg transition shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Listo</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-

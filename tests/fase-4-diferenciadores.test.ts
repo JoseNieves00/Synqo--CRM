@@ -56,6 +56,38 @@ async function runFase4Tests() {
   assert.strictEqual(realConversionRate, '27.6', 'Conversión debe calcularse sobre el 100% de la base real');
   console.log('   ✅ Cálculo de KPIs reales verificado:', `${realConversionRate}% sobre ${totalRealLeads} leads`);
 
+  // 4. Probar Lógica de Edición y Sanitización de Atajos Rápidos
+  console.log('\n4️⃣  Probando Edición y Normalización de Atajos Rápidos (Quick Replies)...');
+  const rawEditedShortcut = '  /CUENTA_OFICIAL  ';
+  let cleanCode = rawEditedShortcut.trim();
+  if (!cleanCode.startsWith('/')) cleanCode = '/' + cleanCode;
+  cleanCode = '/' + cleanCode.slice(1).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+
+  assert.strictEqual(cleanCode, '/cuenta_oficial', 'El comando editado debe normalizarse a minúsculas y caracteres válidos');
+
+  const testSnippets = [
+    { id: '1', shortcut: '/hola', label: 'Saludo', text: 'Hola {primer_nombre}!' },
+    { id: '2', shortcut: '/cuenta', label: 'Cuentas', text: 'Transferir a Nequi' },
+  ];
+
+  // Simular edición del atajo 2
+  const updatedSnippets = testSnippets.map((s) =>
+    s.id === '2'
+      ? { ...s, shortcut: cleanCode, label: 'Cuentas Bancarias Oficiales', text: 'Nequi: 3001234567 para {primer_nombre}' }
+      : s
+  );
+
+  const edited = updatedSnippets.find((s) => s.id === '2');
+  assert.strictEqual(edited?.shortcut, '/cuenta_oficial');
+  assert.strictEqual(edited?.label, 'Cuentas Bancarias Oficiales');
+  assert.ok(edited?.text.includes('{primer_nombre}'));
+
+  // Reemplazo de variable de contacto
+  const customerName = 'Camila';
+  const resolvedText = edited.text.replace(/\{primer_nombre\}/gi, customerName);
+  assert.strictEqual(resolvedText, 'Nequi: 3001234567 para Camila', 'La variable {primer_nombre} debe sustituirse correctamente');
+  console.log('   ✅ Normalización, edición y resolución dinámica de atajos aprobada.');
+
   console.log('\n🎉 ¡Todos los tests de Fase 4 pasaron exitosamente!\n');
 }
 

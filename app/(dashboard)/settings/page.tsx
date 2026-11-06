@@ -4,6 +4,7 @@ import { getTeamInfo } from '@/app/actions/team';
 import { getOrganizationKnowledgeGaps } from '@/app/actions/knowledge-gaps';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { BASE_DEFAULT_SNIPPETS, generateSuggestedSnippetsFromPrompt } from '@/lib/chat/snippets';
 import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const org = current.organization;
   const paymentAccounts = (org?.appointment_settings as any)?.payment_accounts || [];
+  const quickReplies = Array.isArray((org?.appointment_settings as any)?.quick_replies) && (org?.appointment_settings as any).quick_replies.length > 0
+    ? (org?.appointment_settings as any).quick_replies
+    : BASE_DEFAULT_SNIPPETS;
+
+  const aiSuggestions = generateSuggestedSnippetsFromPrompt(
+    (org as any)?.structured_prompt_data,
+    org?.system_prompt
+  );
 
   // Cargar información de equipo y usuarios
   let teamData = null;
@@ -118,6 +127,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       specialistsData={specialists}
       roomsData={rooms}
       paymentAccountsData={paymentAccounts}
+      quickRepliesData={quickReplies}
+      aiSuggestionsData={aiSuggestions}
       isSuperAdmin={Boolean(current.profile.is_super_admin)}
     />
   );
