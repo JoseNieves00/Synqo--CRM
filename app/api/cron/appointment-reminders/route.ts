@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { ReminderService } from '@/services/reminder.service';
 
@@ -18,18 +19,25 @@ export async function POST(request: NextRequest) {
 
 async function handleCron(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  const isVercelCron = request.headers.get('x-vercel-cron') === '1';
 
-  // 🛡️ PROTECCIÓN DE RUTA CRON: Exigir Bearer CRON_SECRET o Vercel Cron oficial
-  if (!isVercelCron) {
-    if (!cronSecret) {
-      console.warn('[CRON SECURITY ALERT] CRON_SECRET no está configurado en el servidor.');
-      return NextResponse.json({ error: 'Unauthorized: CRON_SECRET not configured' }, { status: 401 });
-    }
-    const authHeader = request.headers.get('authorization');
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized: Invalid CRON_SECRET' }, { status: 401 });
-    }
+  // 🛡️ PROTECCIÓN ESTRICTA DE RUTA CRON: Exigir Bearer CRON_SECRET en cabecera Authorization (no se permite bypass por x-vercel-cron)
+  if (!cronSecret) {
+    console.warn('[CRON SECURITY ALERT] CRON_SECRET no está configurado en el servidor.');
+    return NextResponse.json({ error: 'Unauthorized: CRON_SECRET not configured' }, { status: 401 });
+  }
+
+  const authHeader = request.headers.get('authorization');
+  const expectedHeader = `Bearer ${cronSecret}`;
+
+  if (!authHeader) {
+    return NextResponse.json({ error: 'Unauthorized: Missing Authorization header' }, { status: 401 });
+  }
+
+  const authBuf = Buffer.from(authHeader, 'utf8');
+  const expBuf = Buffer.from(expectedHeader, 'utf8');
+
+  if (authBuf.length !== expBuf.length || !crypto.timingSafeEqual(authBuf, expBuf)) {
+    return NextResponse.json({ error: 'Unauthorized: Invalid CRON_SECRET' }, { status: 401 });
   }
 
   try {
