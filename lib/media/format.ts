@@ -132,7 +132,7 @@ export function parseDocumentMessageContent(content: string | null | undefined):
 export function stripPhotoUrlsFromText(text: string | null | undefined): string {
   if (!text) return '';
   return text
-    .replace(/===\s*CATÁLOGO VISUAL DE FOTOS[\s\S]*?(?=\n\n[#=]|$)/gi, '')
+    .replace(/===\s*CATÁLOGO VISUAL DE (?:FOTOS|PRODUCTOS)[^\n]*===[\s\S]*?(?=\n\n[#=]|$)/gi, '')
     .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\]]+\]/gi, '')
     .replace(/[ \t]+(?=\r?\n|$)/gm, '')
     .trim();

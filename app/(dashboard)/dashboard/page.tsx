@@ -6,6 +6,8 @@ import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { getOrganizationTokenUsage } from '@/app/actions/usage';
 import { getOrganizationPendingReminders } from '@/app/actions/reminders';
 import { RemindersDashboardWidget } from '@/components/dashboard/RemindersDashboardWidget';
+import { getRecentAiActivity } from '@/app/actions/ai-activity';
+import { AiActivityFeed } from '@/components/dashboard/AiActivityFeed';
 import { redirect } from 'next/navigation';
 
 const NewLeadModal = nextDynamic(
@@ -55,6 +57,7 @@ export default async function DashboardPage() {
     recentLeadsRes,
     tokenUsage,
     remindersData,
+    aiActivityData,
   ] = await Promise.all([
     // 1. Total real de leads activos
     (supabaseAdmin.from('contacts') as any)
@@ -109,6 +112,7 @@ export default async function DashboardPage() {
 
     getOrganizationTokenUsage(),
     getOrganizationPendingReminders(),
+    getRecentAiActivity(15),
   ]);
 
   const totalLeads = totalLeadsRes.count ?? 0;
@@ -480,6 +484,12 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Observabilidad y Control Autónomo de la IA */}
+      <AiActivityFeed
+        initialItems={aiActivityData.items}
+        initialStats={aiActivityData.stats}
+      />
     </div>
   );
 }

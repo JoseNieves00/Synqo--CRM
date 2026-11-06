@@ -747,9 +747,14 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               (contentText.startsWith('🎙️ [Audio:') && !contentText.includes(']: "'));
 
             if (isUntranscribedVoice) {
+              // Inyectar con few-shot: primero el mensaje del cliente, luego el patrón de respuesta correcto
               conversationHistory.push({
                 role: 'user',
-                content: '[El cliente envió una nota de voz por WhatsApp, pero no fue posible transcribirla o no se escuchó con claridad. INSTRUCCIÓN OBLIGATORIA: NUNCA digas "escuché tu audio", "escuché tu audio con atención", ni finjas que sabes lo que dijo. Responde de manera muy amable y humana disculpándote porque no alcanzaste a escuchar el audio con claridad y pidiéndole por favor que te escriba en texto lo que necesita o si prefiere que lo comuniques con un asesor comercial humano].',
+                content: '[NOTA DE VOZ NO TRANSCRITA - El cliente envió un audio de WhatsApp pero el sistema no pudo transcribirlo. PROHIBICIÓN ABSOLUTA: NO uses "escuché tu audio", NO finjas que lo entendiste, NO inventes lo que dijo.]',
+              });
+              conversationHistory.push({
+                role: 'assistant',
+                content: 'Disculpa, no pude escuchar bien tu nota de voz 🙏 ¿Me podrías escribir en texto lo que necesitas? Así te ayudo mejor 😊',
               });
               continue;
             }
