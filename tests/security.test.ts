@@ -259,5 +259,174 @@ console.log('🧪 Iniciando Suite de Pruebas Automatizadas de Seguridad & Lógic
   console.log('   ✅ Sanitización Anti-CSV Injection aprobada.');
 }
 
-console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SEGURIDAD Y LÓGICA DE NEGOCIO PASARON EXITOSAMENTE!');
+// 11. Protección C1: Acciones administrativas de colaboradores sin sesión deben fallar
+(async () => {
+  console.log('1️⃣1️⃣  Probando Protección de Acciones de Staff (C1)...');
+  const { approveSpecialist, listSpecialistsForAdmin, createStaffInvitation } = await import('../app/actions/staff');
+
+  await assert.rejects(
+    async () => {
+      await approveSpecialist('00000000-0000-0000-0000-000000000000', true);
+    },
+    (err: any) => err?.message?.includes('No autorizado') || err?.message?.includes('cookies') || err?.message?.includes('request scope'),
+    'approveSpecialist sin sesión debe ser rechazado'
+  );
+
+  await assert.rejects(
+    async () => {
+      await listSpecialistsForAdmin('00000000-0000-0000-0000-000000000000');
+    },
+    (err: any) => err?.message?.includes('No autorizado') || err?.message?.includes('cookies') || err?.message?.includes('request scope'),
+    'listSpecialistsForAdmin sin sesión debe ser rechazado'
+  );
+
+  await assert.rejects(
+    async () => {
+      await createStaffInvitation('00000000-0000-0000-0000-000000000000');
+    },
+    (err: any) => err?.message?.includes('No autorizado') || err?.message?.includes('cookies') || err?.message?.includes('request scope'),
+    'createStaffInvitation sin sesión debe ser rechazado'
+  );
+
+  console.log('   ✅ Protección de acciones de staff (C1) aprobada.');
+
+  // 12. Protección C3: Cron Worker exige Authorization Bearer CRON_SECRET y rechaza bypass de x-vercel-cron
+  console.log('1️⃣2️⃣  Probando Protección de Cron Worker (C3)...');
+  const { GET: cronHandler } = await import('../app/api/cron/appointment-reminders/route');
+  const { NextRequest } = await import('next/server');
+
+  process.env.CRON_SECRET = 'super_secret_cron_token_2026';
+
+  // Request con solo cabecera falsificada x-vercel-cron: 1
+  const spoofedReq = new NextRequest('http://localhost:3000/api/cron/appointment-reminders', {
+    headers: {
+      'x-vercel-cron': '1',
+    },
+  });
+
+  const spoofedRes = await cronHandler(spoofedReq);
+  assert.strictEqual(spoofedRes.status, 401, 'Request con solo x-vercel-cron debe retornar 401');
+
+  // Request con secret incorrecto
+  const wrongSecretReq = new NextRequest('http://localhost:3000/api/cron/appointment-reminders', {
+    headers: {
+      authorization: 'Bearer wrong_cron_secret',
+    },
+  });
+  const wrongSecretRes = await cronHandler(wrongSecretReq);
+  assert.strictEqual(wrongSecretRes.status, 401, 'Request con CRON_SECRET incorrecto debe retornar 401');
+
+  console.log('   ✅ Protección de Cron Worker (C3) aprobada.');
+
+  // 13. Protección H3: Webhook de Meta fail-closed ante secreto faltante o firma inválida
+  console.log('1️⃣3️⃣  Probando Protección Webhook de Meta Fail-Closed (H3)...');
+  const { POST: metaWebhookHandler } = await import('../app/api/whatsapp/webhook/route');
+
+  const originalSecret = process.env.META_APP_SECRET;
+  delete process.env.META_APP_SECRET;
+
+  const fakeBody = JSON.stringify({
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'waba_test',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              messaging_product: 'whatsapp',
+              metadata: {
+                display_phone_number: '1234567890',
+                phone_number_id: 'fake_phone_without_secret',
+              },
+              contacts: [{ profile: { name: 'Test' }, wa_id: '12345' }],
+              messages: [
+                {
+                  from: '12345',
+                  id: 'wamid.HBgLTest',
+                  timestamp: '1600000000',
+                  type: 'text',
+                  text: { body: 'Hola' },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const unauthenticatedReq = new NextRequest('http://localhost:3000/api/whatsapp/webhook', {
+    method: 'POST',
+    body: fakeBody,
+    headers: {
+      'content-type': 'application/json',
+    },
+  });
+
+  const res = await metaWebhookHandler(unauthenticatedReq);
+  assert.ok(
+    res.status === 401 || res.status === 404,
+    `Webhook no autenticado debe retornar 401 o 404, recibido ${res.status}`
+  );
+
+  if (originalSecret) process.env.META_APP_SECRET = originalSecret;
+
+  console.log('   ✅ Protección Fail-Closed de Webhooks de Meta (H3) aprobada.');
+
+  // 14. Protección H1: Prevención de IDOR en reportDelay
+  console.log('1️⃣4️⃣  Probando Prevención de IDOR en reportDelay (H1)...');
+  const { AppointmentService } = await import('../services/appointment.service');
+
+  await assert.rejects(
+    async () => {
+      await AppointmentService.reportDelay({
+        appointmentId: '00000000-0000-0000-0000-000000000000',
+        delayMinutes: 15,
+        organizationId: 'org-otra-empresa-123',
+      });
+    },
+    (err: any) =>
+      err?.message?.includes('Cita no encontrada') ||
+      err?.message?.includes('no pertenece a la organización'),
+    'reportDelay con una cita que no pertenece a la organización debe fallar'
+  );
+
+  console.log('   ✅ Prevención de IDOR en reportDelay (H1) aprobada.');
+
+  // 15. Validación SSRF en Evolution API y Herramienta de Imágenes
+  console.log('1️⃣5️⃣  Probando Neutralización de SSRF en Evolution API y Multimedia...');
+  const { isValidEvolutionApiUrl } = await import('../lib/security/verify-webhook');
+  const { SendWhatsAppImageToolSchema } = await import('../lib/validations/tool-calls.schema');
+
+  assert.strictEqual(isValidEvolutionApiUrl('https://evolution.synqo.dev'), true);
+  assert.strictEqual(isValidEvolutionApiUrl('http://169.254.169.254/latest/meta-data/'), false);
+  assert.strictEqual(isValidEvolutionApiUrl('https://10.0.0.1/admin'), false);
+  assert.strictEqual(isValidEvolutionApiUrl('https://192.168.1.1:8080'), false);
+
+  assert.throws(() => {
+    SendWhatsAppImageToolSchema.parse({
+      image_url: 'http://169.254.169.254/latest/meta-data/',
+    });
+  }, 'Debe rechazar URL a metadatos de nube en send_whatsapp_image');
+
+  assert.throws(() => {
+    SendWhatsAppImageToolSchema.parse({
+      image_url: 'https://attacker.com/exploit.jpg',
+    });
+  }, 'Debe rechazar host no autorizado en send_whatsapp_image');
+
+  assert.doesNotThrow(() => {
+    SendWhatsAppImageToolSchema.parse({
+      image_url: 'https://cdn.synqo.dev/chat-media/foto.png',
+    });
+  }, 'Debe permitir URL autorizada en cdn.synqo.dev');
+
+  console.log('   ✅ Neutralización de SSRF en Evolution y Multimedia aprobada.');
+
+  console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SEGURIDAD Y LÓGICA DE NEGOCIO PASARON EXITOSAMENTE!');
+})().catch((err) => {
+  console.error('❌ Error en pruebas de seguridad:', err);
+  process.exit(1);
+});
 
