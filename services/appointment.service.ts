@@ -801,33 +801,53 @@ export class AppointmentService {
 
   /**
    * Notificación de retraso en servicio (+15 min).
+   * Blindaje multi-tenant estricto: requiere organizationId y opcionalmente specialistId.
    */
   static async reportDelay(params: {
     appointmentId: string;
     delayMinutes: number;
+    organizationId: string;
+    specialistId?: string;
   }) {
-    const { appointmentId, delayMinutes } = params;
+    const { appointmentId, delayMinutes, organizationId, specialistId } = params;
 
-    const { data: existingAppt } = await supabaseAdmin
+    if (!organizationId) {
+      throw new Error('organizationId es requerido para reportar retraso.');
+    }
+
+    let query = supabaseAdmin
       .from('appointments')
       .select('id, organization_id, specialist_id, start_time, contact_id, delay_minutes')
       .eq('id', appointmentId)
-      .single();
+      .eq('organization_id', organizationId);
+
+    if (specialistId) {
+      query = query.eq('specialist_id', specialistId);
+    }
+
+    const { data: existingAppt } = await query.maybeSingle();
 
     if (!existingAppt) {
-      throw new Error('Cita no encontrada para registrar aviso de retraso.');
+      throw new Error('Cita no encontrada para registrar aviso de retraso o no pertenece a la organización autorizada.');
     }
 
     const currentAccumulated = existingAppt.delay_minutes || 0;
     const totalDelay = currentAccumulated + delayMinutes;
 
-    const { data: appt, error } = await supabaseAdmin
+    let updateQuery = supabaseAdmin
       .from('appointments')
       .update({
         client_notified_delay_at: new Date().toISOString(),
         delay_minutes: totalDelay,
       })
       .eq('id', appointmentId)
+      .eq('organization_id', organizationId);
+
+    if (specialistId) {
+      updateQuery = updateQuery.eq('specialist_id', specialistId);
+    }
+
+    const { data: appt, error } = await updateQuery
       .select('id, organization_id, specialist_id, start_time, contact_id, delay_minutes')
       .single();
 
@@ -835,12 +855,13 @@ export class AppointmentService {
       throw new Error('Error al registrar aviso de retraso.');
     }
 
-    // Buscar el siguiente cliente del especialista para notificarlo
+    // Buscar el siguiente cliente del especialista para notificarlo (aislado por organización)
     let nextAppt = null;
     if (appt.specialist_id) {
       const { data } = await supabaseAdmin
         .from('appointments')
         .select('id, contact_id, start_time, service_name')
+        .eq('organization_id', organizationId)
         .eq('specialist_id', appt.specialist_id)
         .gt('start_time', appt.start_time)
         .neq('status', 'cancelled')
@@ -856,7 +877,8 @@ export class AppointmentService {
         .from('contacts')
         .select('id, name, phone')
         .eq('id', nextAppt.contact_id)
-        .single();
+        .eq('organization_id', organizationId)
+        .maybeSingle();
       nextContact = contact;
     }
 

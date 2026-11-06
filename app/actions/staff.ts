@@ -334,6 +334,8 @@ export async function staffReportDelay(appointmentId: string, delayMinutes: numb
   const res = await AppointmentService.reportDelay({
     appointmentId,
     delayMinutes,
+    organizationId: session.organizationId,
+    specialistId: session.specialistId,
   });
 
   // Si se encontró el siguiente cliente, despachar aviso preventivo por WhatsApp

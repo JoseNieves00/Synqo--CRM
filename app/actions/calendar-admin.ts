@@ -354,6 +354,7 @@ export async function reportDelayAdmin(appointmentId: string, delayMinutes: numb
   const res = await AppointmentService.reportDelay({
     appointmentId,
     delayMinutes,
+    organizationId: org.id,
   });
 
   // Si se detectó el siguiente cliente del especialista, enviarle una cortesía por WhatsApp
