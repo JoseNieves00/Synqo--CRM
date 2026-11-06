@@ -144,23 +144,36 @@ El drag & drop HTML5 no funciona en pantallas táctiles. Usar una librería con 
 
 ## 6. Hoja de ruta propuesta
 
-- **Fase 0 — Seguridad crítica (1-2 días):** C1, C2, C3, H1, H3; quitar los secretos por defecto; `server-only`; validar URLs en `send_whatsapp_image`; filtro por org y rol en las actions de M3.
-- **Fase 1 — Bugs que el cliente ve (≈1 semana):**
-  - Cron cada 15 minutos y lógica de auto-cancelación (exigir `reminder_sent_at`).
-  - Recordatorios con plantillas de Meta.
-  - Bug de "Listo"/"Descartar".
-  - Typo `contactId`, nombres de herramientas, links de Meet falsos (crearlos con la Google Calendar API o no enviar link), cuota de respaldo, `enabled_modules`.
-  - Quitar los precios de cocinitas y la zona horaria fija del prompt global.
-  - Volver a leer `is_ai_active` antes de enviar; revisar el resultado del insert; procesar todos los mensajes del lote; guardar los mensajes con rate limit sin pasarlos por la IA.
-- **Fase 2 — Paridad con WhatsApp (2-3 semanas):** preview y no leídos, ticks, citar, composer multilínea, paginación y búsqueda en servidor, layout móvil, PWA con Web Push, aterrizar en el inbox, pausa temporal con auto-reanudación.
-- **Fase 3 — Unificar el núcleo (en paralelo con la Fase 2):**
+- **Fase 0 — Seguridad crítica (COMPLETADA ✅):** C1, C2, C3, H1, H3; remoción de secretos por defecto hardcodeados; blindaje `server-only` en supabase admin; validación SSRF en `send_whatsapp_image`; aislamiento estricto por org y roles RBAC en actions de configuración M3.
+- **Fase 1 — Bugs de cara al cliente (COMPLETADA ✅):**
+  - Cron cada 15 minutos (`*/15 * * * *`) y auto-cancelación segura a 8h (exige `reminder_sent_at IS NOT NULL`).
+  - Recordatorios con despacho de plantilla oficial Meta cuando la ventana de 24h está cerrada.
+  - Corrección de parámetros y resolución bidireccional en acciones de "Listo" / "Descartar" de recordatorios.
+  - Corrección de typo `contact_id` en `ai_knowledge_gaps` y nombre de herramienta `check_native_availability`.
+  - Eliminación de enlaces inventados de Google Meet y corte estricto de cuota de respaldo OpenAI.
+  - Eliminación de precios fijos de cocinitas y zona horaria dinámica por empresa en el prompt global.
+  - Consulta de `enabled_modules` en webhooks y poda dinámica de herramientas de agenda.
+  - Prevención de condición de carrera en takeover móvil de Evolution (`fromMe: true`) y desactivación de IA antes del envío de red.
+  - Normalización de diacríticos y exclusión de cambio/cancelación en confirmación de citas.
+  - Re-lectura de `is_ai_active` previa al envío para evitar dobles respuestas.
+  - Persistencia de mensajes con rate limit y soporte de video, sticker y contactos en webhooks.
+- **Fase 2 — Paridad con WhatsApp & Núcleo del Inbox (EN EJECUCIÓN 🚀):**
+  1. **Último mensaje y contador de no leídos:** Mostrar último mensaje recibido/enviado y badge de mensajes no leídos por chat en la lista del Inbox (`read_at` / unread count).
+  2. **Ticks de entrega y lectura (Statuses):** Captura y persistencia de estados de entrega/lectura (enviado, entregado, leído) en mensajes en lugar de descartarlos en webhook.
+  3. **Citar mensajes (Reply to message):** Posibilidad de responder citando un mensaje anterior en el chat.
+  4. **Composer multilínea:** Textarea expandible con `Shift+Enter` para saltos de línea y `Enter` para enviar, sin deshabilitar el input mientras despacha.
+  5. **Descarga y reproducción de video:** Subida de videos entrantes a Storage y renderizado de reproductor de video en el Inbox para asesores.
+  6. **Pausas temporales de IA:** Silenciar IA por 30m, 2h o hasta mañana con auto-reactivación.
+  7. **Aterrizaje por rol:** Que los asesores aterricen en `/inbox` por defecto al iniciar sesión.
+  8. **Modal de edición de productos en catálogo:** Permitir editar el nombre y etiquetas de imágenes existentes sin tener que borrarlas y re-subirlas (ajuste post-Fase 2).
+- **Fase 3 — Unificar el núcleo:**
   - Un solo `ingestInbound()` y `runAiWorker()` para los tres canales.
   - Cola con reintentos (QStash o Supabase Queues).
   - Tabla `ai_runs`, Sentry y dead-letter.
   - Arreglar la RLS (funciones `SECURITY DEFINER`, `REVOKE` de columnas) y bucket privado.
   - PIN hasheado y más largo.
   - Tests con mocks.
-- **Fase 4 — Diferenciadores (continuo):** copiloto de borradores, corrección desde el chat, transparencia de la IA, etiquetas y timeline, sandbox del bot, scoring automático, dashboard con KPIs reales, plantillas sincronizadas.
+- **Fase 4 — Diferenciadores:** copiloto de borradores, corrección desde el chat, transparencia de la IA, etiquetas y timeline, sandbox del bot, scoring automático, dashboard con KPIs reales, plantillas sincronizadas.
 
 ### Qué quitar o no seguir ampliando por ahora
 No agregar más módulos (nuevos nichos, más canales) hasta cerrar las Fases 1 y 2. Revisar si el portal de colaboradores y los dos copilots internos se usan de verdad. Si no, congelarlos reduce superficie de ataque y mantenimiento.
