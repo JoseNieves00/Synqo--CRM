@@ -50,6 +50,7 @@ import {
   Flag,
   X,
   Receipt,
+  MoreVertical,
 } from 'lucide-react';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { PipelineStage } from '@/lib/supabase/types';
@@ -159,6 +160,22 @@ export function ChatWindow({
 
   // Estados de Pausa Temporal de IA (Snooze)
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+
+  // Menú estructurado de Más Opciones (...)
+  const [showMoreActions, setShowMoreActions] = useState(false);
+  const moreActionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (moreActionsRef.current && !moreActionsRef.current.contains(event.target as Node)) {
+        setShowMoreActions(false);
+      }
+    }
+    if (showMoreActions) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMoreActions]);
 
   const handleSnoozeAi = async (duration: 30 | 120 | 'tomorrow') => {
     setShowSnoozeMenu(false);
@@ -534,7 +551,7 @@ export function ChatWindow({
       } else if (msg.includes('131047') || msg.includes('24 hours') || msg.includes('24h')) {
         setErrorMessage('La ventana de 24 horas de Meta ha vencido para este cliente. Debes enviar una Plantilla Oficial para reanudar la conversación.');
       } else if (msg.includes('Disconnected') || msg.includes('desconectad') || msg.includes('405')) {
-        setErrorMessage('El teléfono o la instancia de WhatsApp (Evolution API) está desconectada. Revisa la vinculación en Configuración.');
+        setErrorMessage('El teléfono o la sesión de WhatsApp está desconectada. Revisa la vinculación en Configuración.');
       } else {
         setErrorMessage(`Error al enviar mensaje: ${msg || 'Error de conexión con WhatsApp'}`);
       }
@@ -874,35 +891,15 @@ export function ChatWindow({
             </span>
           )}
 
-          {/* Indicador de la Ventana / Protocolo de WhatsApp */}
-          {isBaileys ? (
-            <div
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30"
-              title="Instancia Evolution API activa: Sesión Baileys en VPS sin ventana de 24 horas"
-            >
-              <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Evolution API (Sin restricción 24h)</span>
-            </div>
-          ) : (
+          {/* Indicador de Ventana de 24h Meta (Solo se muestra cuando ha expirado, para no generar ruido visual) */}
+          {!isBaileys && !is24hValid && (
             <div
               suppressHydrationWarning
-              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border ${
-                is24hValid
-                  ? 'bg-emerald-50 dark:bg-[#090A0F] text-emerald-700 dark:text-slate-300 border-emerald-200 dark:border-[#232A3B]'
-                  : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30'
-              }`}
+              title="La ventana de 24 horas de Meta ha vencido. Debes enviar una plantilla autorizada para reactivar."
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30"
             >
-              {is24hValid ? (
-                <>
-                  <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-slate-400" />
-                  <span suppressHydrationWarning>{remainingHours}h restantes</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>24h Expirada</span>
-                </>
-              )}
+              <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <span>24h Expirada</span>
             </div>
           )}
 
@@ -1007,57 +1004,123 @@ export function ChatWindow({
             </button>
           )}
 
-          {/* Botón Resumen IA */}
+          {/* Botón Resumen IA (Visible en pantallas medianas/grandes) */}
           <button
             type="button"
             onClick={() => setIsAiSummaryModalOpen(true)}
             title="Ver o generar resumen ejecutivo de la negociación con IA"
-            className="px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#0052FF]/10 dark:to-indigo-950/20 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-blue-500/30 hover:border-blue-400 dark:hover:border-blue-400 shadow-2xs"
+            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#0052FF]/10 dark:to-indigo-950/20 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-blue-500/30 hover:border-blue-400 dark:hover:border-blue-400 shadow-2xs"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
-            <span className="hidden sm:inline">Resumen IA</span>
+            <span>Resumen IA</span>
           </button>
 
-          {/* Botón Dar Fin a la Conversación */}
-          <button
-            type="button"
-            onClick={() => setIsEndChatModalOpen(true)}
-            title="Finalizar atención de este contacto y registrar resolución"
-            className="px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:text-emerald-700 dark:hover:text-emerald-400 hover:border-emerald-300 dark:hover:border-emerald-500/30"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span className="hidden sm:inline">Dar Fin</span>
-          </button>
-
-          {/* Botón Ficha del Lead */}
+          {/* Botón Ficha del Lead (Acción Principal de Contexto) */}
           <button
             type="button"
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1 cursor-pointer ${
+            title="Abrir detalles y notas del prospecto"
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
               isDrawerOpen
                 ? 'bg-[#0052FF] text-white border-[#0052FF]'
-                : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:text-slate-900 dark:hover:text-white'
+                : 'bg-white dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-50 dark:hover:bg-[#232A3B]'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Ficha</span>
+            <span>Ficha</span>
           </button>
 
-          {/* Botón Eliminar Chat Directo (Solo Admins y Supervisores) */}
-          {isAdminOrSupervisor && (
+          {/* Menú Estructurado de Más Opciones (...) */}
+          <div className="relative" ref={moreActionsRef}>
             <button
               type="button"
-              onClick={() => {
-                setDeleteError(null);
-                setDeletePassword('');
-                setShowDeleteModal(true);
-              }}
-              title="Eliminar este chat y conversación permanentemente"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-slate-200 dark:border-[#232A3B] hover:border-rose-200 dark:hover:border-rose-500/20 transition cursor-pointer"
+              onClick={() => setShowMoreActions((prev) => !prev)}
+              title="Más opciones de la conversación"
+              className={`p-1.5 rounded-xl border transition cursor-pointer shadow-2xs ${
+                showMoreActions
+                  ? 'bg-slate-200 dark:bg-[#232A3B] text-slate-900 dark:text-white border-slate-300 dark:border-slate-600'
+                  : 'bg-white dark:bg-[#1A1F2C] text-slate-500 dark:text-slate-400 border-slate-200 dark:border-[#232A3B] hover:text-slate-800 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-[#232A3B]'
+              }`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <MoreVertical className="w-4 h-4" />
             </button>
-          )}
+
+            {showMoreActions && (
+              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 divide-y divide-slate-100 dark:divide-[#1E2433]">
+                <div className="py-1">
+                  {/* Resumen IA (para pantallas donde el botón superior está oculto) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setIsAiSummaryModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
+                  >
+                    <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                    <div>
+                      <div className="font-semibold text-xs">Resumen IA</div>
+                      <div className="text-[10px] text-slate-400">Ver acuerdos y contexto clave</div>
+                    </div>
+                  </button>
+
+                  {/* Programar Recordatorio */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setIsReminderModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
+                  >
+                    <Clock className="w-4 h-4 text-amber-500" />
+                    <div>
+                      <div className="font-semibold text-xs">Programar Recordatorio</div>
+                      <div className="text-[10px] text-slate-400">Envío, cobro o reactivación</div>
+                    </div>
+                  </button>
+
+                  {/* Dar Fin a la Conversación */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setIsEndChatModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <div>
+                      <div className="font-semibold text-xs">Finalizar Conversación</div>
+                      <div className="text-[10px] text-slate-400">Marcar resolución y archivar</div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Zona de Destrucción / Admin */}
+                {isAdminOrSupervisor && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreActions(false);
+                        setDeleteError(null);
+                        setDeletePassword('');
+                        setShowDeleteModal(true);
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 transition cursor-pointer flex items-center gap-2.5"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-500" />
+                      <div>
+                        <div className="font-semibold text-xs">Eliminar Conversación</div>
+                        <div className="text-[10px] text-rose-400/80">Borrado permanente con clave</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
