@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidMediaUrl } from '@/lib/security/verify-webhook';
 
 export const UpdateStageToolSchema = z.object({
   new_stage: z.enum(['nuevo', 'calificado', 'cita_agendada', 'ganado', 'perdido']),
@@ -42,7 +43,13 @@ export const CancelNativeAppointmentToolSchema = z.object({
 });
 
 export const SendWhatsAppImageToolSchema = z.object({
-  image_url: z.string().url().describe('URL pública directa de la imagen (https://...)'),
+  image_url: z
+    .string()
+    .url()
+    .refine((url) => isValidMediaUrl(url), {
+      message: 'URL de imagen no autorizada o insegura (debe ser HTTPS y provenir de un servidor autorizado)',
+    })
+    .describe('URL pública directa de la imagen (https://...)'),
   caption: z.string().max(300).optional().describe('Breve descripción o pie de foto (máximo 1 o 2 oraciones)'),
 });
 

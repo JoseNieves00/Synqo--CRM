@@ -134,12 +134,14 @@ export function isValidMediaUrl(urlString?: string | null): boolean {
       return false;
     }
 
-    // Permitir exclusivamente dominios autorizados de Z-API y WhatsApp/Meta
+    // Permitir exclusivamente dominios autorizados de Z-API, WhatsApp/Meta, Supabase y CDN oficial
     const allowedSuffixes = [
       'z-api.io',
       'whatsapp.net',
       'fbcdn.net',
       'fbsbx.com',
+      'supabase.co',
+      'synqo.dev',
     ];
 
     return allowedSuffixes.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`));
