@@ -3,7 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
-import { generateEvolutionWebhookSecret } from '@/lib/security/verify-webhook';
+import { generateEvolutionWebhookSecret, isValidEvolutionApiUrl } from '@/lib/security/verify-webhook';
 import { EvolutionService } from '@/services/evolution.service';
 import { revalidatePath } from 'next/cache';
 
@@ -88,11 +88,18 @@ async function resolveOrgEvolutionCredentials(orgId: string) {
   }
 
   // 2. Resolver URL del VPS (prioridad: organización -> variable global del VPS)
-  const apiUrl =
-    org.evolution_api_url?.trim() ||
+  const globalApiUrl = (
     process.env.EVOLUTION_API_URL ||
     process.env.NEXT_PUBLIC_EVOLUTION_API_URL ||
-    null;
+    ''
+  ).trim();
+
+  const orgApiUrl = org.evolution_api_url?.trim() || null;
+  const apiUrl = orgApiUrl || globalApiUrl || null;
+
+  if (apiUrl && !isValidEvolutionApiUrl(apiUrl)) {
+    throw new Error('La URL de Evolution API configurada es inválida o apunta a un host no permitido por políticas de seguridad SSRF.');
+  }
 
   // 3. Resolver API Key (prioridad: organización cifrada -> variable global del VPS del Super Admin)
   let apiKey = '';
@@ -101,11 +108,20 @@ async function resolveOrgEvolutionCredentials(orgId: string) {
       apiKey = decryptSecret(org.evolution_api_key);
     } catch {}
   }
-  if (!apiKey && process.env.EVOLUTION_API_KEY) {
+
+  const isCustomTenantUrl = Boolean(orgApiUrl && orgApiUrl !== globalApiUrl);
+
+  // NUNCA enviar la variable global EVOLUTION_API_KEY a una URL definida por un tenant
+  if (!apiKey && !isCustomTenantUrl && process.env.EVOLUTION_API_KEY) {
     apiKey = process.env.EVOLUTION_API_KEY.trim();
   }
 
   if (!apiKey) {
+    if (isCustomTenantUrl) {
+      throw new Error(
+        'La organización tiene una URL de Evolution API personalizada pero no ha configurado una API Key propia. Por seguridad, no se puede usar la clave maestra global del VPS.'
+      );
+    }
     throw new Error(
       'La API Key de Evolution API no está configurada. El Super Administrador debe configurar EVOLUTION_API_KEY en el servidor o en la Consola Super Admin.'
     );
@@ -133,18 +149,41 @@ export async function saveEvolutionCredentials({
   antiBanMode?: boolean;
   maxOutboundPerHour?: number;
 }) {
-  const { orgId } = await checkAdminAuth();
+  const { orgId, isSuperAdmin } = await checkAdminAuth();
+
+  const { data: currentOrg } = await (supabaseAdmin.from('organizations') as any)
+    .select('evolution_api_url, evolution_api_key')
+    .eq('id', orgId)
+    .single();
 
   const cleanInstance = EvolutionService.sanitizeInstanceName(instanceName);
 
   const updatePayload: any = {
     whatsapp_provider: whatsappProvider,
-    evolution_api_url: apiUrl?.trim() || null,
     evolution_instance_name: cleanInstance || null,
     evolution_anti_ban_mode: antiBanMode,
     evolution_max_outbound_per_hour: maxOutboundPerHour,
     updated_at: new Date().toISOString(),
   };
+
+  // Solo el Super Administrador puede configurar o modificar evolution_api_url
+  if (apiUrl !== undefined) {
+    const trimmedUrl = apiUrl.trim();
+    if (!isSuperAdmin) {
+      if (trimmedUrl && trimmedUrl !== (currentOrg?.evolution_api_url || '')) {
+        throw new Error('Solo el Super Administrador puede configurar o modificar la URL del servidor Evolution API.');
+      }
+    } else {
+      if (trimmedUrl) {
+        if (!isValidEvolutionApiUrl(trimmedUrl)) {
+          throw new Error('URL de Evolution API inválida o insegura (debe ser HTTPS y no apuntar a direcciones privadas).');
+        }
+        updatePayload.evolution_api_url = trimmedUrl;
+      } else {
+        updatePayload.evolution_api_url = null;
+      }
+    }
+  }
 
   if (apiKey && apiKey.trim()) {
     updatePayload.evolution_api_key = encryptSecret(apiKey.trim());
@@ -160,16 +199,21 @@ export async function saveEvolutionCredentials({
 
   // Intentar autoconfigurar webhooks si tenemos credenciales
   let webhookFeedback = '';
-  const finalApiKey = apiKey?.trim() || process.env.EVOLUTION_API_KEY?.trim();
+  const globalApiUrl = (process.env.EVOLUTION_API_URL || process.env.NEXT_PUBLIC_EVOLUTION_API_URL || '').trim();
+  const effectiveApiUrl = (updatePayload.evolution_api_url !== undefined ? updatePayload.evolution_api_url : currentOrg?.evolution_api_url)?.trim() || globalApiUrl;
+  const isCustomTenantUrl = Boolean(effectiveApiUrl && effectiveApiUrl !== globalApiUrl);
 
-  if (cleanInstance && finalApiKey) {
+  // NUNCA enviar la key global a una URL personalizada de un tenant
+  const finalApiKey = apiKey?.trim() || (!isCustomTenantUrl ? process.env.EVOLUTION_API_KEY?.trim() : undefined);
+
+  if (cleanInstance && finalApiKey && effectiveApiUrl) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://synqo.dev';
     const webhookSecret = generateEvolutionWebhookSecret(cleanInstance);
     const webhookUrl = `${appUrl}/api/webhooks/whatsapp/evolution?instanceName=${encodeURIComponent(cleanInstance)}&secret=${webhookSecret}`;
 
     try {
       const configRes = await EvolutionService.configureWebhooks({
-        apiUrl,
+        apiUrl: effectiveApiUrl,
         apiKey: finalApiKey,
         instanceName: cleanInstance,
         webhookUrl,

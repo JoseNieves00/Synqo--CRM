@@ -148,3 +148,54 @@ export function isValidMediaUrl(urlString?: string | null): boolean {
   }
 }
 
+/**
+ * Valida que una URL de Evolution API sea segura (HTTPS en producción, sin IPs privadas ni metadatos de nube).
+ * Previene ataques de SSRF al VPS o infraestructura interna.
+ */
+export function isValidEvolutionApiUrl(urlString?: string | null): boolean {
+  if (!urlString || typeof urlString !== 'string') return false;
+  try {
+    const parsed = new URL(urlString.trim());
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // En producción, exigir HTTPS estricto
+    if (isProd && parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Bloquear metadatos de nube, loopback e IPs privadas en cualquier entorno
+    if (
+      hostname === '169.254.169.254' ||
+      hostname.startsWith('169.254.') ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+      hostname === '::1' ||
+      hostname === '0.0.0.0'
+    ) {
+      return false;
+    }
+
+    // En producción, bloquear localhost y loopback
+    if (isProd) {
+      if (
+        hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        /^127\./.test(hostname)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
