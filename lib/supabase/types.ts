@@ -335,6 +335,7 @@ export interface Database {
           channel?: ContactChannel;
           status?: MessageDeliveryStatus | string | null;
           reply_to_message_id?: string | null;
+          reactions?: Json | null;
           created_at: string;
         };
         Insert: {
@@ -346,6 +347,7 @@ export interface Database {
           channel?: ContactChannel;
           status?: MessageDeliveryStatus | string | null;
           reply_to_message_id?: string | null;
+          reactions?: Json | null;
           created_at?: string;
         };
         Update: {
@@ -357,6 +359,7 @@ export interface Database {
           channel?: ContactChannel;
           status?: MessageDeliveryStatus | string | null;
           reply_to_message_id?: string | null;
+          reactions?: Json | null;
           created_at?: string;
         };
         Relationships: [];

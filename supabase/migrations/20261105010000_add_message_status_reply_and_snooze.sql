@@ -7,9 +7,12 @@
 ALTER TABLE messages
 ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'sent';
 
--- 2. Soporte de citar/responder mensaje anterior
+-- 2. Soporte de citar/responder mensaje anterior y reacciones con emojis
 ALTER TABLE messages
 ADD COLUMN IF NOT EXISTS reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL;
+
+ALTER TABLE messages
+ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT NULL;
 
 -- 3. Soporte de último mensaje y contador de no leídos en contactos para Inbox instantáneo
 ALTER TABLE contacts
@@ -26,3 +29,4 @@ ADD COLUMN IF NOT EXISTS ai_snooze_until TIMESTAMPTZ DEFAULT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 CREATE INDEX IF NOT EXISTS idx_contacts_unread ON contacts(organization_id, unread_count DESC);
 CREATE INDEX IF NOT EXISTS idx_contacts_ai_snooze ON contacts(ai_snooze_until) WHERE ai_snooze_until IS NOT NULL;
+
