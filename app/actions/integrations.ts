@@ -113,8 +113,12 @@ export async function getGoogleOAuthUrl() {
     timestamp: Date.now(),
   };
   const stateStr = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+  const encKey = process.env.ENCRYPTION_KEY;
+  if (!encKey) {
+    throw new Error('ENCRYPTION_KEY obligatoria no configurada en el servidor.');
+  }
   const signature = crypto
-    .createHmac('sha256', process.env.ENCRYPTION_KEY || 'synqo-google-oauth-secret')
+    .createHmac('sha256', encKey)
     .update(stateStr)
     .digest('hex');
 

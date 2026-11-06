@@ -55,7 +55,10 @@ export function verifyMetaSignature(
  * Genera un secreto HMAC-SHA256 determinista para autenticar webhooks de Evolution API de una instancia.
  */
 export function generateEvolutionWebhookSecret(instanceName: string): string {
-  const masterKey = process.env.ENCRYPTION_KEY || 'synqo_evolution_master_secret';
+  const masterKey = process.env.ENCRYPTION_KEY;
+  if (!masterKey) {
+    throw new Error('Variable de entorno ENCRYPTION_KEY obligatoria no configurada en el servidor.');
+  }
   return crypto.createHmac('sha256', masterKey).update(instanceName.trim()).digest('hex').slice(0, 32);
 }
 

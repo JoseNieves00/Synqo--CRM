@@ -33,8 +33,13 @@ export async function GET(request: Request) {
       throw new Error('Formato de estado de autenticación inválido.');
     }
 
+    const encKey = process.env.ENCRYPTION_KEY;
+    if (!encKey) {
+      throw new Error('ENCRYPTION_KEY obligatoria no configurada en el servidor.');
+    }
+
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.ENCRYPTION_KEY || 'synqo-google-oauth-secret')
+      .createHmac('sha256', encKey)
       .update(stateStr)
       .digest('hex');
 

@@ -19,7 +19,11 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN || 'synqo_webhook_2026';
+  const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
+  if (!expectedToken) {
+    console.error('[INSTAGRAM WEBHOOK] META_WEBHOOK_VERIFY_TOKEN no está configurada.');
+    return new NextResponse('Configuration error: META_WEBHOOK_VERIFY_TOKEN not set', { status: 500 });
+  }
 
   if (mode === 'subscribe' && token === expectedToken && challenge) {
     console.log('[INSTAGRAM WEBHOOK] Handshake completado exitosamente con Meta.');
