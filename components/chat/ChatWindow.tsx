@@ -563,7 +563,7 @@ export function ChatWindow({
     if (!activeReminder || isCompletingReminder) return;
     setIsCompletingReminder(true);
     try {
-      await completeContactReminder(activeReminder.id);
+      await completeContactReminder(contact.id, activeReminder.id);
       setActiveReminder(null);
       onContactUpdate?.({
         custom_fields: {
@@ -582,7 +582,7 @@ export function ChatWindow({
     if (!activeReminder) return;
     if (!window.confirm('¿Deseas cancelar y descartar este recordatorio?')) return;
     try {
-      await cancelContactReminder(activeReminder.id);
+      await cancelContactReminder(contact.id, activeReminder.id);
       setActiveReminder(null);
       onContactUpdate?.({
         custom_fields: {

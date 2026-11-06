@@ -149,17 +149,41 @@ export async function completeContactReminder(contactId: string, reminderId?: st
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
-  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+  let resolvedContactId = contactId;
+  let resolvedReminderId = reminderId;
+
+  // 1. Intentar buscar el contacto directamente por su ID
+  let { data: contact } = await (supabaseAdmin.from('contacts') as any)
     .select('id, name, organization_id, custom_fields')
-    .eq('id', contactId)
+    .eq('id', resolvedContactId)
     .eq('organization_id', profile.organization_id)
-    .single();
+    .maybeSingle();
+
+  // 2. Si no se encontró, contactId podría ser en realidad el reminderId (tolerancia bidireccional)
+  if (!contact) {
+    const { data: reminderRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
+      .select('id, contact_id, organization_id')
+      .eq('id', contactId)
+      .eq('organization_id', profile.organization_id)
+      .maybeSingle();
+
+    if (reminderRow) {
+      resolvedReminderId = reminderRow.id;
+      resolvedContactId = reminderRow.contact_id;
+      const { data: c } = await (supabaseAdmin.from('contacts') as any)
+        .select('id, name, organization_id, custom_fields')
+        .eq('id', resolvedContactId)
+        .eq('organization_id', profile.organization_id)
+        .single();
+      contact = c;
+    }
+  }
 
   if (!contact) throw new Error('Contacto no encontrado');
 
   const currentCustom = (contact.custom_fields as Record<string, any>) || {};
   const activeRem = currentCustom.active_reminder;
-  const targetId = reminderId || activeRem?.id;
+  const targetId = resolvedReminderId || activeRem?.id;
 
   if (targetId) {
     await (supabaseAdmin.from('scheduled_reminders') as any)
@@ -182,18 +206,18 @@ export async function completeContactReminder(contactId: string, reminderId?: st
       },
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contactId);
+    .eq('id', resolvedContactId);
 
   const noteStr = completionNote?.trim() ? ` - Detalle: "${completionNote.trim()}"` : '';
 
   await (supabaseAdmin.from('messages') as any).insert({
-    contact_id: contactId,
+    contact_id: resolvedContactId,
     sender_type: 'system',
     content: `[✅ Recordatorio completado por ${profile.full_name || 'Asesor'}${noteStr}]`,
   });
 
   revalidatePath('/inbox');
-  revalidatePath(`/inbox/${contactId}`);
+  revalidatePath(`/inbox/${resolvedContactId}`);
   revalidatePath('/dashboard');
 
   return { success: true };
@@ -214,17 +238,41 @@ export async function cancelContactReminder(contactId: string, reminderId?: stri
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
-  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+  let resolvedContactId = contactId;
+  let resolvedReminderId = reminderId;
+
+  // 1. Intentar buscar el contacto directamente por su ID
+  let { data: contact } = await (supabaseAdmin.from('contacts') as any)
     .select('id, name, organization_id, custom_fields')
-    .eq('id', contactId)
+    .eq('id', resolvedContactId)
     .eq('organization_id', profile.organization_id)
-    .single();
+    .maybeSingle();
+
+  // 2. Si no se encontró, contactId podría ser en realidad el reminderId (tolerancia bidireccional)
+  if (!contact) {
+    const { data: reminderRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
+      .select('id, contact_id, organization_id')
+      .eq('id', contactId)
+      .eq('organization_id', profile.organization_id)
+      .maybeSingle();
+
+    if (reminderRow) {
+      resolvedReminderId = reminderRow.id;
+      resolvedContactId = reminderRow.contact_id;
+      const { data: c } = await (supabaseAdmin.from('contacts') as any)
+        .select('id, name, organization_id, custom_fields')
+        .eq('id', resolvedContactId)
+        .eq('organization_id', profile.organization_id)
+        .single();
+      contact = c;
+    }
+  }
 
   if (!contact) throw new Error('Contacto no encontrado');
 
   const currentCustom = (contact.custom_fields as Record<string, any>) || {};
   const activeRem = currentCustom.active_reminder;
-  const targetId = reminderId || activeRem?.id;
+  const targetId = resolvedReminderId || activeRem?.id;
 
   if (targetId) {
     await (supabaseAdmin.from('scheduled_reminders') as any)
@@ -240,16 +288,16 @@ export async function cancelContactReminder(contactId: string, reminderId?: stri
       },
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contactId);
+    .eq('id', resolvedContactId);
 
   await (supabaseAdmin.from('messages') as any).insert({
-    contact_id: contactId,
+    contact_id: resolvedContactId,
     sender_type: 'system',
     content: `[✕ Recordatorio cancelado por ${profile.full_name || 'Asesor'}]`,
   });
 
   revalidatePath('/inbox');
-  revalidatePath(`/inbox/${contactId}`);
+  revalidatePath(`/inbox/${resolvedContactId}`);
   revalidatePath('/dashboard');
 
   return { success: true };

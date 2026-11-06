@@ -63,7 +63,7 @@ export function RemindersDashboardWidget({
     setCompletingId(reminderId);
 
     try {
-      await completeContactReminder(reminderId);
+      await completeContactReminder(contactId, reminderId);
       setCompletedIds((prev) => {
         const next = new Set(prev);
         next.add(reminderId);
