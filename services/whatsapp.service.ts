@@ -79,6 +79,58 @@ export class WhatsAppService {
   }
 
   /**
+   * Envía una reacción con emoji a un mensaje específico del cliente en Meta Cloud API.
+   */
+  static async sendReaction({
+    phoneNumberId,
+    accessToken,
+    to,
+    messageId,
+    emoji,
+  }: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    messageId: string;
+    emoji: string;
+  }): Promise<string> {
+    const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: cleanTo,
+          type: 'reaction',
+          reaction: {
+            message_id: messageId,
+            emoji,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.warn('[WHATSAPP API SEND REACTION WARN]', errorData);
+        return '';
+      }
+
+      const data = await response.json().catch(() => ({}));
+      return data.messages?.[0]?.id || '';
+    } catch (err: any) {
+      console.warn('[WHATSAPP API SEND REACTION ERROR]', err?.message);
+      return '';
+    }
+  }
+
+  /**
    * Envía un video con caption opcional a través de Meta WhatsApp Cloud API.
    */
   static async sendVideoMessage({

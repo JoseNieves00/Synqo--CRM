@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
   const isMessageUpsert =
     event === 'messages.upsert' ||
     event === 'messages_upsert' ||
-    payload.data?.key?.id;
+    (!event && Boolean(payload.data?.message && payload.data?.key?.id));
 
   if (!isMessageUpsert) {
     return NextResponse.json({ status: 'ignored_unhandled_event' }, { status: 200 });

@@ -258,6 +258,54 @@ export class MessagingService {
   }
 
   /**
+   * Envía una reacción con emoji al mensaje del cliente en el proveedor activo (Meta o Evolution).
+   */
+  static async sendReactionMessage({
+    organization,
+    to,
+    messageId,
+    emoji,
+  }: {
+    organization: MessagingOrganization;
+    to: string;
+    messageId: string;
+    emoji: string;
+  }): Promise<boolean> {
+    const provider = organization.whatsapp_provider || 'meta';
+
+    if (provider === 'evolution') {
+      const evoConfig = this.resolveEvolutionConfig(organization);
+      return await EvolutionService.sendReaction({
+        apiUrl: evoConfig.apiUrl,
+        apiKey: evoConfig.apiKey,
+        instanceName: evoConfig.instanceName,
+        remoteJid: to,
+        messageId,
+        emoji,
+      });
+    }
+
+    if (!organization.whatsapp_phone_number_id || !organization.whatsapp_access_token) {
+      return false;
+    }
+
+    try {
+      const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+      await WhatsAppService.sendReaction({
+        phoneNumberId: organization.whatsapp_phone_number_id,
+        accessToken: decryptedToken,
+        to,
+        messageId,
+        emoji,
+      });
+      return true;
+    } catch (e: any) {
+      console.warn('[MESSAGING SERVICE REACTION WARN]', e?.message);
+      return false;
+    }
+  }
+
+  /**
    * Envía una plantilla comercial pre-aprobada.
    * Si el motor es Evolution API, traduce la plantilla a texto libre sin costo ni restricción de 24h.
    */

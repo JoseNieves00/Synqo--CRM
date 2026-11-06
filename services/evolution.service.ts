@@ -741,6 +741,45 @@ export class EvolutionService {
   }
 
   /**
+   * Envía una reacción con emoji a un mensaje específico en Evolution API.
+   * Endpoint oficial: POST /message/sendReaction/{instance}
+   */
+  static async sendReaction({
+    apiUrl,
+    apiKey,
+    instanceName,
+    remoteJid,
+    messageId,
+    emoji,
+  }: EvolutionCredentials & { remoteJid: string; messageId: string; emoji: string }): Promise<boolean> {
+    const baseUrl = this.resolveBaseUrl(apiUrl);
+    const cleanInstance = this.sanitizeInstanceName(instanceName);
+    const cleanPhone = remoteJid.replace(/[^\d]/g, '');
+    const formattedJid = remoteJid.includes('@') ? remoteJid : `${cleanPhone}@s.whatsapp.net`;
+    const url = `${baseUrl}/message/sendReaction/${cleanInstance}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.buildHeaders(apiKey),
+        body: JSON.stringify({
+          key: {
+            remoteJid: formattedJid,
+            fromMe: false,
+            id: messageId,
+          },
+          reaction: emoji,
+        }),
+      });
+
+      return response.ok;
+    } catch (e: any) {
+      console.warn('[EVOLUTION SEND REACTION WARN]', e?.message);
+      return false;
+    }
+  }
+
+  /**
    * Cierra la sesión activa de WhatsApp Web en el VPS (Logout).
    * Endpoint oficial: DELETE /instance/logout/{instance}
    */

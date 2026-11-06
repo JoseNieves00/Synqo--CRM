@@ -11,6 +11,8 @@ import {
   extractPhotoUrlsFromText,
   isPaymentReceiptHint,
 } from '../lib/media/format';
+import { isCourtesyClosingMessage } from '../services/inbound-core.service';
+import { MessagingService } from '../services/messaging.service';
 import { SendWhatsAppImageToolSchema } from '../lib/validations/tool-calls.schema';
 
 async function runMultimediaTests() {
@@ -267,6 +269,17 @@ Ubicación: Valledupar
   } else {
     console.log('   ⚠️ Supabase URL o Service Key no disponibles en entorno local de pruebas.');
   }
+
+  // 7. Prueba de Detección de Cortesía y Cierre Elegante (👍 Reaction en vez de texto)
+  console.log('\n7️⃣  Probando Detección de Mensajes de Cortesía ("Ok gracias") para Reacción con 👍...');
+  assert.strictEqual(isCourtesyClosingMessage('Ok gracias'), true, 'Ok gracias debe detectarse como cortesía');
+  assert.strictEqual(isCourtesyClosingMessage('Muchas gracias!'), true, 'Muchas gracias debe detectarse como cortesía');
+  assert.strictEqual(isCourtesyClosingMessage('listo gracias'), true, 'listo gracias debe detectarse como cortesía');
+  assert.strictEqual(isCourtesyClosingMessage('dale muchas gracias feliz día'), true, 'despedida cortés debe detectarse');
+  assert.strictEqual(isCourtesyClosingMessage('Quiero una cocina pequeña'), false, 'Pregunta de venta no debe detectarse como cortesía');
+  assert.strictEqual(isCourtesyClosingMessage('gracias, cuanto vale?'), false, 'Pregunta con gracias no debe cerrarse prematuramente');
+  assert.strictEqual(typeof MessagingService.sendReactionMessage, 'function', 'sendReactionMessage debe estar expuesto');
+  console.log('   ✅ Detección de cortesía y despacho de reacciones 👍 aprobado con 0 tokens de IA.');
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE MULTIMEDIA E IMÁGENES PASARON EXITOSAMENTE!\n');
 }

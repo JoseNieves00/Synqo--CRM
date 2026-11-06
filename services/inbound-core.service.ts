@@ -59,6 +59,7 @@ export interface InboundResult {
     | 'success'
     | 'duplicate_ignored'
     | 'reaction_recorded'
+    | 'courtesy_reaction_sent'
     | 'payment_receipt_held'
     | 'human_requested'
     | 'after_hours_sent'
@@ -85,6 +86,65 @@ const HUMAN_HANDOFF_PATTERNS = [
   /necesito\s+(un|una)\s+asesor/i,
   /necesito\s+hablar\s+con\s+/i,
 ];
+
+/**
+ * Detecta mensajes de despedida o agradecimiento de cortesía pura (ej: "ok gracias", "muchas gracias").
+ * En ventas por WhatsApp, responder texto largo a esto resulta molesto y robótico.
+ * Reaccionar con emoji 👍 es la conducta humana recomendada.
+ */
+export function isCourtesyClosingMessage(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const clean = text
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remover acentos
+    .replace(/[^\w\s]/gi, ' ') // remover puntuación y emojis
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!clean || clean.length > 45) return false;
+  if (text.includes('?') || text.includes('¿')) return false;
+
+  // Palabras comerciales o de pregunta que impiden que sea un simple cierre
+  const commercialKeywords = ['cuanto', 'precio', 'valor', 'vale', 'costo', 'foto', 'modelo', 'comprar', 'tienen', 'envio', 'pago', 'nequi', 'daviplata', 'cuenta', 'apartar', 'pedir', 'medida', 'color'];
+  if (commercialKeywords.some((kw) => clean.includes(kw))) {
+    return false;
+  }
+
+  // Si la palabra clave "gracias" o "grax" está presente en frases cortas de cortesía
+  const isThanks = /\b(gracias|muchas gracias|mil gracias|grax|grx)\b/.test(clean);
+  if (isThanks) {
+    return true;
+  }
+
+  const otherCourtesyClosings = new Set([
+    'ok',
+    'okey',
+    'oka',
+    'vale',
+    'listo',
+    'dale',
+    'perfecto',
+    'bueno',
+    'super',
+    'excelente',
+    'ok vale',
+    'listo vale',
+    'dale pues',
+    'feliz dia',
+    'buen dia',
+    'igualmente',
+    'feliz tarde',
+    'feliz noche',
+    'buena tarde',
+    'buena noche',
+    'muy amable',
+    'muy amables',
+  ]);
+
+  return otherCourtesyClosings.has(clean);
+}
 
 export class InboundCoreService {
   /**
@@ -390,6 +450,34 @@ export class InboundCoreService {
       console.warn('[INBOUND CORE CONFIRMATION CHECK WARN]', confErr);
     }
 
+    // 7.5. Manejo Elegante de Cortesía y Cierre ("Ok gracias") -> Reacción Nativa con Emoji 👍
+    if (channel !== 'instagram' && isCourtesyClosingMessage(sanitizedContent)) {
+      try {
+        await MessagingService.sendReactionMessage({
+          organization,
+          to: senderId,
+          messageId: channelMessageId,
+          emoji: '👍',
+        });
+
+        const reactionPayload = {
+          emoji: '👍',
+          from: 'agent',
+          reacted_at: new Date().toISOString(),
+        };
+
+        if (messageId) {
+          await (supabaseAdmin.from('messages') as any)
+            .update({ reactions: reactionPayload })
+            .eq('id', messageId);
+        }
+
+        return { status: 'courtesy_reaction_sent', contactId, messageId };
+      } catch (reactErr) {
+        console.warn('[COURTESY REACTION WARN]', reactErr);
+      }
+    }
+
     // 8. Evaluación Uniforme de Guardrails y Solicitud Humana
     if (isPaymentReceipt) {
       await (supabaseAdmin.from('messages') as any).insert({
@@ -480,8 +568,8 @@ export class InboundCoreService {
     const startTime = Date.now();
 
     try {
-      // Anti-Burst Buffer (Debounce de 3.5 segundos para mensajes consecutivos)
-      await new Promise((resolve) => setTimeout(resolve, 3500));
+      // Anti-Burst Buffer (Debounce de 4.0 segundos para mensajes consecutivos)
+      await new Promise((resolve) => setTimeout(resolve, 4000));
 
       // Verificar si llegó un mensaje del lead más reciente
       const { data: latestMsg } = await (supabaseAdmin.from('messages') as any)
@@ -496,6 +584,44 @@ export class InboundCoreService {
         console.log(`[INBOUND CORE ANTI-BURST] Mensaje ${insertedMessageId} descartado; se responderá con el más reciente (${latestMsg.id}).`);
         return;
       }
+
+      // 🛡️ ANTI-DUPLICADOS: Si ya existe un mensaje saliente (IA o asesor) posterior a este mensaje del lead, abortar
+      if (latestMsg) {
+        const { data: laterOutbound } = await (supabaseAdmin.from('messages') as any)
+          .select('id, created_at')
+          .eq('contact_id', contactId)
+          .in('sender_type', ['ai', 'agent_manual'])
+          .gte('created_at', latestMsg.created_at)
+          .limit(1)
+          .maybeSingle();
+
+        if (laterOutbound) {
+          console.log(`[INBOUND CORE ANTI-DUPLICATE] Ya existe una respuesta (${laterOutbound.id}) para el turno del lead ${insertedMessageId}. Omitiendo duplicado.`);
+          return;
+        }
+      }
+
+      // 🛡️ MUTEX / LOCK POR CONTACTO: Evitar que dos workers atiendan al mismo contacto al mismo tiempo
+      const { data: contactLockCheck } = await (supabaseAdmin.from('contacts') as any)
+        .select('custom_fields')
+        .eq('id', contactId)
+        .single();
+
+      const lockUntil = contactLockCheck?.custom_fields?.ai_lock_until;
+      if (lockUntil && Number(lockUntil) > Date.now()) {
+        console.log(`[INBOUND CORE LOCK] Contacto ${contactId} ya está siendo procesado por otro worker activo.`);
+        return;
+      }
+
+      // Adquirir bloqueo temporal por 25 segundos
+      await (supabaseAdmin.from('contacts') as any)
+        .update({
+          custom_fields: {
+            ...(contactLockCheck?.custom_fields || {}),
+            ai_lock_until: Date.now() + 25000,
+          },
+        })
+        .eq('id', contactId);
 
       // Re-verificar si un asesor humano intervino o pausó la IA durante la espera
       const { data: latestContact } = await (supabaseAdmin.from('contacts') as any)
@@ -784,6 +910,24 @@ export class InboundCoreService {
         status: 'failed',
         errorMessage: workerError?.message || 'Excepción no controlada en el worker de IA',
       });
+    } finally {
+      // Liberar el bloqueo temporal del contacto
+      try {
+        const { data: curContact } = await (supabaseAdmin.from('contacts') as any)
+          .select('custom_fields')
+          .eq('id', contactId)
+          .maybeSingle();
+
+        if (curContact?.custom_fields?.ai_lock_until) {
+          const updatedCustom = { ...curContact.custom_fields };
+          delete updatedCustom.ai_lock_until;
+          await (supabaseAdmin.from('contacts') as any)
+            .update({ custom_fields: updatedCustom })
+            .eq('id', contactId);
+        }
+      } catch (unlockErr) {
+        console.warn('[INBOUND CORE UNLOCK WARN]', unlockErr);
+      }
     }
   }
 
