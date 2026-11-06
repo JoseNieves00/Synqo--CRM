@@ -417,9 +417,6 @@ export class AppointmentService {
       }
     } catch (gcalErr) {
       console.warn('[CREATE APPOINTMENT GOOGLE CALENDAR SYNC WARN]', gcalErr);
-      if (!finalMeetingLink) {
-        finalMeetingLink = GoogleCalendarService.generateDefaultMeetLink();
-      }
     }
 
     // Insertar la cita

@@ -85,16 +85,12 @@ async function createChatCompletionWithFallback(params: {
   if (params.organizationId) {
     const backupQuota = await checkBackupTokenQuota(params.organizationId);
     if (!backupQuota.allowed) {
-      // Verificar si la empresa aún tiene bolsa mensual general disponible (ai_tokens_limit)
-      const mainQuota = await checkTokenQuota(params.organizationId);
-      if (!mainQuota.allowed) {
-        console.warn(
-          `[OPENAI BACKUP EXCEEDED] Org ${params.organizationId} ha agotado su bolsa mensual de OpenAI (${backupQuota.used}/${backupQuota.limit}) y general (${mainQuota.used}/${mainQuota.limit}). Protegiendo saldo.`
-        );
-        throw new Error(
-          'La cuota mensual de IA ha sido completada para esta empresa. Por favor comunícate con soporte para recargar o atiende directamente desde la bandeja.'
-        );
-      }
+      console.warn(
+        `[OPENAI BACKUP EXCEEDED] Org ${params.organizationId} ha agotado su bolsa mensual de OpenAI Backup (${backupQuota.used}/${backupQuota.limit}). Protegiendo saldo.`
+      );
+      throw new Error(
+        'La cuota mensual de respaldo (OpenAI) ha sido agotada para esta empresa. Por favor comunícate con soporte para recargar o atiende directamente desde la bandeja.'
+      );
     }
   }
 
@@ -914,12 +910,8 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
                 }
               }
 
-              // Si es un servicio virtual (ej. Asesoría B2B, Consulta Online, Clase Remota), autogenerar enlace de Google Meet
+              // Si es un servicio virtual, la sincronización oficial con Google Calendar generará el enlace verificado
               let virtualMeetingLink: string | null = null;
-              if (isVirtualService) {
-                const meetingCode = `${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
-                virtualMeetingLink = `https://meet.google.com/${meetingCode}`;
-              }
 
               const appt = await AppointmentService.createAppointment({
                 organizationId,

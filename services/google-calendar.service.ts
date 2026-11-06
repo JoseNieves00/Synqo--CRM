@@ -15,7 +15,7 @@ export interface CreateEventParams {
 export interface GoogleCalendarEventResult {
   success: boolean;
   eventId?: string;
-  meetLink: string;
+  meetLink: string | null;
   syncedToGoogle: boolean;
   error?: string;
 }
@@ -104,11 +104,10 @@ export class GoogleCalendarService {
   }
 
   /**
-   * Genera un enlace de reunión estándar de Google Meet
+   * Enlace de reunión de Google Meet (retorna null si no fue generado por Google Calendar)
    */
-  static generateDefaultMeetLink(): string {
-    const code = `${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
-    return `https://meet.google.com/${code}`;
+  static generateDefaultMeetLink(): string | null {
+    return null;
   }
 
   /**
@@ -126,8 +125,6 @@ export class GoogleCalendarService {
       referenceInfo,
     } = params;
 
-    const fallbackMeet = this.generateDefaultMeetLink();
-
     try {
       const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
         .select('google_calendar_token, google_calendar_id, google_calendar_sync_enabled')
@@ -138,7 +135,7 @@ export class GoogleCalendarService {
         // No está conectado o la sincronización automática está apagada
         return {
           success: true,
-          meetLink: fallbackMeet,
+          meetLink: null,
           syncedToGoogle: false,
         };
       }
@@ -148,7 +145,7 @@ export class GoogleCalendarService {
       if (!decryptedToken) {
         return {
           success: true,
-          meetLink: fallbackMeet,
+          meetLink: null,
           syncedToGoogle: false,
         };
       }
@@ -190,7 +187,7 @@ export class GoogleCalendarService {
         console.warn('[GOOGLE CALENDAR SYNC WARN] Google Calendar API error:', res.status, errorText);
         return {
           success: false,
-          meetLink: fallbackMeet,
+          meetLink: null,
           syncedToGoogle: false,
           error: `Google API Error: ${res.status}`,
         };
@@ -200,7 +197,7 @@ export class GoogleCalendarService {
       const meetLink =
         eventData.hangoutLink ||
         eventData.conferenceData?.entryPoints?.find((e: any) => e.entryPointType === 'video')?.uri ||
-        fallbackMeet;
+        null;
 
       return {
         success: true,
@@ -212,7 +209,7 @@ export class GoogleCalendarService {
       console.warn('[GOOGLE CALENDAR SYNC ERROR]', err?.message || err);
       return {
         success: false,
-        meetLink: fallbackMeet,
+        meetLink: null,
         syncedToGoogle: false,
         error: err?.message,
       };
