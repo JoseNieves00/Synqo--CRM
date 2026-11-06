@@ -2345,7 +2345,15 @@ export function SettingsForm({
 
           {/* Bucle de Aprendizaje: Vacíos de Conocimiento */}
           <div className="pt-2">
-            <KnowledgeGapsList initialGaps={initialData.initialKnowledgeGaps || []} />
+            <KnowledgeGapsList
+              initialGaps={initialData.initialKnowledgeGaps || []}
+              onPromptUpdated={(newPrompt, newStructuredData) => {
+                setSystemPrompt(newPrompt);
+                if (newStructuredData) {
+                  setStructuredPromptData(newStructuredData);
+                }
+              }}
+            />
           </div>
         </div>
 

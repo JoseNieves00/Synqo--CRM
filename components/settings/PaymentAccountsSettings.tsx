@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CreditCard,
   Plus,
@@ -14,6 +15,7 @@ import {
   Eye,
   ExternalLink,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import {
   CustomPaymentAccount,
@@ -34,6 +36,21 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [previewAccount, setPreviewAccount] = useState<CustomPaymentAccount | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isModalOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isModalOpen]);
 
   // Form State
   const [formTitle, setFormTitle] = useState('');
@@ -53,6 +70,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
     setFormLink('');
     setFormInstructions('');
     setFormIsActive(true);
+    setModalError(null);
     setIsModalOpen(true);
   };
 
@@ -65,14 +83,22 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
     setFormLink(acc.paymentLink || '');
     setFormInstructions(acc.instructions || '');
     setFormIsActive(acc.isActive);
+    setModalError(null);
     setIsModalOpen(true);
   };
 
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
+
     if (!formTitle.trim() || !formNumber.trim() || !formHolder.trim()) {
-      alert('Por favor completa los campos requeridos: Método/Banco, Número de cuenta y Nombre del titular.');
+      setModalError('Por favor completa los campos requeridos: Método/Banco, Número de cuenta y Nombre del titular.');
       return;
+    }
+
+    let cleanLink = formLink.trim();
+    if (cleanLink && !cleanLink.startsWith('http://') && !cleanLink.startsWith('https://')) {
+      cleanLink = `https://${cleanLink}`;
     }
 
     const updatedItem: CustomPaymentAccount = {
@@ -81,7 +107,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
       accountNumber: formNumber.trim(),
       holderName: formHolder.trim(),
       holderId: formHolderId.trim() || undefined,
-      paymentLink: formLink.trim() || undefined,
+      paymentLink: cleanLink || undefined,
       instructions: formInstructions.trim() || undefined,
       isActive: formIsActive,
     };
@@ -103,10 +129,10 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
         setFeedback({ type: 'success', message: '¡Método de pago guardado correctamente!' });
         setTimeout(() => setFeedback(null), 4000);
       } else {
-        setFeedback({ type: 'error', message: res.error || 'Error al guardar cuenta de pago' });
+        setModalError(res.error || 'Error al guardar cuenta de pago');
       }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err?.message || 'Error de conexión' });
+      setModalError(err?.message || 'Error de conexión');
     } finally {
       setIsSaving(false);
     }
@@ -331,10 +357,10 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
         </div>
       )}
 
-      {/* Modal de Agregar / Editar Cuenta */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      {/* Modal de Agregar / Editar Cuenta (Portaled a document.body) */}
+      {isModalOpen && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-white">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#1E2433] pb-3">
               <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
@@ -343,9 +369,9 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -360,7 +386,8 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
                   required
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF]"
+                  autoFocus
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                 />
               </div>
 
@@ -374,7 +401,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                   value={formNumber}
                   onChange={(e) => setFormNumber(e.target.value)}
                   required
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-[#0052FF]"
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                 />
               </div>
 
@@ -388,7 +415,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                   value={formHolder}
                   onChange={(e) => setFormHolder(e.target.value)}
                   required
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF]"
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                 />
               </div>
 
@@ -402,7 +429,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                     placeholder="Ej: NIT 900.123.456-1"
                     value={formHolderId}
                     onChange={(e) => setFormHolderId(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF]"
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                   />
                 </div>
 
@@ -411,11 +438,11 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                     Link de Pago (Opcional)
                   </label>
                   <input
-                    type="url"
-                    placeholder="https://pasarela.com/pay/..."
+                    type="text"
+                    placeholder="pasarela.com/pay/..."
                     value={formLink}
                     onChange={(e) => setFormLink(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF]"
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                   />
                 </div>
               </div>
@@ -429,7 +456,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                   placeholder="Ej: Enviar comprobante por este chat con tu nombre completo"
                   value={formInstructions}
                   onChange={(e) => setFormInstructions(e.target.value)}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF]"
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                 />
               </div>
 
@@ -439,17 +466,25 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
                   id="account-active"
                   checked={formIsActive}
                   onChange={(e) => setFormIsActive(e.target.checked)}
-                  className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF]"
+                  className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
                 />
-                <label htmlFor="account-active" className="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                <label htmlFor="account-active" className="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer select-none">
                   Habilitar este método de pago para envío rápido en el Inbox
                 </label>
               </div>
+
+              {modalError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#1E2433]">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
+                  disabled={isSaving}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancelar
@@ -465,7 +500,8 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
