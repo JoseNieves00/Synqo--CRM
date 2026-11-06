@@ -79,6 +79,58 @@ export class WhatsAppService {
   }
 
   /**
+   * Envía un video con caption opcional a través de Meta WhatsApp Cloud API.
+   */
+  static async sendVideoMessage({
+    phoneNumberId,
+    accessToken,
+    to,
+    videoUrl,
+    caption,
+  }: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    videoUrl: string;
+    caption?: string;
+  }): Promise<string> {
+    const url = `${this.BASE_URL}/${phoneNumberId}/messages`;
+    const cleanTo = to.replace(/[^0-9]/g, '');
+
+    const bodyPayload: any = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: cleanTo,
+      type: 'video',
+      video: {
+        link: videoUrl,
+      },
+    };
+
+    if (caption && caption.trim()) {
+      bodyPayload.video.caption = caption.trim();
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bodyPayload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[WHATSAPP API SEND VIDEO ERROR]', errorData);
+      throw new Error(`WhatsApp API Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.messages?.[0]?.id || '';
+  }
+
+  /**
    * Envía una imagen con caption opcional a través de Meta WhatsApp Cloud API.
    */
   static async sendImageMessage({

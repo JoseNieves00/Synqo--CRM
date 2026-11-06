@@ -23,13 +23,13 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
   // Consultar contactos, mensajes, miembros y vacíos de IA en paralelo para máxima velocidad
   const [contactsRes, messagesRes, teamRes, gapsCount] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
       .order('updated_at', { ascending: false })
       .limit(50),
     (supabaseAdmin.from('messages') as any)
-      .select('id, sender_type, content, created_at')
+      .select('id, sender_type, content, created_at, status, reply_to_message_id')
       .eq('contact_id', contactId)
       .order('created_at', { ascending: false })
       .limit(50),
@@ -47,7 +47,7 @@ export default async function InboxDetailPage({ params }: InboxDetailPageProps) 
 
   if (!activeContact) {
     const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
       .eq('id', contactId)
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)

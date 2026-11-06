@@ -193,6 +193,28 @@ export async function POST(request: NextRequest) {
       .select('id, created_at')
       .single();
 
+    const currentCustom = existingContact?.custom_fields || {};
+    const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
+    const lastMsgPayload = {
+      text: sanitizedContent,
+      sender_type: 'lead',
+      created_at: new Date().toISOString(),
+    };
+
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        unread_count: unreadCount,
+        last_message: lastMsgPayload,
+        custom_fields: {
+          ...currentCustom,
+          unread_count: unreadCount,
+          last_message: lastMsgPayload,
+        },
+        last_interaction_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', contactId);
+
     const isSubscriptionActive =
       organization.is_active !== false &&
       (organization.subscription_status === 'active' || organization.subscription_status === 'trialing');
@@ -251,7 +273,23 @@ export async function POST(request: NextRequest) {
                 content: aiResponseText,
                 meta_message_id: outboundMid || null,
                 channel: 'instagram',
+                status: 'sent',
               });
+
+              const aiLastMsg = {
+                text: aiResponseText,
+                sender_type: 'ai',
+                created_at: new Date().toISOString(),
+              };
+              await (supabaseAdmin.from('contacts') as any)
+                .update({
+                  last_message: aiLastMsg,
+                  custom_fields: {
+                    ...currentCustom,
+                    last_message: aiLastMsg,
+                  },
+                })
+                .eq('id', contactId);
             }
           } catch (asyncErr) {
             console.error('[INSTAGRAM ASYNC WORKER ERROR]', asyncErr);

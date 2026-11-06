@@ -10,7 +10,7 @@ import { EvolutionService } from '@/services/evolution.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
-import { formatImageMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
+import { formatImageMessageContent, formatVideoMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
 
 /**
@@ -154,6 +154,32 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ status: 'connection_event_processed' }, { status: 200 });
+  }
+
+  // 3.5 Manejo de Eventos de Actualización de Estados de Entrega (messages.update)
+  const isMessageUpdate = event === 'messages.update' || event === 'messages_update';
+  if (isMessageUpdate) {
+    try {
+      const updates = Array.isArray(payload.data) ? payload.data : [payload.data];
+      for (const item of updates) {
+        const metaId = item?.key?.id || item?.id;
+        const rawStatus = item?.update?.status ?? item?.status;
+        let mappedStatus: string | null = null;
+        if (rawStatus === 3 || rawStatus === 'DELIVERY_ACK' || rawStatus === 'delivered') {
+          mappedStatus = 'delivered';
+        } else if (rawStatus === 4 || rawStatus === 5 || rawStatus === 'READ' || rawStatus === 'read') {
+          mappedStatus = 'read';
+        }
+        if (metaId && mappedStatus) {
+          await (supabaseAdmin.from('messages') as any)
+            .update({ status: mappedStatus })
+            .eq('meta_message_id', metaId);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[EVOLUTION STATUS UPDATE WARN]', err);
+    }
+    return NextResponse.json({ status: 'message_update_processed' }, { status: 200 });
   }
 
   // 4. Manejo de Eventos de Mensajes (messages.upsert)
@@ -358,7 +384,33 @@ export async function POST(request: NextRequest) {
     }
   } else if (msgObj.videoMessage) {
     const caption = (msgObj.videoMessage.caption || '').trim();
-    rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+    let videoUrl: string | null = null;
+    try {
+      const media = await EvolutionService.getBase64Media({
+        apiUrl: organization.evolution_api_url,
+        apiKey: decryptedApiKey || '',
+        instanceName: cleanInstance,
+        messageId,
+      });
+
+      if (media?.base64) {
+        const videoBuffer = Buffer.from(media.base64, 'base64');
+        videoUrl = await uploadIncomingChatMedia({
+          buffer: videoBuffer,
+          mimeType: media.mimetype || 'video/mp4',
+          organizationId: orgId,
+          contactId: leadPhone || 'incoming',
+        });
+      }
+    } catch (vidErr) {
+      console.warn('[EVOLUTION VIDEO DOWNLOAD WARN]', vidErr);
+    }
+
+    if (videoUrl) {
+      rawContent = formatVideoMessageContent(videoUrl, caption);
+    } else {
+      rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+    }
   } else if (msgObj.stickerMessage) {
     rawContent = '🏷️ [Sticker recibido]';
   } else if (msgObj.contactMessage || msgObj.contactsArrayMessage) {
@@ -489,6 +541,46 @@ export async function POST(request: NextRequest) {
     }
     console.warn('[EVOLUTION WEBHOOK INSERT MSG ERROR]', insertMsgError);
   }
+
+  // Actualizar unread_count, last_message y verificar auto-reanudación de IA (Snooze)
+  const currentCustom = ((existingContact as any)?.custom_fields as Record<string, any>) || {};
+  const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
+  const lastMsgPayload = {
+    text: sanitizedContent,
+    sender_type: 'lead',
+    created_at: new Date().toISOString(),
+  };
+
+  const aiSnoozeUntil = (existingContact as any)?.ai_snooze_until || currentCustom.ai_snooze_until;
+  let effectiveAiActive = isAiActive;
+  let clearSnooze = false;
+  if (aiSnoozeUntil) {
+    if (new Date(aiSnoozeUntil).getTime() <= Date.now()) {
+      effectiveAiActive = true;
+      clearSnooze = true;
+    } else {
+      effectiveAiActive = false;
+    }
+  }
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      unread_count: unreadCount,
+      last_message: lastMsgPayload,
+      is_ai_active: effectiveAiActive,
+      ai_snooze_until: clearSnooze ? null : ((existingContact as any)?.ai_snooze_until || null),
+      custom_fields: {
+        ...currentCustom,
+        unread_count: unreadCount,
+        last_message: lastMsgPayload,
+        ai_snooze_until: clearSnooze ? null : currentCustom.ai_snooze_until,
+      },
+      last_interaction_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
+  isAiActive = effectiveAiActive;
 
   if (isPaymentReceipt) {
     await supabaseAdmin.from('messages').insert({
@@ -639,7 +731,23 @@ export async function POST(request: NextRequest) {
                 content: aiResponseText,
                 meta_message_id: outboundId,
                 channel: 'whatsapp',
+                status: 'sent',
               });
+
+              const aiLastMsg = {
+                text: aiResponseText,
+                sender_type: 'ai',
+                created_at: new Date().toISOString(),
+              };
+              await (supabaseAdmin.from('contacts') as any)
+                .update({
+                  last_message: aiLastMsg,
+                  custom_fields: {
+                    ...currentCustom,
+                    last_message: aiLastMsg,
+                  },
+                })
+                .eq('id', contactId);
             } catch (sendErr: any) {
               console.error('[EVOLUTION AI REPLY DISPATCH FAILED]', sendErr);
             }

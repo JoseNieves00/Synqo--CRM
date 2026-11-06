@@ -271,3 +271,86 @@ export function parseAudioMessageContent(content: string | null | undefined): Pa
 
   return { isAudio: false };
 }
+
+export interface ParsedVideoMessage {
+  isVideo: boolean;
+  url?: string;
+  caption?: string;
+}
+
+/**
+ * Formatea el contenido de un mensaje de video para almacenamiento estándar en BD.
+ */
+export function formatVideoMessageContent(url: string, caption?: string): string {
+  const cleanUrl = url.trim();
+  const cleanCaption = caption?.trim();
+  if (cleanCaption) {
+    return `📹 [Video: ${cleanUrl}]: ${cleanCaption}`;
+  }
+  return `📹 [Video: ${cleanUrl}]`;
+}
+
+/**
+ * Extrae la URL y el caption de un mensaje formateado como video.
+ */
+export function parseVideoMessageContent(content: string | null | undefined): ParsedVideoMessage {
+  if (!content || typeof content !== 'string') {
+    return { isVideo: false };
+  }
+
+  // 1. Formato canónico Synqo: 📹 [Video: https://...]: Caption
+  const canonicalMatch = content.match(/^📹\s*\[(?:Video|Clip):\s*(https?:\/\/[^\]\s]+)\](?::\s*([\s\S]*))?$/i);
+  if (canonicalMatch) {
+    return {
+      isVideo: true,
+      url: canonicalMatch[1].trim(),
+      caption: canonicalMatch[2]?.trim() || '',
+    };
+  }
+
+  // 2. URLs directas de chat-media que apunten a video
+  const urlMatch = content.trim().match(/^(https?:\/\/[^\s]+\/chat-media\/[^\s]+(?:\.mp4|\.mov|\.webm|\.3gp)(?:\?[^\s]*)?)$/i);
+  if (urlMatch) {
+    return {
+      isVideo: true,
+      url: urlMatch[1].trim(),
+      caption: '',
+    };
+  }
+
+  return { isVideo: false };
+}
+
+export interface ParsedQuoteMessage {
+  hasQuote: boolean;
+  quotedText?: string;
+  actualText: string;
+}
+
+/**
+ * Formatea un mensaje que cita una respuesta previa.
+ */
+export function formatQuoteMessageContent(quotedText: string, text: string): string {
+  const cleanQuoted = quotedText.replace(/\r?\n/g, ' ').slice(0, 160).trim();
+  return `💬 [Cita: "${cleanQuoted}"]\n${text.trim()}`;
+}
+
+/**
+ * Extrae el texto citado y el mensaje real de un mensaje con cita.
+ */
+export function parseQuoteMessageContent(content: string | null | undefined): ParsedQuoteMessage {
+  if (!content || typeof content !== 'string') {
+    return { hasQuote: false, actualText: content || '' };
+  }
+
+  const quoteMatch = content.match(/^💬\s*\[(?:Cita|Respuesta):\s*["“]([\s\S]*?)["”]\]\s*\n?([\s\S]*)$/i);
+  if (quoteMatch) {
+    return {
+      hasQuote: true,
+      quotedText: quoteMatch[1].trim(),
+      actualText: quoteMatch[2]?.trim() || '',
+    };
+  }
+
+  return { hasQuote: false, actualText: content };
+}

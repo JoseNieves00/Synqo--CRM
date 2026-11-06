@@ -15,6 +15,7 @@ export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing'
 export type PlanType = 'starter' | 'core' | 'pro' | 'enterprise';
 export type WhatsAppProvider = 'meta' | 'evolution';
 export type EvolutionStatus = 'connected' | 'disconnected' | 'connecting';
+export type MessageDeliveryStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export type AvailabilityStatus = 'available' | 'busy' | 'offline';
 export type TicketCategory = 'whatsapp' | 'ai_assistant' | 'calendar' | 'billing' | 'bug' | 'feature_request';
@@ -278,6 +279,9 @@ export interface Database {
           channel?: ContactChannel;
           instagram_id?: string | null;
           instagram_username?: string | null;
+          unread_count?: number;
+          last_message?: Json | null;
+          ai_snooze_until?: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -294,6 +298,9 @@ export interface Database {
           channel?: ContactChannel;
           instagram_id?: string | null;
           instagram_username?: string | null;
+          unread_count?: number;
+          last_message?: Json | null;
+          ai_snooze_until?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -310,6 +317,9 @@ export interface Database {
           channel?: ContactChannel;
           instagram_id?: string | null;
           instagram_username?: string | null;
+          unread_count?: number;
+          last_message?: Json | null;
+          ai_snooze_until?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -323,6 +333,8 @@ export interface Database {
           content: string;
           meta_message_id: string | null;
           channel?: ContactChannel;
+          status?: MessageDeliveryStatus | string | null;
+          reply_to_message_id?: string | null;
           created_at: string;
         };
         Insert: {
@@ -332,6 +344,8 @@ export interface Database {
           content: string;
           meta_message_id?: string | null;
           channel?: ContactChannel;
+          status?: MessageDeliveryStatus | string | null;
+          reply_to_message_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -341,6 +355,8 @@ export interface Database {
           content?: string;
           meta_message_id?: string | null;
           channel?: ContactChannel;
+          status?: MessageDeliveryStatus | string | null;
+          reply_to_message_id?: string | null;
           created_at?: string;
         };
         Relationships: [];

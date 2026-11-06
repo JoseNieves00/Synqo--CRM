@@ -157,15 +157,16 @@ El drag & drop HTML5 no funciona en pantallas táctiles. Usar una librería con 
   - Normalización de diacríticos y exclusión de cambio/cancelación en confirmación de citas.
   - Re-lectura de `is_ai_active` previa al envío para evitar dobles respuestas.
   - Persistencia de mensajes con rate limit y soporte de video, sticker y contactos en webhooks.
-- **Fase 2 — Paridad con WhatsApp & Núcleo del Inbox (EN EJECUCIÓN 🚀):**
+- **Fase 2 — Paridad con WhatsApp & Núcleo del Inbox (COMPLETADA ✅):**
   1. **Último mensaje y contador de no leídos:** Mostrar último mensaje recibido/enviado y badge de mensajes no leídos por chat en la lista del Inbox (`read_at` / unread count).
-  2. **Ticks de entrega y lectura (Statuses):** Captura y persistencia de estados de entrega/lectura (enviado, entregado, leído) en mensajes en lugar de descartarlos en webhook.
-  3. **Citar mensajes (Reply to message):** Posibilidad de responder citando un mensaje anterior en el chat.
+  2. **Ticks de entrega y lectura (Statuses):** Captura y persistencia de estados de entrega/lectura (enviado, entregado, leído) en mensajes en webhooks de Meta y Evolution.
+  3. **Citar mensajes (Reply to message):** Posibilidad de responder citando un mensaje anterior en el chat con banner de contexto.
   4. **Composer multilínea:** Textarea expandible con `Shift+Enter` para saltos de línea y `Enter` para enviar, sin deshabilitar el input mientras despacha.
-  5. **Descarga y reproducción de video:** Subida de videos entrantes a Storage y renderizado de reproductor de video en el Inbox para asesores.
-  6. **Pausas temporales de IA:** Silenciar IA por 30m, 2h o hasta mañana con auto-reactivación.
-  7. **Aterrizaje por rol:** Que los asesores aterricen en `/inbox` por defecto al iniciar sesión.
-  8. **Modal de edición de productos en catálogo:** Permitir editar el nombre y etiquetas de imágenes existentes sin tener que borrarlas y re-subirlas (ajuste post-Fase 2).
+  5. **Descarga y reproducción de video:** Subida de videos entrantes a Storage y renderizado de reproductor de video nativo en el Inbox para asesores.
+  6. **Pausas temporales de IA (Snooze):** Silenciar IA por 30m, 2h o hasta mañana con auto-reactivación al expirar.
+  7. **Aterrizaje por rol:** Asesores y recepcionistas aterrizan en `/inbox` por defecto al iniciar sesión.
+  8. **Adaptabilidad móvil e instalación PWA:** Navegación fluida en teléfonos móviles con cambio lista/chat y `manifest.json`.
+  9. **Modal de edición de productos en catálogo:** Editar el nombre o modelo de fotos del catálogo visual sin tener que borrarlas y re-subirlas.
 - **Fase 3 — Unificar el núcleo:**
   - Un solo `ingestInbound()` y `runAiWorker()` para los tres canales.
   - Cola con reintentos (QStash o Supabase Queues).

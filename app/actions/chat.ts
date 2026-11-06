@@ -6,7 +6,7 @@ import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/wha
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
-import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent } from '@/lib/media/format';
+import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
 import { revalidatePath } from 'next/cache';
 
@@ -14,8 +14,9 @@ import { revalidatePath } from 'next/cache';
  * Envía un mensaje manual por un agente humano desde el CRM.
  * Regla de negocio crítica: Silencia automáticamente la IA (is_ai_active = false)
  * para otorgar el control completo al operador humano.
+ * Soporta citar/responder mensajes anteriores mediante replyToMessageId.
  */
-export async function sendAgentMessage(contactId: string, content: string) {
+export async function sendAgentMessage(contactId: string, content: string, replyToMessageId?: string) {
   const supabase = createServerSupabaseClient();
 
   // 1. Validar sesión del usuario autenticado
@@ -111,13 +112,35 @@ export async function sendAgentMessage(contactId: string, content: string) {
     });
   }
 
-  // 7. Persistir el mensaje en la base de datos con sender_type = 'agent_manual'
+  const nowIso = new Date().toISOString();
+  const lastMessagePayload = {
+    text: cleanContent,
+    sender_type: 'agent_manual',
+    created_at: nowIso,
+  };
+
+  const currentCustom = contact.custom_fields || {};
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      last_message: lastMessagePayload,
+      custom_fields: {
+        ...currentCustom,
+        last_message: lastMessagePayload,
+      },
+      last_interaction_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq('id', contactId);
+
+  // 7. Persistir el mensaje en la base de datos con sender_type = 'agent_manual' y estado 'sent'
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
     content: cleanContent,
     meta_message_id: metaMessageId || null,
     channel: isInstagram ? 'instagram' : 'whatsapp',
+    status: 'sent',
+    reply_to_message_id: replyToMessageId || null,
   });
 
   revalidatePath('/inbox');
@@ -201,6 +224,7 @@ export async function uploadChatMedia(formData: FormData): Promise<{
   fileName: string;
   isDocument: boolean;
   isAudio?: boolean;
+  isVideo?: boolean;
   fileType: string;
 }> {
   const supabase = createServerSupabaseClient();
@@ -210,8 +234,8 @@ export async function uploadChatMedia(formData: FormData): Promise<{
   const file = formData.get('file') as File;
   if (!file) throw new Error('No se recibió ningún archivo.');
 
-  if (file.size > 15 * 1024 * 1024) {
-    throw new Error('El archivo supera el tamaño máximo permitido de 15 MB.');
+  if (file.size > 25 * 1024 * 1024) {
+    throw new Error('El archivo supera el tamaño máximo permitido de 25 MB.');
   }
 
   const allowedTypes = [
@@ -219,6 +243,10 @@ export async function uploadChatMedia(formData: FormData): Promise<{
     'image/png',
     'image/webp',
     'image/gif',
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/3gpp',
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -234,9 +262,10 @@ export async function uploadChatMedia(formData: FormData): Promise<{
   ];
 
   const isAudioFile = file.type.startsWith('audio/') || file.name.match(/\.(ogg|webm|mp3|wav|m4a|aac)$/i);
+  const isVideoFile = file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|webm|3gp)$/i);
 
-  if (!allowedTypes.includes(file.type) && !isAudioFile && !file.name.match(/\.(pdf|docx?|xlsx?|txt|png|jpe?g|webp|gif)$/i)) {
-    throw new Error('Formato de archivo no admitido. Se permiten imágenes, documentos y notas de voz (WebM, OGG, MP3, WAV, M4A).');
+  if (!allowedTypes.includes(file.type) && !isAudioFile && !isVideoFile && !file.name.match(/\.(pdf|docx?|xlsx?|txt|png|jpe?g|webp|gif|mp4|mov|webm)$/i)) {
+    throw new Error('Formato de archivo no admitido. Se permiten imágenes, videos, documentos y notas de voz.');
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
@@ -268,13 +297,15 @@ export async function uploadChatMedia(formData: FormData): Promise<{
     .from('chat-media')
     .getPublicUrl(fileName);
 
-  const isDocument = !file.type.startsWith('image/') && !isAudioFile;
+  const isVideo = Boolean(isVideoFile);
+  const isDocument = !file.type.startsWith('image/') && !isAudioFile && !isVideo;
 
   return {
     url: publicData.publicUrl,
     fileName: file.name,
     isDocument,
     isAudio: Boolean(isAudioFile),
+    isVideo,
     fileType: file.type,
   };
 }
@@ -289,7 +320,8 @@ export async function sendAgentMediaMessage(
   caption?: string,
   fileName?: string,
   isDocument?: boolean,
-  isAudio?: boolean
+  isAudio?: boolean,
+  isVideo?: boolean
 ) {
   const supabase = createServerSupabaseClient();
 
@@ -320,7 +352,7 @@ export async function sendAgentMediaMessage(
   if (!org) throw new Error('Organización no encontrada.');
 
   const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
-  const mediaType = isAudio ? 'audio' : isDocument ? 'document' : 'image';
+  const mediaType = isVideo ? 'video' : isAudio ? 'audio' : isDocument ? 'document' : 'image';
 
   // 1. Silenciar IA de inmediato (Human Takeover) antes del despacho de red
   await (supabaseAdmin.from('contacts') as any)
@@ -330,28 +362,165 @@ export async function sendAgentMediaMessage(
     })
     .eq('id', contactId);
 
-  // 2. Despachar imagen, documento o nota de voz a WhatsApp
+  // 2. Despachar video, imagen, documento o nota de voz a WhatsApp
   const messageId = await MessagingService.sendMediaMessage({
     organization: org,
     to: targetRecipient,
     mediaUrl,
     caption: caption || undefined,
     mediaType,
-    fileName: fileName || (isAudio ? 'nota_de_voz.ogg' : isDocument ? 'documento.pdf' : 'imagen.jpg'),
+    fileName: fileName || (isVideo ? 'video.mp4' : isAudio ? 'nota_de_voz.ogg' : isDocument ? 'documento.pdf' : 'imagen.jpg'),
   });
 
   // 3. Persistir en la tabla messages con formato correspondiente
-  const formattedContent = isAudio
+  const formattedContent = isVideo
+    ? formatVideoMessageContent(mediaUrl, caption)
+    : isAudio
     ? formatAudioMessageContent(mediaUrl, caption)
     : isDocument
     ? formatDocumentMessageContent(mediaUrl, fileName, caption)
     : formatImageMessageContent(mediaUrl, caption);
+
+  const previewText = isVideo
+    ? (caption ? `📹 ${caption}` : '📹 [Video]')
+    : isAudio
+    ? '🎙️ [Nota de voz]'
+    : isDocument
+    ? `📄 [Documento: ${fileName || 'Archivo'}]`
+    : (caption ? `📷 ${caption}` : '📷 [Foto]');
+
+  const nowIso = new Date().toISOString();
+  const lastMsgPayload = {
+    text: previewText,
+    sender_type: 'agent_manual',
+    created_at: nowIso,
+  };
+
+  const currentCustom = contact.custom_fields || {};
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      last_message: lastMsgPayload,
+      custom_fields: {
+        ...currentCustom,
+        last_message: lastMsgPayload,
+      },
+      last_interaction_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq('id', contactId);
 
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
     content: formattedContent,
     meta_message_id: messageId || null,
+    status: 'sent',
+  });
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+}
+
+/**
+ * Marca la conversación de un contacto como leída despejando el contador de no leídos.
+ */
+export async function markContactAsRead(contactId: string) {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return;
+
+    const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    const orgId = profile?.organization_id;
+    if (!orgId) return;
+
+    const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+      .select('id, custom_fields')
+      .eq('id', contactId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (!contact) return;
+
+    const currentCustom = contact.custom_fields || {};
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        unread_count: 0,
+        custom_fields: {
+          ...currentCustom,
+          unread_count: 0,
+        },
+      })
+      .eq('id', contactId);
+  } catch (err: any) {
+    console.warn('[markContactAsRead] Error marcando chat como leído:', err?.message || err);
+  }
+}
+
+/**
+ * Pausa la IA temporalmente para un contacto (30 minutos, 2 horas o hasta mañana a las 8:00 AM).
+ * Reactiva automáticamente la IA al expirar la ventana.
+ */
+export async function snoozeContactAi(contactId: string, duration: 30 | 120 | 'tomorrow') {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  let resumeDate: Date;
+  let labelText = '';
+
+  if (duration === 30) {
+    resumeDate = new Date(Date.now() + 30 * 60 * 1000);
+    labelText = '30 minutos';
+  } else if (duration === 120) {
+    resumeDate = new Date(Date.now() + 120 * 60 * 1000);
+    labelText = '2 horas';
+  } else {
+    // Hasta mañana a las 8:00 AM
+    resumeDate = new Date();
+    resumeDate.setDate(resumeDate.getDate() + 1);
+    resumeDate.setHours(8, 0, 0, 0);
+    labelText = 'mañana a las 8:00 AM';
+  }
+
+  const snoozeIso = resumeDate.toISOString();
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  const currentCustom = contact?.custom_fields || {};
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      is_ai_active: false,
+      ai_snooze_until: snoozeIso,
+      custom_fields: {
+        ...currentCustom,
+        ai_snooze_until: snoozeIso,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    sender_type: 'system',
+    content: `[Sistema: IA pausada por el asesor por ${labelText} (se reanudará automáticamente el ${resumeDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })})]`,
   });
 
   revalidatePath('/inbox');
@@ -520,7 +689,7 @@ export async function getContactMessages(contactId: string, beforeCreatedAt?: st
   if (!orgId) throw new Error('Organización no encontrada');
 
   let query = (supabaseAdmin.from('messages') as any)
-    .select('id, sender_type, content, created_at')
+    .select('id, sender_type, content, created_at, status, reply_to_message_id')
     .eq('contact_id', contactId);
 
   if (beforeCreatedAt) {

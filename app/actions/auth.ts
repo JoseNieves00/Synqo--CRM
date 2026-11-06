@@ -104,8 +104,23 @@ export async function signIn(formData: FormData) {
     maxAge: 24 * 3600,
   });
 
+  // Dirigir al usuario según su rol operativo: los asesores y recepcionistas van directo al Inbox
+  const { data: { user } } = await supabase.auth.getUser();
+  let targetRoute = '/dashboard';
+
+  if (user) {
+    const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profile?.role === 'agent' || profile?.role === 'receptionist') {
+      targetRoute = '/inbox';
+    }
+  }
+
   revalidatePath('/', 'layout');
-  redirect('/dashboard');
+  redirect(targetRoute);
 }
 
 /**

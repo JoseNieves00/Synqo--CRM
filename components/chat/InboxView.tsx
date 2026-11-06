@@ -18,7 +18,7 @@ import {
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
-import { getUnattendedHandoffs, getContactMessages } from '@/app/actions/chat';
+import { getUnattendedHandoffs, getContactMessages, markContactAsRead } from '@/app/actions/chat';
 import { importRecentEvolutionChats } from '@/app/actions/evolution';
 
 interface ContactItem {
@@ -33,6 +33,9 @@ interface ContactItem {
   channel?: 'whatsapp' | 'instagram';
   instagram_username?: string | null;
   instagram_id?: string | null;
+  unread_count?: number;
+  last_message?: any;
+  ai_snooze_until?: string | null;
 }
 
 interface MessageItem {
@@ -83,6 +86,12 @@ const ContactListItem = React.memo(
     }, [c.last_interaction_at]);
 
     const activeReminder = c.custom_fields?.active_reminder;
+    const unreadCount = c.unread_count ?? c.custom_fields?.unread_count ?? 0;
+    const lastMsg = c.last_message || c.custom_fields?.last_message;
+    const lastMsgText = typeof lastMsg === 'string' ? lastMsg : lastMsg?.text || '';
+    const lastMsgSender = typeof lastMsg === 'object' ? lastMsg?.sender_type : null;
+    const isOutbound = lastMsgSender === 'agent_manual' || lastMsgSender === 'ai';
+
     const reminderInfo = useMemo(() => {
       if (!activeReminder?.scheduledFor) return null;
       try {
@@ -194,7 +203,26 @@ const ContactListItem = React.memo(
           </span>
         </div>
 
-        {/* Fila 2: Canal, Identificador y Estado IA */}
+        {/* Fila 2: Preview del Último Mensaje y Contador de No Leídos (WhatsApp Style) */}
+        <div className="flex items-center justify-between gap-1 text-[11px] mb-1.5 min-w-0">
+          <div className="flex items-center gap-1 min-w-0 flex-1">
+            {isOutbound && (
+              <span className="text-slate-400 dark:text-slate-500 font-medium shrink-0">
+                {lastMsgSender === 'agent_manual' ? 'Tú: ' : 'IA: '}
+              </span>
+            )}
+            <p className="truncate text-slate-500 dark:text-slate-400 font-normal leading-tight">
+              {lastMsgText || 'Conversación iniciada'}
+            </p>
+          </div>
+          {unreadCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white font-bold text-[10px] min-w-[18px] text-center shadow-xs shrink-0 animate-in zoom-in-75">
+              {unreadCount}
+            </span>
+          )}
+        </div>
+
+        {/* Fila 3: Canal, Identificador y Estado IA */}
         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono mb-1.5 gap-1">
           <div className="flex items-center gap-1.5 min-w-0">
             {c.channel === 'instagram' ? (
@@ -283,6 +311,10 @@ const ContactListItem = React.memo(
       prev.contact.phone === next.contact.phone &&
       prev.contact.channel === next.contact.channel &&
       prev.contact.instagram_username === next.contact.instagram_username &&
+      (prev.contact.unread_count ?? prev.contact.custom_fields?.unread_count) ===
+        (next.contact.unread_count ?? next.contact.custom_fields?.unread_count) &&
+      (prev.contact.last_message?.text ?? prev.contact.custom_fields?.last_message?.text) ===
+        (next.contact.last_message?.text ?? next.contact.custom_fields?.last_message?.text) &&
       prev.contact.custom_fields?.active_reminder?.id === next.contact.custom_fields?.active_reminder?.id &&
       prev.contact.custom_fields?.active_reminder?.scheduledFor === next.contact.custom_fields?.active_reminder?.scheduledFor &&
       prev.contact.custom_fields?.lead_temperature === next.contact.custom_fields?.lead_temperature
@@ -364,6 +396,22 @@ export function InboxView({
     if (!targetId) return;
     setSelectedContactId(targetId);
 
+    // Despejar badge de no leídos de inmediato (0ms de latencia)
+    setContactList((prev) =>
+      prev.map((c) =>
+        c.id === targetId
+          ? {
+              ...c,
+              unread_count: 0,
+              custom_fields: { ...(c.custom_fields || {}), unread_count: 0 },
+            }
+          : c
+      )
+    );
+
+    // Persistir lectura en base de datos en segundo plano
+    markContactAsRead(targetId).catch(() => {});
+
     if (pushState && typeof window !== 'undefined') {
       window.history.pushState({ contactId: targetId }, '', `/inbox/${targetId}`);
     }
@@ -411,11 +459,15 @@ export function InboxView({
       return next;
     });
 
-    // Actualizar última interacción del contacto localmente
+    // Actualizar última interacción y último mensaje del contacto localmente
     setContactList((prev) =>
       prev.map((c) =>
         c.id === selectedContactId
-          ? { ...c, last_interaction_at: new Date().toISOString() }
+          ? {
+              ...c,
+              last_interaction_at: new Date().toISOString(),
+              last_message: { text: msg.content, sender_type: msg.sender_type, created_at: msg.created_at },
+            }
           : c
       )
     );
@@ -607,11 +659,15 @@ export function InboxView({
             }));
           }
 
-          // Actualizar hora de interacción en la columna izquierda
+          // Actualizar hora de interacción y último mensaje en la columna izquierda
           setContactList((prev) =>
             prev.map((c) =>
               c.id === selectedContactId
-                ? { ...c, last_interaction_at: newMsg.created_at }
+                ? {
+                    ...c,
+                    last_interaction_at: newMsg.created_at,
+                    last_message: { text: newMsg.content, sender_type: newMsg.sender_type, created_at: newMsg.created_at },
+                  }
                 : c
             )
           );
@@ -642,6 +698,25 @@ export function InboxView({
               return prev;
             });
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `contact_id=eq.${selectedContactId}`,
+        },
+        (payload) => {
+          const updatedMsg = payload.new as any;
+          const current = messagesCacheRef.current[selectedContactId] || [];
+          const next = current.map((m) => (m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m));
+          messagesCacheRef.current[selectedContactId] = next;
+          setMessagesCache((prev) => ({
+            ...prev,
+            [selectedContactId]: next,
+          }));
         }
       )
       .subscribe();
@@ -825,7 +900,9 @@ export function InboxView({
   return (
     <div className="flex h-[calc(100vh-80px)] gap-3 overflow-hidden">
       {/* Columna Izquierda: Directorio de Leads */}
-      <div className="w-80 md:w-96 bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden flex flex-col flex-shrink-0 text-slate-900 dark:text-slate-100 shadow-xs transition-colors">
+      <div className={`w-full md:w-80 lg:w-96 bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden flex-col flex-shrink-0 text-slate-900 dark:text-slate-100 shadow-xs transition-colors ${
+        selectedContactId ? 'hidden md:flex' : 'flex'
+      }`}>
         {/* Cabecera del Directorio */}
         <div className="p-3.5 border-b border-slate-200 dark:border-[#1E2433] bg-slate-50 dark:bg-[#0E121B] space-y-2.5">
           <div className="flex items-center justify-between">
@@ -1141,7 +1218,9 @@ export function InboxView({
       </div>
 
       {/* Columna Derecha: Ventana de Chat */}
-      <div className="flex-1 min-w-0 h-full">
+      <div className={`flex-1 min-w-0 h-full ${
+        !selectedContactId ? 'hidden md:flex' : 'flex'
+      }`}>
         {currentActiveContact ? (
           <ChatWindow
             contact={currentActiveContact}
@@ -1161,6 +1240,7 @@ export function InboxView({
                 draftsRef.current[selectedContactId] = val;
               }
             }}
+            onBack={() => setSelectedContactId(null)}
           />
         ) : (
           <div className="h-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] flex flex-col items-center justify-center p-8 text-center text-slate-800 dark:text-slate-100 shadow-xs transition-colors">

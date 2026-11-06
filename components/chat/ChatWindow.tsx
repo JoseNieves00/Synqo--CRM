@@ -8,8 +8,8 @@ import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
-import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation, markContactReactivationDismissed } from '@/app/actions/chat';
-import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent } from '@/lib/media/format';
+import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation, markContactReactivationDismissed, snoozeContactAi } from '@/app/actions/chat';
+import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent, formatQuoteMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin, takeoverInactiveLead } from '@/app/actions/assignment';
 import dynamic from 'next/dynamic';
 import { deleteContactWithPassword, updateContactDetails } from '@/app/actions/contacts';
@@ -27,6 +27,7 @@ const AiSummaryModal = dynamic(
 );
 import {
   Phone,
+  ArrowLeft,
   Clock,
   AlertCircle,
   UserCheck,
@@ -59,6 +60,8 @@ interface MessageItem {
   sender_type: MessageSender;
   content: string;
   created_at: string;
+  status?: string | null;
+  reply_to_message_id?: string | null;
 }
 
 interface TeamMember {
@@ -94,6 +97,7 @@ interface ChatWindowProps {
   teamMembers?: TeamMember[];
   draftText?: string;
   onDraftChange?: (text: string) => void;
+  onBack?: () => void;
 }
 
 export function ChatWindow({
@@ -110,6 +114,7 @@ export function ChatWindow({
   teamMembers = [],
   draftText,
   onDraftChange,
+  onBack,
 }: ChatWindowProps) {
   const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -143,6 +148,26 @@ export function ChatWindow({
   const [endResolution, setEndResolution] = useState<'completed' | 'won' | 'lost'>('completed');
   const [endNote, setEndNote] = useState('');
   const [isEndingChat, setIsEndingChat] = useState(false);
+
+  // Estados de Citar / Responder Mensaje
+  const [replyingToMessage, setReplyingToMessage] = useState<{
+    id?: string;
+    senderType: MessageSender;
+    content: string;
+  } | null>(null);
+
+  // Estados de Pausa Temporal de IA (Snooze)
+  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+
+  const handleSnoozeAi = async (duration: 30 | 120 | 'tomorrow') => {
+    setShowSnoozeMenu(false);
+    try {
+      await snoozeContactAi(contact.id, duration);
+      onContactUpdate?.({ is_ai_active: false });
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error al pausar la IA');
+    }
+  };
 
   useEffect(() => {
     setActiveReminder(contact.custom_fields?.active_reminder || null);
@@ -474,14 +499,23 @@ export function ChatWindow({
 
   const handleSendMessage = async (text: string) => {
     setErrorMessage(null);
+    let finalContent = text;
+    const replyMeta = replyingToMessage;
+    if (replyMeta) {
+      finalContent = formatQuoteMessageContent(replyMeta.content, text);
+    }
+    setReplyingToMessage(null);
+
     onOptimisticMessage?.({
       id: `temp-${Date.now()}`,
       sender_type: 'agent_manual',
-      content: text,
+      content: finalContent,
       created_at: new Date().toISOString(),
+      status: 'pending',
+      reply_to_message_id: replyMeta?.id || null,
     });
     try {
-      await sendAgentMessage(contact.id, text);
+      await sendAgentMessage(contact.id, finalContent, replyMeta?.id);
       if (isReactivationEligible) {
         markContactReactivationDismissed(contact.id).catch(() => {});
         onContactUpdate?.({
@@ -512,10 +546,13 @@ export function ChatWindow({
     caption?: string,
     fileName?: string,
     isDocument?: boolean,
-    isAudio?: boolean
+    isAudio?: boolean,
+    isVideo?: boolean
   ) => {
     setErrorMessage(null);
-    const formatted = isAudio
+    const formatted = isVideo
+      ? formatVideoMessageContent(mediaUrl, caption)
+      : isAudio
       ? formatAudioMessageContent(mediaUrl, caption)
       : isDocument
       ? formatDocumentMessageContent(mediaUrl, fileName, caption)
@@ -525,9 +562,10 @@ export function ChatWindow({
       sender_type: 'agent_manual',
       content: formatted,
       created_at: new Date().toISOString(),
+      status: 'pending',
     });
     try {
-      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument, isAudio);
+      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument, isAudio, isVideo);
     } catch (err: any) {
       console.error('[SEND MEDIA ERROR]', err);
       setErrorMessage(`Error al enviar archivo o audio: ${err?.message || 'Error de conexión con WhatsApp'}`);
@@ -664,8 +702,19 @@ export function ChatWindow({
       {/* Cabecera del Chat */}
       <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] flex flex-wrap items-center justify-between gap-3">
         {/* Info del Contacto y Asignación */}
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-lg transition cursor-pointer"
+              title="Volver a la lista de chats"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <div className="flex items-center gap-2">
             {isEditingName ? (
               <div className="flex items-center gap-1.5 animate-in fade-in">
                 <input
@@ -759,6 +808,7 @@ export function ChatWindow({
             </div>
           )}
         </div>
+      </div>
 
         {/* Controles: Asignación, 24h, IA Switch y Ficha */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -855,12 +905,54 @@ export function ChatWindow({
             </div>
           )}
 
-          {/* Switch IA / Control Humano */}
-          <AiToggleSwitch
-            contactId={contact.id}
-            initialIsAiActive={contact.is_ai_active}
-            onToggle={handleToggleAi}
-          />
+          {/* Switch IA / Control Humano y Pausa Temporal */}
+          <div className="flex items-center gap-1 relative">
+            <AiToggleSwitch
+              contactId={contact.id}
+              initialIsAiActive={contact.is_ai_active}
+              onToggle={handleToggleAi}
+            />
+            {contact.is_ai_active && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowSnoozeMenu((prev) => !prev)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
+                  title="Pausar IA temporalmente (30m, 2h o hasta mañana)"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                </button>
+                {showSnoozeMenu && (
+                  <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95">
+                    <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 border-b border-slate-100 dark:border-[#232A3B] select-none">
+                      Pausa temporal de IA
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeAi(30)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>⏱️</span> Pausar 30 minutos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeAi(120)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>⏱️</span> Pausar 2 horas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeAi('tomorrow')}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>☀️</span> Hasta mañana (8 AM)
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           {/* Chip de Recordatorio Activo o Botón para Programar */}
           {activeReminder ? (
@@ -1140,6 +1232,8 @@ export function ChatWindow({
                     content={msg.content}
                     senderType={msg.sender_type}
                     createdAt={msg.created_at}
+                    status={msg.status}
+                    onReply={(target) => setReplyingToMessage(target)}
                   />
                 ))}
               </>
@@ -1226,6 +1320,8 @@ export function ChatWindow({
             onDraftChange={onDraftChange}
             isAiActive={contact.is_ai_active}
             onToggleAi={handleToggleAi}
+            replyingToMessage={replyingToMessage}
+            onCancelReply={() => setReplyingToMessage(null)}
           />
         </div>
 

@@ -1,0 +1,23 @@
+{
+  "name": "Synqo CRM",
+  "short_name": "Synqo",
+  "description": "CRM comercial con IA y atención WhatsApp omnicanal",
+  "start_url": "/inbox",
+  "display": "standalone",
+  "background_color": "#090A0F",
+  "theme_color": "#0052FF",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/brand/favicon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/brand/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}

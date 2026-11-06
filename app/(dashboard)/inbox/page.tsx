@@ -18,7 +18,7 @@ export default async function InboxPage() {
   // Consultar contactos reales de la organización, miembros del equipo y conteo de vacíos de IA
   const [{ data: contacts }, { data: teamMembers }, gapsCount] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
       .order('updated_at', { ascending: false })
@@ -37,7 +37,7 @@ export default async function InboxPage() {
   let messages: any[] = [];
   if (activeContact) {
     const { data: msgs } = await (supabaseAdmin.from('messages') as any)
-      .select('id, sender_type, content, created_at')
+      .select('id, sender_type, content, created_at, status, reply_to_message_id')
       .eq('contact_id', activeContact.id)
       .order('created_at', { ascending: false })
       .limit(50);

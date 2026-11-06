@@ -20,7 +20,7 @@ interface ChatInputProps {
   contactPhone?: string;
   isWithin24h: boolean;
   onSendMessage: (text: string) => Promise<void>;
-  onSendMedia?: (mediaUrl: string, caption?: string, fileName?: string, isDocument?: boolean, isAudio?: boolean) => Promise<void>;
+  onSendMedia?: (mediaUrl: string, caption?: string, fileName?: string, isDocument?: boolean, isAudio?: boolean, isVideo?: boolean) => Promise<void>;
   onSendTemplate: (templateName: string) => Promise<void>;
   customTemplates?: Array<{ name: string; label: string }>;
   disabled?: boolean;
@@ -30,6 +30,8 @@ interface ChatInputProps {
   onDraftChange?: (text: string) => void;
   isAiActive?: boolean;
   onToggleAi?: (state: boolean) => Promise<void>;
+  replyingToMessage?: { id?: string; senderType: string; content: string } | null;
+  onCancelReply?: () => void;
 }
 
 export function ChatInput({
@@ -48,6 +50,8 @@ export function ChatInput({
   onDraftChange,
   isAiActive,
   onToggleAi,
+  replyingToMessage,
+  onCancelReply,
 }: ChatInputProps) {
   const [message, setMessage] = useState(draftText || '');
   const availableTemplates = customTemplates && customTemplates.length > 0
@@ -63,7 +67,7 @@ export function ChatInput({
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [activeSnippets, setActiveSnippets] = useState<QuickSnippet[]>(BASE_DEFAULT_SNIPPETS);
   const [aiSuggestions, setAiSuggestions] = useState<QuickSnippet[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Estado para cuentas y métodos de pago personalizables
@@ -312,40 +316,58 @@ export function ChatInput({
     setMessage(newVal);
     onDraftChange?.(newVal);
     onTyping?.();
+
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 140)}px`;
+    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isPopoverOpen = showSnippets || (isTypingShortcut && filteredSnippets.length > 0);
-    if (!isPopoverOpen || filteredSnippets.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedSnippetIndex((prev) => (prev + 1) % filteredSnippets.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedSnippetIndex((prev) => (prev - 1 + filteredSnippets.length) % filteredSnippets.length);
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      const currentSnippet = filteredSnippets[selectedSnippetIndex] || filteredSnippets[0];
-      if (currentSnippet) {
-        handleApplySnippet(currentSnippet.text);
+    if (isPopoverOpen && filteredSnippets.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSnippetIndex((prev) => (prev + 1) % filteredSnippets.length);
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSnippetIndex((prev) => (prev - 1 + filteredSnippets.length) % filteredSnippets.length);
+        return;
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const currentSnippet = filteredSnippets[selectedSnippetIndex] || filteredSnippets[0];
+        if (currentSnippet) {
+          handleApplySnippet(currentSnippet.text);
+        }
+        return;
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSnippets(false);
+        return;
       }
-    } else if (e.key === 'Escape') {
+    }
+
+    // Comportamiento WhatsApp: Enter envía, Shift+Enter añade nueva línea
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      setShowSnippets(false);
+      handleSubmitText(e);
     }
   };
 
   const handleSubmitText = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || loading || disabled) return;
+    if (!message.trim() || disabled) return;
 
-    setLoading(true);
     const textToSend = message;
     setMessage('');
     onDraftChange?.('');
     setShowSnippets(false);
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
 
+    setLoading(true);
     try {
       await onSendMessage(textToSend);
     } catch {
@@ -358,15 +380,18 @@ export function ChatInput({
 
   const handleSendAndReactivateAi = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!message.trim() || loading || disabled) return;
+    if (!message.trim() || disabled) return;
 
-    setLoading(true);
     const textToSend = message;
     setMessage('');
     onDraftChange?.('');
     setShowSnippets(false);
     setShowPaymentMenu(false);
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
 
+    setLoading(true);
     try {
       await onSendMessage(textToSend);
       if (onToggleAi) {
@@ -750,132 +775,160 @@ export function ChatInput({
           </div>
         </div>
       ) : (
-        <form
-          onSubmit={handleSubmitText}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const file = e.dataTransfer.files?.[0];
-            if (!file) return;
-            if (file.size > 15 * 1024 * 1024) {
-              setMediaError('El archivo arrastrado supera el límite de 15 MB.');
-              return;
-            }
-            setMediaError(null);
-            const isDoc = !file.type.startsWith('image/');
-            setPendingMedia({
-              file,
-              previewUrl: isDoc ? undefined : URL.createObjectURL(file),
-              caption: message.trim(),
-              isDocument: isDoc,
-            });
-            setMessage('');
-          }}
-          className="p-2.5 pt-1.5 flex gap-1.5 items-center"
-        >
-          {/* Botón de Adjuntar Foto o Archivo */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading || disabled}
-            className="p-2 text-slate-500 dark:text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl transition cursor-pointer shrink-0 disabled:opacity-40"
-            title="Adjuntar foto o archivo (PDF, Word, Excel)"
-          >
-            <Paperclip className="w-4 h-4" />
-          </button>
+        <>
+          {/* Banner de Cita / Responder a mensaje */}
+          {replyingToMessage && (
+            <div className="mx-2.5 mb-1 p-2 bg-slate-100 dark:bg-[#1A1F2C] border-l-4 border-[#0052FF] rounded-r-xl flex items-center justify-between text-xs animate-in fade-in slide-in-from-bottom-1">
+              <div className="flex-1 min-w-0 pr-2">
+                <span className="font-semibold text-[11px] text-[#0052FF] dark:text-[#00D2FF] block">
+                  Respondiendo a {replyingToMessage.senderType === 'lead' ? (contactName || 'Cliente') : 'Asesor'}:
+                </span>
+                <p className="truncate text-slate-600 dark:text-slate-300 text-[11px] italic">
+                  {replyingToMessage.content}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onCancelReply}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer shrink-0"
+                title="Cancelar respuesta"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
-          {/* Botón de Grabar Nota de Voz */}
-          <button
-            type="button"
-            onClick={startRecording}
-            disabled={loading || disabled}
-            className="p-2 text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-xl transition cursor-pointer shrink-0 disabled:opacity-40"
-            title="Grabar y enviar nota de voz oficial de WhatsApp"
+          <form
+            onSubmit={handleSubmitText}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files?.[0];
+              if (!file) return;
+              if (file.size > 25 * 1024 * 1024) {
+                setMediaError('El archivo arrastrado supera el límite de 25 MB.');
+                return;
+              }
+              setMediaError(null);
+              const isVideo = file.type.startsWith('video/');
+              const isDoc = !file.type.startsWith('image/') && !isVideo;
+              setPendingMedia({
+                file,
+                previewUrl: isDoc ? undefined : URL.createObjectURL(file),
+                caption: message.trim(),
+                isDocument: isDoc,
+              });
+              setMessage('');
+            }}
+            className="p-2.5 pt-1.5 flex gap-1.5 items-end"
           >
-            <Mic className="w-4 h-4" />
-          </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            if (file.size > 15 * 1024 * 1024) {
-              setMediaError('El archivo supera el límite máximo de 15 MB.');
-              return;
-            }
-            setMediaError(null);
-            const isDoc = !file.type.startsWith('image/');
-            setPendingMedia({
-              file,
-              previewUrl: isDoc ? undefined : URL.createObjectURL(file),
-              caption: message.trim(),
-              isDocument: isDoc,
-            });
-            setMessage('');
-            if (fileInputRef.current) fileInputRef.current.value = '';
-          }}
-          className="hidden"
-        />
+            {/* Botón de Adjuntar Foto, Video o Archivo */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading || disabled}
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl transition cursor-pointer shrink-0 disabled:opacity-40 mb-0.5"
+              title="Adjuntar foto, video o archivo (PDF, Word, Excel)"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
 
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Escribe un mensaje o pega una foto con Ctrl+V..."
-          value={message}
-          onChange={(e) => handleTextChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={(e) => {
-            const items = e.clipboardData?.items;
-            if (!items) return;
-            for (let i = 0; i < items.length; i++) {
-              const item = items[i];
-              if (item.type.indexOf('image') !== -1) {
-                const file = item.getAsFile();
-                if (file) {
-                  if (file.size > 10 * 1024 * 1024) {
-                    setMediaError('La imagen pegada supera el límite de 10 MB.');
-                    return;
-                  }
-                  setMediaError(null);
-                  setPendingMedia({
-                    file,
-                    previewUrl: URL.createObjectURL(file),
-                    caption: message.trim(),
-                    isDocument: false,
-                  });
-                  setMessage('');
-                  e.preventDefault();
+            {/* Botón de Grabar Nota de Voz */}
+            <button
+              type="button"
+              onClick={startRecording}
+              disabled={loading || disabled}
+              className="p-2 text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-xl transition cursor-pointer shrink-0 disabled:opacity-40 mb-0.5"
+              title="Grabar y enviar nota de voz oficial de WhatsApp"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (file.size > 25 * 1024 * 1024) {
+                  setMediaError('El archivo supera el límite máximo de 25 MB.');
                   return;
                 }
-              }
-            }
-          }}
-          disabled={loading}
-          className="flex-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0052FF] focus:border-[#0052FF] disabled:opacity-50"
-        />
-        {isAiActive === false && onToggleAi && (
-          <button
-            type="button"
-            onClick={handleSendAndReactivateAi}
-            disabled={loading || !message.trim()}
-            title="Enviar respuesta y reactivar la IA inmediatamente para que continúe atendiendo al cliente"
-            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center gap-1.5 cursor-pointer shrink-0 text-xs font-semibold"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Enviar & IA</span>
-          </button>
-        )}
-        <button
-          type="submit"
-          disabled={loading || !message.trim()}
-          title="Enviar mensaje manual"
-          className="bg-[#0052FF] hover:bg-[#0043D4] text-white px-3.5 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center justify-center cursor-pointer shrink-0"
-        >
-          <Send className="w-3.5 h-3.5" />
-        </button>
-      </form>
+                setMediaError(null);
+                const isVideo = file.type.startsWith('video/');
+                const isDoc = !file.type.startsWith('image/') && !isVideo;
+                setPendingMedia({
+                  file,
+                  previewUrl: isDoc ? undefined : URL.createObjectURL(file),
+                  caption: message.trim(),
+                  isDocument: isDoc,
+                });
+                setMessage('');
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+              className="hidden"
+            />
+
+            <textarea
+              ref={inputRef}
+              rows={1}
+              placeholder="Escribe un mensaje o pega una foto con Ctrl+V (Shift+Enter para nueva línea)..."
+              value={message}
+              onChange={(e) => handleTextChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (let i = 0; i < items.length; i++) {
+                  const item = items[i];
+                  if (item.type.indexOf('image') !== -1) {
+                    const file = item.getAsFile();
+                    if (file) {
+                      if (file.size > 15 * 1024 * 1024) {
+                        setMediaError('La imagen pegada supera el límite de 15 MB.');
+                        return;
+                      }
+                      setMediaError(null);
+                      setPendingMedia({
+                        file,
+                        previewUrl: URL.createObjectURL(file),
+                        caption: message.trim(),
+                        isDocument: false,
+                      });
+                      setMessage('');
+                      e.preventDefault();
+                      return;
+                    }
+                  }
+                }
+              }}
+              className="flex-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0052FF] focus:border-[#0052FF] resize-none min-h-[38px] max-h-[140px] leading-relaxed transition-all"
+            />
+
+            {isAiActive === false && onToggleAi && (
+              <button
+                type="button"
+                onClick={handleSendAndReactivateAi}
+                disabled={loading || !message.trim()}
+                title="Enviar respuesta y reactivar la IA inmediatamente para que continúe atendiendo al cliente"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center gap-1.5 cursor-pointer shrink-0 text-xs font-semibold mb-0.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Enviar & IA</span>
+              </button>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || !message.trim()}
+              title="Enviar mensaje manual (Enter)"
+              className="bg-[#0052FF] hover:bg-[#0043D4] text-white px-3.5 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </form>
+        </>
       )}
 
       {/* Modal de Gestión de Atajos y Sugerencias de IA */}

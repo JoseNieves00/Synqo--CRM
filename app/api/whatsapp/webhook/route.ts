@@ -9,7 +9,7 @@ import { WhatsAppService } from '@/services/whatsapp.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
-import { formatImageMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
+import { formatImageMessageContent, formatVideoMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
 
 /**
@@ -66,8 +66,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'ignored_empty_value' }, { status: 200 });
   }
 
-  // B. Descartar notificaciones de estado (sent, delivered, read) para evitar ecos y bucles
+  // B. Capturar y persistir notificaciones de estado (sent, delivered, read) para ticks de entrega en vivo
   if (value.statuses && (!value.messages || value.messages.length === 0)) {
+    try {
+      for (const st of value.statuses) {
+        const metaId = st.id;
+        const newStatus = st.status; // 'sent' | 'delivered' | 'read' | 'failed'
+        if (metaId && newStatus) {
+          await (supabaseAdmin.from('messages') as any)
+            .update({ status: newStatus })
+            .eq('meta_message_id', metaId);
+        }
+      }
+    } catch (statusErr: any) {
+      console.warn('[WHATSAPP STATUS UPDATE WARN]', statusErr);
+    }
     return NextResponse.json({ status: 'status_update_acknowledged' }, { status: 200 });
   }
 
@@ -216,8 +229,26 @@ export async function POST(request: NextRequest) {
         rawContent = '🎤 [Nota de voz]';
       }
     } else if (msgType === 'video') {
+      const videoId = incomingMessage.video?.id;
       const caption = incomingMessage.video?.caption;
-      rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+      let videoUrl: string | null = null;
+      if (videoId && organization.whatsapp_access_token) {
+        try {
+          const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+          const media = await WhatsAppService.downloadMedia(videoId, decryptedToken);
+          videoUrl = await uploadIncomingChatMedia({
+            buffer: media.buffer,
+            mimeType: media.mimeType || 'video/mp4',
+            organizationId: organization.id,
+            contactId: leadPhone || 'incoming',
+          });
+        } catch (vidErr: any) {
+          console.error('[WHATSAPP VIDEO DOWNLOAD ERROR]', vidErr);
+        }
+      }
+      rawContent = videoUrl
+        ? formatVideoMessageContent(videoUrl, caption)
+        : (caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]');
     } else if (msgType === 'sticker') {
       rawContent = '🏷️ [Sticker recibido]';
     } else if (msgType === 'contacts') {
@@ -251,7 +282,7 @@ export async function POST(request: NextRequest) {
 
     const { data: existingContact } = await supabaseAdmin
       .from('contacts')
-      .select('id, is_ai_active')
+      .select('id, is_ai_active, custom_fields, unread_count, ai_snooze_until')
       .eq('organization_id', orgId)
       .eq('phone', leadPhone)
       .single();
@@ -325,6 +356,46 @@ export async function POST(request: NextRequest) {
       }
       console.warn('[WHATSAPP WEBHOOK INSERT MSG ERROR]', insertMsgError);
     }
+
+    // Actualizar unread_count, last_message y verificar auto-reanudación de IA (Snooze)
+    const currentCustom = ((existingContact as any)?.custom_fields as Record<string, any>) || {};
+    const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
+    const lastMsgPayload = {
+      text: sanitizedContent,
+      sender_type: 'lead',
+      created_at: new Date().toISOString(),
+    };
+
+    const aiSnoozeUntil = (existingContact as any)?.ai_snooze_until || currentCustom.ai_snooze_until;
+    let effectiveAiActive = isAiActive;
+    let clearSnooze = false;
+    if (aiSnoozeUntil) {
+      if (new Date(aiSnoozeUntil).getTime() <= Date.now()) {
+        effectiveAiActive = true;
+        clearSnooze = true;
+      } else {
+        effectiveAiActive = false;
+      }
+    }
+
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        unread_count: unreadCount,
+        last_message: lastMsgPayload,
+        is_ai_active: effectiveAiActive,
+        ai_snooze_until: clearSnooze ? null : ((existingContact as any)?.ai_snooze_until || null),
+        custom_fields: {
+          ...currentCustom,
+          unread_count: unreadCount,
+          last_message: lastMsgPayload,
+          ai_snooze_until: clearSnooze ? null : currentCustom.ai_snooze_until,
+        },
+        last_interaction_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', contactId);
+
+    isAiActive = effectiveAiActive;
 
     // Persistir mensajes adicionales si Meta los envió en el mismo webhook
     if (value.messages && value.messages.length > 1) {
@@ -553,7 +624,23 @@ export async function POST(request: NextRequest) {
                   sender_type: 'ai',
                   content: aiResponseText,
                   meta_message_id: outboundMetaId || null,
+                  status: 'sent',
                 });
+
+                const aiLastMsg = {
+                  text: aiResponseText,
+                  sender_type: 'ai',
+                  created_at: new Date().toISOString(),
+                };
+                await (supabaseAdmin.from('contacts') as any)
+                  .update({
+                    last_message: aiLastMsg,
+                    custom_fields: {
+                      ...currentCustom,
+                      last_message: aiLastMsg,
+                    },
+                  })
+                  .eq('id', contactId);
               } catch (sendError: any) {
                 console.error('[WHATSAPP OUTBOUND SEND ERROR]', sendError);
                 const errMessage = sendError?.message || '';

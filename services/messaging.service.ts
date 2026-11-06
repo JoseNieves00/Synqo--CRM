@@ -189,6 +189,16 @@ export class MessagingService {
       });
     }
 
+    if (mediaType === 'video') {
+      return await WhatsAppService.sendVideoMessage({
+        phoneNumberId: organization.whatsapp_phone_number_id,
+        accessToken: decryptedToken,
+        to,
+        videoUrl: mediaUrl,
+        caption,
+      });
+    }
+
     if (mediaType === 'document') {
       return await WhatsAppService.sendDocumentMessage({
         phoneNumberId: organization.whatsapp_phone_number_id,

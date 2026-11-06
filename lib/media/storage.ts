@@ -22,6 +22,18 @@ export async function uploadIncomingChatMedia({
       ? 'webp'
       : mimeType.includes('gif')
       ? 'gif'
+      : mimeType.includes('video/mp4') || mimeType.includes('mp4')
+      ? 'mp4'
+      : mimeType.includes('quicktime') || mimeType.includes('mov')
+      ? 'mov'
+      : mimeType.includes('video/webm')
+      ? 'webm'
+      : mimeType.includes('video/3gpp') || mimeType.includes('3gp')
+      ? '3gp'
+      : mimeType.includes('pdf')
+      ? 'pdf'
+      : mimeType.includes('ogg')
+      ? 'ogg'
       : 'jpg';
 
     const safeMime = mimeType || 'image/jpeg';

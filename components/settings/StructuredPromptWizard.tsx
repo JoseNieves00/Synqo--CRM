@@ -23,6 +23,7 @@ import {
   ExternalLink,
   X,
   Upload,
+  Pencil,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
@@ -86,6 +87,12 @@ export function StructuredPromptWizard({
   const modalFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Modal para editar nombre de foto existente en el catálogo
+  const [editingPhoto, setEditingPhoto] = useState<GalleryPhotoItem | null>(null);
+  const [editPhotoName, setEditPhotoName] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   // Función unificada para compilar y propagar hacia el padre (SettingsForm)
   const compileAndPropagate = (currentText: string, currentGallery: GalleryPhotoItem[]) => {
     let clean = stripPhotoUrlsFromText(currentText).trim();
@@ -131,13 +138,59 @@ export function StructuredPromptWizard({
   };
 
   useEffect(() => {
-    if (isAddPhotoModalOpen || selectedTemplateModal) {
+    if (isAddPhotoModalOpen || selectedTemplateModal || !!editingPhoto) {
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = '';
       };
     }
-  }, [isAddPhotoModalOpen, selectedTemplateModal]);
+  }, [isAddPhotoModalOpen, selectedTemplateModal, editingPhoto]);
+
+  const handleOpenEditModal = (item: GalleryPhotoItem) => {
+    setEditingPhoto(item);
+    setEditPhotoName(item.name);
+    setEditError(null);
+  };
+
+  const handleCloseEditModal = () => {
+    setEditingPhoto(null);
+    setEditPhotoName('');
+    setEditError(null);
+    setIsSavingEdit(false);
+  };
+
+  const handleSaveEditedPhoto = async (e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!editingPhoto || !editPhotoName.trim()) {
+      setEditError('El nombre o título del producto no puede estar vacío.');
+      return;
+    }
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      const updatedGallery = gallery.map((item) =>
+        item.id === editingPhoto.id ? { ...item, name: editPhotoName.trim() } : item
+      );
+      setGallery(updatedGallery);
+      const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
+      await saveProductGallery(updatedGallery, compiled);
+
+      setFeedbackBanner({
+        type: 'success',
+        text: `Foto actualizada a "${editPhotoName.trim()}" y sincronizada con éxito.`,
+      });
+      setTimeout(() => setFeedbackBanner(null), 5000);
+      handleCloseEditModal();
+    } catch (err: any) {
+      console.error('[EDIT PHOTO ERROR]', err);
+      setEditError(err?.message || 'Error al guardar el nuevo nombre en la base de datos.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const handleFileSelection = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -540,24 +593,34 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
 
                 <div className="p-2.5 flex items-center justify-between gap-1.5 bg-white dark:bg-[#131722]">
                   <span
-                    className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate"
+                    className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex-1"
                     title={item.name}
                   >
                     {item.name}
                   </span>
-                  <button
-                    type="button"
-                    disabled={isDeletingId === item.id}
-                    onClick={() => handleDeletePhoto(item.id, item.name)}
-                    className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition cursor-pointer shrink-0 disabled:opacity-50"
-                    title="Eliminar foto del catálogo"
-                  >
-                    {isDeletingId === item.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
-                    ) : (
-                      <Trash2 className="w-3.5 h-3.5" />
-                    )}
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(item)}
+                      className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
+                      title="Cambiar nombre o modelo del producto"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeletingId === item.id}
+                      onClick={() => handleDeletePhoto(item.id, item.name)}
+                      className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md transition cursor-pointer disabled:opacity-50"
+                      title="Eliminar foto del catálogo"
+                    >
+                      {isDeletingId === item.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -766,6 +829,109 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     </>
                   ) : (
                     <span>Guardar en Catálogo Visual</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal para Editar Nombre de Foto Existente (Portaled a document.body) */}
+      {editingPhoto && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-[#0052FF] dark:text-[#00D2FF]">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Editar Nombre del Producto
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Cambia la etiqueta que usa la IA para identificar esta foto
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseEditModal}
+                disabled={isSavingEdit}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              {/* Previsualización actual */}
+              <div className="relative rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
+                <img
+                  src={editingPhoto.url}
+                  alt={editingPhoto.name}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+
+              {/* Input de Nombre */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <span>Nombre / Modelo del Producto:</span>
+                  <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editPhotoName}
+                  onChange={(e) => setEditPhotoName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveEditedPhoto();
+                    }
+                  }}
+                  disabled={isSavingEdit}
+                  placeholder="Ej: Cocina Mediana, Casita de Madera..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  autoFocus
+                />
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  La IA enviará esta imagen cuando el cliente pregunte o pida fotos de este producto exacto.
+                </p>
+              </div>
+
+              {editError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {/* Botones de Acción */}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-[#232A3B]">
+                <button
+                  type="button"
+                  onClick={handleCloseEditModal}
+                  disabled={isSavingEdit}
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditedPhoto}
+                  disabled={isSavingEdit || !editPhotoName.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingEdit ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Guardando cambios...</span>
+                    </>
+                  ) : (
+                    <span>Guardar Nombre</span>
                   )}
                 </button>
               </div>

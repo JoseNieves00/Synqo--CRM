@@ -15,6 +15,7 @@ export const metadata: Metadata = {
       { url: '/brand/favicon-180.png', sizes: '180x180', type: 'image/png' },
     ],
   },
+  manifest: '/manifest.json',
   openGraph: {
     title: 'Synqo - Syncing code, traffic and sales',
     description: 'Tu mejor vendedor opera en la web 24/7.',
