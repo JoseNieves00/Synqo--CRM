@@ -97,15 +97,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing phoneNumberId or leadPhone in metadata' }, { status: 400 });
   }
 
-  // D. Control de Tasa (Rate Limiting) y Prevención de Wallet Exhaustion
-  const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
-  if (!rateLimitResult.success) {
-    console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de 15 msgs/min.`);
-    return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
-  }
-
   try {
-    // E. Identificar la Organización dueña del WABA Phone Number ID
+    // D. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
       .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
       .eq('whatsapp_phone_number_id', phoneNumberId)
@@ -116,7 +109,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
-    // F. Verificación Criptográfica Multi-tenant (App Secret por Organización con fallback a env global)
+    // E. Verificación Criptográfica Multi-tenant (App Secret por Organización con fallback a env global)
+    // 🛡️ Fail-closed estricto: responder 401 si no hay secreto configurado o si la firma es inválida
     let secretToVerify = process.env.META_APP_SECRET || '';
     if (organization.whatsapp_app_secret) {
       try {
@@ -126,18 +120,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (secretToVerify) {
-      if (!signature) {
-        console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
-        return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
-      }
-      const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
-      if (!isValidSignature) {
-        console.error(`[SECURITY ALERT] Firma HMAC inválida rechazada para org "${organization.name}".`);
-        return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
-      }
-    } else {
-      console.warn(`[SECURITY NOTE] Webhook procesado sin validación HMAC (ni la org ni el servidor tienen App Secret configurado).`);
+    if (!secretToVerify) {
+      console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: ni la organización "${organization.name}" ni el servidor tienen META_APP_SECRET configurado.`);
+      return new NextResponse('Unauthorized: App Secret not configured', { status: 401 });
+    }
+
+    if (!signature) {
+      console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
+      return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
+    }
+
+    const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
+    if (!isValidSignature) {
+      console.error(`[SECURITY ALERT] Firma HMAC inválida rechazada para org "${organization.name}".`);
+      return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
+    }
+
+    // F. Control de Tasa (Rate Limiting) y Prevención de Wallet Exhaustion (ejecutado SOLO tras validar firma)
+    const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
+    if (!rateLimitResult.success) {
+      console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de 15 msgs/min.`);
+      return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
     }
 
     const orgId = organization.id;

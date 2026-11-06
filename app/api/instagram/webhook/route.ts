@@ -77,13 +77,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing sender or recipient ID' }, { status: 400 });
   }
 
-  // Rate Limiting anti-abuso
-  const rateLimitResult = await checkRateLimit(`ig:${senderId}`);
-  if (!rateLimitResult.success) {
-    console.warn(`[RATE LIMIT EXCEEDED] Instagram sender ${senderId} excedió límite de mensajes.`);
-    return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
-  }
-
   try {
     // Identificar organización dueña de la cuenta de Instagram
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
@@ -96,7 +89,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
-    // Verificación HMAC si tiene App Secret
+    // Verificación HMAC criptográfica: Fail-closed estricto
     let secretToVerify = process.env.META_APP_SECRET || '';
     if (organization.instagram_app_secret) {
       try {
@@ -106,16 +99,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (secretToVerify) {
-      if (!signature) {
-        console.error(`[SECURITY ALERT] Webhook de Instagram rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
-        return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
-      }
-      const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
-      if (!isValidSignature) {
-        console.error(`[SECURITY ALERT] Firma HMAC inválida en Instagram webhook para org "${organization.name}".`);
-        return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
-      }
+    if (!secretToVerify) {
+      console.error(`[SECURITY ALERT] Webhook de Instagram rechazado: ni la org "${organization.name}" ni el servidor tienen App Secret configurado.`);
+      return new NextResponse('Unauthorized: App Secret not configured', { status: 401 });
+    }
+
+    if (!signature) {
+      console.error(`[SECURITY ALERT] Webhook de Instagram rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
+      return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
+    }
+
+    const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
+    if (!isValidSignature) {
+      console.error(`[SECURITY ALERT] Firma HMAC inválida en Instagram webhook para org "${organization.name}".`);
+      return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
+    }
+
+    // Rate Limiting anti-abuso (ejecutado SOLO tras validar firma)
+    const rateLimitResult = await checkRateLimit(`ig:${senderId}`);
+    if (!rateLimitResult.success) {
+      console.warn(`[RATE LIMIT EXCEEDED] Instagram sender ${senderId} excedió límite de mensajes.`);
+      return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
     }
 
     const orgId = organization.id;
