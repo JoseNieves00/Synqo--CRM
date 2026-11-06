@@ -177,7 +177,12 @@ El drag & drop HTML5 no funciona en pantallas táctiles. Usar una librería con 
   - ✅ **Observabilidad de IA (`ai_runs`):** Tabla de métricas por empresa (modelo, tokens prompt/completion, latencia, canal, estado).
   - ✅ **Seguridad RLS y Bloqueo de Escalación de Privilegios (H4):** Trigger `prevent_profile_privilege_escalation` en `profiles` con `SECURITY DEFINER`.
   - ✅ **Suite de Pruebas Automatizadas:** 17 suites ejecutándose y pasando al 100% en `npm test`.
-- **Fase 4 — Diferenciadores:** copiloto de borradores, corrección desde el chat, transparencia de la IA, etiquetas y timeline, sandbox del bot, scoring automático, dashboard con KPIs reales, plantillas sincronizadas.
+- **Fase 4 — Diferenciadores:** ✅ Completada
+  - ✅ **Copiloto IA de Borradores para Asesores (`generateDraftAiReply`):** Botón y atajo `Ctrl+J` en el Inbox que analiza el chat y genera una propuesta de respuesta lista para insertar con `Tab` o un clic.
+  - ✅ **Feedback y Corrección de IA en el Chat (`submitAiFeedback`):** Botones 👍 / 👎 y modal de corrección en burbujas de IA para que los asesores reporten respuestas erradas e ingresen la respuesta correcta, alimentando `ai_knowledge_gaps` sin tener que ir a `/settings`.
+  - ✅ **Simulador Sandbox del Bot (`BotSandboxModal` / `simulateBotMessage`):** Playground en vivo en Ajustes para probar y validar el comportamiento del bot con métricas de latencia y modelo antes de lanzarlo a clientes.
+  - ✅ **KPIs Reales en Dashboard (Solución al Hallazgo #6):** Eliminación del tope artificial de 100 filas; conteos exactos en PostgreSQL (`count: 'exact'`, `head: true`) sobre el 100% de los leads, citas y conversiones de la empresa.
+  - ✅ **Suite de Pruebas Automatizadas:** 18 suites ejecutándose y pasando al 100% en `npm test`.
 
 ### Qué quitar o no seguir ampliando por ahora
 No agregar más módulos (nuevos nichos, más canales) hasta cerrar las Fases 1 y 2. Revisar si el portal de colaboradores y los dos copilots internos se usan de verdad. Si no, congelarlos reduce superficie de ataque y mantenimiento.

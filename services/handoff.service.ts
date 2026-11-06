@@ -136,7 +136,7 @@ export class HandoffService {
       const advisorFirstName = (agentProfile.full_name || 'Asesor').split(' ')[0];
 
       // Formato profesional y accionable para WhatsApp
-      const alertBody = `🚨 *Nuevo Lead Asignado Automáticamente*\n\nHola *${advisorFirstName}*, se te ha asignado un prospecto que requiere tu atención:\n• *Cliente:* ${leadDisplayName} (${leadContactInfo})\n• *Motivo:* ${reason}\n• *Último mensaje:* ${lastContentSnippet}\n\n👉 *Abrir en CRM:* https://crm.synqo.dev/inbox/${contactId}\n\n_Tip: Responde citando este mensaje para escribirle directamente al cliente desde tu WhatsApp, o responde *1* para confirmar que lo tomaste._`;
+      const alertBody = `🚨 *Nuevo Lead Asignado*\n\nHola *${advisorFirstName}*, se te ha asignado un prospecto que requiere tu atención:\n• *Cliente:* ${leadDisplayName} (${leadContactInfo})\n• *Motivo:* ${reason}\n• *Último mensaje:* ${lastContentSnippet}\n\n👉 *Abrir en CRM:* https://crm.synqo.dev/inbox/${contactId}\n\n_Tip: Responde citando este mensaje para escribirle directamente al cliente desde tu WhatsApp, o responde *1* para confirmar que lo tomaste._`;
 
       // 7. Despacho autónomo por la línea de WhatsApp de la empresa
       let outboundMessageId: string | null = null;

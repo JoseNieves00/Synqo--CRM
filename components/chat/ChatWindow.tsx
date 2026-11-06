@@ -1236,6 +1236,7 @@ export function ChatWindow({
                     status={msg.status}
                     replyToMessageId={msg.reply_to_message_id}
                     reactions={msg.reactions}
+                    contactId={contact.id}
                     onReply={(target) => setReplyingToMessage(target)}
                   />
                 ))}

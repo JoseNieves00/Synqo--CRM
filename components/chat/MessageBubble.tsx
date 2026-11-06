@@ -17,7 +17,12 @@ import {
   CheckCheck,
   Reply,
   Video,
+  ThumbsUp,
+  ThumbsDown,
+  Pencil,
+  Loader2,
 } from 'lucide-react';
+import { submitAiFeedback } from '@/app/actions/chat';
 import {
   parseImageMessageContent,
   parseDocumentMessageContent,
@@ -33,12 +38,13 @@ interface MessageBubbleProps {
   createdAt: string;
   status?: string | null;
   replyToMessageId?: string | null;
-  reactions?: { emoji: string; from?: string; reacted_at?: string } | any;
+  reactions?: { emoji: string; from?: string; reacted_at?: string; ai_feedback?: string } | any;
+  contactId?: string;
   onReply?: (msg: { id?: string; senderType: MessageSender; content: string }) => void;
 }
 
 export const MessageBubble = React.memo(
-  function MessageBubble({ id, content, senderType, createdAt, status, reactions, onReply }: MessageBubbleProps) {
+  function MessageBubble({ id, content, senderType, createdAt, status, reactions, contactId, onReply }: MessageBubbleProps) {
     const formattedTime = useMemo(() => {
       return new Date(createdAt).toLocaleTimeString([], {
         hour: '2-digit',
@@ -50,6 +56,54 @@ export const MessageBubble = React.memo(
     const isLead = senderType === 'lead';
     const isAi = senderType === 'ai';
     const isAgent = senderType === 'agent_manual';
+
+    const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
+    const [correctionReason, setCorrectionReason] = useState('');
+    const [correctAnswer, setCorrectAnswer] = useState('');
+    const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+    const [localFeedback, setLocalFeedback] = useState<string | null>(reactions?.ai_feedback || null);
+    const [feedbackSuccessNotice, setFeedbackSuccessNotice] = useState(false);
+
+    const handleQuickFeedback = async (type: 'helpful' | 'needs_improvement') => {
+      if (!id || !contactId || isSubmittingFeedback) return;
+      setIsSubmittingFeedback(true);
+      try {
+        await submitAiFeedback({
+          messageId: id,
+          contactId,
+          feedback: type,
+        });
+        setLocalFeedback(type);
+        setFeedbackSuccessNotice(true);
+        setTimeout(() => setFeedbackSuccessNotice(false), 3000);
+      } catch (err) {
+        console.error('[MessageBubble] Error enviando feedback de IA:', err);
+      } finally {
+        setIsSubmittingFeedback(false);
+      }
+    };
+
+    const handleSaveCorrection = async () => {
+      if (!id || !contactId || isSubmittingFeedback || (!correctionReason.trim() && !correctAnswer.trim())) return;
+      setIsSubmittingFeedback(true);
+      try {
+        await submitAiFeedback({
+          messageId: id,
+          contactId,
+          feedback: 'needs_improvement',
+          feedbackText: correctionReason.trim(),
+          correctAnswer: correctAnswer.trim(),
+        });
+        setLocalFeedback('needs_improvement');
+        setIsCorrectionModalOpen(false);
+        setFeedbackSuccessNotice(true);
+        setTimeout(() => setFeedbackSuccessNotice(false), 3500);
+      } catch (err) {
+        console.error('[MessageBubble] Error guardando corrección de IA:', err);
+      } finally {
+        setIsSubmittingFeedback(false);
+      }
+    };
 
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
     const imageInfo = useMemo(() => parseImageMessageContent(content), [content]);
@@ -147,16 +201,52 @@ export const MessageBubble = React.memo(
     return (
       <>
         <div className={`group flex w-full my-1.5 items-center gap-1.5 ${isLead ? 'justify-start' : 'justify-end'}`}>
-          {/* Botón de Citar (para mensajes salientes a la izquierda) */}
-          {!isLead && onReply && (
-            <button
-              type="button"
-              onClick={() => onReply({ id, senderType, content: quoteInfo.actualText || content })}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer shrink-0"
-              title="Responder a este mensaje"
-            >
-              <Reply className="w-3 h-3" />
-            </button>
+          {/* Botones para mensajes salientes a la izquierda de la burbuja */}
+          {!isLead && (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+              {onReply && (
+                <button
+                  type="button"
+                  onClick={() => onReply({ id, senderType, content: quoteInfo.actualText || content })}
+                  className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                  title="Responder a este mensaje"
+                >
+                  <Reply className="w-3 h-3" />
+                </button>
+              )}
+
+              {isAi && id && contactId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickFeedback('helpful')}
+                    disabled={isSubmittingFeedback || localFeedback === 'helpful'}
+                    className={`p-1 rounded-full transition cursor-pointer ${
+                      localFeedback === 'helpful'
+                        ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+                    }`}
+                    title="Respuesta correcta / útil (👍)"
+                  >
+                    <ThumbsUp className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCorrectionModalOpen(true)}
+                    disabled={isSubmittingFeedback}
+                    className={`p-1 rounded-full transition cursor-pointer ${
+                      localFeedback === 'needs_improvement'
+                        ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400'
+                    }`}
+                    title="Corregir esta respuesta para que la IA aprenda"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
           <div
@@ -177,10 +267,25 @@ export const MessageBubble = React.memo(
                 </>
               )}
               {isAi && (
-                <>
-                  <Bot className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
-                  <span className="text-[#0052FF] dark:text-[#00D2FF] font-mono font-bold">Synqo AI</span>
-                </>
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-1">
+                    <Bot className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
+                    <span className="text-[#0052FF] dark:text-[#00D2FF] font-mono font-bold">Synqo AI</span>
+                  </div>
+                  {localFeedback === 'helpful' ? (
+                    <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5">
+                      <Check className="w-2.5 h-2.5" /> Aprobada
+                    </span>
+                  ) : localFeedback === 'needs_improvement' ? (
+                    <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-0.5">
+                      ⚠ Corregida
+                    </span>
+                  ) : feedbackSuccessNotice ? (
+                    <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                      ✓ Guardado
+                    </span>
+                  ) : null}
+                </div>
               )}
               {isAgent && (
                 <>
@@ -463,6 +568,105 @@ export const MessageBubble = React.memo(
                   {imageInfo.caption}
                 </p>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Corrección de Respuesta de la IA */}
+        {isCorrectionModalOpen && (
+          <div
+            onClick={() => setIsCorrectionModalOpen(false)}
+            className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-150"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#1E2433] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF]">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Corregir Respuesta de la IA
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Entrena a la IA para que aprenda el dato correcto en futuros chats.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCorrectionModalOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Mensaje original de la IA */}
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-xs">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                  Respuesta dada por la IA:
+                </span>
+                <p className="text-slate-700 dark:text-slate-300 italic line-clamp-3">
+                  &ldquo;{content}&rdquo;
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    ¿Qué estuvo mal o inexacto?
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: El precio de la cocina pequeña es $350.000, no $360.000"
+                    value={correctionReason}
+                    onChange={(e) => setCorrectionReason(e.target.value)}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    ¿Cuál debió ser la respuesta correcta?
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Escribe la respuesta exacta que debió darle al cliente..."
+                    value={correctAnswer}
+                    onChange={(e) => setCorrectAnswer(e.target.value)}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF] resize-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#1E2433]">
+                <button
+                  type="button"
+                  onClick={() => setIsCorrectionModalOpen(false)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1E2433] transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveCorrection}
+                  disabled={isSubmittingFeedback || (!correctionReason.trim() && !correctAnswer.trim())}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingFeedback ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Guardar Corrección</span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -1439,6 +1439,50 @@ INSTRUCCIONES CLAVE PARA EL BORRADOR:
     const draft = response.choices[0]?.message?.content?.trim() || '';
     return draft.replace(/^["“”]|["“”]$/g, '').trim();
   }
+
+  /**
+   * Simulador Sandbox: ejecuta una inferencia en vivo con el prompt del sistema
+   * y el historial de mensajes sin requerir un contacto real en base de datos.
+   */
+  static async simulateSandboxMessage(params: {
+    systemPrompt: string;
+    userMessage: string;
+    history: Array<{ role: 'user' | 'assistant'; content: string }>;
+    aiProvider?: string | null;
+    organizationId?: string;
+  }): Promise<{
+    reply: string;
+    modelUsed: string;
+    provider: 'google' | 'openai';
+    latencyMs: number;
+  }> {
+    const startTime = Date.now();
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: params.systemPrompt },
+      ...params.history.map((h) => ({
+        role: h.role as 'user' | 'assistant',
+        content: h.content,
+      })),
+      { role: 'user', content: params.userMessage },
+    ];
+
+    const { response, modelUsed, provider } = await createChatCompletionWithFallback({
+      messages,
+      temperature: 0.3,
+      aiProvider: params.aiProvider,
+      organizationId: params.organizationId,
+    });
+
+    const reply = response.choices[0]?.message?.content?.trim() || 'Sin respuesta generada.';
+    const latencyMs = Date.now() - startTime;
+
+    return {
+      reply,
+      modelUsed,
+      provider,
+      latencyMs,
+    };
+  }
 }
 
 

@@ -1088,8 +1088,8 @@ export function InboxView({
             </div>
           )}
 
-          {/* Recordatorio de Preguntas Frecuentes Pendientes */}
-          {pendingGapsCount > 0 && (
+          {/* Recordatorio de Preguntas Frecuentes Pendientes (Solo administradores) */}
+          {pendingGapsCount > 0 && isAdmin && (
             <Link
               href="/settings"
               className="flex items-center justify-between p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs hover:border-amber-300 dark:hover:border-amber-400 transition group"

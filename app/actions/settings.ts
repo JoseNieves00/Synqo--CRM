@@ -7,6 +7,8 @@ import { Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { WhatsAppService } from '@/services/whatsapp.service';
 import { GalleryPhotoItem } from '@/lib/media/format';
+import { OpenAIService } from '@/services/openai.service';
+import { compileStructuredPrompt } from '@/lib/ai/prompt-compiler';
 
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
@@ -724,5 +726,64 @@ export async function saveOrganizationPaymentAccounts(
   revalidatePath('/inbox');
   return { success: true, accounts: cleanAccounts };
 }
+
+/**
+ * Simulador Sandbox del Bot: Permite a los administradores interactuar con el bot
+ * de su empresa en tiempo real para validar el comportamiento del prompt
+ * sin enviar mensajes reales a WhatsApp ni crear leads ficticios en la base de datos.
+ */
+export async function simulateBotMessage(params: {
+  userMessage: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  temporaryPrompt?: string;
+}): Promise<{
+  reply: string;
+  latencyMs: number;
+  model: string;
+  provider: string;
+}> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && !profile.is_super_admin)) {
+    throw new Error('Solo administradores pueden usar el simulador de IA.');
+  }
+
+  const orgId = profile.organization_id;
+  const startTime = Date.now();
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, prompt_config, structured_prompt, system_prompt, custom_instructions, ai_provider, appointment_settings, enabled_modules')
+    .eq('id', orgId)
+    .single();
+
+  if (!org) throw new Error('Organización no encontrada');
+
+  const activePrompt = params.temporaryPrompt || (org.structured_prompt
+    ? compileStructuredPrompt(org.structured_prompt)
+    : org.prompt_config || org.system_prompt || 'Eres el asesor comercial inteligente de Synqo CRM.');
+
+  const result = await OpenAIService.simulateSandboxMessage({
+    systemPrompt: activePrompt,
+    userMessage: params.userMessage,
+    history: params.history,
+    aiProvider: org.ai_provider,
+    organizationId: orgId,
+  });
+
+  return {
+    reply: result.reply,
+    latencyMs: result.latencyMs,
+    model: result.modelUsed,
+    provider: result.provider,
+  };
+}
+
 
 

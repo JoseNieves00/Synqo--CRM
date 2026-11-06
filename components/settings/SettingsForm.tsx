@@ -85,6 +85,10 @@ const EvolutionQrCard = dynamic(() => import('./EvolutionQrCard').then((m) => m.
   ssr: false,
 });
 
+const BotSandboxModal = dynamic(() => import('./BotSandboxModal').then((m) => m.BotSandboxModal), {
+  ssr: false,
+});
+
 const PaymentAccountsSettings = dynamic(() => import('./PaymentAccountsSettings').then((m) => m.PaymentAccountsSettings), {
   loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando métodos de pago...</div>,
   ssr: false,
@@ -174,6 +178,7 @@ export function SettingsForm({
   const [accessToken, setAccessToken] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [appSecret, setAppSecret] = useState('');
+  const [isSandboxOpen, setIsSandboxOpen] = useState(false);
   const [showAppSecret, setShowAppSecret] = useState(false);
   const [hasToken, setHasToken] = useState(Boolean(initialData.hasWhatsappToken));
   const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
@@ -2318,18 +2323,29 @@ export function SettingsForm({
 
         {/* Asistente Visual de IA Multinicho & Vacíos de Conocimiento */}
         <div className="space-y-6">
-          <div className="flex items-center gap-3 border-b border-slate-200 dark:border-[#232A3B] pb-3">
-            <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20">
-              <Sparkles className="w-5 h-5" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#232A3B] pb-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  Asistente Comercial & Catálogo de Servicios
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Estructura el catálogo de productos o servicios, precios, tono de comunicación y respuestas automáticas
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Asistente Comercial & Catálogo de Servicios
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Estructura el catálogo de productos o servicios, precios, tono de comunicación y respuestas automáticas
-              </p>
-            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsSandboxOpen(true)}
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Probar Bot en Sandbox</span>
+            </button>
           </div>
 
           {/* Wizard Visual Guiado */}
@@ -2347,6 +2363,14 @@ export function SettingsForm({
           <div className="pt-2">
             <KnowledgeGapsList initialGaps={initialData.initialKnowledgeGaps || []} />
           </div>
+
+          {/* Modal Sandbox de Pruebas del Bot */}
+          <BotSandboxModal
+            isOpen={isSandboxOpen}
+            onClose={() => setIsSandboxOpen(false)}
+            temporaryPrompt={systemPrompt}
+            botName={initialData.orgName || 'Synqo AI'}
+          />
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
