@@ -54,8 +54,16 @@ export async function sendAgentMessage(contactId: string, content: string) {
   const isInstagram = contact.channel === 'instagram' || Boolean(contact.instagram_id);
   let metaMessageId: string | null = null;
 
+  // 4. Inmediato Human Takeover: silenciar la IA ANTES del despacho de red para evitar colisiones
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      is_ai_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
   if (isInstagram) {
-    // 4. Obtener credenciales de Instagram Direct
+    // 5. Obtener credenciales de Instagram Direct
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
       .select('instagram_account_id, instagram_access_token')
       .eq('id', orgId)
@@ -75,7 +83,7 @@ export async function sendAgentMessage(contactId: string, content: string) {
       text: cleanContent,
     });
   } else {
-    // 4. Obtener credenciales de mensajería de la organización
+    // 5. Obtener credenciales de mensajería de la organización
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
       .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
       .eq('id', orgId)
@@ -92,7 +100,7 @@ export async function sendAgentMessage(contactId: string, content: string) {
     // Si el contacto nunca ha tenido interacción previa, se considera envío en frío (outbound)
     const isCold = !contact.last_interaction_at;
 
-    // 5. Enviar mensaje mediante el motor configurado (Meta Cloud API o Evolution API)
+    // 6. Enviar mensaje mediante el motor configurado (Meta Cloud API o Evolution API)
     const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
     metaMessageId = await MessagingService.sendTextMessage({
       organization: org,
@@ -102,14 +110,6 @@ export async function sendAgentMessage(contactId: string, content: string) {
       isColdOutbound: isCold,
     });
   }
-
-  // 6. Silenciar la IA automáticamente y registrar actualización
-  await (supabaseAdmin.from('contacts') as any)
-    .update({
-      is_ai_active: false,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', contactId);
 
   // 7. Persistir el mensaje en la base de datos con sender_type = 'agent_manual'
   await (supabaseAdmin.from('messages') as any).insert({
@@ -322,7 +322,15 @@ export async function sendAgentMediaMessage(
   const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
   const mediaType = isAudio ? 'audio' : isDocument ? 'document' : 'image';
 
-  // 1. Despachar imagen, documento o nota de voz a WhatsApp
+  // 1. Silenciar IA de inmediato (Human Takeover) antes del despacho de red
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      is_ai_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
+  // 2. Despachar imagen, documento o nota de voz a WhatsApp
   const messageId = await MessagingService.sendMediaMessage({
     organization: org,
     to: targetRecipient,
@@ -331,15 +339,6 @@ export async function sendAgentMediaMessage(
     mediaType,
     fileName: fileName || (isAudio ? 'nota_de_voz.ogg' : isDocument ? 'documento.pdf' : 'imagen.jpg'),
   });
-
-  // 2. Silenciar IA (Human Takeover) y actualizar última interacción
-  await (supabaseAdmin.from('contacts') as any)
-    .update({
-      is_ai_active: false,
-      last_interaction_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', contactId);
 
   // 3. Persistir en la tabla messages con formato correspondiente
   const formattedContent = isAudio

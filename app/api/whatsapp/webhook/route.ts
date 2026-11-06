@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'reaction_acknowledged' }, { status: 200 });
   }
 
-  const supportedTypes = ['text', 'audio', 'button', 'interactive', 'image', 'document', 'location'];
+  const supportedTypes = ['text', 'audio', 'button', 'interactive', 'image', 'document', 'location', 'video', 'sticker', 'contacts'];
   if (!supportedTypes.includes(msgType)) {
     return NextResponse.json({ status: 'unsupported_message_type_ignored' }, { status: 200 });
   }
@@ -138,9 +138,9 @@ export async function POST(request: NextRequest) {
 
     // F. Control de Tasa (Rate Limiting) y Prevención de Wallet Exhaustion (ejecutado SOLO tras validar firma)
     const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
-    if (!rateLimitResult.success) {
-      console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de 15 msgs/min.`);
-      return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
+    const isRateLimited = !rateLimitResult.success;
+    if (isRateLimited) {
+      console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de 15 msgs/min. Se guardará sin invocar a la IA.`);
     }
 
     const orgId = organization.id;
@@ -215,6 +215,15 @@ export async function POST(request: NextRequest) {
       } else {
         rawContent = '🎤 [Nota de voz]';
       }
+    } else if (msgType === 'video') {
+      const caption = incomingMessage.video?.caption;
+      rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+    } else if (msgType === 'sticker') {
+      rawContent = '🏷️ [Sticker recibido]';
+    } else if (msgType === 'contacts') {
+      const cName = incomingMessage.contacts?.[0]?.name?.formatted_name || 'Contacto';
+      const cPhone = incomingMessage.contacts?.[0]?.phones?.[0]?.phone || '';
+      rawContent = `👤 [Tarjeta de contacto: ${cName}${cPhone ? ` (${cPhone})` : ''}]`;
     }
 
     const sanitizedContent = sanitizeLeadMessage(rawContent);
@@ -299,7 +308,7 @@ export async function POST(request: NextRequest) {
     }
 
     // J. Persistir el Mensaje Entrante en Supabase de Inmediato
-    const { data: insertedMsg } = await supabaseAdmin
+    const { data: insertedMsg, error: insertMsgError } = await supabaseAdmin
       .from('messages')
       .insert({
         contact_id: contactId,
@@ -310,6 +319,41 @@ export async function POST(request: NextRequest) {
       .select('id, created_at')
       .single();
 
+    if (insertMsgError) {
+      if ((insertMsgError as any).code === '23505') {
+        return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
+      }
+      console.warn('[WHATSAPP WEBHOOK INSERT MSG ERROR]', insertMsgError);
+    }
+
+    // Persistir mensajes adicionales si Meta los envió en el mismo webhook
+    if (value.messages && value.messages.length > 1) {
+      for (let mIdx = 1; mIdx < value.messages.length; mIdx++) {
+        const extraMsg = value.messages[mIdx];
+        if (extraMsg && extraMsg.id !== metaMessageId) {
+          let extraContent = '';
+          if (extraMsg.type === 'text') extraContent = extraMsg.text?.body || '';
+          else if (extraMsg.type === 'image') extraContent = extraMsg.image?.caption ? `📷 [Foto]: ${extraMsg.image.caption}` : '📷 [Foto recibida]';
+          else if (extraMsg.type === 'document') extraContent = `📄 [Documento: ${extraMsg.document?.filename || 'Archivo'}]`;
+          else if (extraMsg.type === 'video') extraContent = '📹 [Video recibido]';
+          else if (extraMsg.type === 'sticker') extraContent = '🏷️ [Sticker recibido]';
+          else if (extraMsg.type === 'location') extraContent = '📍 [Ubicación compartida]';
+          else extraContent = `[Mensaje ${extraMsg.type}]`;
+
+          if (extraContent.trim()) {
+            try {
+              await supabaseAdmin.from('messages').insert({
+                contact_id: contactId,
+                sender_type: 'lead',
+                content: sanitizeLeadMessage(extraContent),
+                meta_message_id: extraMsg.id,
+              });
+            } catch {}
+          }
+        }
+      }
+    }
+
     if (isPaymentReceipt) {
       await supabaseAdmin.from('messages').insert({
         contact_id: contactId,
@@ -319,7 +363,7 @@ export async function POST(request: NextRequest) {
     }
 
     // K. Parche 2: Resolución de Timeout con waitUntil (Ejecución Asíncrona en Segundo Plano)
-    if (isSubscriptionActive && isAiActive) {
+    if (isSubscriptionActive && isAiActive && !isRateLimited) {
       waitUntil(
         (async () => {
           try {
@@ -478,6 +522,18 @@ export async function POST(request: NextRequest) {
                 enabledModules: organization.enabled_modules || null,
                 timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
               });
+            }
+
+            // 2.5 Re-verificar si un asesor humano intervino o pausó la IA durante la inferencia
+            const { data: latestContactState } = await supabaseAdmin
+              .from('contacts')
+              .select('is_ai_active')
+              .eq('id', contactId)
+              .single();
+
+            if (latestContactState && !latestContactState.is_ai_active) {
+              console.log(`[AI ABORT] Asesor tomó el chat con ${leadPhone} durante inferencia. Respuesta cancelada.`);
+              return;
             }
 
             // 3. Enviar respuesta por WhatsApp (solo si hay texto para enviar; el relevo silencioso no manda nada)

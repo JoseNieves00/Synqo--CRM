@@ -613,7 +613,7 @@ export function ChatWindow({
     const isPhoneOnly = /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
     const firstName = cleanName && !isPhoneOnly ? cleanName.split(' ')[0] : '';
     const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
-    const text = `${greeting} ¿Cómo estás? Quería saber si alcanzaste a ver los modelos o si tienes alguna duda con las medidas para ayudarte con gusto 😊`;
+    const text = `${greeting} ¿Cómo estás? Quería saber si tuviste oportunidad de revisar la información que te compartimos o si tienes alguna inquietud en la que podamos apoyarte 😊`;
     onDraftChange?.(text);
   };
 

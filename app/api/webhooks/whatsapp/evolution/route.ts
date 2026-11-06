@@ -193,12 +193,23 @@ export async function POST(request: NextRequest) {
   // 5. FILTRO CRÍTICO: Detección de Mensajes Propios (fromMe: true)
   // Permite la coexistencia natural bot-humano.
   if (messageKey.fromMe === true) {
-    // Verificar si este mensaje fue emitido por la IA o asesor desde Synqo
-    const { data: existingMsg } = await supabaseAdmin
+    // 1. Verificar si este mensaje fue emitido por la IA o asesor desde Synqo
+    let { data: existingMsg } = await supabaseAdmin
       .from('messages')
       .select('id')
       .eq('meta_message_id', messageId)
       .maybeSingle();
+
+    if (!existingMsg) {
+      // Breve margen (800ms) para tolerar la latencia de persistencia del worker emisor de Synqo
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const { data: retryMsg } = await supabaseAdmin
+        .from('messages')
+        .select('id')
+        .eq('meta_message_id', messageId)
+        .maybeSingle();
+      existingMsg = retryMsg;
+    }
 
     if (existingMsg) {
       // Es el eco del mensaje que nuestro propio CRM/bot envió. Ignorar para evitar bucles.
@@ -220,7 +231,6 @@ export async function POST(request: NextRequest) {
       await (supabaseAdmin.from('contacts') as any)
         .update({
           is_ai_active: false,
-          last_interaction_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', contact.id);
@@ -248,9 +258,9 @@ export async function POST(request: NextRequest) {
 
   // 6. Rate Limiting por Remitente (Prevención de abusos o ataques DoS)
   const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
-  if (!rateLimitResult.success) {
-    console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de mensajes.`);
-    return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
+  const isRateLimited = !rateLimitResult.success;
+  if (isRateLimited) {
+    console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de mensajes. Se guardará sin invocar a la IA.`);
   }
 
   // 7. Extracción Robusta de Contenido del Mensaje
@@ -440,7 +450,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 11. Persistir el Mensaje Entrante
-  const { data: insertedMsg } = await supabaseAdmin
+  const { data: insertedMsg, error: insertMsgError } = await supabaseAdmin
     .from('messages')
     .insert({
       contact_id: contactId,
@@ -452,6 +462,13 @@ export async function POST(request: NextRequest) {
     .select('id, created_at')
     .single();
 
+  if (insertMsgError) {
+    if ((insertMsgError as any).code === '23505') {
+      return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
+    }
+    console.warn('[EVOLUTION WEBHOOK INSERT MSG ERROR]', insertMsgError);
+  }
+
   if (isPaymentReceipt) {
     await supabaseAdmin.from('messages').insert({
       contact_id: contactId,
@@ -462,7 +479,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 12. Procesamiento Asíncrono de IA con waitUntil
-  if (isSubscriptionActive && isAiActive) {
+  if (isSubscriptionActive && isAiActive && !isRateLimited) {
     waitUntil(
       (async () => {
         try {
@@ -572,6 +589,18 @@ export async function POST(request: NextRequest) {
             enabledModules: organization.enabled_modules || null,
             timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
           });
+
+          // Re-verificar si un asesor humano intervino o pausó la IA durante la inferencia
+          const { data: latestContactState } = await supabaseAdmin
+            .from('contacts')
+            .select('is_ai_active')
+            .eq('id', contactId)
+            .single();
+
+          if (latestContactState && !latestContactState.is_ai_active) {
+            console.log(`[EVOLUTION AI ABORT] Asesor tomó el chat con ${leadPhone} durante inferencia. Respuesta cancelada.`);
+            return;
+          }
 
           if (aiResponseText && aiResponseText.trim() !== '') {
             try {
