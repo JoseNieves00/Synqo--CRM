@@ -56,11 +56,13 @@ async function handleCron(request: NextRequest) {
     const orgId = searchParams.get('orgId') || undefined;
 
     const result = await ReminderService.processAppointmentRemindersAndCancellations(orgId);
+    const slaResult = await AssignmentService.reassignStaleHandoffs(orgId);
 
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
       ...result,
+      reallocatedHandoffs: slaResult.reallocatedCount,
     });
   } catch (err: any) {
     console.error('[CRON APPOINTMENT REMINDERS ERROR]', err);

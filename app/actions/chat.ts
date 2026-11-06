@@ -1084,4 +1084,128 @@ export async function markContactReactivationDismissed(contactId: string) {
   return { success: true };
 }
 
+/**
+ * Copiloto IA para Asesores: genera un borrador inteligente para responder al cliente.
+ */
+export async function generateDraftAiReply(contactId: string): Promise<{ draft: string }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const { data: organization } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, prompt_config, structured_prompt, system_prompt, ai_provider')
+    .eq('id', orgId)
+    .single();
+
+  const { data: rawMessages } = await (supabaseAdmin.from('messages') as any)
+    .select('id, sender_type, content, created_at')
+    .eq('contact_id', contactId)
+    .order('created_at', { ascending: false })
+    .limit(8);
+
+  const history = (rawMessages || []).reverse();
+  if (history.length === 0) {
+    return { draft: `¡Hola ${contact.name || ''}! ¿Cómo podemos apoyarte el día de hoy?` };
+  }
+
+  const draft = await OpenAIService.generateDraftCopilotReply({
+    organizationId: orgId,
+    contactId,
+    leadName: contact.name,
+    history,
+    organization,
+  });
+
+  return { draft };
+}
+
+/**
+ * Registra feedback (👍 / 👎) o una corrección sobre una respuesta de la IA.
+ * Si es negativo o incluye respuesta correcta, crea una duda detectada en ai_knowledge_gaps.
+ */
+export async function submitAiFeedback(params: {
+  messageId: string;
+  contactId: string;
+  feedback: 'helpful' | 'needs_improvement';
+  feedbackText?: string;
+  correctAnswer?: string;
+}): Promise<{ success: boolean }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const { messageId, contactId, feedback, feedbackText, correctAnswer } = params;
+
+  // 1. Obtener el mensaje evaluado
+  const { data: msg } = await (supabaseAdmin.from('messages') as any)
+    .select('id, content, reactions')
+    .eq('id', messageId)
+    .eq('contact_id', contactId)
+    .single();
+
+  if (!msg) throw new Error('Mensaje no encontrado');
+
+  // 2. Guardar feedback en reactions del mensaje
+  const currentReactions = (msg.reactions as Record<string, any>) || {};
+  await (supabaseAdmin.from('messages') as any)
+    .update({
+      reactions: {
+        ...currentReactions,
+        ai_feedback: feedback,
+        feedback_by: profile.full_name || user.email,
+        feedback_at: new Date().toISOString(),
+      },
+    })
+    .eq('id', messageId);
+
+  // 3. Si necesita mejora o incluye corrección, crear entrada en ai_knowledge_gaps
+  if (feedback === 'needs_improvement' || correctAnswer) {
+    const { data: previousLeadMsgs } = await (supabaseAdmin.from('messages') as any)
+      .select('content')
+      .eq('contact_id', contactId)
+      .eq('sender_type', 'lead')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const questionText = previousLeadMsgs?.[0]?.content || 'Duda detectada en conversación';
+
+    await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
+      organization_id: orgId,
+      contact_id: contactId,
+      question_text: questionText.slice(0, 500),
+      reason: feedbackText ? `[Corrección de ${profile.full_name || 'Asesor'}]: ${feedbackText}` : 'Marcado por asesor como respuesta errada de la IA',
+      suggested_answer: correctAnswer || null,
+      status: 'pending',
+      ai_category: 'correccion_chat',
+      occurrences: 1,
+    });
+  }
+
+  return { success: true };
+}
+
 

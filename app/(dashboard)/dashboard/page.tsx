@@ -44,32 +44,84 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // Consultas optimizadas en paralelo
-  const [{ data: contacts }, tokenUsage, remindersData] = await Promise.all([
+  // Consultas optimizadas en paralelo con conteos exactos en PostgreSQL (Métricas reales no sesgadas a 100)
+  const [
+    totalLeadsRes,
+    aiActiveRes,
+    bookedRes,
+    wonRes,
+    unassignedCountRes,
+    unassignedPreviewRes,
+    recentLeadsRes,
+    tokenUsage,
+    remindersData,
+  ] = await Promise.all([
+    // 1. Total real de leads activos
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null),
+
+    // 2. Total con IA activa
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
+      .eq('is_ai_active', true),
+
+    // 3. Total citas agendadas
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
+      .eq('pipeline_stage', 'cita_agendada'),
+
+    // 4. Total cierres ganados
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
+      .eq('pipeline_stage', 'ganado'),
+
+    // 5. Total de leads sin asesor asignado
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
+      .is('assigned_to', null),
+
+    // 6. Previsualización de los 6 prospectos sin asignar más recientes
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at, assigned_to')
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
+      .is('assigned_to', null)
+      .order('last_interaction_at', { ascending: false })
+      .limit(6),
+
+    // 7. Previsualización de los 5 leads más recientes del CRM
     (supabaseAdmin.from('contacts') as any)
       .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, created_at, assigned_to')
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
       .order('last_interaction_at', { ascending: false })
-      .limit(100),
+      .limit(5),
+
     getOrganizationTokenUsage(),
     getOrganizationPendingReminders(),
   ]);
 
-  const leadList = contacts || [];
-
-  const totalLeads = leadList.length;
-  const aiActiveLeads = leadList.filter((c: any) => c.is_ai_active).length;
-  const bookedAppointments = leadList.filter((c: any) => c.pipeline_stage === 'cita_agendada').length;
-  const wonLeads = leadList.filter((c: any) => c.pipeline_stage === 'ganado').length;
-  const unassignedLeads = leadList.filter((c: any) => !c.assigned_to);
-  const unassignedCount = unassignedLeads.length;
+  const totalLeads = totalLeadsRes.count ?? 0;
+  const aiActiveLeads = aiActiveRes.count ?? 0;
+  const bookedAppointments = bookedRes.count ?? 0;
+  const wonLeads = wonRes.count ?? 0;
+  const unassignedCount = unassignedCountRes.count ?? 0;
+  const unassignedLeads = unassignedPreviewRes.data || [];
+  const recentLeads = recentLeadsRes.data || [];
 
   const conversionRate = totalLeads > 0
     ? (((bookedAppointments + wonLeads) / totalLeads) * 100).toFixed(1)
     : '0.0';
-
-  const recentLeads = leadList.slice(0, 5);
 
   return (
     <div className="space-y-6">

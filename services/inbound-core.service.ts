@@ -5,6 +5,7 @@ import { AssignmentService } from './assignment.service';
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { OpenAIService } from './openai.service';
+import { HandoffService } from './handoff.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { decryptSecret } from '@/lib/security/encryption';
 
@@ -63,6 +64,9 @@ export interface InboundResult {
     | 'after_hours_sent'
     | 'ai_disabled'
     | 'subscription_inactive'
+    | 'claimed_by_advisor'
+    | 'sent_to_customer'
+    | 'advisor_message_acknowledged'
     | 'error';
   contactId?: string;
   messageId?: string;
@@ -152,6 +156,91 @@ export class InboundCoreService {
 
     const sanitizedContent = sanitizeLeadMessage(finalContent);
     const isPaymentReceipt = Boolean(payload.isPaymentReceipt);
+
+    // 🛡️ INTERCEPTOR ANTI-BUCLE Y COMANDOS DE ASESOR POR WHATSAPP
+    // Si el remitente es un asesor o administrador de la empresa, no crearlo como lead.
+    if (channel !== 'instagram') {
+      const cleanSender = HandoffService.cleanE164Phone(senderId);
+      const { data: matchedAdvisor } = await (supabaseAdmin.from('profiles') as any)
+        .select('id, full_name, role, organization_id')
+        .eq('organization_id', orgId)
+        .or(`whatsapp_phone.eq.${cleanSender},whatsapp_phone.eq.${senderId}`)
+        .maybeSingle();
+
+      if (matchedAdvisor) {
+        console.log(`[INBOUND CORE] 👨‍💼 Mensaje de asesor interceptado: ${matchedAdvisor.full_name} (${senderId})`);
+
+        // Si el asesor respondió citando una alerta de relevo (@[Quote])
+        if (payload.replyToChannelMessageId) {
+          const { data: alert } = await (supabaseAdmin.from('handoff_alerts') as any)
+            .select('id, contact_id, organization_id')
+            .eq('organization_id', orgId)
+            .eq('channel_message_id', payload.replyToChannelMessageId)
+            .maybeSingle();
+
+          if (alert && alert.contact_id) {
+            const rawTrimmed = (payload.rawContent || '').trim().toLowerCase();
+
+            // Comando 1 o tomo: Asignárselo sin responderle al cliente
+            if (rawTrimmed === '1' || rawTrimmed === 'tomo' || rawTrimmed === 'lo tomo') {
+              await (supabaseAdmin.from('contacts') as any)
+                .update({ assigned_to: matchedAdvisor.id, is_ai_active: false })
+                .eq('id', alert.contact_id);
+
+              await (supabaseAdmin.from('handoff_alerts') as any)
+                .update({ status: 'claimed', claimed_at: new Date().toISOString() })
+                .eq('id', alert.id);
+
+              await (supabaseAdmin.from('messages') as any).insert({
+                contact_id: alert.contact_id,
+                sender_type: 'system',
+                content: `[📱 ${matchedAdvisor.full_name} confirmó la toma del lead desde su WhatsApp]`,
+              });
+
+              return { status: 'claimed_by_advisor', contactId: alert.contact_id };
+            }
+
+            // Si el texto es una respuesta comercial para el cliente, reenviarla al cliente
+            const { data: targetContact } = await (supabaseAdmin.from('contacts') as any)
+              .select('id, phone, name')
+              .eq('id', alert.contact_id)
+              .single();
+
+            if (targetContact && targetContact.phone) {
+              await MessagingService.sendTextMessage({
+                organization: payload.organization as any,
+                to: targetContact.phone,
+                body: payload.rawContent,
+              });
+
+              await (supabaseAdmin.from('messages') as any).insert({
+                contact_id: alert.contact_id,
+                sender_type: 'agent_manual',
+                content: payload.rawContent,
+                status: 'sent',
+              });
+
+              await (supabaseAdmin.from('contacts') as any)
+                .update({
+                  assigned_to: matchedAdvisor.id,
+                  is_ai_active: false,
+                  last_interaction_at: new Date().toISOString(),
+                })
+                .eq('id', alert.contact_id);
+
+              await (supabaseAdmin.from('handoff_alerts') as any)
+                .update({ status: 'claimed', claimed_at: new Date().toISOString() })
+                .eq('id', alert.id);
+
+              return { status: 'sent_to_customer', contactId: alert.contact_id };
+            }
+          }
+        }
+
+        // Si fue un mensaje general sin citar alerta, no crear lead para el asesor
+        return { status: 'advisor_message_acknowledged' };
+      }
+    }
 
     // 4. Upsert de Contacto y Balanceo de Carga Multi-Agente
     let contactId: string;
@@ -308,6 +397,15 @@ export class InboundCoreService {
         sender_type: 'system',
         content: '[🚨 Comprobante de pago recibido en imagen: Asesor humano requerido para verificar extracto bancario. IA pausada.]',
       });
+
+      // Despacho autónomo e inmediato de alerta al WhatsApp personal del asesor
+      HandoffService.notifyHandoff({
+        organizationId: orgId,
+        contactId,
+        reason: 'Comprobante de pago recibido en imagen',
+        channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
+      }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
+
       return { status: 'payment_receipt_held', contactId, messageId };
     }
 
@@ -322,6 +420,14 @@ export class InboundCoreService {
         sender_type: 'system',
         content: '[🚨 Relevo: Cliente solicita atención personalizada]',
       });
+
+      // Despacho autónomo e inmediato de alerta al WhatsApp personal del asesor
+      HandoffService.notifyHandoff({
+        organizationId: orgId,
+        contactId,
+        reason: 'Cliente solicita asesor humano de manera explícita',
+        channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
+      }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
 
       if (organization.handoff_mode !== 'silent') {
         const handoffNotice =

@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard, Camera } from 'lucide-react';
-import { getOrganizationQuickReplies, uploadChatMedia } from '@/app/actions/chat';
+import { getOrganizationQuickReplies, uploadChatMedia, generateDraftAiReply } from '@/app/actions/chat';
 import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { CustomPaymentAccount, formatPaymentAccountText, formatAllPaymentAccountsText } from '@/lib/types/payments';
@@ -82,6 +82,25 @@ export function ChatInput({
   const [catalogSearch, setCatalogSearch] = useState('');
   const [isSendingCatalogPhoto, setIsSendingCatalogPhoto] = useState<string | null>(null);
   const catalogMenuRef = useRef<HTMLDivElement>(null);
+
+  // Estado para Copiloto IA de redacción de borradores para asesores
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [aiDraft, setAiDraft] = useState<string | null>(null);
+
+  const handleRequestAiDraft = async () => {
+    if (isGeneratingDraft || disabled) return;
+    setIsGeneratingDraft(true);
+    try {
+      const res = await generateDraftAiReply(contactId);
+      if (res?.draft) {
+        setAiDraft(res.draft);
+      }
+    } catch (err) {
+      console.error('[ChatInput] Error generando borrador con copiloto:', err);
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
 
   // Cargar cuentas de pago y catálogo de fotos configurados al montar
   useEffect(() => {
@@ -368,6 +387,35 @@ export function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Atajo global Ctrl+J / Cmd+J para generar borrador con Copiloto IA
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+      e.preventDefault();
+      handleRequestAiDraft();
+      return;
+    }
+
+    // Aceptar borrador propuesto por el Copiloto IA con Tab
+    if (e.key === 'Tab' && aiDraft) {
+      e.preventDefault();
+      setMessage(aiDraft);
+      onDraftChange?.(aiDraft);
+      setAiDraft(null);
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.style.height = 'auto';
+          inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 140)}px`;
+          inputRef.current.focus();
+        }
+      }, 10);
+      return;
+    }
+
+    if (e.key === 'Escape' && aiDraft) {
+      e.preventDefault();
+      setAiDraft(null);
+      return;
+    }
+
     const isPopoverOpen = showSnippets || (isTypingShortcut && filteredSnippets.length > 0);
     if (isPopoverOpen && filteredSnippets.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -586,6 +634,27 @@ export function ChatInput({
 
       {/* Mini-Barra Superior de Atajos de 1-Clic */}
       <div className="px-3 pt-2 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+        {/* Botón de Copiloto IA (Sugerir respuesta para el Asesor) */}
+        <button
+          type="button"
+          onClick={handleRequestAiDraft}
+          disabled={isGeneratingDraft || loading || disabled}
+          className="px-2 py-0.5 rounded-md font-semibold bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#0052FF]/20 dark:to-indigo-500/20 hover:from-blue-100 hover:to-indigo-100 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-500/30 flex items-center gap-1 transition shrink-0 cursor-pointer shadow-2xs disabled:opacity-50"
+          title="El Copiloto IA analiza el chat y propone un borrador de respuesta para que lo revises (Atajo: Ctrl+J)"
+        >
+          {isGeneratingDraft ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin text-[#0052FF]" />
+              <span>Pensando...</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
+              <span>Copiloto IA</span>
+            </>
+          )}
+        </button>
+
         <button
           type="button"
           onClick={() => setShowSnippets((prev) => !prev)}

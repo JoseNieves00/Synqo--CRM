@@ -14,7 +14,9 @@ import {
 } from '@/lib/validations/tool-calls.schema';
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
+import { HandoffService } from './handoff.service';
 import { formatImageMessageContent } from '@/lib/media/format';
+import { compileStructuredPrompt } from '@/lib/ai/prompt-compiler';
 
 const openaiApiKey = process.env.OPENAI_API_KEY || 'placeholder-key';
 const openai = new OpenAI({ apiKey: openaiApiKey });
@@ -1111,6 +1113,14 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
                 content: `[🚨 Relevo Silencioso: Asesor humano requerido - Motivo: "${handoffReason}"]`,
               });
 
+              // Despachar alerta de WhatsApp de manera 100% autónoma e inmediata al asesor asignado
+              HandoffService.notifyHandoff({
+                organizationId,
+                contactId,
+                reason: handoffReason,
+                channel: (channel as any) || 'whatsapp',
+              }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
+
               // Registrar o acumular frecuencia en ai_knowledge_gaps (Protección anti-ofertas puntuales)
               try {
                 const cleanReason = handoffReason.trim().slice(0, 80);
@@ -1275,6 +1285,13 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
             .from('contacts')
             .update({ is_ai_active: false, updated_at: new Date().toISOString() })
             .eq('id', contactId);
+
+          HandoffService.notifyHandoff({
+            organizationId,
+            contactId,
+            reason: 'La IA pausó respuestas para validar con el equipo comercial',
+            channel: (channel as any) || 'whatsapp',
+          }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
         }
 
         return {
@@ -1317,6 +1334,13 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
           sender_type: 'system',
           content: '[🚨 Relevo Silencioso Activado: La IA pausó respuestas para validar con el equipo comercial]',
         });
+
+        HandoffService.notifyHandoff({
+          organizationId,
+          contactId,
+          reason: 'Relevo silencioso detectado en respuesta directa de la IA',
+          channel: (channel as any) || 'whatsapp',
+        }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
       }
 
       return {
@@ -1365,5 +1389,56 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       };
     }
   }
+
+  /**
+   * Copiloto para asesores humanos: redacta una propuesta de respuesta comercial
+   * analizando el historial reciente y el contexto de la empresa, lista para ser
+   * aprobada o editada por el asesor con Tab o un clic.
+   */
+  static async generateDraftCopilotReply(params: {
+    organizationId: string;
+    contactId: string;
+    leadName?: string | null;
+    history: Array<{ sender_type: string; content: string }>;
+    organization: any;
+  }): Promise<string> {
+    const { organizationId, contactId, leadName, history, organization } = params;
+
+    const basePrompt = organization?.structured_prompt
+      ? compileStructuredPrompt(organization.structured_prompt)
+      : organization?.prompt_config || organization?.system_prompt || 'Eres un asesor comercial atento y profesional.';
+
+    const conversationSnippet = history
+      .map((m) => `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor/IA'}: ${m.content}`)
+      .join('\n');
+
+    const prompt = `Eres el copiloto comercial de Synqo CRM. Tu objetivo es proponer un borrador de respuesta para que el asesor humano lo revise y envíe al cliente ${leadName ? `(${leadName})` : ''}.
+Contexto comercial y directrices de la empresa:
+${basePrompt}
+
+Historial reciente de la conversación:
+${conversationSnippet}
+
+INSTRUCCIONES CLAVE PARA EL BORRADOR:
+1. Responde directamente y con amabilidad a lo último que dijo el cliente.
+2. Si el cliente pregunta por precios, productos o citas, usa la información del contexto de la empresa.
+3. Mantén un tono comercial, empático y orientado a cerrar la venta o resolver su inquietud.
+4. Redacta ÚNICAMENTE el texto que el asesor enviará por WhatsApp/Instagram (sin explicaciones, sin saludos redundantes si la conversación ya está en curso, sin comillas envolventes).`;
+
+    const { response } = await createChatCompletionWithFallback({
+      messages: [
+        { role: 'system', content: 'Eres un copiloto de redacción de respuestas para asesores de ventas.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.4,
+      aiProvider: organization?.ai_provider,
+      organizationId,
+      contactId,
+    });
+
+    const draft = response.choices[0]?.message?.content?.trim() || '';
+    return draft.replace(/^["“”]|["“”]$/g, '').trim();
+  }
 }
+
 

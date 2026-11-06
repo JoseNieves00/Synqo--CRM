@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { updateUserProfile } from '@/app/actions/profile';
+import { updateUserProfile, getUserProfileDetails, sendTestWhatsAppAlert } from '@/app/actions/profile';
 import { useTheme } from 'next-themes';
-import { User, Lock, CheckCircle2, AlertCircle, X, Shield, HelpCircle, Sun, Moon, Laptop } from 'lucide-react';
+import { User, Lock, CheckCircle2, AlertCircle, X, Shield, HelpCircle, Sun, Moon, Laptop, Bell, MessageSquare } from 'lucide-react';
 
 interface UserProfileModalProps {
   initialFullName: string;
@@ -22,6 +22,10 @@ export function UserProfileModal({
 }: UserProfileModalProps) {
   const { theme, setTheme } = useTheme();
   const [fullName, setFullName] = useState(initialFullName);
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [whatsappAlertsEnabled, setWhatsappAlertsEnabled] = useState(true);
+  const [whatsappAlerts247, setWhatsappAlerts247] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -34,11 +38,50 @@ export function UserProfileModal({
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
+      // Cargar preferencias guardadas del usuario
+      getUserProfileDetails().then((res) => {
+        if (res.success && res.profile) {
+          if (res.profile.whatsapp_phone) setWhatsappPhone(res.profile.whatsapp_phone);
+          if (typeof res.profile.whatsapp_alerts_enabled === 'boolean') {
+            setWhatsappAlertsEnabled(res.profile.whatsapp_alerts_enabled);
+          }
+          if (typeof res.profile.whatsapp_alerts_24_7 === 'boolean') {
+            setWhatsappAlerts247(res.profile.whatsapp_alerts_24_7);
+          }
+        }
+      }).catch(() => {});
+
       return () => {
         document.body.style.overflow = '';
       };
     }
   }, [isOpen]);
+
+  const handleSendTestAlert = async () => {
+    setSendingTest(true);
+    setFeedback(null);
+    try {
+      const res = await sendTestWhatsAppAlert(whatsappPhone);
+      if (res.success) {
+        setFeedback({
+          type: 'success',
+          message: res.message || 'Alerta de prueba enviada a tu WhatsApp.',
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          message: res.error || 'Error enviando la prueba.',
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Error de conexión.',
+      });
+    } finally {
+      setSendingTest(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -82,6 +125,9 @@ export function UserProfileModal({
         fullName,
         currentPassword: currentPassword ? currentPassword : undefined,
         newPassword: newPassword ? newPassword : undefined,
+        whatsappPhone,
+        whatsappAlertsEnabled,
+        whatsappAlerts247,
       });
 
       if (res.success) {
@@ -219,6 +265,65 @@ export function UserProfileModal({
                 <Laptop className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
                 <span>Sistema</span>
               </button>
+            </div>
+          </div>
+
+          {/* Alertas de Relevo en WhatsApp Personal */}
+          <div className="pt-2 border-t border-slate-200 dark:border-[#1E2433] space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Bell className="w-3.5 h-3.5 text-emerald-500" />
+                Alertas Autónomas en mi WhatsApp
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Recibe avisos inmediatos en tu celular cuando un lead calificado se te asigne o requiera atención humana.
+            </p>
+
+            <div>
+              <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                Número de WhatsApp Personal (ej: 3001234567)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="tel"
+                  value={whatsappPhone}
+                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  placeholder="3001234567"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] focus:outline-none focus:ring-1 focus:ring-[#0052FF] text-xs font-mono text-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  disabled={sendingTest || !whatsappPhone.trim()}
+                  onClick={handleSendTestAlert}
+                  className="px-3 py-2 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer disabled:opacity-50"
+                  title="Enviar un mensaje de prueba a tu WhatsApp"
+                >
+                  {sendingTest ? 'Enviando...' : '🔔 Probar'}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={whatsappAlertsEnabled}
+                  onChange={(e) => setWhatsappAlertsEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded text-[#0052FF]"
+                />
+                <span>Recibir alertas cuando se me asigne un prospecto</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={whatsappAlerts247}
+                  onChange={(e) => setWhatsappAlerts247(e.target.checked)}
+                  className="w-4 h-4 rounded text-[#0052FF]"
+                />
+                <span>Guardia 24/7 (recibir alertas fuera de horario comercial)</span>
+              </label>
             </div>
           </div>
 
