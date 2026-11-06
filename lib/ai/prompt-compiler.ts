@@ -487,7 +487,7 @@ export function compileStructuredPrompt(data: StructuredPromptData): string {
 
   const closingDirective =
     funnel.closingGoal === 'book_cal'
-      ? 'Tu meta de cierre es orientar al prospecto a agendar una cita o llamada usando check_available_slots y book_appointment cuando esté calificado.'
+      ? 'Tu meta de cierre es orientar al prospecto a agendar una cita o llamada usando check_native_availability y book_native_appointment cuando esté calificado.'
       : funnel.closingGoal === 'take_order'
       ? 'Tu meta de cierre es concretar el pedido directo en WhatsApp solicitando los datos de despacho (nombre, dirección, ciudad) y método de pago preferido.'
       : 'Tu meta de cierre es calificar al prospecto con las preguntas de diagnóstico y cuando muestre interés real, transferirlo al asesor humano usando request_human_handoff.';
