@@ -615,12 +615,16 @@ export async function saveOrganizationQuickReplies(
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id, role')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
 
   if (!profile?.organization_id) {
     throw new Error('Perfil no encontrado');
+  }
+
+  if (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden configurar los atajos rápidos de la organización.');
   }
 
   // Limpiar y sanitizar atajos
@@ -806,12 +810,20 @@ export async function markContactReactivationDismissed(contactId: string) {
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) throw new Error('No autorizado');
 
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
   const { data: contact } = await (supabaseAdmin.from('contacts') as any)
     .select('id, custom_fields')
     .eq('id', contactId)
-    .single();
+    .eq('organization_id', profile.organization_id)
+    .maybeSingle();
 
-  if (!contact) throw new Error('Contacto no encontrado');
+  if (!contact) throw new Error('Contacto no encontrado en la organización');
 
   const currentCustom = (contact.custom_fields as Record<string, any>) || {};
   await (supabaseAdmin.from('contacts') as any)
@@ -823,7 +835,8 @@ export async function markContactReactivationDismissed(contactId: string) {
       },
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contactId);
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id);
 
   revalidatePath(`/inbox/${contactId}`);
   return { success: true };

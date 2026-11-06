@@ -114,11 +114,14 @@ export async function saveProductGallery(
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) throw new Error('No autorizado');
 
-  const { data: profile } = await supabaseAdmin
-    .from('profiles')
-    .select('organization_id')
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden modificar la galería y el prompt.');
+  }
 
   const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Organización no encontrada para el usuario.');
@@ -157,9 +160,13 @@ export async function addCustomTemplate(input: { name: string; label?: string })
   if (!user) throw new Error('No autorizado');
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden gestionar plantillas de WhatsApp.');
+  }
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
@@ -235,9 +242,13 @@ export async function updateCustomTemplate(input: {
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden gestionar plantillas de WhatsApp.');
+  }
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
@@ -310,9 +321,13 @@ export async function deleteCustomTemplate(input: string | { templateName: strin
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
+    .select('organization_id, role, is_super_admin')
     .eq('id', user.id)
     .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden gestionar plantillas de WhatsApp.');
+  }
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
