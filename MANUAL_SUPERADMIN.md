@@ -257,25 +257,33 @@ ALTER TABLE appointments ADD CONSTRAINT appointments_specialist_no_overlap
 
 El endpoint `/api/cron/appointment-reminders` opera como worker automatizado en segundo plano (invocado periódicamente por Vercel Cron o un cronjob externo).
 
-### Configuración en `vercel.json` (Compatibilidad con Vercel Hobby y Pro):
-- En cuentas **Vercel Hobby (Gratis)**, Vercel restringe los Cron Jobs a **1 ejecución diaria**. La configuración predeterminada en `vercel.json` se fija a las 13:00 UTC (08:00 AM Colombia):
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/appointment-reminders",
-      "schedule": "0 13 * * *"
-    }
-  ]
-}
+### Configuración del Cron Job Gratuito (Sin límites de Vercel Hobby):
+En cuentas **Vercel Hobby (Gratis)**, Vercel restringe los Cron Jobs a **1 sola ejecución diaria** y falla al desplegar con intervalos menores como `*/15 * * * *`. Por ello, hemos desvinculado los crons de `vercel.json` y habilitado soporte universal para ejecutores de cron gratuitos.
+
+Los endpoints soportan autenticación tanto por cabecera (`Authorization: Bearer <CRON_SECRET>`) como por parámetro seguro en URL (`?secret=<CRON_SECRET>`):
+
+#### Opción 1: cron-job.org (100% Gratis y Recomendado)
+1. Crea una cuenta gratuita en [cron-job.org](https://cron-job.org).
+2. **Tarea 1 — Recordatorios de Citas (Anti-No-Show):**
+   - **URL:** `https://<TU_DOMINIO>/api/cron/appointment-reminders?secret=<TU_CRON_SECRET>`
+   - **Frecuencia:** Cada 15 minutos (`*/15 * * * *`).
+   - **Método:** `GET` o `POST`.
+3. **Tarea 2 — Limpieza de Almacenamiento (Retención de 45 días):**
+   - **URL:** `https://<TU_DOMINIO>/api/cron/cleanup-storage?secret=<TU_CRON_SECRET>`
+   - **Frecuencia:** 1 vez al día (ej. 03:00 AM).
+   - **Método:** `GET` o `POST`.
+
+#### Opción 2: Supabase pg_cron + pg_net (Directamente en la base de datos)
+Si prefieres no usar servicios externos, puedes programar las tareas directamente en Supabase SQL Editor usando el script listo en `supabase/migrations/20261106020000_enable_supabase_free_cron.sql`.
+
+#### Opción 3: Crontab en tu Servidor VPS (Donde corre Evolution API)
+Si ya tienes el VPS de Evolution API activo, puedes agregar las dos líneas en tu crontab de Linux:
+```bash
+crontab -e
+# Agregar al final:
+*/15 * * * * curl -s "https://<TU_DOMINIO>/api/cron/appointment-reminders?secret=<TU_CRON_SECRET>" > /dev/null 2>&1
+0 3 * * * curl -s "https://<TU_DOMINIO>/api/cron/cleanup-storage?secret=<TU_CRON_SECRET>" > /dev/null 2>&1
 ```
-- **Para ejecutar recordatorios cada 15 minutos en Vercel Hobby (Sin costo adicional):**
-  Puedes usar un servicio externo gratuito como **cron-job.org** o **Upstash QStash**:
-  1. URL: `https://crm.synqo.dev/api/cron/appointment-reminders`
-  2. Método: `GET` o `POST`
-  3. Cabecera (Header): `Authorization: Bearer <TU_CRON_SECRET>`
-  4. Frecuencia: Cada 15 minutos.
-- Si en el futuro actualizas a **Vercel Pro**, puedes cambiar `"schedule": "*/15 * * * *"` directamente en `vercel.json`.
 
 ### Reglas de Negocio del Motor Cron:
 1. **Seguridad:** Requiere cabecera `Authorization: Bearer <CRON_SECRET>`.

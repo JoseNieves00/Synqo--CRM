@@ -45,8 +45,8 @@ async function runFase3Tests() {
   assert.strictEqual(splitUrl[1], 'org-123/video-456.mp4');
   console.log('   ✅ Extracción de ruta para Supabase Storage chat-media aprobada.');
 
-  // 4. Probar Seguridad en Endpoint Cron de Limpieza (TimingSafeEqual)
-  console.log('\n4️⃣  Probando validación criptográfica de seguridad en cron de retención...');
+  // 4. Probar Seguridad en Endpoint Cron de Limpieza y Recordatorios (Header & ?secret= con TimingSafeEqual)
+  console.log('\n4️⃣  Probando validación criptográfica de seguridad en cron (Header y URL ?secret=)...');
   const secretKey = 'test-secret-cron-token-12345';
   const validHeader = `Bearer ${secretKey}`;
   const invalidHeader = 'Bearer wrong-secret-token-fake';
@@ -57,7 +57,14 @@ async function runFase3Tests() {
 
   assert.strictEqual(crypto.timingSafeEqual(validBuf, expectedBuf), true);
   assert.strictEqual(validBuf.length === invalidBuf.length ? crypto.timingSafeEqual(validBuf, invalidBuf) : false, false);
-  console.log('   ✅ Autenticación y resistencia a ataques de temporización (timing attacks) verificada.');
+
+  // Parámetro de URL ?secret=
+  const validParamBuf = Buffer.from(secretKey, 'utf8');
+  const invalidParamBuf = Buffer.from('fake-secret', 'utf8');
+  const expectedParamBuf = Buffer.from(secretKey, 'utf8');
+  assert.strictEqual(crypto.timingSafeEqual(validParamBuf, expectedParamBuf), true);
+  assert.strictEqual(validParamBuf.length === invalidParamBuf.length ? crypto.timingSafeEqual(validParamBuf, invalidParamBuf) : false, false);
+  console.log('   ✅ Autenticación y resistencia a ataques de temporización (timing attacks) verificada en cabecera y URL.');
 
   // 5. Probar Esquema y Estados de ai_runs en InboundCoreService
   console.log('\n5️⃣  Probando compatibilidad del servicio unificado InboundCore...');

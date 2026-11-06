@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
   try {
     // D. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
+      .select('id, name, subscription_status, is_active, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 

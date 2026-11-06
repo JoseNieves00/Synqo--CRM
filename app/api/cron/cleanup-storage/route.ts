@@ -31,17 +31,28 @@ async function handleCleanup(request: NextRequest) {
   }
 
   const authHeader = request.headers.get('authorization');
-  const expectedHeader = `Bearer ${cronSecret}`;
+  const { searchParams } = new URL(request.url);
+  const secretParam = searchParams.get('secret') || searchParams.get('cron_secret');
 
-  if (!authHeader) {
-    return NextResponse.json({ error: 'Unauthorized: Missing Authorization header' }, { status: 401 });
+  let isAuthorized = false;
+
+  if (authHeader) {
+    const expectedHeader = `Bearer ${cronSecret}`;
+    const authBuf = Buffer.from(authHeader, 'utf8');
+    const expBuf = Buffer.from(expectedHeader, 'utf8');
+    if (authBuf.length === expBuf.length && crypto.timingSafeEqual(authBuf, expBuf)) {
+      isAuthorized = true;
+    }
+  } else if (secretParam) {
+    const paramBuf = Buffer.from(secretParam, 'utf8');
+    const secretBuf = Buffer.from(cronSecret, 'utf8');
+    if (paramBuf.length === secretBuf.length && crypto.timingSafeEqual(paramBuf, secretBuf)) {
+      isAuthorized = true;
+    }
   }
 
-  const authBuf = Buffer.from(authHeader, 'utf8');
-  const expBuf = Buffer.from(expectedHeader, 'utf8');
-
-  if (authBuf.length !== expBuf.length || !crypto.timingSafeEqual(authBuf, expBuf)) {
-    return NextResponse.json({ error: 'Unauthorized: Invalid CRON_SECRET' }, { status: 401 });
+  if (!isAuthorized) {
+    return NextResponse.json({ error: 'Unauthorized: Invalid or missing CRON_SECRET' }, { status: 401 });
   }
 
   try {

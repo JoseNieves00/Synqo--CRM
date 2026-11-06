@@ -475,7 +475,9 @@ export const MessageBubble = React.memo(
       prevProps.content === nextProps.content &&
       prevProps.senderType === nextProps.senderType &&
       prevProps.createdAt === nextProps.createdAt &&
-      prevProps.status === nextProps.status
+      prevProps.status === nextProps.status &&
+      prevProps.replyToMessageId === nextProps.replyToMessageId &&
+      JSON.stringify(prevProps.reactions) === JSON.stringify(nextProps.reactions)
     );
   }
 );
