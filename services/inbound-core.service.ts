@@ -434,7 +434,7 @@ export class InboundCoreService {
       }
 
       // Generación de Respuesta con OpenAIService (Soporta Google Gemini primario con failover)
-      const aiResponseTextRaw = await OpenAIService.processLeadMessage({
+      const aiResult = await OpenAIService.processLeadMessage({
         organizationId: organization.id,
         contactId,
         leadPhone: senderId,
@@ -447,9 +447,16 @@ export class InboundCoreService {
         aiProvider: organization.ai_provider || null,
         enabledModules: organization.enabled_modules || null,
         timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
+        channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
+        organization,
       });
 
-      const aiResponseText = (aiResponseTextRaw || '').trim();
+      const aiResponseText = (typeof aiResult === 'string' ? aiResult : aiResult.text || '').trim();
+      const metaModel = typeof aiResult === 'object' ? aiResult.modelUsed : (process.env.GEMINI_MODEL || 'gemini-flash-latest');
+      const metaProvider = typeof aiResult === 'object' ? aiResult.provider : (organization.ai_provider || 'google');
+      const isFallback = typeof aiResult === 'object' ? aiResult.isFallback : false;
+      const promptTokens = typeof aiResult === 'object' ? aiResult.promptTokens : 0;
+      const completionTokens = typeof aiResult === 'object' ? aiResult.completionTokens : 0;
       const latencyMs = Date.now() - startTime;
 
       if (!aiResponseText) {
@@ -458,8 +465,8 @@ export class InboundCoreService {
           organizationId: organization.id,
           contactId,
           channel,
-          provider: organization.ai_provider || 'google',
-          model: 'gemini-1.5-flash',
+          provider: metaProvider,
+          model: metaModel,
           latencyMs,
           status: 'skipped',
         });
@@ -591,17 +598,17 @@ export class InboundCoreService {
           })
           .eq('id', contactId);
 
-        // Registro de Auditoría de Observabilidad en ai_runs
+        // Registro de Auditoría de Observabilidad en ai_runs con métricas reales
         await this.recordAiRun({
           organizationId: organization.id,
           contactId,
           channel,
-          provider: organization.ai_provider || 'google',
-          model: 'gemini-1.5-flash',
-          promptTokens: 0,
-          completionTokens: 0,
+          provider: metaProvider,
+          model: metaModel,
+          promptTokens,
+          completionTokens,
           latencyMs,
-          status: 'success',
+          status: isFallback ? 'fallback' : 'success',
         });
       } catch (dispatchError: any) {
         console.error('[INBOUND CORE OUTBOUND DISPATCH ERROR]', dispatchError);
@@ -611,8 +618,8 @@ export class InboundCoreService {
           organizationId: organization.id,
           contactId,
           channel,
-          provider: organization.ai_provider || 'google',
-          model: 'gemini-1.5-flash',
+          provider: metaProvider,
+          model: metaModel,
           latencyMs,
           status: 'failed',
           errorMessage: dispatchError?.message || 'Error al despachar mensaje al canal',

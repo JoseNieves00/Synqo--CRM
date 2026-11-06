@@ -119,13 +119,14 @@ async function runTests() {
     created_at: new Date().toISOString(),
   });
 
-  const aiReply = await OpenAIService.processLeadMessage({
+  const aiReplyResult = await OpenAIService.processLeadMessage({
     contactId: contact.id,
     organizationId: testOrg.id,
     leadPhone: testPhone,
     leadName: 'Cliente Test',
     systemPromptConfig: testOrg.system_prompt || 'Tienda de cocinitas infantiles. Modelos: Cocina pequeña ($360.000), Cocina mediana ($410.000).',
   });
+  const aiReply = typeof aiReplyResult === 'string' ? aiReplyResult : aiReplyResult.text;
 
   assert(Boolean(aiReply && aiReply.trim()), 'La IA debe responder un texto no vacío');
   // No debe responder el mensaje genérico inútil
@@ -134,6 +135,7 @@ async function runTests() {
     'La IA no debe enviar un saludo genérico cuando el cliente preguntó el precio del post'
   );
   console.log('   ✅ Respuesta de IA generada:', aiReply);
+  console.log('   ✅ Metadatos de IA observados (Modelo real):', (aiReplyResult as any).modelUsed);
 
   // 6. Limpieza de datos temporales
   console.log('\n🧹 Limpiando contacto de prueba...');

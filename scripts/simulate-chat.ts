@@ -75,13 +75,14 @@ async function simulateIncomingLeadMessage() {
   console.log('🤖 2. Invocando motor de IA (OpenAI Tool Calling + GPT-4o)...');
   let aiReplyText = '';
   try {
-    aiReplyText = await OpenAIService.processLeadMessage({
+    const aiRes = await OpenAIService.processLeadMessage({
       organizationId: org.id,
       contactId: contact.id,
       leadPhone: contact.phone,
       leadName: contact.name,
       systemPromptConfig: org.system_prompt,
     });
+    aiReplyText = typeof aiRes === 'string' ? aiRes : aiRes.text;
   } catch (err: any) {
     console.warn('⚠️ Nota sobre OpenAI:', err.message);
     aiReplyText = 'Hola Carlos, con gusto te brindamos información sobre nuestros servicios. ¿Te gustaría agendar una reunión rápida?';

@@ -13,6 +13,7 @@ import {
   SendWhatsAppImageToolSchema,
 } from '@/lib/validations/tool-calls.schema';
 import { MessagingService } from './messaging.service';
+import { InstagramService } from './instagram.service';
 import { formatImageMessageContent } from '@/lib/media/format';
 
 const openaiApiKey = process.env.OPENAI_API_KEY || 'placeholder-key';
@@ -39,7 +40,12 @@ async function createChatCompletionWithFallback(params: {
   aiProvider?: string | null;
   organizationId?: string;
   contactId?: string;
-}): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; modelUsed: string }> {
+}): Promise<{
+  response: OpenAI.Chat.Completions.ChatCompletion;
+  modelUsed: string;
+  provider: 'google' | 'openai';
+  isFallback: boolean;
+}> {
   const isGeminiKeyValid = Boolean(geminiApiKey && geminiApiKey.trim().length > 20);
   const prefersGemini = (params.aiProvider === 'gemini' || !params.aiProvider) && isGeminiKeyValid && Boolean(gemini);
 
@@ -75,7 +81,7 @@ async function createChatCompletionWithFallback(params: {
         });
       }
 
-      return { response, modelUsed: geminiModel };
+      return { response, modelUsed: geminiModel, provider: 'google', isFallback: false };
     } catch (geminiError: any) {
       console.warn(`[GEMINI FLASH FAILOVER] Indisponible temporalmente (${geminiError?.message || geminiError}), recurriendo a OpenAI de emergencia...`);
     }
@@ -124,7 +130,7 @@ async function createChatCompletionWithFallback(params: {
       });
     }
 
-    return { response, modelUsed: openAiModel };
+    return { response, modelUsed: openAiModel, provider: 'openai', isFallback: prefersGemini };
   } catch (openAiErr: any) {
     clearTimeout(openAiTimeoutId);
     throw openAiErr;
@@ -321,7 +327,18 @@ function getAvailableTools(enabledModules?: any): OpenAI.Chat.Completions.ChatCo
 
 const tools = getAvailableTools();
 
-interface ProcessLeadParams {
+export interface ProcessLeadResult {
+  text: string;
+  modelUsed: string;
+  provider: 'google' | 'openai';
+  isFallback: boolean;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+}
+
+export interface ProcessLeadParams {
   contactId: string;
   organizationId: string;
   leadPhone: string;
@@ -334,6 +351,8 @@ interface ProcessLeadParams {
   aiProvider?: string | null;
   enabledModules?: any;
   timezone?: string | null;
+  channel?: 'whatsapp' | 'instagram';
+  organization?: any;
 }
 
 /**
@@ -496,7 +515,16 @@ Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitador
     aiProvider,
     enabledModules,
     timezone,
-  }: ProcessLeadParams): Promise<string> {
+    channel = 'whatsapp',
+    organization,
+  }: ProcessLeadParams): Promise<ProcessLeadResult> {
+    let metaModel = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+    let metaProvider: 'google' | 'openai' = 'google';
+    let isFallback = false;
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalCachedTokens = 0;
+
     try {
       // 0. Verificar cuota de tokens mensual de la empresa
       const quota = await checkTokenQuota(organizationId);
@@ -534,7 +562,16 @@ Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitador
           console.warn('[QUOTA ALERT FETCH WARN]', err);
         }
 
-        return '¡Hola! Con gusto te atiendo. En un momento uno de nuestros asesores comerciales se comunicará contigo directamente por este medio para ayudarte.';
+        return {
+          text: '¡Hola! Con gusto te atiendo. En un momento uno de nuestros asesores comerciales se comunicará contigo directamente por este medio para ayudarte.',
+          modelUsed: 'quota-exceeded',
+          provider: 'google',
+          isFallback: false,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          cachedTokens: 0,
+        };
       }
 
       // 0.1 Alerta proactiva preventiva cuando se alcanza el 80% de la cuota mensual
@@ -735,7 +772,7 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       const activeTools = getAvailableTools(enabledModules);
 
       // 3. Primera llamada de inferencia con Dual-Provider (Gemini Flash con Failover OpenAI)
-      const { response } = await createChatCompletionWithFallback({
+      const { response, modelUsed, provider, isFallback: initialFallback } = await createChatCompletionWithFallback({
         messages: conversationHistory,
         tools: activeTools,
         toolChoice: 'auto',
@@ -744,6 +781,15 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         organizationId,
         contactId,
       });
+
+      metaModel = modelUsed;
+      metaProvider = provider;
+      isFallback = initialFallback;
+      if (response.usage) {
+        totalPromptTokens += response.usage.prompt_tokens || 0;
+        totalCompletionTokens += response.usage.completion_tokens || 0;
+        totalCachedTokens += (response.usage as any).prompt_tokens_details?.cached_tokens || 0;
+      }
 
       const choice = response.choices[0];
       const message = choice.message;
@@ -767,43 +813,59 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
             if (functionName === 'send_whatsapp_image') {
               const validated = SendWhatsAppImageToolSchema.parse(functionArgs);
 
-              // Obtener datos y credenciales de la organización para el despacho
-              const { data: orgData } = await (supabaseAdmin.from('organizations') as any)
-                .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name')
-                .eq('id', organizationId)
-                .single();
+              // Reusar organización existente si fue suministrada para ahorrar round-trip
+              let orgData = organization;
+              if (!orgData || (!orgData.whatsapp_access_token && !orgData.evolution_api_key && !orgData.instagram_access_token)) {
+                const { data } = await (supabaseAdmin.from('organizations') as any)
+                  .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, instagram_account_id, instagram_access_token')
+                  .eq('id', organizationId)
+                  .single();
+                orgData = data;
+              }
 
               if (!orgData) {
                 throw new Error('Organización no encontrada para despachar imagen');
               }
 
               try {
-                const outboundId = await MessagingService.sendMediaMessage({
-                  organization: orgData,
-                  to: leadPhone,
-                  mediaUrl: validated.image_url,
-                  caption: validated.caption,
-                  mediaType: 'image',
-                });
+                let outboundId: string | null = null;
+                const effectiveChannel = channel || 'whatsapp';
+
+                if (effectiveChannel === 'instagram') {
+                  outboundId = await InstagramService.sendMediaMessage({
+                    instagramAccountId: orgData.instagram_account_id,
+                    accessToken: orgData.instagram_access_token,
+                    recipientId: leadPhone,
+                    mediaUrl: validated.image_url,
+                  });
+                } else {
+                  outboundId = await MessagingService.sendMediaMessage({
+                    organization: orgData,
+                    to: leadPhone,
+                    mediaUrl: validated.image_url,
+                    caption: validated.caption,
+                    mediaType: 'image',
+                  });
+                }
 
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
                   sender_type: 'ai',
                   content: formatImageMessageContent(validated.image_url, validated.caption || ''),
                   meta_message_id: outboundId || null,
-                  channel: 'whatsapp',
+                  channel: effectiveChannel,
                 });
 
                 toolResult = JSON.stringify({
                   status: 'sent',
                   image_url: validated.image_url,
-                  message: 'Foto enviada exitosamente al WhatsApp del cliente.',
+                  message: `Foto enviada exitosamente al chat de ${effectiveChannel} del cliente.`,
                 });
               } catch (dispatchErr: any) {
                 console.warn('[AI SEND MEDIA DISPATCH WARN]', dispatchErr?.message);
                 toolResult = JSON.stringify({
                   status: 'dispatch_error',
-                  message: 'No se pudo despachar la foto en tiempo real al WhatsApp del cliente: ' + (dispatchErr?.message || 'Error de red'),
+                  message: 'No se pudo despachar la foto en tiempo real: ' + (dispatchErr?.message || 'Error de red'),
                 });
               }
             } else if (functionName === 'update_pipeline_stage') {
@@ -1168,7 +1230,12 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         }
 
         // 5. Segunda llamada de inferencia para redactar la respuesta final en lenguaje natural
-        const { response: followUp } = await createChatCompletionWithFallback({
+        const {
+          response: followUp,
+          modelUsed: followUpModel,
+          provider: followUpProvider,
+          isFallback: followUpFallback,
+        } = await createChatCompletionWithFallback({
           messages: conversationHistory,
           temperature: 0.3,
           aiProvider,
@@ -1176,11 +1243,29 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
           contactId,
         });
 
+        metaModel = followUpModel;
+        metaProvider = followUpProvider;
+        if (followUpFallback) isFallback = true;
+        if (followUp.usage) {
+          totalPromptTokens += followUp.usage.prompt_tokens || 0;
+          totalCompletionTokens += followUp.usage.completion_tokens || 0;
+          totalCachedTokens += (followUp.usage as any).prompt_tokens_details?.cached_tokens || 0;
+        }
+
         const finalResponse = followUp.choices[0].message.content || '¡Hola! Con gusto, déjame consultar el dato exacto y en unos minutos te confirmo.';
 
         // Silencio Total: si la respuesta es el token de relevo silencioso, retornar vacío para no enviar nada al cliente
         if (finalResponse.trim() === 'SILENT_HANDOFF' || finalResponse.includes('SILENT_HANDOFF')) {
-          return '';
+          return {
+            text: '',
+            modelUsed: metaModel,
+            provider: metaProvider,
+            isFallback,
+            promptTokens: totalPromptTokens,
+            completionTokens: totalCompletionTokens,
+            totalTokens: totalPromptTokens + totalCompletionTokens,
+            cachedTokens: totalCachedTokens,
+          };
         }
 
         // Guardrail Silencioso: si el texto final indica consulta o espera, garantizar is_ai_active = false
@@ -1192,13 +1277,31 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
             .eq('id', contactId);
         }
 
-        return finalResponse;
+        return {
+          text: finalResponse,
+          modelUsed: metaModel,
+          provider: metaProvider,
+          isFallback,
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+          cachedTokens: totalCachedTokens,
+        };
       }
 
       const directResponse = message.content || 'Gracias por comunicarte con nosotros. ¿En qué podemos apoyarte hoy?';
 
       if (directResponse.trim() === 'SILENT_HANDOFF' || directResponse.includes('SILENT_HANDOFF')) {
-        return '';
+        return {
+          text: '',
+          modelUsed: metaModel,
+          provider: metaProvider,
+          isFallback,
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+          cachedTokens: totalCachedTokens,
+        };
       }
 
       // Guardrail Silencioso: si el modelo respondió texto prometiendo consulta o relevo sin haber llamado la tool
@@ -1216,7 +1319,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         });
       }
 
-      return directResponse;
+      return {
+        text: directResponse,
+        modelUsed: metaModel,
+        provider: metaProvider,
+        isFallback,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        totalTokens: totalPromptTokens + totalCompletionTokens,
+        cachedTokens: totalCachedTokens,
+      };
     } catch (globalAiError: any) {
       console.error(
         `[AI 24/7 RESILIENCE TRIGGERED] Fallback de emergencia activado para lead ${contactId}:`,
@@ -1241,7 +1353,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         console.warn('[AI 24/7 DB UPDATE WARN]', dbErr);
       }
 
-      return '¡Hola! En un momento uno de nuestros asesores continuará contigo para brindarte una mejor atención. ¡Muchas gracias por tu paciencia!';
+      return {
+        text: '¡Hola! En un momento uno de nuestros asesores continuará contigo para brindarte una mejor atención. ¡Muchas gracias por tu paciencia!',
+        modelUsed: 'fallback-emergency',
+        provider: 'openai',
+        isFallback: true,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        cachedTokens: 0,
+      };
     }
   }
 }
