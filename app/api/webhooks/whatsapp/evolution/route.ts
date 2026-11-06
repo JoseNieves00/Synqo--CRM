@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   // 2. Localizar la organización en Supabase
   const { data: organization } = await (supabaseAdmin.from('organizations') as any)
     .select(
-      'id, name, subscription_status, is_active, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider'
+      'id, name, subscription_status, is_active, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings'
     )
     .eq('evolution_instance_name', cleanInstance)
     .maybeSingle();
@@ -567,6 +567,7 @@ export async function POST(request: NextRequest) {
             businessHours: organization.business_hours || null,
             aiProvider: organization.ai_provider || null,
             enabledModules: organization.enabled_modules || null,
+            timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
           });
 
           if (aiResponseText && aiResponseText.trim() !== '') {

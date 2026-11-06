@@ -299,7 +299,7 @@ const cancelNativeAppointmentTool: OpenAI.Chat.Completions.ChatCompletionTool = 
  * ahorrando ~500 tokens de entrada en cada llamada de inferencia.
  */
 function getAvailableTools(enabledModules?: any): OpenAI.Chat.Completions.ChatCompletionTool[] {
-  const isCalendarEnabled = enabledModules?.native_calendar !== false;
+  const isCalendarEnabled = enabledModules ? Boolean(enabledModules.native_calendar) : true;
   const activeTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     sendWhatsAppImageTool,
     updatePipelineStageTool,

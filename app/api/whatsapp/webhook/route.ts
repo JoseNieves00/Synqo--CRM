@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   try {
     // D. Identificar la Organización dueña del WABA Phone Number ID
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
+      .select('id, name, subscription_status, is_active, whatsapp_access_token, whatsapp_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
       .eq('whatsapp_phone_number_id', phoneNumberId)
       .single();
 
@@ -474,6 +474,7 @@ export async function POST(request: NextRequest) {
                 businessHours: organization.business_hours || null,
                 aiProvider: organization.ai_provider || null,
                 enabledModules: organization.enabled_modules || null,
+                timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
               });
             }
 

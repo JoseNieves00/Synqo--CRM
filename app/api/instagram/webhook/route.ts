@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
   try {
     // Identificar organización dueña de la cuenta de Instagram
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, instagram_access_token, instagram_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider')
+      .select('id, name, subscription_status, is_active, instagram_access_token, instagram_app_secret, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
       .eq('instagram_account_id', recipientId)
       .single();
 
@@ -234,6 +234,7 @@ export async function POST(request: NextRequest) {
               businessHours: organization.business_hours || null,
               aiProvider: organization.ai_provider || null,
               enabledModules: organization.enabled_modules || null,
+              timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
             });
 
             if (decryptedToken && aiResponseText && aiResponseText.trim() !== '') {
