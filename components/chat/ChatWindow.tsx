@@ -6,9 +6,21 @@ import { MessageSender } from '@/lib/supabase/types';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
+import { ChatHeader } from './ChatHeader';
+import { ContactPanel } from './ContactPanel';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
-import { sendAgentMessage, sendAgentMediaMessage, sendAgentTemplate, toggleContactAi, endContactConversation, markContactReactivationDismissed, snoozeContactAi } from '@/app/actions/chat';
+import {
+  sendAgentMessage,
+  sendAgentMediaMessage,
+  sendAgentTemplate,
+  toggleContactAi,
+  endContactConversation,
+  reopenContactConversation,
+  markContactReactivationDismissed,
+  snoozeContactAi,
+  triggerSinglePendingAiAction,
+} from '@/app/actions/chat';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent, formatQuoteMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin, takeoverInactiveLead } from '@/app/actions/assignment';
 import dynamic from 'next/dynamic';
@@ -229,6 +241,32 @@ export function ChatWindow({
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [otherTyping, setOtherTyping] = useState<string | null>(null);
+
+  // Despacho puntual de IA para este chat
+  const [isTriggeringAi, setIsTriggeringAi] = useState(false);
+
+  const isLastMessageFromLead = useMemo(() => {
+    if (!messages || messages.length === 0) return false;
+    const last = messages[messages.length - 1];
+    return last.sender_type === 'lead';
+  }, [messages]);
+
+  const handleTriggerSingleAi = async () => {
+    if (isTriggeringAi) return;
+    setIsTriggeringAi(true);
+    try {
+      if (!contact.is_ai_active) {
+        onContactUpdate?.({ is_ai_active: true });
+        await toggleContactAi(contact.id, true);
+      }
+      await triggerSinglePendingAiAction(contact.id);
+      router.refresh();
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'Error al solicitar respuesta de IA');
+    } finally {
+      setIsTriggeringAi(false);
+    }
+  };
 
   const isBaileys = whatsappProvider === 'evolution';
   const is24hValid = isBaileys ? true : isWithin24HourWindow(contact.last_interaction_at);
@@ -524,8 +562,9 @@ export function ChatWindow({
     }
     setReplyingToMessage(null);
 
+    const tempId = `temp-${Date.now()}`;
     onOptimisticMessage?.({
-      id: `temp-${Date.now()}`,
+      id: tempId,
       sender_type: 'agent_manual',
       content: finalContent,
       created_at: new Date().toISOString(),
@@ -545,6 +584,14 @@ export function ChatWindow({
       }
     } catch (err: any) {
       console.error('[SEND MESSAGE ERROR]', err);
+      onOptimisticMessage?.({
+        id: tempId,
+        sender_type: 'agent_manual',
+        content: finalContent,
+        created_at: new Date().toISOString(),
+        status: 'failed',
+        reply_to_message_id: replyMeta?.id || null,
+      });
       const msg = err?.message || '';
       if (msg.includes('Session has expired') || msg.includes('access token') || msg.includes('OAuthException') || msg.includes('190')) {
         setErrorMessage('El token de acceso de WhatsApp ha expirado en Meta. Por favor actualízalo en Configuración.');
@@ -556,6 +603,34 @@ export function ChatWindow({
         setErrorMessage(`Error al enviar mensaje: ${msg || 'Error de conexión con WhatsApp'}`);
       }
       throw err; // Permite a ChatInput preservar el texto escrito en el borrador
+    }
+  };
+
+  const handleRetryMessage = async (msg: { id?: string; content: string }) => {
+    setErrorMessage(null);
+    if (msg.id) {
+      onOptimisticMessage?.({
+        id: msg.id,
+        sender_type: 'agent_manual',
+        content: msg.content,
+        created_at: new Date().toISOString(),
+        status: 'pending',
+      });
+    }
+    try {
+      await sendAgentMessage(contact.id, msg.content);
+    } catch (err: any) {
+      console.error('[RETRY MESSAGE ERROR]', err);
+      if (msg.id) {
+        onOptimisticMessage?.({
+          id: msg.id,
+          sender_type: 'agent_manual',
+          content: msg.content,
+          created_at: new Date().toISOString(),
+          status: 'failed',
+        });
+      }
+      setErrorMessage(`Error al reintentar envío: ${err?.message || 'Error de conexión con WhatsApp'}`);
     }
   };
 
@@ -575,8 +650,9 @@ export function ChatWindow({
       : isDocument
       ? formatDocumentMessageContent(mediaUrl, fileName, caption)
       : formatImageMessageContent(mediaUrl, caption);
+    const tempId = `temp-${Date.now()}`;
     onOptimisticMessage?.({
-      id: `temp-${Date.now()}`,
+      id: tempId,
       sender_type: 'agent_manual',
       content: formatted,
       created_at: new Date().toISOString(),
@@ -586,6 +662,13 @@ export function ChatWindow({
       await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument, isAudio, isVideo);
     } catch (err: any) {
       console.error('[SEND MEDIA ERROR]', err);
+      onOptimisticMessage?.({
+        id: tempId,
+        sender_type: 'agent_manual',
+        content: formatted,
+        created_at: new Date().toISOString(),
+        status: 'failed',
+      });
       setErrorMessage(`Error al enviar archivo o audio: ${err?.message || 'Error de conexión con WhatsApp'}`);
       throw err;
     }
@@ -594,16 +677,25 @@ export function ChatWindow({
   const handleSendTemplate = async (templateKey: string) => {
     setErrorMessage(null);
     const tplLabel = (META_TEMPLATES as any)[templateKey]?.label || templateKey;
+    const tempId = `temp-${Date.now()}`;
     onOptimisticMessage?.({
-      id: `temp-${Date.now()}`,
+      id: tempId,
       sender_type: 'agent_manual',
       content: `[Plantilla oficial: ${tplLabel}]`,
       created_at: new Date().toISOString(),
+      status: 'pending',
     });
     try {
       await sendAgentTemplate(contact.id, templateKey);
     } catch (err: any) {
       console.error('[SEND TEMPLATE ERROR]', err);
+      onOptimisticMessage?.({
+        id: tempId,
+        sender_type: 'agent_manual',
+        content: `[Plantilla oficial: ${tplLabel}]`,
+        created_at: new Date().toISOString(),
+        status: 'failed',
+      });
       const msg = err?.message || '';
       if (msg.includes('Session has expired') || msg.includes('access token')) {
         setErrorMessage('El token de acceso de WhatsApp ha expirado en Meta. Por favor genera un token permanente en Meta for Developers e ingrésalo en Configuración.');
@@ -901,6 +993,29 @@ export function ChatWindow({
               <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
               <span>24h Expirada</span>
             </div>
+          )}
+
+          {/* Botón de Respuesta Rápida con IA cuando el cliente está esperando */}
+          {isLastMessageFromLead && (
+            <button
+              type="button"
+              onClick={handleTriggerSingleAi}
+              disabled={isTriggeringAi}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition shadow-xs cursor-pointer shrink-0"
+              title="Generar y enviar respuesta de IA para este prospecto ahora"
+            >
+              {isTriggeringAi ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span className="hidden sm:inline">Generando...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Responder con IA</span>
+                </>
+              )}
+            </button>
           )}
 
           {/* Switch IA / Control Humano y Pausa Temporal */}

@@ -1133,30 +1133,90 @@ export class InboundCoreService {
   }
 
   /**
-   * Despacha en lote todos los contactos con IA activa de una organización que tengan un mensaje del lead sin responder.
+   * Consulta cuántos contactos con IA activa tienen su último mensaje esperando respuesta humana o de IA.
    */
-  static async triggerPendingAiBatch(organizationId: string, limit = 25): Promise<{ processed: number; answered: number }> {
+  static async getPendingAiCountForOrg(organizationId: string): Promise<number> {
     try {
       const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-        .select('id')
+        .select('id, last_message')
+        .eq('organization_id', organizationId)
+        .eq('is_ai_active', true)
+        .is('deleted_at', null);
+
+      if (!contacts || contacts.length === 0) return 0;
+
+      let pendingCount = 0;
+      for (const c of contacts) {
+        const { data: lastMsg } = await (supabaseAdmin.from('messages') as any)
+          .select('sender_type')
+          .eq('contact_id', c.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastMsg && lastMsg.sender_type === 'lead') {
+          pendingCount++;
+        }
+      }
+      return pendingCount;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Despacha en lote de forma segura y escalonada (cadencia anti-ban de 3.5s)
+   * los contactos con IA activa que tengan un mensaje del lead sin responder.
+   */
+  static async triggerPendingAiBatch(organizationId: string, limit = 10): Promise<{ processed: number; answered: number; remaining: number }> {
+    try {
+      const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
+        .select('id, last_interaction_at')
         .eq('organization_id', organizationId)
         .eq('is_ai_active', true)
         .is('deleted_at', null)
-        .order('last_interaction_at', { ascending: false })
-        .limit(limit);
+        .order('last_interaction_at', { ascending: true }); // Más antiguos esperando primero
 
-      if (!contacts || contacts.length === 0) return { processed: 0, answered: 0 };
+      if (!contacts || contacts.length === 0) return { processed: 0, answered: 0, remaining: 0 };
 
-      let answered = 0;
+      // Identificar cuáles realmente tienen el último mensaje de tipo 'lead'
+      const targetContactIds: string[] = [];
       for (const c of contacts) {
-        const sent = await this.triggerPendingAiForContact(c.id);
-        if (sent) answered++;
+        const { data: lastMsg } = await (supabaseAdmin.from('messages') as any)
+          .select('sender_type')
+          .eq('contact_id', c.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastMsg && lastMsg.sender_type === 'lead') {
+          targetContactIds.push(c.id);
+        }
       }
 
-      return { processed: contacts.length, answered };
+      const totalPending = targetContactIds.length;
+      const batchToProcess = targetContactIds.slice(0, limit);
+
+      let answered = 0;
+      for (let i = 0; i < batchToProcess.length; i++) {
+        const cId = batchToProcess[i];
+        const sent = await this.triggerPendingAiForContact(cId);
+        if (sent) answered++;
+
+        // Cadencia protectora anti-ban entre mensajes (3.5 segundos)
+        if (i < batchToProcess.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 3500));
+        }
+      }
+
+      return {
+        processed: batchToProcess.length,
+        answered,
+        remaining: Math.max(0, totalPending - answered),
+      };
     } catch (err) {
       console.error('[INBOUND CORE TRIGGER BATCH ERROR]', err);
-      return { processed: 0, answered: 0 };
+      return { processed: 0, answered: 0, remaining: 0 };
     }
   }
 }

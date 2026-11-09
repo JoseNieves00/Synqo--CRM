@@ -208,7 +208,7 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'agent_manual',
-    content: `[Plantilla enviada: ${templateLabel}]`,
+    content: `[Plantilla oficial: ${templateLabel}]`,
     meta_message_id: metaId || null,
   });
 
@@ -567,9 +567,9 @@ export async function toggleContactAi(contactId: string, newState: boolean) {
 }
 
 /**
- * Despacha en lote respuestas de IA para todos los contactos que hayan quedado sin responder.
+ * Despacha en lote de a 10 contactos las respuestas de IA para prospectos rezagados.
  */
-export async function triggerPendingAiBatchAction() {
+export async function triggerPendingAiBatchAction(limit = 10) {
   const supabase = createServerSupabaseClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -583,9 +583,44 @@ export async function triggerPendingAiBatchAction() {
   const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Perfil no encontrado');
 
-  const result = await InboundCoreService.triggerPendingAiBatch(orgId);
+  const result = await InboundCoreService.triggerPendingAiBatch(orgId, limit);
   revalidatePath('/inbox');
   return result;
+}
+
+/**
+ * Consulta cuántos prospectos tienen mensajes pendientes de responder con IA.
+ */
+export async function getPendingAiStatsAction() {
+  const supabase = createServerSupabaseClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { count: 0 };
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) return { count: 0 };
+
+  const count = await InboundCoreService.getPendingAiCountForOrg(orgId);
+  return { count };
+}
+
+/**
+ * Fuerza el despacho inmediato de IA para un contacto puntual en el chat.
+ */
+export async function triggerSinglePendingAiAction(contactId: string) {
+  const supabase = createServerSupabaseClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+
+  const success = await InboundCoreService.triggerPendingAiForContact(contactId);
+  revalidatePath(`/inbox/${contactId}`);
+  return { success };
 }
 
 /**
@@ -879,7 +914,7 @@ export async function saveOrganizationQuickReplies(
  */
 export async function endContactConversation(
   contactId: string,
-  resolution: 'completed' | 'won' | 'lost' = 'completed',
+  resolution: 'completed' | 'won' | 'lost' | 'dismissed' = 'completed',
   note?: string
 ) {
   const supabase = createServerSupabaseClient();
@@ -913,6 +948,10 @@ export async function endContactConversation(
 
   const updatePayload: Record<string, any> = {
     custom_fields: updatedCustom,
+    conversation_status: 'closed',
+    waiting_since: null,
+    closed_at: new Date().toISOString(),
+    close_reason: resolution,
     updated_at: new Date().toISOString(),
   };
 
@@ -1017,6 +1056,286 @@ export async function searchContactsGlobal(query: string) {
   }
 
   return { contacts: contacts || [] };
+}
+
+export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
+
+export interface ListInboxParams {
+  view?: InboxViewType;
+  channel?: 'all' | 'whatsapp' | 'instagram';
+  agentId?: string; // 'all' | 'unassigned' | profile_id
+  stage?: string; // 'all' | pipeline_stage
+  temperature?: string; // 'all' | 'cold' | 'warm' | 'hot'
+  search?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface InboxCounts {
+  por_responder: number;
+  mis_abiertos: number;
+  ia_atendiendo: number;
+  seguimiento: number;
+  cerrados: number;
+}
+
+/**
+ * Normaliza cualquier contacto al formato uniforme del nuevo Inbox por estado
+ */
+export function normalizeContactInboxState(c: any) {
+  const isClosed = c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed';
+  const status = isClosed ? 'closed' : (c.conversation_status || 'open');
+  const waitingSince = c.waiting_since || (c.unread_count > 0 ? c.last_interaction_at : null);
+  const lastMsg = c.last_message || c.custom_fields?.last_message;
+  const lastMsgText = c.last_message_preview || (typeof lastMsg === 'string' ? lastMsg : lastMsg?.text || '');
+  const lastMsgSender = c.last_message_sender || (typeof lastMsg === 'object' ? lastMsg?.sender_type : null);
+
+  return {
+    ...c,
+    conversation_status: status,
+    waiting_since: waitingSince,
+    last_message_preview: lastMsgText,
+    last_message_sender: lastMsgSender,
+  };
+}
+
+/**
+ * Consulta de Inbox escalable en servidor con filtros por bandeja, canal, asesor y búsqueda global.
+ */
+export async function listInbox({
+  view = 'por_responder',
+  channel = 'all',
+  agentId = 'all',
+  stage = 'all',
+  temperature = 'all',
+  search = '',
+  offset = 0,
+  limit = 30,
+}: ListInboxParams) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const safeLimit = Math.min(Math.max(1, limit), 60);
+  const safeOffset = Math.max(0, offset);
+
+  // Consulta base
+  let query = (supabaseAdmin.from('contacts') as any)
+    .select(
+      'id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until',
+      { count: 'exact' }
+    )
+    .eq('organization_id', orgId)
+    .is('deleted_at', null);
+
+  // 1. Filtros por Vista / Bandeja Principal
+  if (view === 'por_responder') {
+    // Chats que esperan atención del asesor: no cerrados y con espera activa
+    query = query
+      .neq('custom_fields->>conversation_status', 'closed')
+      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,is_ai_active.eq.false`);
+    // Prioridad: los que llevan más tiempo esperando
+    query = query.order('last_interaction_at', { ascending: true });
+  } else if (view === 'mis_abiertos') {
+    // Chats asignados a mí que no están cerrados
+    query = query
+      .eq('assigned_to', user.id)
+      .neq('custom_fields->>conversation_status', 'closed')
+      .order('updated_at', { ascending: false });
+  } else if (view === 'ia_atendiendo') {
+    // Chats activos donde la IA tiene el control
+    query = query
+      .eq('is_ai_active', true)
+      .neq('custom_fields->>conversation_status', 'closed')
+      .order('updated_at', { ascending: false });
+  } else if (view === 'seguimiento') {
+    // Chats con pausa de IA (snooze) o recordatorio activo
+    query = query
+      .neq('custom_fields->>conversation_status', 'closed')
+      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null`)
+      .order('updated_at', { ascending: false });
+  } else if (view === 'cerrados') {
+    // Historial archivado de chats finalizados
+    query = query
+      .eq('custom_fields->>conversation_status', 'closed')
+      .order('updated_at', { ascending: false });
+  } else {
+    query = query.order('updated_at', { ascending: false });
+  }
+
+  // 2. Filtro de Canal (WhatsApp vs Instagram)
+  if (channel === 'whatsapp') {
+    query = query.neq('channel', 'instagram');
+  } else if (channel === 'instagram') {
+    query = query.eq('channel', 'instagram');
+  }
+
+  // 3. Filtro de Asesor
+  if (agentId === 'unassigned') {
+    query = query.is('assigned_to', null);
+  } else if (agentId && agentId !== 'all') {
+    query = query.eq('assigned_to', agentId);
+  }
+
+  // 4. Filtro de Etapa del Pipeline
+  if (stage && stage !== 'all') {
+    query = query.eq('pipeline_stage', stage);
+  }
+
+  // 5. Filtro de Temperatura del Lead
+  if (temperature && temperature !== 'all') {
+    query = query.eq('custom_fields->>temperature', temperature);
+  }
+
+  // 6. Búsqueda por texto (nombre, teléfono, instagram)
+  const cleanSearch = (search || '').trim().replace(/[%_]/g, '');
+  if (cleanSearch) {
+    query = query.or(`name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%,instagram_username.ilike.%${cleanSearch}%`);
+  }
+
+  // Paginación por rango
+  const { data: contacts, error, count } = await query.range(safeOffset, safeOffset + safeLimit - 1);
+
+  if (error) {
+    console.error('[LIST INBOX ERROR]', error);
+    throw new Error('Error al listar contactos de la bandeja');
+  }
+
+  const normalized = (contacts || []).map(normalizeContactInboxState);
+  return { contacts: normalized, totalCount: count ?? null };
+}
+
+/**
+ * Obtiene los contadores de las 5 bandejas de forma atómica y precisa desde Postgres
+ */
+export async function getInboxCounts(): Promise<InboxCounts> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  // Intentar ejecutar la RPC inbox_counts
+  try {
+    const { data: rpcRes, error: rpcErr } = await (supabaseAdmin as any).rpc('inbox_counts', {
+      p_org_id: orgId,
+      p_user_id: user.id,
+    });
+    if (!rpcErr && rpcRes) {
+      return {
+        por_responder: rpcRes.por_responder || 0,
+        mis_abiertos: rpcRes.mis_abiertos || 0,
+        ia_atendiendo: rpcRes.ia_atendiendo || 0,
+        seguimiento: rpcRes.seguimiento || 0,
+        cerrados: rpcRes.cerrados || 0,
+      };
+    }
+  } catch {}
+
+  // Fallback eficiente en paralelo con queries count HEAD
+  const [resPorResponder, resMisAbiertos, resIa, resSeguimiento, resCerrados] = await Promise.all([
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .is('deleted_at', null)
+      .neq('custom_fields->>conversation_status', 'closed')
+      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,is_ai_active.eq.false`),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .is('deleted_at', null)
+      .eq('assigned_to', user.id)
+      .neq('custom_fields->>conversation_status', 'closed'),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .is('deleted_at', null)
+      .eq('is_ai_active', true)
+      .neq('custom_fields->>conversation_status', 'closed'),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .is('deleted_at', null)
+      .neq('custom_fields->>conversation_status', 'closed')
+      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null`),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .is('deleted_at', null)
+      .eq('custom_fields->>conversation_status', 'closed'),
+  ]);
+
+  return {
+    por_responder: resPorResponder.count || 0,
+    mis_abiertos: resMisAbiertos.count || 0,
+    ia_atendiendo: resIa.count || 0,
+    seguimiento: resSeguimiento.count || 0,
+    cerrados: resCerrados.count || 0,
+  };
+}
+
+/**
+ * Reabre una conversación archivada o cerrada
+ */
+export async function reopenContactConversation(contactId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  const updatedCustom = {
+    ...currentCustom,
+    conversation_status: 'open',
+    closed_at: null,
+    close_resolution: null,
+  };
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      custom_fields: updatedCustom,
+      conversation_status: 'open',
+      closed_at: null,
+      close_reason: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', contactId);
+
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    sender_type: 'system',
+    content: `[✓ Conversación reabierta por ${profile.full_name || 'Asesor'}]`,
+  });
+
+  return { success: true };
 }
 
 

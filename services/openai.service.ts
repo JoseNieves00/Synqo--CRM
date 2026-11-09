@@ -806,6 +806,19 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         content: `[Marca temporal actual de la empresa (${orgTimezone}): ${currentLocalTime}]`,
       });
 
+      // Detección de retraso en la atención (si el último mensaje del cliente tiene más de 6 horas)
+      const lastLeadMsg = [...(dbMessages || [])].reverse().find((m: any) => m.sender_type === 'lead');
+      if (lastLeadMsg?.created_at) {
+        const hoursAgo = (Date.now() - new Date(lastLeadMsg.created_at).getTime()) / (1000 * 60 * 60);
+        if (hoursAgo >= 6) {
+          const hoursRounded = Math.round(hoursAgo);
+          conversationHistory.push({
+            role: 'system',
+            content: `[CONTEXTO DE ATENCIÓN CON DEMORA: El cliente envió su mensaje hace ${hoursRounded} horas (durante el fin de semana o fuera de horario) y no había recibido respuesta. INSTRUCCIÓN OBLIGATORIA DE NATURALIDAD: Inicia tu respuesta saludando con mucha calidez y pidiendo una disculpa breve, empática y humana por la tardanza (ejemplo: "¡Hola! Qué pena la demora, tuvimos bastante congestión de pedidos este fin de semana 😊..." o "¡Hola! Mil disculpas por la tardanza..."). Acto seguido, responde directamente a su consulta comercial de forma concisa y cercana].`,
+          });
+        }
+      }
+
       // Poda dinámica de herramientas basada en los módulos activos de la organización
       const activeTools = getAvailableTools(enabledModules);
 

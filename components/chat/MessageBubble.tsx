@@ -42,10 +42,11 @@ interface MessageBubbleProps {
   reactions?: { emoji: string; from?: string; reacted_at?: string; ai_feedback?: string } | any;
   contactId?: string;
   onReply?: (msg: { id?: string; senderType: MessageSender; content: string }) => void;
+  onRetry?: (msg: { id?: string; content: string }) => void;
 }
 
 export const MessageBubble = React.memo(
-  function MessageBubble({ id, content, senderType, createdAt, status, reactions, contactId, onReply }: MessageBubbleProps) {
+  function MessageBubble({ id, content, senderType, createdAt, status, reactions, contactId, onReply, onRetry }: MessageBubbleProps) {
     const formattedTime = useMemo(() => {
       return new Date(createdAt).toLocaleTimeString([], {
         hour: '2-digit',
@@ -53,7 +54,8 @@ export const MessageBubble = React.memo(
       });
     }, [createdAt]);
 
-    const isPending = Boolean(id && (id.startsWith('temp-') || id.startsWith('optimistic-')));
+    const isFailed = status === 'failed';
+    const isPending = !isFailed && Boolean((id && (id.startsWith('temp-') || id.startsWith('optimistic-'))) || status === 'pending');
     const isLead = senderType === 'lead';
     const isAi = senderType === 'ai';
     const isAgent = senderType === 'agent_manual';
@@ -204,6 +206,26 @@ export const MessageBubble = React.memo(
 
     const renderTicks = () => {
       if (isLead) return null;
+      if (isFailed) {
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] text-rose-500 dark:text-rose-400 font-sans font-semibold ml-1">
+            <AlertCircle className="w-3 h-3 text-rose-500 dark:text-rose-400 shrink-0" />
+            <span>Error</span>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry({ id, content });
+                }}
+                className="ml-1 underline hover:text-rose-600 dark:hover:text-rose-300 text-[10px] cursor-pointer"
+              >
+                Reintentar
+              </button>
+            )}
+          </span>
+        );
+      }
       if (isPending) {
         return (
           <span className="inline-flex items-center gap-0.5 text-[9px] font-sans opacity-90 animate-pulse ml-1">

@@ -16,11 +16,21 @@ import {
   X,
   Loader2,
   RefreshCw,
+  Zap,
 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { createClient } from '@/lib/supabase/client';
-import { getUnattendedHandoffs, getContactMessages, markContactAsRead, loadMoreContacts, searchContactsGlobal } from '@/app/actions/chat';
+import {
+  getUnattendedHandoffs,
+  getContactMessages,
+  markContactAsRead,
+  loadMoreContacts,
+  searchContactsGlobal,
+  triggerPendingAiBatchAction,
+  getPendingAiStatsAction,
+  triggerSinglePendingAiAction,
+} from '@/app/actions/chat';
 import { importRecentEvolutionChats } from '@/app/actions/evolution';
 
 interface ContactItem {
@@ -639,11 +649,33 @@ export function InboxView({
   // Conjunto de IDs de contactos con relevo pendiente no contestado
   const [unattendedIds, setUnattendedIds] = useState<Set<string>>(new Set());
 
+  // Estado de mensajes acumulados pendientes de responder con IA
+  const [pendingAiCount, setPendingAiCount] = useState<number>(0);
+  const [isDispatchingBatch, setIsDispatchingBatch] = useState(false);
+  const [batchFeedback, setBatchFeedback] = useState<string | null>(null);
+
   // Estado de sincronización manual de chats de WhatsApp (Evolution API / Z-API)
   const [syncingChats, setSyncingChats] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const isBaileys = whatsappProvider === 'evolution';
+
+  const handleDispatchBatch = async () => {
+    setIsDispatchingBatch(true);
+    setBatchFeedback('Despachando lote de 10 con cadencia humana de seguridad...');
+    try {
+      const res = await triggerPendingAiBatchAction(10);
+      setPendingAiCount(res.remaining);
+      setBatchFeedback(`¡${res.answered} mensajes respondidos exitosamente! Quedan ${res.remaining} pendientes.`);
+      router.refresh();
+      setTimeout(() => setBatchFeedback(null), 7000);
+    } catch (err: any) {
+      setBatchFeedback(err.message || 'Error al despachar lote.');
+      setTimeout(() => setBatchFeedback(null), 6000);
+    } finally {
+      setIsDispatchingBatch(false);
+    }
+  };
 
   const handleSyncChats = async () => {
     setSyncingChats(true);
@@ -665,9 +697,15 @@ export function InboxView({
     let isMounted = true;
     const fetchUnattended = async () => {
       try {
-        const list = await getUnattendedHandoffs();
+        const [list, aiStats] = await Promise.all([
+          getUnattendedHandoffs(),
+          getPendingAiStatsAction().catch(() => ({ count: 0 })),
+        ]);
         if (isMounted) {
           setUnattendedIds(new Set(list.map((item: any) => item.id)));
+          if (aiStats && typeof aiStats.count === 'number') {
+            setPendingAiCount(aiStats.count);
+          }
         }
       } catch (e) {
         console.warn('[InboxView] Error cargando relevos pendientes:', e);
@@ -1120,6 +1158,43 @@ export function InboxView({
                 Resolver &rarr;
               </span>
             </Link>
+          )}
+
+          {/* Banner de Despacho Escalonado de Mensajes Acumulados */}
+          {pendingAiCount > 0 && (
+            <div className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-500/30 text-purple-950 dark:text-purple-200 space-y-1.5 animate-in fade-in">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Bot className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span className="text-xs font-bold truncate">
+                    {pendingAiCount} {pendingAiCount === 1 ? 'lead en espera' : 'leads en espera'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isDispatchingBatch}
+                  onClick={handleDispatchBatch}
+                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg transition shadow-xs flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  {isDispatchingBatch ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Despachando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3 h-3" />
+                      <span>Despachar 10</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              {batchFeedback && (
+                <p className="text-[10px] text-purple-700 dark:text-purple-300 font-mono animate-in fade-in leading-tight">
+                  {batchFeedback}
+                </p>
+              )}
+            </div>
           )}
 
           {/* Pestañas de Asignación y Focos de Cierre de Ventas */}
