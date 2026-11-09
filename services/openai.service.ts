@@ -1319,13 +1319,25 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         }
 
         // 5. Segunda llamada de inferencia para redactar la respuesta final en lenguaje natural
+        // ⚡ OPTIMIZACIÓN FINANCIERA DE TOKENS: Para la redacción final, reemplazamos el pesado System Prompt (3.500+ tokens)
+        // por una directriz compacta de redacción de cierre. Esto ahorra ~3.300 tokens de entrada en CADA despacho de imagen o tool.
+        const followUpMessages = conversationHistory.map((msg, idx) => {
+          if (idx === 0 && msg.role === 'system') {
+            return {
+              role: 'system' as const,
+              content: `Eres la asesora comercial de ${organization?.name || 'la empresa'}. Redacta la respuesta final en lenguaje natural de WhatsApp (1 a 2 líneas breves, cercana y cálida). La herramienta ya ejecutó la acción (ej: la foto oficial ya fue despachada y entregada directamente en WhatsApp); PROHIBIDO repetir URLs de fotos o usar markdown ![foto](url). Solo complementa con calidez y sigue la ruta comercial.`,
+            };
+          }
+          return msg;
+        });
+
         const {
           response: followUp,
           modelUsed: followUpModel,
           provider: followUpProvider,
           isFallback: followUpFallback,
         } = await createChatCompletionWithFallback({
-          messages: conversationHistory,
+          messages: followUpMessages,
           temperature: 0.3,
           aiProvider,
           organizationId,
