@@ -299,8 +299,15 @@ export function ChatWindow({
 
   // Estados de Pausa Temporal de IA (Snooze)
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
+
+  // Apertura automática del panel lateral solo en pantallas grandes (Desktop >= 1280px)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1280) {
+      setIsRightPanelOpen(true);
+    }
+  }, []);
 
   // Menú estructurado de Más Opciones (...)
   const [showMoreActions, setShowMoreActions] = useState(false);
@@ -1269,10 +1276,8 @@ export function ChatWindow({
         </div>
       )}
 
-      {/* Contenedor Principal: Chat + Drawer */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Columna de Mensajes + Input */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+      {/* Columna de Mensajes + Input */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           {/* Lista de Mensajes con Preservación de Scroll */}
           <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50 dark:bg-[#090A0F] space-y-1 transition-colors">
             {isLoadingMessages ? (
@@ -1480,12 +1485,11 @@ export function ChatWindow({
             onCancelReply={() => setReplyingToMessage(null)}
           />
         </div>
-
       </div>
 
-      {/* Panel Lateral de Detalles del Lead (Desktop) */}
+      {/* Panel Lateral de Detalles del Lead (Desktop >= xl) */}
       {isRightPanelOpen && (
-        <div className="hidden lg:block w-80 h-full border-l border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] overflow-y-auto shrink-0 animate-in slide-in-from-right-4 duration-200">
+        <div className="hidden xl:block w-80 2xl:w-96 h-full border-l border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] overflow-y-auto shrink-0 animate-in slide-in-from-right-4 duration-200">
           <ContactPanel
             contact={contact as any}
             teamMembers={teamMembers}
@@ -1496,20 +1500,28 @@ export function ChatWindow({
         </div>
       )}
 
-      {/* Panel Lateral de Detalles del Lead (Mobile Drawer) */}
-      {isRightPanelOpen && (
-        <div className="lg:hidden">
-          <ContactPanel
-            contact={contact as any}
-            teamMembers={teamMembers}
-            onContactUpdate={onContactUpdate}
-            onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
-            onClosePanel={() => setIsRightPanelOpen(false)}
-            isMobileDrawer={true}
-          />
-        </div>
+      {/* Drawer Flotante de Detalles del Lead (Mobile / Tablet < xl) */}
+      {isRightPanelOpen && mounted && createPortal(
+        <div
+          className="xl:hidden fixed inset-0 z-[9999] bg-slate-950/60 backdrop-blur-xs flex justify-end animate-in fade-in duration-200"
+          onClick={() => setIsRightPanelOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm sm:max-w-md h-full bg-white dark:bg-[#0D111A] shadow-2xl animate-in slide-in-from-right duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ContactPanel
+              contact={contact as any}
+              teamMembers={teamMembers}
+              onContactUpdate={onContactUpdate}
+              onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+              onClosePanel={() => setIsRightPanelOpen(false)}
+              isMobileDrawer={true}
+            />
+          </div>
+        </div>,
+        document.body
       )}
-    </div>
 
       {/* Modal de Confirmación Rápida para Eliminar Chat */}
       {showDeleteModal && mounted && createPortal(

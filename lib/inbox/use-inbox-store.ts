@@ -21,6 +21,7 @@ export interface ContactItem {
   last_message_preview?: string | null;
   waiting_since?: string | null;
   conversation_status?: string;
+  deal_value?: number | null;
   ai_snooze_until?: string | null;
 }
 
