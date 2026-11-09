@@ -1440,11 +1440,14 @@ export async function listInbox({
       .order('updated_at', { ascending: false });
   } else if (view === 'seguimiento') {
     // Chats con pausa de IA (snooze), recordatorio activo, o prospectos en silencio (>24h y <10d) para reactivar
+    // Blindaje: se excluyen chats cerrados, esperando respuesta, etapas terminales (ganado/perdido/cita) o reactivación ya intentada
     const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
     query = query
       .neq('conversation_status', 'closed')
-      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0)`)
+      .is('waiting_since', null)
+      .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
+      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0,custom_fields->>reactivation_attempted.is.null,last_message_sender.neq.lead)`)
       .order('updated_at', { ascending: false });
   } else if (view === 'cerrados') {
     // Historial archivado de chats finalizados
@@ -1559,7 +1562,9 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .neq('conversation_status', 'closed')
-      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0)`),
+      .is('waiting_since', null)
+      .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
+      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0,custom_fields->>reactivation_attempted.is.null,last_message_sender.neq.lead)`),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
@@ -1772,6 +1777,75 @@ export async function generateDraftAiReply(contactId: string): Promise<{ draft: 
   });
 
   return { draft };
+}
+
+/**
+ * Genera sugerencias de reactivación inteligentes con IA personalizadas
+ * según el interés del prospecto y lo que consultó en el chat.
+ */
+export async function generateReactivationAiSuggestion(contactId: string): Promise<{
+  success: boolean;
+  detectedInterest?: string;
+  suggestedMessage?: string;
+  alternativeHook?: string;
+  error?: string;
+}> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone, pipeline_stage, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const { data: organization } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, prompt_config, structured_prompt, system_prompt, ai_provider')
+    .eq('id', orgId)
+    .single();
+
+  const { data: rawMessages } = await (supabaseAdmin.from('messages') as any)
+    .select('id, sender_type, content, created_at')
+    .eq('contact_id', contactId)
+    .order('created_at', { ascending: false })
+    .limit(12);
+
+  const history = (rawMessages || []).reverse();
+
+  try {
+    const result = await OpenAIService.generateReactivationHook({
+      organizationId: orgId,
+      contactId,
+      leadName: contact.name,
+      history,
+      organization,
+      contactCustomFields: contact.custom_fields,
+    });
+
+    return {
+      success: true,
+      detectedInterest: result.detectedInterest,
+      suggestedMessage: result.suggestedMessage,
+      alternativeHook: result.alternativeHook,
+    };
+  } catch (err: any) {
+    console.error('[GENERATE REACTIVATION AI ERROR]', err);
+    return {
+      success: false,
+      error: err?.message || 'Error al generar sugerencia de reactivación',
+    };
+  }
 }
 
 /**

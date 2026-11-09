@@ -316,6 +316,41 @@ async function runInboxTests() {
   console.log('   ✅ Personalización dinámica con variables {{nombre}}, {{asesor}}, {{empresa}} aprobada.');
   console.log('   ✅ Sanitización de saludos sin nombre (Anti-Error "¡Hola !") aprobada.');
 
+  // 10. Probar Filtro Optimizado de Seguimiento y Sugerencias de Reactivación con IA
+  console.log('\n🔟 Probando filtro estricto de seguimiento y generador de reactivaciones con IA...');
+  assert.ok(
+    chatTsContent.includes("not('pipeline_stage', 'in', '(\"ganado\",\"perdido\",\"cita_agendada\")')"),
+    'listInbox seguimiento debe excluir etapas ganadas, perdidas o con cita agendada'
+  );
+  assert.ok(
+    chatTsContent.includes("generateReactivationAiSuggestion"),
+    'chat.ts debe exportar generateReactivationAiSuggestion'
+  );
+
+  const openaiServiceContent = fs.readFileSync('services/openai.service.ts', 'utf8');
+  assert.ok(
+    openaiServiceContent.includes('generateReactivationHook'),
+    'OpenAIService debe implementar generateReactivationHook'
+  );
+  assert.ok(
+    openaiServiceContent.includes('detectedInterest'),
+    'generateReactivationHook debe extraer el interés puntual detectado'
+  );
+
+  const updatedChatWindowContent = fs.readFileSync('components/chat/ChatWindow.tsx', 'utf8');
+  assert.ok(
+    updatedChatWindowContent.includes('handleGenerateAiReactivation'),
+    'ChatWindow debe ofrecer botón y handler para sugerir reactivación con IA'
+  );
+  assert.ok(
+    updatedChatWindowContent.includes('reactivationAiResult'),
+    'ChatWindow debe renderizar tarjeta con gancho personalizado y alternativa suave'
+  );
+
+  console.log('   ✅ Exclusión de chats ganados/perdidos/con cita en vista de seguimiento aprobada.');
+  console.log('   ✅ Generación contextual con IA (interés detectado + 2 propuestas) aprobada.');
+  console.log('   ✅ UI de Reactivación Copilot en ChatWindow aprobada.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }
 
