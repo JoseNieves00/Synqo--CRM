@@ -56,6 +56,7 @@ BEGIN
     -- El asesor o la IA responden:
     -- - Despejar el contador de espera (lead atendido)
     -- - Marcar esperando respuesta del cliente
+    -- - Si tenía un recordatorio de reactivación pendiente, limpiarlo automáticamente
     UPDATE contacts
     SET 
       waiting_since = NULL,
@@ -66,8 +67,20 @@ BEGIN
       last_message_preview = msg_preview,
       last_message_sender = NEW.sender_type,
       last_interaction_at = NEW.created_at,
-      updated_at = NOW()
+      updated_at = NOW(),
+      custom_fields = CASE 
+        WHEN custom_fields->'active_reminder'->>'reminderType' = 'reactivation' THEN
+          custom_fields - 'active_reminder'
+        ELSE custom_fields
+      END
     WHERE id = NEW.contact_id;
+
+    -- Completar en tabla scheduled_reminders si existía recordatorio de reactivación
+    UPDATE scheduled_reminders
+    SET status = 'completed'
+    WHERE contact_id = NEW.contact_id 
+      AND reminder_type = 'reactivation' 
+      AND status = 'pending';
   END IF;
 
   RETURN NEW;
@@ -119,7 +132,7 @@ BEGIN
     AND is_ai_active = true
     AND conversation_status != 'closed';
 
-  -- Seguimiento: recordatorios de hoy o chats snoozed activos
+  -- Seguimiento: recordatorios de hoy, chats snoozed activos o prospectos en silencio (>24h) por reactivar
   SELECT COUNT(*) INTO v_seguimiento
   FROM contacts
   WHERE organization_id = p_org_id
@@ -130,7 +143,17 @@ BEGIN
       OR (snoozed_until IS NOT NULL AND snoozed_until > NOW())
       OR (
         custom_fields->'active_reminder'->>'scheduledFor' IS NOT NULL 
-        AND (custom_fields->'active_reminder'->>'scheduledFor')::timestamptz::date = CURRENT_DATE
+        AND (custom_fields->'active_reminder'->>'scheduledFor')::timestamptz::date <= CURRENT_DATE
+      )
+      OR (
+        -- Prospectos en frío elegibles para reactivación: silencio entre 24h y 10d, último mensaje fue nuestro
+        last_interaction_at <= NOW() - INTERVAL '24 hours'
+        AND last_interaction_at >= NOW() - INTERVAL '10 days'
+        AND COALESCE(unread_count, 0) = 0
+        AND waiting_since IS NULL
+        AND last_message_sender IN ('ai', 'agent_manual', 'agent')
+        AND pipeline_stage NOT IN ('ganado', 'perdido', 'cita_agendada')
+        AND (custom_fields->>'reactivation_attempted')::boolean IS NOT TRUE
       )
     );
 

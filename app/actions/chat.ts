@@ -121,17 +121,37 @@ export async function sendAgentMessage(contactId: string, content: string, reply
   };
 
   const currentCustom = contact.custom_fields || {};
+  const updatedCustom: Record<string, any> = {
+    ...currentCustom,
+    last_message: lastMessagePayload,
+  };
+
+  // 🛡️ Si el contacto tenía un recordatorio de reactivación pendiente, limpiarlo
+  // porque el asesor ya atendió y contestó directamente al cliente.
+  if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+    updatedCustom.active_reminder = null;
+  }
+
   await (supabaseAdmin.from('contacts') as any)
     .update({
       last_message: lastMessagePayload,
-      custom_fields: {
-        ...currentCustom,
-        last_message: lastMessagePayload,
-      },
+      custom_fields: updatedCustom,
       last_interaction_at: nowIso,
       updated_at: nowIso,
+      waiting_since: null,
+      last_message_sender: 'agent_manual',
+      last_message_preview: cleanContent.slice(0, 160),
     })
     .eq('id', contactId);
+
+  // Completar recordatorios de reactivación pendientes en tabla scheduled_reminders
+  try {
+    await (supabaseAdmin.from('scheduled_reminders') as any)
+      .update({ status: 'completed' })
+      .eq('contact_id', contactId)
+      .eq('reminder_type', 'reactivation')
+      .eq('status', 'pending');
+  } catch {}
 
   // 7. Persistir el mensaje en la base de datos con sender_type = 'agent_manual' y estado 'sent'
   await (supabaseAdmin.from('messages') as any).insert({
@@ -198,12 +218,52 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
     languageCode: 'es',
   });
 
+  const nowIso = new Date().toISOString();
+  const templateMsgPayload = {
+    text: `[Plantilla oficial: ${templateLabel}]`,
+    sender_type: 'agent_manual',
+    created_at: nowIso,
+  };
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  const updatedCustom: Record<string, any> = {
+    ...currentCustom,
+    last_message: templateMsgPayload,
+  };
+
+  // 🛡️ Si es plantilla de reactivación, registrar blindaje anti-spam de 1 solo intento
+  if (templateKey.includes('reactiva')) {
+    updatedCustom.reactivation_attempted = true;
+    updatedCustom.reactivation_sent_at = nowIso;
+    updatedCustom.reactivation_type = 'template_manual';
+  }
+
+  // 🛡️ Si tenía recordatorio de reactivación, completarlo automáticamente
+  if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+    updatedCustom.active_reminder = null;
+  }
+
   // Registrar actualización en el contacto (sin desactivar la IA si el lead está configurado con IA)
   await (supabaseAdmin.from('contacts') as any)
     .update({
-      updated_at: new Date().toISOString(),
+      last_message: templateMsgPayload,
+      last_interaction_at: nowIso,
+      updated_at: nowIso,
+      waiting_since: null,
+      last_message_sender: 'agent_manual',
+      last_message_preview: `[Plantilla oficial: ${templateLabel}]`,
+      custom_fields: updatedCustom,
     })
     .eq('id', contactId);
+
+  // Completar recordatorios de reactivación en la tabla scheduled_reminders
+  try {
+    await (supabaseAdmin.from('scheduled_reminders') as any)
+      .update({ status: 'completed' })
+      .eq('contact_id', contactId)
+      .eq('reminder_type', 'reactivation')
+      .eq('status', 'pending');
+  } catch {}
 
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
@@ -1138,10 +1198,10 @@ export async function listInbox({
 
   // 1. Filtros por Vista / Bandeja Principal
   if (view === 'por_responder') {
-    // Chats que esperan atención del asesor: no cerrados y con espera activa
+    // Chats que esperan atención del asesor: no cerrados y con espera activa (no contestados por asesor ni IA)
     query = query
       .neq('custom_fields->>conversation_status', 'closed')
-      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,is_ai_active.eq.false`);
+      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,waiting_since.not.is.null`);
     // Prioridad: los que llevan más tiempo esperando
     query = query.order('last_interaction_at', { ascending: true });
   } else if (view === 'mis_abiertos') {
@@ -1157,10 +1217,12 @@ export async function listInbox({
       .neq('custom_fields->>conversation_status', 'closed')
       .order('updated_at', { ascending: false });
   } else if (view === 'seguimiento') {
-    // Chats con pausa de IA (snooze) o recordatorio activo
+    // Chats con pausa de IA (snooze), recordatorio activo, o prospectos en silencio (>24h y <10d) para reactivar
+    const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
     query = query
       .neq('custom_fields->>conversation_status', 'closed')
-      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null`)
+      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0)`)
       .order('updated_at', { ascending: false });
   } else if (view === 'cerrados') {
     // Historial archivado de chats finalizados
@@ -1247,13 +1309,16 @@ export async function getInboxCounts(): Promise<InboxCounts> {
   } catch {}
 
   // Fallback eficiente en paralelo con queries count HEAD
+  const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
+
   const [resPorResponder, resMisAbiertos, resIa, resSeguimiento, resCerrados] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .neq('custom_fields->>conversation_status', 'closed')
-      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,is_ai_active.eq.false`),
+      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,waiting_since.not.is.null`),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
@@ -1271,7 +1336,7 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .neq('custom_fields->>conversation_status', 'closed')
-      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null`),
+      .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0)`),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)

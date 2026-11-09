@@ -819,10 +819,11 @@ export class InboundCoreService {
 
         const effectiveLastText = cleanedAiText || (leakedMedia.length > 0 ? formatImageMessageContent(leakedMedia[0].url, leakedMedia[0].caption || '') : aiResponseText);
 
+        const nowIso = new Date().toISOString();
         const aiLastMsg = {
           text: effectiveLastText,
           sender_type: 'ai',
-          created_at: new Date().toISOString(),
+          created_at: nowIso,
         };
 
         const { data: contactData } = await (supabaseAdmin.from('contacts') as any)
@@ -831,16 +832,36 @@ export class InboundCoreService {
           .single();
 
         const customFields = (contactData?.custom_fields as Record<string, any>) || {};
+        const updatedCustom: Record<string, any> = {
+          ...customFields,
+          last_message: aiLastMsg,
+        };
+
+        // Si tenía un recordatorio de reactivación pendiente, limpiarlo porque la IA ya respondió al lead
+        if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+          updatedCustom.active_reminder = null;
+        }
 
         await (supabaseAdmin.from('contacts') as any)
           .update({
             last_message: aiLastMsg,
-            custom_fields: {
-              ...customFields,
-              last_message: aiLastMsg,
-            },
+            last_interaction_at: nowIso,
+            updated_at: nowIso,
+            waiting_since: null,
+            last_message_sender: 'ai',
+            last_message_preview: effectiveLastText.slice(0, 160),
+            custom_fields: updatedCustom,
           })
           .eq('id', contactId);
+
+        // Desactivar recordatorios de reactivación pendientes en tabla scheduled_reminders
+        try {
+          await (supabaseAdmin.from('scheduled_reminders') as any)
+            .update({ status: 'completed' })
+            .eq('contact_id', contactId)
+            .eq('reminder_type', 'reactivation')
+            .eq('status', 'pending');
+        } catch {}
 
         // Registro de Auditoría de Observabilidad en ai_runs con métricas reales
         await this.recordAiRun({

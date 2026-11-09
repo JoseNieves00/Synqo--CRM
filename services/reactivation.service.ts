@@ -135,15 +135,16 @@ export class LeadReactivationService {
       }
 
       // 2. Buscar prospectos candidatos en esta organización:
-      // - Etapa NO es ganado ni perdido
+      // - Etapa NO es ganado, perdido ni cita agendada
       // - Teléfono válido
       // - IA activa
       const { data: candidates, error: candErr } = await (supabaseAdmin.from('contacts') as any)
-        .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+        .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, unread_count, last_message, waiting_since, last_message_sender')
         .eq('organization_id', org.id)
         .not('phone', 'is', null)
         .neq('pipeline_stage', 'ganado')
         .neq('pipeline_stage', 'perdido')
+        .neq('pipeline_stage', 'cita_agendada')
         .order('last_interaction_at', { ascending: false })
         .limit(30);
 
@@ -162,6 +163,30 @@ export class LeadReactivationService {
         if (!contact.phone || contact.phone.trim().length < 8) continue;
 
         const custom = (contact.custom_fields as Record<string, any>) || {};
+
+        // 🛡️ Ignorar si la conversación está archivada o cerrada
+        if (custom.conversation_status === 'closed' || (contact as any).conversation_status === 'closed') {
+          continue;
+        }
+
+        // 🛡️ REGLA FUNDAMENTAL:
+        // Si el cliente tiene mensajes sin leer, o espera atención nuestra, ¡NO es reactivación!
+        // Pertenece a "Por Responder" para que el asesor o la IA le den respuesta.
+        if ((contact.unread_count || 0) > 0 || contact.waiting_since) {
+          continue;
+        }
+
+        // 🛡️ QUIÉN HABLÓ DE ÚLTIMO:
+        // Solo es elegible para reactivar si el último mensaje fue enviado por NOSOTROS (IA o Asesor).
+        // Si el cliente habló de último, le debemos una respuesta y no se debe reactivar en frío.
+        const effectiveSender =
+          contact.last_message_sender ||
+          contact.last_message?.sender_type ||
+          custom.last_message?.sender_type;
+
+        if (effectiveSender === 'lead') {
+          continue;
+        }
 
         // 🛡️ BLINDAJE ANTI-SPAM ABSOLUTO:
         // Si ya se intentó reactivar antes, SE OMITE DE POR VIDA.
@@ -246,20 +271,36 @@ export class LeadReactivationService {
             });
 
             // 2. Marcar blindaje atómico en custom_fields para NUNCA volver a insistir
-            const updatedCustom = {
+            const updatedCustom: Record<string, any> = {
               ...((contact.custom_fields as Record<string, any>) || {}),
               reactivation_attempted: true,
               reactivation_sent_at: new Date().toISOString(),
               reactivation_type: 'autonomous_cron',
             };
 
+            // Limpiar cualquier recordatorio pendiente de reactivación ya que fue ejecutado
+            if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+              updatedCustom.active_reminder = null;
+            }
+
             await (supabaseAdmin.from('contacts') as any)
               .update({
                 custom_fields: updatedCustom,
                 last_interaction_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
+                last_message_sender: 'ai',
+                last_message_preview: bodyMessage.slice(0, 160),
               })
               .eq('id', contact.id);
+
+            // Completar en la tabla scheduled_reminders si existía
+            try {
+              await (supabaseAdmin.from('scheduled_reminders') as any)
+                .update({ status: 'completed' })
+                .eq('contact_id', contact.id)
+                .eq('reminder_type', 'reactivation')
+                .eq('status', 'pending');
+            } catch {}
           }
         } catch (itemErr: any) {
           result.errors.push(`Error en lead ${contact.id}: ${itemErr.message}`);

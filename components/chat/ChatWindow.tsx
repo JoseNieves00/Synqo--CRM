@@ -99,6 +99,12 @@ interface ChatWindowProps {
     channel?: 'whatsapp' | 'instagram';
     instagram_username?: string | null;
     instagram_id?: string | null;
+    conversation_status?: string;
+    waiting_since?: string | null;
+    unread_count?: number;
+    last_message?: any;
+    last_message_sender?: string | null;
+    last_message_preview?: string | null;
   };
   messages: MessageItem[];
   isLoadingMessages?: boolean;
@@ -748,8 +754,38 @@ export function ChatWindow({
 
   // 🛡️ Lógica de Reactivación de Leads Fríos (Blindaje Anti-Spam: 1 Solo Intento)
   const isReactivationEligible = useMemo(() => {
-    if (contact.pipeline_stage === 'ganado' || contact.pipeline_stage === 'perdido') return false;
-    if (contact.custom_fields?.reactivation_attempted) return false;
+    // 1. Etapas excluidas
+    if (
+      contact.pipeline_stage === 'ganado' ||
+      contact.pipeline_stage === 'perdido' ||
+      contact.pipeline_stage === 'cita_agendada'
+    ) {
+      return false;
+    }
+    // 2. Si la conversación está cerrada formalmente
+    if (contact.conversation_status === 'closed' || contact.custom_fields?.conversation_status === 'closed') {
+      return false;
+    }
+    // 3. Ya se intentó reactivar (anti-spam de 1 intento)
+    if (contact.custom_fields?.reactivation_attempted) {
+      return false;
+    }
+    // 4. Si el cliente tiene mensajes sin leer o está esperando respuesta, NO es reactivación (es Por Responder)
+    if ((contact.unread_count || 0) > 0 || contact.waiting_since) {
+      return false;
+    }
+    // 5. El último mensaje DEBE haber sido enviado por NOSOTROS (IA o Asesor).
+    // Si el lead habló de último o la IA/asesor no han respondido, no es reactivación en frío.
+    const effectiveSender =
+      contact.last_message_sender ||
+      contact.last_message?.sender_type ||
+      contact.custom_fields?.last_message?.sender_type;
+
+    if (effectiveSender === 'lead') {
+      return false;
+    }
+
+    // 6. Debe tener entre 24 horas y 10 días de silencio
     try {
       const elapsed = Date.now() - new Date(contact.last_interaction_at).getTime();
       const hours = elapsed / (1000 * 3600);
@@ -757,7 +793,18 @@ export function ChatWindow({
     } catch {
       return false;
     }
-  }, [contact.pipeline_stage, contact.custom_fields?.reactivation_attempted, contact.last_interaction_at]);
+  }, [
+    contact.pipeline_stage,
+    contact.conversation_status,
+    contact.custom_fields?.conversation_status,
+    contact.custom_fields?.reactivation_attempted,
+    contact.custom_fields?.last_message,
+    contact.unread_count,
+    contact.waiting_since,
+    contact.last_message_sender,
+    contact.last_message,
+    contact.last_interaction_at,
+  ]);
 
   const handleApplyReactivationMessage = () => {
     const cleanName = (contact.name || '').trim();

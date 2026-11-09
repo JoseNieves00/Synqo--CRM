@@ -129,6 +129,22 @@ export const ConversationRow = React.memo(function ConversationRow({
   const unreadCount = c.unread_count ?? c.custom_fields?.unread_count ?? 0;
   const isClosed = c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed';
 
+  // 6. Indicador de Reactivación Comercial (>24h de silencio y último mensaje fue nuestro)
+  const isColdForReactivation = useMemo(() => {
+    if (c.pipeline_stage === 'ganado' || c.pipeline_stage === 'perdido' || c.pipeline_stage === 'cita_agendada') return false;
+    if (isClosed || c.custom_fields?.reactivation_attempted) return false;
+    if (unreadCount > 0 || c.waiting_since) return false;
+    const sender = c.last_message_sender || c.last_message?.sender_type;
+    if (sender === 'lead') return false;
+    try {
+      const elapsed = Date.now() - new Date(c.last_interaction_at).getTime();
+      const hours = elapsed / (1000 * 3600);
+      return hours >= 24 && hours <= 240;
+    } catch {
+      return false;
+    }
+  }, [c.pipeline_stage, isClosed, c.custom_fields?.reactivation_attempted, unreadCount, c.waiting_since, c.last_message_sender, c.last_message, c.last_interaction_at]);
+
   return (
     <div
       onClick={() => onSelect(c.id)}
@@ -229,6 +245,16 @@ export const ConversationRow = React.memo(function ConversationRow({
           <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] truncate max-w-[90px]">
             {stageObj.label}
           </span>
+
+          {/* Badge de Reactivación Comercial */}
+          {isColdForReactivation && (
+            <span
+              title="Lead en silencio (>24h). Listo para reactivar."
+              className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0"
+            >
+              Reactivar
+            </span>
+          )}
 
           {/* Asesor asignado */}
           {assignedUserName ? (
