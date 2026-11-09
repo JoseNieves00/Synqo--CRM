@@ -7,9 +7,17 @@ import { InboxView } from '@/components/chat/InboxView';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { MessageSquare } from 'lucide-react';
 
+interface InboxPageProps {
+  searchParams?: {
+    view?: string;
+    c?: string;
+    ch?: string;
+  };
+}
+
 export const dynamic = 'force-dynamic';
 
-export default async function InboxPage() {
+export default async function InboxPage({ searchParams }: InboxPageProps) {
   const current = await getCurrentUserAndOrg();
   if (!current) {
     redirect('/login');
@@ -31,9 +39,22 @@ export default async function InboxPage() {
   ]);
 
   const contactList = contacts || [];
-  const activeContact = contactList.length > 0 ? contactList[0] : null;
+  const targetContactId = searchParams?.c;
+  let activeContact = targetContactId
+    ? contactList.find((c: any) => c.id === targetContactId) || null
+    : contactList.length > 0 ? contactList[0] : null;
 
-  // Consultar los 50 mensajes más recientes del primer contacto si existe
+  if (targetContactId && !activeContact) {
+    const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
+      .eq('id', targetContactId)
+      .eq('organization_id', current.organization.id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    activeContact = singleContact;
+  }
+
+  // Consultar los 50 mensajes más recientes del contacto activo si existe
   let messages: any[] = [];
   if (activeContact) {
     const { data: msgs } = await (supabaseAdmin.from('messages') as any)
