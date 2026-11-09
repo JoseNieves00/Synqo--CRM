@@ -54,7 +54,7 @@ async function createChatCompletionWithFallback(params: {
   // 1. Nivel Primario: Google Gemini Flash (Tokens optimizados, latencia ultra-baja y $0 en cuota)
   if (prefersGemini && gemini) {
     const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
-    const modelsToTry = [primaryModel, 'gemini-3.5-flash-lite'];
+    const modelsToTry = [primaryModel, 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
 
     for (const currentGeminiModel of modelsToTry) {
       try {
