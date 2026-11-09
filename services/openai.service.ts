@@ -814,7 +814,7 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
           const hoursRounded = Math.round(hoursAgo);
           conversationHistory.push({
             role: 'system',
-            content: `[CONTEXTO DE ATENCIÓN CON DEMORA: El cliente envió su mensaje hace ${hoursRounded} horas (durante el fin de semana o fuera de horario) y no había recibido respuesta. INSTRUCCIÓN OBLIGATORIA DE NATURALIDAD: Inicia tu respuesta saludando con mucha calidez y pidiendo una disculpa breve, empática y humana por la tardanza (ejemplo: "¡Hola! Qué pena la demora, tuvimos bastante congestión de pedidos este fin de semana 😊..." o "¡Hola! Mil disculpas por la tardanza..."). Acto seguido, responde directamente a su consulta comercial de forma concisa y cercana].`,
+            content: `[CONTEXTO DE ATENCIÓN CON DEMORA: El cliente envió su mensaje hace ${hoursRounded} horas y no había recibido respuesta. INSTRUCCIÓN OBLIGATORIA: Inicia tu respuesta saludando con calidez y pidiendo una disculpa breve y sincera por la tardanza (ejemplo: "¡Hola! Qué pena contigo la demora 🙏...", "¡Hola! Mil disculpas por la tardanza en responderte..."). PROHIBIDO inventar excusas o justificaciones como "congestión de pedidos", "muchos mensajes", "problemas técnicos" ni mencionar el fin de semana. Solo pide una disculpa breve, empática y educada, y responde directamente a su consulta comercial de forma ágil y cercana].`,
           });
         }
       }

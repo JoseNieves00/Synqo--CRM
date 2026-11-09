@@ -52,7 +52,7 @@ interface ChatHeaderProps {
   isRightPanelOpen: boolean;
   onToggleRightPanel: () => void;
   onToggleAi: () => Promise<void>;
-  onSnoozeAi: (durationMinutes: number | 'tomorrow') => Promise<void>;
+  onSnoozeAi: (durationMinutes: 30 | 120 | 'tomorrow') => Promise<void>;
   onClaimLead: () => Promise<void>;
   onReassignLead: (agentId: string) => Promise<void>;
   onCloseChat: () => void;
