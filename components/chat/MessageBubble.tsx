@@ -58,10 +58,17 @@ export const MessageBubble = React.memo(
     isSearchMatch,
   }: MessageBubbleProps) {
     const formattedTime = useMemo(() => {
-      return new Date(createdAt).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      if (!createdAt) return '';
+      try {
+        const d = new Date(createdAt);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch {
+        return '';
+      }
     }, [createdAt]);
 
     const isFailed = status === 'failed';

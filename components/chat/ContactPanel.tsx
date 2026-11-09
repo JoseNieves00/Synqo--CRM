@@ -227,9 +227,7 @@ export function ContactPanel({
 
   return (
     <div
-      className={`h-full flex flex-col bg-white dark:bg-[#0D111A] border-l border-slate-200 dark:border-[#232A3B] text-slate-800 dark:text-slate-200 text-xs overflow-y-auto select-none ${
-        isMobileDrawer ? 'w-full' : 'w-80 2xl:w-96'
-      }`}
+      className="h-full w-full flex flex-col bg-white dark:bg-[#0D111A] border-l border-slate-200 dark:border-[#232A3B] text-slate-800 dark:text-slate-200 text-xs overflow-y-auto select-none"
     >
       {/* Cabecera del Panel */}
       <div className="p-3.5 border-b border-slate-100 dark:border-[#232A3B] flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-[#090A0F]/50">

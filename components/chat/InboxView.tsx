@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
@@ -128,6 +128,14 @@ export function InboxView({
     }
   }, [organizationId]);
 
+  // Sembrar mensajes iniciales de SSR en el store inmediatamente si aún no existen
+  if (activeContact?.id && messages && messages.length > 0) {
+    const current = useInboxStore.getState().messagesByContact[activeContact.id];
+    if (!current || !current.items || current.items.length === 0) {
+      useInboxStore.getState().setContactMessages(activeContact.id, messages);
+    }
+  }
+
   // 5. Selectores Finos del Store Normalizado
   const counts = useInboxCounts();
   const contactsById = useInboxStore((s) => s.contactsById);
@@ -136,21 +144,34 @@ export function InboxView({
 
   // Lista de contactos de la vista actual
   const contactList = useMemo(() => {
-    return viewContactIds.map((id) => contactsById[id]).filter(Boolean) as ContactRowData[];
-  }, [viewContactIds, contactsById]);
+    const fromStore = viewContactIds.map((id) => contactsById[id]).filter(Boolean) as ContactRowData[];
+    if (fromStore.length > 0) return fromStore;
+    if (initialContacts && initialContacts.length > 0 && activeView === initialView && !searchQuery.trim() && filters.channel === 'all' && filters.agentId === 'all' && filters.stage === 'all' && filters.temperature === 'all') {
+      return initialContacts as ContactRowData[];
+    }
+    return fromStore;
+  }, [viewContactIds, contactsById, initialContacts, activeView, initialView, searchQuery, filters]);
 
-  // Mensajes de la conversación activa
+  // Mensajes de la conversación activa (con fallback inmediato a SSR para evitar pestañeo en blanco)
   const activeMessages = useMemo(() => {
     if (!selectedContactId) return [];
-    return messagesByContact[selectedContactId]?.items || [];
-  }, [messagesByContact, selectedContactId]);
+    const fromStore = messagesByContact[selectedContactId]?.items;
+    if (fromStore && fromStore.length > 0) return fromStore;
+    if (activeContact && selectedContactId === activeContact.id && messages && messages.length > 0) {
+      return messages;
+    }
+    return fromStore || [];
+  }, [messagesByContact, selectedContactId, activeContact, messages]);
 
   // Contacto activo en pantalla
   const activeContactData = useMemo(() => {
     if (selectedContactId && contactsById[selectedContactId]) {
       return contactsById[selectedContactId] as ContactRowData;
     }
-    return activeContact || null;
+    if (activeContact && (!selectedContactId || selectedContactId === activeContact.id)) {
+      return activeContact as ContactRowData;
+    }
+    return null;
   }, [contactsById, selectedContactId, activeContact]);
 
   // 6. Sincronización inicial desde URL (query params)
@@ -185,6 +206,7 @@ export function InboxView({
   }, []);
 
   // 8. Cargar lista de contactos cuando cambia la vista, filtros o búsqueda
+  const isFirstMountRef = useRef(true);
   const loadContacts = useCallback(
     async (offset = 0, isAppend = false) => {
       setIsLoadingList(true);
@@ -221,8 +243,12 @@ export function InboxView({
     [activeView, filters, searchQuery, selectedContactId]
   );
 
-  // Recargar contactos cuando cambian vista o filtros
+  // Recargar contactos cuando cambian vista o filtros (evitar re-fetch redundante en el primer render con datos SSR)
   useEffect(() => {
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      return;
+    }
     loadContacts(0, false);
   }, [activeView, filters, searchQuery]);
 
@@ -246,10 +272,13 @@ export function InboxView({
       }
 
       // Cargar mensajes con patrón Stale-While-Revalidate:
-      // Si ya hay mensajes en caché, renderizarlos de inmediato (0ms, sin skeleton molesto)
+      // Si ya hay mensajes en caché o provistos por SSR, renderizarlos de inmediato (0ms, sin skeleton molesto)
       // pero SIEMPRE revalidar en segundo plano con el servidor para traer mensajes nuevos
       const cached = useInboxStore.getState().messagesByContact[contactId];
-      const hasCached = Boolean(cached && cached.items && cached.items.length > 0);
+      const hasCached = Boolean(
+        (cached && cached.items && cached.items.length > 0) ||
+        (contactId === activeContact?.id && messages && messages.length > 0)
+      );
 
       if (!hasCached) {
         setIsLoadingMessages(true);
@@ -264,7 +293,7 @@ export function InboxView({
         setIsLoadingMessages(false);
       }
     },
-    [activeView]
+    [activeView, activeContact?.id, messages]
   );
 
   const handleSelectContact = useCallback(

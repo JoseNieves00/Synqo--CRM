@@ -195,7 +195,7 @@ export function ChatWindow({
     []
   );
 
-  // Limpiar estados locales al cambiar de conversación
+  // Limpiar estados locales al cambiar de conversación (siempre volver al chat sin ficha invasiva)
   useEffect(() => {
     setReplyingToMessage(null);
     setShowMoreActions(false);
@@ -204,6 +204,7 @@ export function ChatWindow({
     setChatSearchQuery('');
     setUnreadBelowCount(0);
     setShowScrollBottom(false);
+    setIsRightPanelOpen(false);
   }, [contact.id]);
 
   // 1. Reacciones bidireccionales con emojis
@@ -1273,7 +1274,7 @@ export function ChatWindow({
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           {/* Lista de Mensajes con Preservación de Scroll */}
           <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50 dark:bg-[#090A0F] space-y-1 transition-colors">
-            {isLoadingMessages ? (
+            {isLoadingMessages && messages.length === 0 ? (
               <div className="h-full flex flex-col justify-end space-y-3 p-2 animate-pulse">
                 <div className="flex justify-start">
                   <div className="w-48 h-10 bg-slate-200 dark:bg-[#1A1F2C] rounded-2xl rounded-tl-xs" />
@@ -1317,7 +1318,7 @@ export function ChatWindow({
                   const showUnreadDivider = idx === unreadDividerIndex;
 
                   return (
-                    <React.Fragment key={msg.id}>
+                    <React.Fragment key={msg.id || `msg-${idx}`}>
                       {showDateDivider && (
                         <div className="flex justify-center my-3 sticky top-1 z-10 select-none">
                           <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-white/95 dark:bg-[#131722]/95 backdrop-blur-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs">
