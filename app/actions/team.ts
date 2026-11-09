@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { UserRole } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { HandoffService } from '@/services/handoff.service';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -62,7 +63,7 @@ export async function getTeamInfo() {
   const { org } = await requireOrgAdmin();
 
   const { data: members, error } = await (supabaseAdmin.from('profiles') as any)
-    .select('id, full_name, email, role, created_at')
+    .select('id, full_name, email, role, whatsapp_phone, created_at')
     .eq('organization_id', org.id)
     .order('created_at', { ascending: true });
 
@@ -264,6 +265,98 @@ export async function regenerateTeamMemberPassword(memberId: string) {
     email: targetProfile.email,
     fullName: targetProfile.full_name,
     tempPassword,
+  };
+}
+
+const UpdateMemberNonSensitiveSchema = z.object({
+  memberId: z.string().uuid('ID de miembro inválido.'),
+  fullName: z.string().min(2, 'El nombre completo debe tener al menos 2 caracteres.'),
+  email: z.string().email('Ingresa un correo electrónico válido.'),
+  whatsappPhone: z.string().optional().nullable(),
+  role: z.enum(['admin', 'supervisor', 'agent'] as const),
+});
+
+/**
+ * Permite al administrador de la organización editar datos no sensibles de un miembro:
+ * Nombre, Correo electrónico, WhatsApp personal y Rol.
+ * OJO: DATOS NO SENSIBLES ÚNICAMENTE. Las contraseñas permanecen protegidas y solo
+ * se pueden regenerar mediante contraseña temporal con cambio forzado.
+ */
+export async function updateTeamMemberNonSensitive(input: {
+  memberId: string;
+  fullName: string;
+  email: string;
+  whatsappPhone?: string | null;
+  role: 'admin' | 'supervisor' | 'agent';
+}) {
+  const { user, org, isSuper } = await requireOrgAdmin();
+  const validated = UpdateMemberNonSensitiveSchema.parse(input);
+
+  // 1. Validar que el miembro pertenezca a la misma organización
+  const { data: targetProfile, error: targetError } = await (supabaseAdmin.from('profiles') as any)
+    .select('id, organization_id, email, full_name, role, is_super_admin')
+    .eq('id', validated.memberId)
+    .single();
+
+  if (targetError || !targetProfile || targetProfile.organization_id !== org.id) {
+    throw new Error('El usuario no pertenece a tu organización.');
+  }
+
+  // 2. Proteger cuenta de Super Admin de modificaciones accidentales
+  if (targetProfile.is_super_admin && !isSuper) {
+    throw new Error('No tienes permisos para modificar la cuenta de Super Administrador.');
+  }
+
+  // 3. Limpiar número de WhatsApp con formato E.164 si fue suministrado
+  const cleanPhone = validated.whatsappPhone?.trim()
+    ? HandoffService.cleanE164Phone(validated.whatsappPhone.trim())
+    : null;
+
+  const cleanEmail = validated.email.trim().toLowerCase();
+  const cleanFullName = validated.fullName.trim();
+
+  // 4. Actualizar tabla profiles (DATOS NO SENSIBLES)
+  const { error: updateProfileError } = await (supabaseAdmin.from('profiles') as any)
+    .update({
+      full_name: cleanFullName,
+      email: cleanEmail,
+      whatsapp_phone: cleanPhone,
+      role: validated.role,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', validated.memberId);
+
+  if (updateProfileError) {
+    throw new Error(`Error actualizando perfil del usuario: ${updateProfileError.message}`);
+  }
+
+  // 5. Actualizar auth.users (email y user_metadata) si cambiaron
+  const authUpdates: any = {
+    user_metadata: {
+      full_name: cleanFullName,
+    },
+  };
+
+  if (cleanEmail !== targetProfile.email.toLowerCase()) {
+    authUpdates.email = cleanEmail;
+    authUpdates.email_confirm = true;
+  }
+
+  const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(validated.memberId, authUpdates);
+  if (authError) {
+    throw new Error(`Error sincronizando credenciales: ${authError.message}`);
+  }
+
+  revalidatePath('/settings');
+  return {
+    success: true,
+    member: {
+      id: validated.memberId,
+      full_name: cleanFullName,
+      email: cleanEmail,
+      whatsapp_phone: cleanPhone,
+      role: validated.role,
+    },
   };
 }
 

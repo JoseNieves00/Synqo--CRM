@@ -302,13 +302,6 @@ export function ChatWindow({
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
 
-  // Apertura automática del panel lateral solo en pantallas grandes (Desktop >= 1280px)
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth >= 1280) {
-      setIsRightPanelOpen(true);
-    }
-  }, []);
-
   // Menú estructurado de Más Opciones (...)
   const [showMoreActions, setShowMoreActions] = useState(false);
   const moreActionsRef = useRef<HTMLDivElement>(null);

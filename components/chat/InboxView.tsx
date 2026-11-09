@@ -245,13 +245,16 @@ export function InboxView({
         window.history.pushState(null, '', url.toString());
       }
 
-      // Cargar mensajes si no están en memoria (0ms switching si ya están en store)
+      // Cargar mensajes con patrón Stale-While-Revalidate:
+      // Si ya hay mensajes en caché, renderizarlos de inmediato (0ms, sin skeleton molesto)
+      // pero SIEMPRE revalidar en segundo plano con el servidor para traer mensajes nuevos
       const cached = useInboxStore.getState().messagesByContact[contactId];
-      if (cached && cached.items && cached.items.length > 0) {
-        return;
+      const hasCached = Boolean(cached && cached.items && cached.items.length > 0);
+
+      if (!hasCached) {
+        setIsLoadingMessages(true);
       }
 
-      setIsLoadingMessages(true);
       try {
         const msgs = await getContactMessages(contactId);
         useInboxStore.getState().setContactMessages(contactId, msgs);

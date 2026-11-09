@@ -131,29 +131,30 @@ export function initSyncEngine(supabase: any, organizationId: string) {
         table: 'messages',
       },
       (payload: any) => {
+        const currentStore = useInboxStore.getState();
         const msg = payload.new as (MessageItem & { contact_id: string; organization_id?: string });
         if (!msg || !msg.contact_id) return;
 
         // Validar pertenencia por organization_id (si la columna ya existe) o por caché de contactos
-        const belongsToOrg = msg.organization_id === organizationId || Boolean(store.contactsById[msg.contact_id]);
+        const belongsToOrg = !msg.organization_id || msg.organization_id === organizationId || Boolean(currentStore.contactsById[msg.contact_id]);
         if (!belongsToOrg) return;
 
         if (payload.eventType === 'UPDATE') {
-          store.updateMessageStatus(msg.id, msg.contact_id, msg.status || 'sent', msg.meta_message_id);
+          currentStore.updateMessageStatus(msg.id, msg.contact_id, msg.status || 'sent', msg.meta_message_id);
           if (msg.reactions !== undefined) {
-            store.updateMessageReaction(msg.id, msg.contact_id, msg.reactions);
+            currentStore.updateMessageReaction(msg.id, msg.contact_id, msg.reactions);
           }
           return;
         }
 
         if (payload.eventType === 'INSERT') {
-          store.upsertMessage(msg);
+          currentStore.upsertMessage(msg);
           scheduleDebouncedCountsRefresh();
 
           // Si es un relevo humano (handoff) y el chat no está abierto, disparar aviso sonoro/push
           if (msg.sender_type === 'lead') {
-            const contact = store.contactsById[msg.contact_id];
-            if (contact && !contact.is_ai_active && store.activeContactId !== msg.contact_id) {
+            const contact = currentStore.contactsById[msg.contact_id];
+            if (contact && !contact.is_ai_active && currentStore.activeContactId !== msg.contact_id) {
               window.dispatchEvent(
                 new CustomEvent('synqo-inbox-handoff-alert', {
                   detail: {

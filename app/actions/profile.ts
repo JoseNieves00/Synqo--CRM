@@ -9,6 +9,7 @@ import { MessagingService } from '@/services/messaging.service';
 
 const UpdateProfileSchema = z.object({
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres.').optional(),
+  email: z.string().email('Ingresa un correo electrónico válido.').optional(),
   currentPassword: z.string().optional(),
   newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres.').optional(),
   whatsappPhone: z.string().optional().nullable(),
@@ -98,6 +99,7 @@ export async function sendTestWhatsAppAlert(targetPhone?: string) {
  */
 export async function updateUserProfile(input: {
   fullName?: string;
+  email?: string;
   currentPassword?: string;
   newPassword?: string;
   whatsappPhone?: string | null;
@@ -117,10 +119,32 @@ export async function updateUserProfile(input: {
   const validated = UpdateProfileSchema.parse(input);
 
   try {
-    // 1. Actualizar campos de perfil (Nombre y preferencias de WhatsApp)
+    // 1. Obtener perfil actual para verificar rol y organización
+    const { data: currentProfile } = await (supabaseAdmin.from('profiles') as any)
+      .select('id, role, is_super_admin, email')
+      .eq('id', user.id)
+      .single();
+
+    // Actualizar correo si cambió y el usuario es admin/superadmin
+    let newEmailToSet: string | null = null;
+    if (validated.email && validated.email.trim().toLowerCase() !== (user.email || '').toLowerCase()) {
+      const isAdmin = currentProfile?.role === 'admin' || currentProfile?.is_super_admin || user.email?.toLowerCase() === 'admin@synqo.dev';
+      if (!isAdmin) {
+        return {
+          success: false,
+          error: 'Solo los administradores pueden modificar su dirección de correo electrónico.',
+        };
+      }
+      newEmailToSet = validated.email.trim().toLowerCase();
+    }
+
+    // 2. Actualizar campos de perfil (Nombre, Correo y preferencias de WhatsApp)
     const profileUpdates: any = { updated_at: new Date().toISOString() };
     if (validated.fullName && validated.fullName.trim()) {
       profileUpdates.full_name = validated.fullName.trim();
+    }
+    if (newEmailToSet) {
+      profileUpdates.email = newEmailToSet;
     }
     if (validated.whatsappPhone !== undefined) {
       profileUpdates.whatsapp_phone = validated.whatsappPhone ? HandoffService.cleanE164Phone(validated.whatsappPhone) : null;
@@ -140,15 +164,19 @@ export async function updateUserProfile(input: {
       throw new Error(`Error actualizando perfil: ${profileError.message}`);
     }
 
-    if (validated.fullName && validated.fullName.trim()) {
-      // Actualizar user_metadata en auth.users
-      await supabaseAdmin.auth.admin.updateUserById(user.id, {
-        user_metadata: {
-          ...(user.user_metadata || {}),
-          full_name: validated.fullName.trim(),
-        },
-      });
+    // Actualizar metadata y/o correo en auth.users
+    const authAdminUpdates: any = {
+      user_metadata: {
+        ...(user.user_metadata || {}),
+        ...(validated.fullName && validated.fullName.trim() ? { full_name: validated.fullName.trim() } : {}),
+      },
+    };
+    if (newEmailToSet) {
+      authAdminUpdates.email = newEmailToSet;
+      authAdminUpdates.email_confirm = true;
     }
+
+    await supabaseAdmin.auth.admin.updateUserById(user.id, authAdminUpdates);
 
     // 2. Actualizar Contraseña si fue provista
     if (validated.newPassword && validated.newPassword.trim()) {

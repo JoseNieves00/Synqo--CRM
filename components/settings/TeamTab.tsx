@@ -13,14 +13,24 @@ import {
   RotateCcw,
   Copy,
   Check,
+  Pencil,
+  Smartphone,
+  Mail,
+  X,
 } from 'lucide-react';
-import { addTeamMember, removeTeamMember, regenerateTeamMemberPassword } from '@/app/actions/team';
+import {
+  addTeamMember,
+  removeTeamMember,
+  regenerateTeamMemberPassword,
+  updateTeamMemberNonSensitive,
+} from '@/app/actions/team';
 
 interface TeamMember {
   id: string;
   full_name: string;
   email: string;
   role: 'admin' | 'supervisor' | 'agent';
+  whatsapp_phone?: string | null;
   created_at: string;
 }
 
@@ -54,20 +64,82 @@ export function TeamTab({ initialData }: TeamTabProps) {
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (isModalOpen || tempPassResult) {
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = '';
-      };
-    }
-  }, [isModalOpen, tempPassResult]);
-
   // Formulario de nuevo miembro
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'agent' | 'supervisor'>('agent');
+
+  // Estado para edición de datos no sensibles (Admin)
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editRole, setEditRole] = useState<'admin' | 'supervisor' | 'agent'>('agent');
+  const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isModalOpen || tempPassResult || editingMember) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [isModalOpen, tempPassResult, editingMember]);
+
+  const handleOpenEditModal = (member: TeamMember) => {
+    setEditingMember(member);
+    setEditFullName(member.full_name);
+    setEditEmail(member.email);
+    setEditWhatsapp(member.whatsapp_phone || '');
+    setEditRole(member.role);
+    setFeedback(null);
+  };
+
+  const handleSaveEditMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMember) return;
+    setIsEditingSubmitting(true);
+    setFeedback(null);
+
+    try {
+      const res = await updateTeamMemberNonSensitive({
+        memberId: editingMember.id,
+        fullName: editFullName,
+        email: editEmail,
+        whatsappPhone: editWhatsapp,
+        role: editRole,
+      });
+
+      if (res.success && res.member) {
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.id === editingMember.id
+              ? {
+                  ...m,
+                  full_name: res.member.full_name,
+                  email: res.member.email,
+                  whatsapp_phone: res.member.whatsapp_phone,
+                  role: res.member.role,
+                }
+              : m
+          )
+        );
+        setFeedback({
+          type: 'success',
+          message: `Datos no sensibles de ${res.member.full_name} actualizados exitosamente.`,
+        });
+        setEditingMember(null);
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Error al actualizar los datos del usuario.',
+      });
+    } finally {
+      setIsEditingSubmitting(false);
+    }
+  };
 
   const usedSeats = members.length;
   const isQuotaFull = usedSeats >= maxUsers;
@@ -314,9 +386,10 @@ export function TeamTab({ initialData }: TeamTabProps) {
             <thead>
               <tr className="border-b border-slate-200 dark:border-[#232A3B] bg-slate-100/60 dark:bg-[#1A1F2C]/30 text-slate-500 dark:text-slate-400 uppercase font-semibold">
                 <th className="py-3 px-6">Nombre & Correo</th>
+                <th className="py-3 px-6">WhatsApp Personal</th>
                 <th className="py-3 px-6">Rol</th>
                 <th className="py-3 px-6">Fecha de Alta</th>
-                <th className="py-3 px-6 text-right">Acción</th>
+                <th className="py-3 px-6 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-[#1E2433]">
@@ -327,6 +400,17 @@ export function TeamTab({ initialData }: TeamTabProps) {
                     <td className="py-3.5 px-6">
                       <div className="font-semibold text-slate-900 dark:text-white">{member.full_name}</div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{member.email}</div>
+                    </td>
+
+                    <td className="py-3.5 px-6">
+                      {member.whatsapp_phone ? (
+                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-800 dark:text-slate-200 font-medium">
+                          <Smartphone className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{member.whatsapp_phone}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">Sin vincular</span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-6">
@@ -353,6 +437,14 @@ export function TeamTab({ initialData }: TeamTabProps) {
                     </td>
 
                     <td className="py-3.5 px-6 text-right space-x-1">
+                      <button
+                        onClick={() => handleOpenEditModal(member)}
+                        className="p-1.5 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition cursor-pointer"
+                        title="Editar datos no sensibles (Nombre, Correo, WhatsApp, Rol)"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+
                       <button
                         onClick={() => handleRegeneratePassword(member.id, member.full_name)}
                         disabled={regeneratingId === member.id}
@@ -470,6 +562,135 @@ export function TeamTab({ initialData }: TeamTabProps) {
                   className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer"
                 >
                   {isSubmitting ? 'Guardando...' : 'Crear Miembro'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Editar Datos No Sensibles del Miembro (Admin) */}
+      {editingMember && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-[#232A3B] transition-colors animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#1A1F2C]/50 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                  Editar Miembro del Equipo
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Actualiza información no sensible para <strong>{editingMember.full_name}</strong>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingMember(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditMember} className="p-5 space-y-4">
+              {/* Banner de Seguridad: Solo Datos No Sensibles */}
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/25 flex items-start gap-2.5 text-xs text-blue-900 dark:text-blue-200">
+                <Shield className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF] shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold">Modificación Segura de Datos No Sensibles</span>
+                  <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-snug">
+                    Por seguridad, las credenciales de contraseña permanecen cifradas y no se editan directamente. Si el usuario requiere una nueva clave, usa el botón de regenerar contraseña temporal con cambio forzado.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Nombre Completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  placeholder="Ej. Laura Gómez"
+                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Correo Electrónico *
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="laura@empresa.com"
+                    className="w-full h-10 pl-9 pr-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs font-mono"
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Número de WhatsApp Personal (Alertas de Relevo)
+                </label>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    value={editWhatsapp}
+                    onChange={(e) => setEditWhatsapp(e.target.value)}
+                    placeholder="ej: 3001234567 o 57300..."
+                    className="w-full h-10 pl-9 pr-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs font-mono"
+                  />
+                  <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                </div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+                  Permite al sistema enviar alertas de WhatsApp directo a su celular cuando se le asigne un prospecto.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Rol de Acceso *
+                </label>
+                <select
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as any)}
+                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                >
+                  <option value="agent">Agente (Inbox & Pipeline)</option>
+                  <option value="supervisor">Supervisor (Monitoreo & Reportes)</option>
+                  <option value="admin">Administrador (Control Total de Empresa)</option>
+                </select>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-[#1E2433]">
+                <button
+                  type="button"
+                  onClick={() => setEditingMember(null)}
+                  disabled={isEditingSubmitting}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-[#1A1F2C] transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditingSubmitting}
+                  className="px-5 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                >
+                  {isEditingSubmitting ? (
+                    <span>Guardando...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Guardar Cambios</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
