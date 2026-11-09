@@ -225,7 +225,8 @@ export function InboxView({
         useInboxStore.getState().setViewContacts(activeView, res.contacts, isAppend);
 
         if (!isAppend) {
-          if (res.contacts.length > 0 && (!selectedContactId || !res.contacts.some((c: any) => c.id === selectedContactId))) {
+          // Solo auto-seleccionar el primer chat si el usuario no tiene ninguna conversación activa
+          if (!selectedContactId && res.contacts.length > 0) {
             openChat(res.contacts[0].id);
           }
         }

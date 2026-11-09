@@ -12,6 +12,7 @@ let isSyncingDelta = false;
  * para evitar colapsar la cola de server actions cuando entran ráfagas de mensajes.
  */
 export function scheduleDebouncedCountsRefresh() {
+  if (typeof window === 'undefined') return;
   if (debounceCountsTimer) {
     clearTimeout(debounceCountsTimer);
   }

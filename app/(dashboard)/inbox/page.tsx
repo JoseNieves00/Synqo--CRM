@@ -66,7 +66,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
       .maybeSingle();
-    activeContact = singleContact;
+    if (singleContact) {
+      activeContact = singleContact;
+      contactList.unshift(singleContact);
+    }
   }
 
   // Consultar los 50 mensajes más recientes del contacto activo si existe

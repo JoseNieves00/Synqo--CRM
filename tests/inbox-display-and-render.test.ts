@@ -83,4 +83,26 @@ assert.ok(
 );
 console.log('   ✅ ContactPanel responsivo verificado.');
 
-console.log('\n🎉 ¡Todas las verificaciones de optimización del inbox pasaron exitosamente (5/5)!\n');
+// 6. Verificación de No-Secuestro de Chat Activo y SyncEngine SSR Guard
+console.log('6️⃣  Verificando protección de navegación y SyncEngine...');
+assert.ok(
+  inboxViewContent.includes('if (!selectedContactId && res.contacts.length > 0)'),
+  'InboxView no debe secuestrar el chat activo si el usuario ya tiene uno seleccionado'
+);
+
+const syncEnginePath = path.join(process.cwd(), 'lib/inbox/sync-engine.ts');
+const syncEngineContent = fs.readFileSync(syncEnginePath, 'utf8');
+assert.ok(
+  syncEngineContent.includes("if (typeof window === 'undefined') return;"),
+  'SyncEngine debe omitir refresh de contadores si se ejecuta fuera del navegador'
+);
+
+const pagePath = path.join(process.cwd(), 'app/(dashboard)/inbox/page.tsx');
+const pageContent = fs.readFileSync(pagePath, 'utf8');
+assert.ok(
+  pageContent.includes('contactList.unshift(singleContact)'),
+  'InboxPage debe anteponer el contacto individual en la lista si fue consultado por ID'
+);
+console.log('   ✅ No-secuestro de chat y SyncEngine SSR guard verificados.');
+
+console.log('\n🎉 ¡Todas las verificaciones de optimización del inbox pasaron exitosamente (6/6)!\n');
