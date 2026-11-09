@@ -113,6 +113,24 @@ export const MessageBubble = React.memo(
     const videoInfo = useMemo(() => parseVideoMessageContent(content), [content]);
     const quoteInfo = useMemo(() => parseQuoteMessageContent(content), [content]);
 
+    const instagramPostInfo = useMemo(() => {
+      const match = content.match(/^\[(?:Publicación\/Anuncio compartido de Instagram|Anuncio\/Publicación de Instagram):\s*([\s\S]*?)\]\s*([\s\S]*)$/i);
+      if (!match) return { isInstagramPost: false, details: '', clientMessage: '', imageUrl: undefined };
+
+      const details = match[1].trim();
+      const clientMessage = match[2].trim();
+      const imageMatch = details.match(/\[Foto:\s*(https?:\/\/[^\s\]]+)\]/i) || details.match(/(https?:\/\/[^\s\]\)]+(?:cdninstagram|fbcdn|chat-media)[^\s\]\)]*)/i);
+      const imageUrl = imageMatch ? imageMatch[1] : undefined;
+      const cleanDetails = details.replace(/\[Foto:\s*https?:\/\/[^\s\]]+\]/gi, '').replace(/"/g, '').trim();
+
+      return {
+        isInstagramPost: true,
+        details: cleanDetails,
+        clientMessage,
+        imageUrl,
+      };
+    }, [content]);
+
     const voiceNoteInfo = useMemo(() => {
       const audioUrlMatch = content.match(/(https?:\/\/[^\s\]\)]+(?:chat-media|\.(?:ogg|opus|mp3|wav|m4a|webm))[^\s\]\)]*)/i);
       const audioUrl = audioUrlMatch ? audioUrlMatch[1] : undefined;
@@ -514,6 +532,38 @@ export const MessageBubble = React.memo(
                     <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                     <span className="text-[11px] font-medium">Nota de voz no se pudo transcribir (escuchar en WhatsApp)</span>
                   </div>
+                )}
+              </div>
+            ) : instagramPostInfo.isInstagramPost ? (
+              /* Renderizado de Publicación / Anuncio de Instagram Compartido */
+              <div className="space-y-2 my-1 max-w-[280px] sm:max-w-[340px]">
+                <div className="p-2.5 rounded-xl border border-pink-200 dark:border-pink-500/20 bg-gradient-to-r from-pink-50/80 via-purple-50/50 to-pink-50/40 dark:from-pink-950/20 dark:via-purple-950/20 dark:to-pink-950/10 text-slate-900 dark:text-slate-100 space-y-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-pink-700 dark:text-pink-300">
+                    <span className="w-2 h-2 rounded-full bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600" />
+                    <span>Publicación de Instagram / Anuncio</span>
+                  </div>
+
+                  {instagramPostInfo.imageUrl && (
+                    <div className="rounded-lg overflow-hidden border border-pink-100 dark:border-pink-500/10 max-h-44 bg-black/5">
+                      <img
+                        src={instagramPostInfo.imageUrl}
+                        alt="Publicación"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+
+                  {instagramPostInfo.details && (
+                    <p className="text-[11px] leading-snug font-medium text-slate-700 dark:text-slate-300 italic">
+                      &quot;{instagramPostInfo.details}&quot;
+                    </p>
+                  )}
+                </div>
+
+                {instagramPostInfo.clientMessage && (
+                  <p className="whitespace-pre-wrap break-words leading-relaxed font-normal pt-0.5">
+                    {instagramPostInfo.clientMessage}
+                  </p>
                 )}
               </div>
             ) : (

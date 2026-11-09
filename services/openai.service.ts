@@ -698,12 +698,17 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
 
 9. PUBLICACIONES DE INSTAGRAM, ANUNCIOS (ADS) Y PREGUNTAS DE PRECIO ("VALOR", "PRECIO", "INFO", "¿CUÁNTO CUESTA?"):
    - Si el mensaje incluye una referencia a una publicación compartida o anuncio de Instagram / Facebook (ej: [Publicación/Anuncio compartido de Instagram: "..."] o enlaces de Instagram):
-     * ASUME INMEDIATAMENTE QUE EL CLIENTE PREGUNTA POR ESE PRODUCTO ESPECÍFICO.
-     * Si el cliente escribe palabras breves como "Valor", "Precio", "Cuánto cuesta", "Info", "¿A cómo?":
-       - RESPONDE DIRECTAMENTE en la primera línea con los modelos y precios disponibles de ese producto según las instrucciones o catálogo de la empresa (ejemplo: "¡Hola! Con gusto. Contamos con las siguientes opciones: [Modelo A ($X), Modelo B ($Y)...]").
-       - PROHIBICIÓN ABSOLUTA: NUNCA respondas con saludos vacíos o frases como "Si necesitas información sobre nuestros productos o precios no dudes en preguntar" ni "¿En qué te puedo ayudar?". El cliente ya te está preguntando el precio del producto que envió.
+     * ASUME INMEDIATAMENTE QUE EL CLIENTE PREGUNTA POR LA LÍNEA PRINCIPAL DE PRODUCTOS DE LA EMPRESA.
+     * TITULARES DE MARKETING Y NOMBRES DE CAMPAÑA: Si el título o copy del anuncio menciona frases de campaña, eslóganes o ganchos publicitarios (ej: "Pequeños Chefs", "Pequeños Chefs! Recién llegadas!", "El regalo ideal", "Nueva Colección"):
+       - NO busques un producto literal que se llame idéntico al eslogan. Comprende de inmediato que el anuncio corresponde a las cocinitas o modelos del catálogo de la empresa.
+       - PROHIBICIÓN ABSOLUTA DE DECIR QUE NO SABES, PEDIR QUE TE REPITAN O TRANSFERIR A ASESOR por nombres publicitarios de Instagram.
+       - Si el cliente escribe palabras breves como "Valor", "Precio", "Cuánto cuesta", "Info", "¿A cómo?":
+         * RESPONDE DIRECTAMENTE en la primera línea con los modelos y precios reales disponibles en el catálogo (ejemplo: "¡Hola! Con mucho gusto 😊 En esta colección de cocinitas manejamos 3 modelos: Cocina pequeña ($350.000), mediana ($410.000) y completa con nevera ($550.000). ¿Para qué edad la estás buscando o cuál te gustó más?").
+         * Cero saludos vacíos o preguntas pasivas como "¿En qué te puedo colaborar?". Ve directo a la venta.
+     * Si la publicación incluye una imagen o foto adjunta:
+       - Utiliza tu visión multimodal para comparar la imagen del anuncio con las fotos del catálogo. Si identificas claramente qué modelo es (ej: tiene la nevera alta vertical), enfócate en ese modelo específico y su precio.
    - Si el cliente escribe únicamente "Valor" o "Precio" sin contexto de publicación:
-     * NUNCA digas "si necesitas precios no dudes en preguntar". Responde directamente: "¡Hola! Claro que sí, con mucho gusto. ¿De cuál de nuestros productos o modelos te gustaría conocer el precio?".
+     * NUNCA digas "si necesitas precios no dudes en preguntar". Responde directamente: "¡Hola! Claro que sí, con mucho gusto. ¿De cuál de nuestros modelos te gustaría conocer el precio?".
 
 10. AGRADECIMIENTOS Y DESPEDIDAS ("GRACIAS", "OK GRACIAS", "VALE"):
    - Si el cliente solo está agradeciendo o cerrando la conversación:
@@ -765,11 +770,11 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               continue;
             }
 
-            // Detección de imágenes entrantes (fotos de WhatsApp, capturas o miniaturas de Instagram)
+            // Detección de imágenes entrantes (fotos de WhatsApp, capturas o miniaturas de Instagram / Ads)
             const imageMatch =
               contentText.match(/https?:\/\/[^\s"'<>\)]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>\)]*)?/i) ||
               contentText.match(/https?:\/\/[^\s"'<>\)]+\/chat-media\/[^\s"'<>\)]+/i) ||
-              contentText.match(/https?:\/\/[^\s"'<>\)]+fbcdn[^\s"'<>\)]+/i);
+              contentText.match(/https?:\/\/[^\s"'<>\)]*(?:fbcdn|cdninstagram|instagram\.com\/p\/)[^\s"'<>\)]*/i);
 
             if (imageMatch) {
               conversationHistory.push({

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
 import {
   Sparkles,
   HelpCircle,
@@ -329,10 +330,21 @@ export function KnowledgeGapsList({ initialGaps, onPromptUpdated }: KnowledgeGap
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Transferido para atención del asesor.
-                      </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Transferido para atención del asesor.
+                        </span>
+                        {gap.contact_id && (
+                          <Link
+                            href={`/inbox/${gap.contact_id}`}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:underline"
+                          >
+                            <span>Ver conversación en Inbox</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </Link>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
