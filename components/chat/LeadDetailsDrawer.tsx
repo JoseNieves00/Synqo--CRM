@@ -385,28 +385,28 @@ export function LeadDetailsDrawer({
       {/* Modal de Confirmación con Contraseña */}
       {showDeleteModal && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 flex items-center justify-center mb-3">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 flex items-center justify-center mb-3">
               <AlertTriangle className="w-5 h-5" />
             </div>
 
-            <h3 className="font-bold text-base text-slate-900 dark:text-white mb-1">
+            <h3 className="shrink-0 font-bold text-base text-slate-900 dark:text-white mb-1">
               ¿Eliminar este prospecto?
             </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+            <p className="shrink-0 text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
               Esta acción es permanente e irreversible. Se eliminará a{' '}
               <strong className="text-slate-900 dark:text-slate-200">{contact.name || contact.phone}</strong>{' '}
               junto con su historial de mensajes.
             </p>
 
             {deleteError && (
-              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs mb-3 font-medium">
+              <div className="shrink-0 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs mb-3 font-medium">
                 {deleteError}
               </div>
             )}
 
-            <form onSubmit={handleDeleteContact} className="space-y-3">
-              <div>
+            <form onSubmit={handleDeleteContact} className="flex-1 min-h-0 flex flex-col space-y-3">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300 block mb-1">
                   Confirma tu contraseña para continuar:
                 </label>
@@ -430,7 +430,7 @@ export function LeadDetailsDrawer({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="shrink-0 flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-[#1E2433]">
                 <button
                   type="button"
                   onClick={() => setShowDeleteModal(false)}
