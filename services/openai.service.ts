@@ -342,6 +342,8 @@ export interface ProcessLeadResult {
   completionTokens: number;
   totalTokens: number;
   cachedTokens: number;
+  pauseAfterSend?: boolean;
+  handoffReason?: string;
 }
 
 export interface ProcessLeadParams {
@@ -530,6 +532,8 @@ Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitador
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     let totalCachedTokens = 0;
+    let pauseAfterSend = false;
+    let detectedHandoffReason: string | undefined;
 
     try {
       // 0. Verificar cuota de tokens mensual de la empresa
@@ -538,14 +542,9 @@ Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitador
         console.warn(
           `[OpenAI Quota Exceeded] Org ${organizationId} alcanzó ${quota.used}/${quota.limit} tokens.`
         );
-        // Apagar IA para el prospecto y avisar a asesores
-        await supabaseAdmin
-          .from('contacts')
-          .update({
-            is_ai_active: false,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', contactId);
+        // Marcar para pausar IA tras despachar mensaje de aviso al prospecto (evita dejar al lead en visto)
+        pauseAfterSend = true;
+        detectedHandoffReason = 'Cuota mensual de tokens alcanzada';
 
         // 🛡️ ALERTA PROACTIVA AL ADMINISTRADOR (Resend)
         try {
@@ -577,6 +576,8 @@ Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitador
           completionTokens: 0,
           totalTokens: 0,
           cachedTokens: 0,
+          pauseAfterSend: true,
+          handoffReason: detectedHandoffReason,
         };
       }
 
@@ -675,9 +676,9 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
 
 6. IMÁGENES, FOTOS Y PUBLICACIONES ENVIADAS POR EL CLIENTE (VISIÓN MULTIMODAL):
    - Cuentas con capacidad de VISIÓN COMPUTACIONAL activa: cuando el cliente envíe una imagen, foto, captura o publicación compartida de Instagram:
-     * ANALIZA LA IMAGEN VISUALMENTE y compárala con los productos, descripciones, modelos y fotos de tu catálogo interno (revisa formas, módulos, si tiene nevera separada, alacena vertical, cocinita compacta o casita).
+     * ANALIZA LA IMAGEN VISUALMENTE y compárala con los productos, descripciones, modelos y fotos de tu catálogo interno (revisa formas, colores, características y detalles clave descritos en tus productos).
      * Si la imagen coincide claramente con un modelo específico de tu catálogo:
-       - Identifícalo directamente: "¡Hola! La de la foto es nuestra Cocina [Modelo] ($[Precio]). [Detalles del catálogo]. ¿Te gustaría apartarla o personalizarla con los stickers?".
+       - Identifícalo directamente: "¡Hola! La de la foto corresponde a [Nombre del Producto] ($[Precio]). [Detalles breves del catálogo]. ¿Te gustaría apartarlo o tienes alguna duda adicional?".
      * Si la imagen muestra varios modelos juntos o la colección completa:
        - Lista los modelos y sus respectivos precios de manera ordenada, cálida y breve.
      * Si la foto no coincide con ningún producto de tu catálogo:
@@ -699,16 +700,16 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
 9. PUBLICACIONES DE INSTAGRAM, ANUNCIOS (ADS) Y PREGUNTAS DE PRECIO ("VALOR", "PRECIO", "INFO", "¿CUÁNTO CUESTA?"):
    - Si el mensaje incluye una referencia a una publicación compartida o anuncio de Instagram / Facebook (ej: [Publicación/Anuncio compartido de Instagram: "..."] o enlaces de Instagram):
      * ASUME INMEDIATAMENTE QUE EL CLIENTE PREGUNTA POR LA LÍNEA PRINCIPAL DE PRODUCTOS DE LA EMPRESA.
-     * TITULARES DE MARKETING Y NOMBRES DE CAMPAÑA: Si el título o copy del anuncio menciona frases de campaña, eslóganes o ganchos publicitarios (ej: "Pequeños Chefs", "Pequeños Chefs! Recién llegadas!", "El regalo ideal", "Nueva Colección"):
-       - NO busques un producto literal que se llame idéntico al eslogan. Comprende de inmediato que el anuncio corresponde a las cocinitas o modelos del catálogo de la empresa.
+     * TITULARES DE MARKETING Y NOMBRES DE CAMPAÑA: Si el título o copy del anuncio menciona frases de campaña, eslóganes o ganchos publicitarios (ej: "El regalo ideal", "Nueva Colección", "Edición Limitada"):
+       - NO busques un producto literal que se llame idéntico al eslogan. Comprende de inmediato que el anuncio corresponde a los productos o modelos del catálogo de la empresa.
        - PROHIBICIÓN ABSOLUTA DE DECIR QUE NO SABES, PEDIR QUE TE REPITAN O TRANSFERIR A ASESOR por nombres publicitarios de Instagram.
        - Si el cliente escribe palabras breves como "Valor", "Precio", "Cuánto cuesta", "Info", "¿A cómo?":
-         * RESPONDE DIRECTAMENTE en la primera línea con los modelos y precios reales disponibles en el catálogo (ejemplo: "¡Hola! Con mucho gusto 😊 En esta colección de cocinitas manejamos 3 modelos: Cocina pequeña ($350.000), mediana ($410.000) y completa con nevera ($550.000). ¿Para qué edad la estás buscando o cuál te gustó más?").
+         * RESPONDE DIRECTAMENTE en la primera línea con los modelos y precios reales disponibles en el catálogo (ejemplo: "¡Hola! Con mucho gusto 😊 En esta línea manejamos: [Modelo principal con precio]. ¿Te gustaría conocer más detalles o apartar el tuyo?").
          * Cero saludos vacíos o preguntas pasivas como "¿En qué te puedo colaborar?". Ve directo a la venta.
      * Si la publicación incluye una imagen o foto adjunta:
-       - Utiliza tu visión multimodal para comparar la imagen del anuncio con las fotos del catálogo. Si identificas claramente qué modelo es (ej: tiene la nevera alta vertical), enfócate en ese modelo específico y su precio.
+       - Utiliza tu visión multimodal para comparar la imagen del anuncio con las fotos del catálogo. Si identificas claramente qué modelo es, enfócate en ese modelo específico y su precio.
    - Si el cliente escribe únicamente "Valor" o "Precio" sin contexto de publicación:
-     * NUNCA digas "si necesitas precios no dudes en preguntar". Responde directamente: "¡Hola! Claro que sí, con mucho gusto. ¿De cuál de nuestros modelos te gustaría conocer el precio?".
+     * NUNCA digas "si necesitas precios no dudes en preguntar". Responde directamente: "¡Hola! Claro que sí, con mucho gusto. ¿De cuál de nuestros modelos o servicios te gustaría conocer el precio?".
 
 10. AGRADECIMIENTOS Y DESPEDIDAS ("GRACIAS", "OK GRACIAS", "VALE"):
    - Si el cliente solo está agradeciendo o cerrando la conversación:
@@ -770,11 +771,21 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               continue;
             }
 
-            // Detección de imágenes entrantes (fotos de WhatsApp, capturas o miniaturas de Instagram / Ads)
-            const imageMatch =
-              contentText.match(/https?:\/\/[^\s"'<>\)]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"'<>\)]*)?/i) ||
-              contentText.match(/https?:\/\/[^\s"'<>\)]+\/chat-media\/[^\s"'<>\)]+/i) ||
-              contentText.match(/https?:\/\/[^\s"'<>\)]*(?:fbcdn|cdninstagram|instagram\.com\/p\/)[^\s"'<>\)]*/i);
+            // Detección estricta de imágenes reales (fotos de WhatsApp, capturas o miniaturas de Instagram / Ads)
+            // Blindaje: Audios (.oga/.ogg/.mp3), videos (.mp4/.mov) y documentos (.pdf) NUNCA deben enviarse como imagen a la API de visión
+            const isNonImageMediaType = Boolean((msg as any).media_type && (msg as any).media_type !== 'image');
+            const nonImageExtensionsRegex = /\.(?:oga|ogg|mp3|wav|m4a|aac|opus|mp4|mov|avi|webm|pdf|docx?|xlsx?|txt|zip)(?:\?[^\s"'<>\)]*)?$/i;
+
+            let imageMatch: RegExpMatchArray | null = null;
+            if (!isNonImageMediaType) {
+              const candidate =
+                contentText.match(/https?:\/\/[^\s"'<>\)]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^\s"'<>\)]*)?/i) ||
+                contentText.match(/https?:\/\/[^\s"'<>\)]*(?:fbcdn|cdninstagram|instagram\.com\/p\/)[^\s"'<>\)]*/i);
+
+              if (candidate && !nonImageExtensionsRegex.test(candidate[0])) {
+                imageMatch = candidate;
+              }
+            }
 
             if (imageMatch) {
               conversationHistory.push({
@@ -1146,13 +1157,9 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
                 // Si no viene json válido, usar motivo por defecto
               }
 
-              await supabaseAdmin
-                .from('contacts')
-                .update({
-                  is_ai_active: false,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', contactId);
+              // Marcar intención de pausar después de que la respuesta de transición salga al lead (evita dejar al lead en visto)
+              pauseAfterSend = true;
+              detectedHandoffReason = handoffReason;
 
               // Registrar nota interna de auditoría visible en el chat para el asesor asignado
               await supabaseAdmin.from('messages').insert({
@@ -1326,13 +1333,11 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
           };
         }
 
-        // Guardrail Silencioso: si el texto final indica consulta o espera, garantizar is_ai_active = false
+        // Guardrail Silencioso: si el texto final indica consulta o espera, marcar para pausar tras enviar la respuesta
         const handoffPattern = /(asesor (se pondr[aá]|humano|comercial)|notificado a (nuestro|un) (asesor|equipo)|(transferir|transferirte|comunicarte|pasarte) con un (asesor|humano|agente|compañero)|pausad[ao] mis respuestas|consultar con (gerencia|bodega|despachos|el equipo) y (te responder[aá]|un asesor))/i;
         if (handoffPattern.test(finalResponse)) {
-          await supabaseAdmin
-            .from('contacts')
-            .update({ is_ai_active: false, updated_at: new Date().toISOString() })
-            .eq('id', contactId);
+          pauseAfterSend = true;
+          detectedHandoffReason = 'La IA pausó respuestas para validar con el equipo comercial';
 
           HandoffService.notifyHandoff({
             organizationId,
@@ -1351,6 +1356,8 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
           completionTokens: totalCompletionTokens,
           totalTokens: totalPromptTokens + totalCompletionTokens,
           cachedTokens: totalCachedTokens,
+          pauseAfterSend,
+          handoffReason: detectedHandoffReason,
         };
       }
 
@@ -1372,10 +1379,8 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       // Guardrail Silencioso: si el modelo respondió texto prometiendo consulta o relevo sin haber llamado la tool
       const handoffPattern = /(asesor (se pondr[aá]|humano|comercial)|notificado a (nuestro|un) (asesor|equipo)|(transferir|transferirte|comunicarte|pasarte) con un (asesor|humano|agente|compañero)|pausad[ao] mis respuestas|consultar con (gerencia|bodega|despachos|el equipo) y (te responder[aá]|un asesor))/i;
       if (handoffPattern.test(directResponse)) {
-        await supabaseAdmin
-          .from('contacts')
-          .update({ is_ai_active: false, updated_at: new Date().toISOString() })
-          .eq('id', contactId);
+        pauseAfterSend = true;
+        detectedHandoffReason = 'Relevo silencioso detectado en respuesta directa de la IA';
 
         await supabaseAdmin.from('messages').insert({
           contact_id: contactId,
@@ -1400,6 +1405,8 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         completionTokens: totalCompletionTokens,
         totalTokens: totalPromptTokens + totalCompletionTokens,
         cachedTokens: totalCachedTokens,
+        pauseAfterSend,
+        handoffReason: detectedHandoffReason,
       };
     } catch (globalAiError: any) {
       console.error(
@@ -1408,18 +1415,10 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
       );
 
       try {
-        await supabaseAdmin
-          .from('contacts')
-          .update({
-            is_ai_active: false,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', contactId);
-
         await supabaseAdmin.from('messages').insert({
           contact_id: contactId,
           sender_type: 'system',
-          content: `[🚨 Respaldo 24/7 Activado: Falla temporal en proveedores de IA (${globalAiError?.message || 'indisponible'}). Se pausó la IA y se requirió atención de asesores humanos.]`,
+          content: `[🚨 Respaldo 24/7 Activado: Falla temporal en proveedores de IA (${globalAiError?.message || 'indisponible'}). Se pausó la IA tras responder y se requirió atención de asesores humanos.]`,
         });
       } catch (dbErr) {
         console.warn('[AI 24/7 DB UPDATE WARN]', dbErr);
@@ -1434,6 +1433,8 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         completionTokens: 0,
         totalTokens: 0,
         cachedTokens: 0,
+        pauseAfterSend: true,
+        handoffReason: `Falla técnica de proveedor: ${globalAiError?.message || 'error desconocido'}`,
       };
     }
   }

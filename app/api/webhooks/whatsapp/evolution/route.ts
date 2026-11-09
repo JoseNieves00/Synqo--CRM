@@ -259,13 +259,13 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (contact) {
-      // 🛡️ RECONCILIACIÓN ANTI-DUPLICADOS: Si el CRM envió este mensaje, ya existe con status 'sending'
+      // 🛡️ RECONCILIACIÓN ANTI-DUPLICADOS: Si el CRM o la IA enviaron este mensaje, ya existe con status 'sending'
       const thirtySecAgo = new Date(Date.now() - 30 * 1000).toISOString();
       const { data: pendingSendingMsg } = await supabaseAdmin
         .from('messages')
-        .select('id')
+        .select('id, sender_type')
         .eq('contact_id', contact.id)
-        .eq('sender_type', 'agent_manual')
+        .in('sender_type', ['agent_manual', 'ai'])
         .eq('status', 'sending')
         .gte('created_at', thirtySecAgo)
         .order('created_at', { ascending: false })
@@ -273,15 +273,19 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (pendingSendingMsg) {
-        // Reconciliar con el mensaje optimista que el asesor envió desde el CRM
+        // Reconciliar con el mensaje optimista que el asesor o la IA enviaron desde el CRM
         await (supabaseAdmin.from('messages') as any)
           .update({
             status: 'sent',
             meta_message_id: messageId,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', pendingSendingMsg.id);
 
-        return NextResponse.json({ status: 'bot_echo_reconciled', messageId: pendingSendingMsg.id }, { status: 200 });
+        return NextResponse.json(
+          { status: 'bot_echo_reconciled', senderType: pendingSendingMsg.sender_type, messageId: pendingSendingMsg.id },
+          { status: 200 }
+        );
       }
 
       // Si NO fue enviado por Synqo, significa que el ASESOR HUMANO escribió directamente desde el celular físico

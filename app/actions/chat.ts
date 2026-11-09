@@ -597,20 +597,37 @@ export async function markContactAsRead(contactId: string) {
 
       if (org) {
         const isEvolution = org.whatsapp_provider === 'evolution' || Boolean(org.evolution_instance_name);
+        let decryptedEvoKey = '';
+        if (org.evolution_api_key) {
+          try {
+            decryptedEvoKey = decryptSecret(org.evolution_api_key);
+          } catch {
+            decryptedEvoKey = org.evolution_api_key;
+          }
+        }
+        let decryptedMetaToken = '';
+        if (org.whatsapp_access_token) {
+          try {
+            decryptedMetaToken = decryptSecret(org.whatsapp_access_token);
+          } catch {
+            decryptedMetaToken = org.whatsapp_access_token;
+          }
+        }
+
         for (const msg of latestLeadMsgs) {
           if (!msg.meta_message_id) continue;
-          if (isEvolution && org.evolution_api_key && org.evolution_instance_name) {
+          if (isEvolution && decryptedEvoKey && org.evolution_instance_name) {
             EvolutionService.markMessageAsRead({
               apiUrl: org.evolution_api_url,
-              apiKey: org.evolution_api_key,
+              apiKey: decryptedEvoKey,
               instanceName: org.evolution_instance_name,
               remoteJid: contact.phone,
               messageId: msg.meta_message_id,
             }).catch(() => {});
-          } else if (org.whatsapp_phone_number_id && org.whatsapp_access_token) {
+          } else if (org.whatsapp_phone_number_id && decryptedMetaToken) {
             WhatsAppService.markAsRead(
               org.whatsapp_phone_number_id,
-              org.whatsapp_access_token,
+              decryptedMetaToken,
               msg.meta_message_id
             ).catch(() => {});
           }
@@ -674,20 +691,36 @@ export async function reactToMessage(messageId: string, emoji: string) {
     if (org) {
       const isEvolution = org.whatsapp_provider === 'evolution' || Boolean(org.evolution_instance_name);
       const emojiToSend = isRemoving ? '' : emoji;
+      let decryptedEvoKey = '';
+      if (org.evolution_api_key) {
+        try {
+          decryptedEvoKey = decryptSecret(org.evolution_api_key);
+        } catch {
+          decryptedEvoKey = org.evolution_api_key;
+        }
+      }
+      let decryptedMetaToken = '';
+      if (org.whatsapp_access_token) {
+        try {
+          decryptedMetaToken = decryptSecret(org.whatsapp_access_token);
+        } catch {
+          decryptedMetaToken = org.whatsapp_access_token;
+        }
+      }
 
-      if (isEvolution && org.evolution_api_key && org.evolution_instance_name) {
+      if (isEvolution && decryptedEvoKey && org.evolution_instance_name) {
         EvolutionService.sendReaction({
           apiUrl: org.evolution_api_url,
-          apiKey: org.evolution_api_key,
+          apiKey: decryptedEvoKey,
           instanceName: org.evolution_instance_name,
           remoteJid: contact.phone,
           messageId: msg.meta_message_id,
           emoji: emojiToSend,
         }).catch((err: any) => console.warn('[reactToMessage Evolution warning]', err));
-      } else if (org.whatsapp_phone_number_id && org.whatsapp_access_token) {
+      } else if (org.whatsapp_phone_number_id && decryptedMetaToken) {
         WhatsAppService.sendReaction({
           phoneNumberId: org.whatsapp_phone_number_id,
-          accessToken: org.whatsapp_access_token,
+          accessToken: decryptedMetaToken,
           to: contact.phone,
           messageId: msg.meta_message_id,
           emoji: emojiToSend,

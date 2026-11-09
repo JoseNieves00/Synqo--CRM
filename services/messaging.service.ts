@@ -64,7 +64,13 @@ export class MessagingService {
         decryptedKey = decryptSecret(organization.evolution_api_key);
       } catch {}
     }
-    if (!decryptedKey && process.env.EVOLUTION_API_KEY) {
+
+    // Blindaje de seguridad multi-tenant: Sólo usar la master key global si el tenant opera en el VPS oficial de Synqo
+    const defaultApiUrl = (process.env.EVOLUTION_API_URL || '').trim().replace(/\/+$/, '');
+    const tenantApiUrl = (organization.evolution_api_url || '').trim().replace(/\/+$/, '');
+    const isUsingDefaultServer = !tenantApiUrl || tenantApiUrl === defaultApiUrl;
+
+    if (!decryptedKey && isUsingDefaultServer && process.env.EVOLUTION_API_KEY) {
       decryptedKey = process.env.EVOLUTION_API_KEY.trim();
     }
 

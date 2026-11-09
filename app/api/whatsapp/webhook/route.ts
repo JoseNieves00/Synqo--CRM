@@ -339,7 +339,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'duplicate_message_ignored' }, { status: 200 });
     }
 
-    // Persistir mensajes adicionales si Meta los envió en el mismo webhook
+    let lastInsertedMessageId = result.messageId;
+    const aggregatedBurstTexts: string[] = [inboundPayload.rawContent];
+
+    // Persistir mensajes adicionales si Meta los envió en el mismo webhook (Ráfagas de mensajes)
     if (value.messages && value.messages.length > 1) {
       for (let mIdx = 1; mIdx < value.messages.length; mIdx++) {
         const extraMsg = value.messages[mIdx];
@@ -354,7 +357,8 @@ export async function POST(request: NextRequest) {
           else extraContent = `[Mensaje ${extraMsg.type}]`;
 
           if (extraContent.trim()) {
-            await InboundCoreService.processInbound({
+            aggregatedBurstTexts.push(extraContent.trim());
+            const extraRes = await InboundCoreService.processInbound({
               organization,
               channel: 'whatsapp_meta',
               channelMessageId: extraMsg.id,
@@ -362,13 +366,16 @@ export async function POST(request: NextRequest) {
               senderName: leadName,
               rawContent: extraContent,
             });
+            if (extraRes.status === 'success' && extraRes.messageId) {
+              lastInsertedMessageId = extraRes.messageId;
+            }
           }
         }
       }
     }
 
-    // Ejecución asíncrona de IA en segundo plano
-    if (result.status === 'success' && result.contactId && result.messageId && !isRateLimited) {
+    // Ejecución asíncrona de IA en segundo plano sobre el último mensaje de la ráfaga
+    if (result.status === 'success' && result.contactId && lastInsertedMessageId && !isRateLimited) {
       // Marcar como leído en WhatsApp oficial (doble tilde azul)
       try {
         const decryptedWhatsAppToken = decryptSecret(organization.whatsapp_access_token || '');
@@ -377,11 +384,16 @@ export async function POST(request: NextRequest) {
         }
       } catch {}
 
+      const effectiveInboundPayload = {
+        ...inboundPayload,
+        rawContent: aggregatedBurstTexts.join('\n'),
+      };
+
       waitUntil(
         InboundCoreService.runAiWorker({
-          payload: inboundPayload,
+          payload: effectiveInboundPayload,
           contactId: result.contactId,
-          insertedMessageId: result.messageId,
+          insertedMessageId: lastInsertedMessageId,
         })
       );
     }

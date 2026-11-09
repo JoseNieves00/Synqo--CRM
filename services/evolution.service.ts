@@ -86,7 +86,7 @@ export class EvolutionService {
         url: webhookUrl,
         byEvents: false,
         base64: false,
-        events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
+        events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE'],
       };
     }
 
@@ -396,7 +396,7 @@ export class EvolutionService {
         byEvents: false,
         base64: false,
         headers: headersPayload,
-        events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
+        events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE'],
       },
     };
 

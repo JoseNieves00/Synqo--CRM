@@ -790,23 +790,47 @@ export class InboundCoreService {
           .trim();
 
         if (cleanedAiText) {
-          outboundMessageId = await this.dispatchOutboundMessage({
-            organization,
-            channel,
-            recipientId: senderId,
-            text: cleanedAiText,
-            contactId,
-          });
+          const clientMsgId = crypto.randomUUID();
 
-          // Persistir mensaje de la IA en base de datos
+          // 🛡️ PATRÓN OUTBOX: Insertar mensaje con status 'sending' y client_message_id ANTES de llamar a Evolution / Meta.
+          // Esto elimina la carrera donde el eco fromMe de Evolution llega antes de que el mensaje exista en DB.
           await (supabaseAdmin.from('messages') as any).insert({
             contact_id: contactId,
             sender_type: 'ai',
             content: cleanedAiText,
-            meta_message_id: outboundMessageId || null,
-            status: 'sent',
+            client_message_id: clientMsgId,
+            status: 'sending',
             channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
           });
+
+          try {
+            outboundMessageId = await this.dispatchOutboundMessage({
+              organization,
+              channel,
+              recipientId: senderId,
+              text: cleanedAiText,
+              contactId,
+            });
+
+            // Reconciliar mensaje a 'sent' con el ID del proveedor
+            await (supabaseAdmin.from('messages') as any)
+              .update({
+                status: 'sent',
+                meta_message_id: outboundMessageId || null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('client_message_id', clientMsgId);
+          } catch (dispatchErr: any) {
+            console.error('[INBOUND CORE OUTBOUND DISPATCH FAILED]', dispatchErr);
+            await (supabaseAdmin.from('messages') as any)
+              .update({
+                status: 'failed',
+                error_message: dispatchErr?.message || 'Error de envío',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('client_message_id', clientMsgId);
+            throw dispatchErr;
+          }
         }
 
         const effectiveLastText = cleanedAiText || (leakedMedia.length > 0 ? formatImageMessageContent(leakedMedia[0].url, leakedMedia[0].caption || '') : aiResponseText);
@@ -834,16 +858,23 @@ export class InboundCoreService {
           updatedCustom.active_reminder = null;
         }
 
+        const contactUpdatePayload: Record<string, any> = {
+          last_message: aiLastMsg,
+          last_interaction_at: nowIso,
+          updated_at: nowIso,
+          waiting_since: null,
+          last_message_sender: 'ai',
+          last_message_preview: effectiveLastText.slice(0, 160),
+          custom_fields: updatedCustom,
+        };
+
+        // Si la IA solicitó relevo o se agotó la cuota, pausar la IA DESPUÉS de que el mensaje de transición fue despachado al cliente
+        if (typeof aiResult === 'object' && aiResult?.pauseAfterSend) {
+          contactUpdatePayload.is_ai_active = false;
+        }
+
         await (supabaseAdmin.from('contacts') as any)
-          .update({
-            last_message: aiLastMsg,
-            last_interaction_at: nowIso,
-            updated_at: nowIso,
-            waiting_since: null,
-            last_message_sender: 'ai',
-            last_message_preview: effectiveLastText.slice(0, 160),
-            custom_fields: updatedCustom,
-          })
+          .update(contactUpdatePayload)
           .eq('id', contactId);
 
         // Desactivar recordatorios de reactivación pendientes en tabla scheduled_reminders

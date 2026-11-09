@@ -720,18 +720,27 @@ export async function saveOrganizationPaymentAccounts(
     updated_at: new Date().toISOString(),
   };
 
-  // Sincronizar cuentas con el catálogo estructurado de la IA si está configurado
+  // Sincronizar cuentas de pago con el prompt y conocimiento de la IA
+  const nequiAcc = cleanAccounts.find((a) => a.isActive && /nequi/i.test(a.title));
+  const daviAcc = cleanAccounts.find((a) => a.isActive && /daviplata/i.test(a.title));
+  const bancoAcc = cleanAccounts.find((a) => a.isActive && /bancolombia/i.test(a.title));
+  const otherAccs = cleanAccounts
+    .filter((a) => a.isActive && a !== nequiAcc && a !== daviAcc && a !== bancoAcc)
+    .map((a) => `${a.title}: ${a.accountNumber} (${a.holderName})`)
+    .join(' | ');
+
+  const paymentAccountsFormatted = [
+    nequiAcc ? `• Nequi: ${nequiAcc.accountNumber} (Titular: ${nequiAcc.holderName})` : '',
+    daviAcc ? `• Daviplata: ${daviAcc.accountNumber} (Titular: ${daviAcc.holderName})` : '',
+    bancoAcc ? `• Bancolombia: ${bancoAcc.accountNumber} (Titular: ${bancoAcc.holderName})` : '',
+    ...cleanAccounts
+      .filter((a) => a.isActive && a !== nequiAcc && a !== daviAcc && a !== bancoAcc)
+      .map((a) => `• ${a.title}: ${a.accountNumber} (Titular: ${a.holderName})`),
+  ].filter(Boolean).join('\n');
+
   const updatedStructured = org.structured_prompt_data as any;
   if (updatedStructured && typeof updatedStructured === 'object') {
     if (!updatedStructured.policies) updatedStructured.policies = {};
-
-    const nequiAcc = cleanAccounts.find((a) => a.isActive && /nequi/i.test(a.title));
-    const daviAcc = cleanAccounts.find((a) => a.isActive && /daviplata/i.test(a.title));
-    const bancoAcc = cleanAccounts.find((a) => a.isActive && /bancolombia/i.test(a.title));
-    const otherAccs = cleanAccounts
-      .filter((a) => a.isActive && a !== nequiAcc && a !== daviAcc && a !== bancoAcc)
-      .map((a) => `${a.title}: ${a.accountNumber} (${a.holderName})`)
-      .join(' | ');
 
     updatedStructured.policies.paymentDetails = {
       nequi: nequiAcc ? `${nequiAcc.accountNumber} (${nequiAcc.holderName})` : '',
@@ -747,6 +756,20 @@ export async function saveOrganizationPaymentAccounts(
     } catch (compileErr) {
       console.warn('[SAVE PAYMENT ACCOUNTS COMPILE PROMPT WARN]', compileErr);
     }
+  } else if (org.system_prompt && paymentAccountsFormatted) {
+    // Si la organización no usa structured_prompt_data pero tiene system_prompt, inyectar el bloque de cuentas bancarias
+    const paymentAccountsSection = `\n\n[CUENTAS DE TRANSFERENCIA BANCARIA AUTORIZADAS PARA EL CLIENTE:\n${paymentAccountsFormatted}\nINSTRUCCIÓN: Proporciona estos datos de cuenta inmediatamente y con total exactitud cuando el cliente pregunte por métodos de pago, transferencias o números de cuenta para pagar. Nunca alteres los números ni inventes titulares.]`;
+
+    let updatedPrompt = org.system_prompt;
+    if (updatedPrompt.includes('[CUENTAS DE TRANSFERENCIA BANCARIA AUTORIZADAS')) {
+      updatedPrompt = updatedPrompt.replace(
+        /\[CUENTAS DE TRANSFERENCIA BANCARIA AUTORIZADAS[\s\S]*?Nunca alteres los números ni inventes titulares\.\]/i,
+        paymentAccountsSection.trim()
+      );
+    } else {
+      updatedPrompt = updatedPrompt.trim() + paymentAccountsSection;
+    }
+    updatePayload.system_prompt = updatedPrompt;
   }
 
   const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
