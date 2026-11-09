@@ -51,42 +51,46 @@ async function createChatCompletionWithFallback(params: {
   const isGeminiKeyValid = Boolean(geminiApiKey && geminiApiKey.trim().length > 20);
   const prefersGemini = (params.aiProvider === 'gemini' || !params.aiProvider) && isGeminiKeyValid && Boolean(gemini);
 
-  // 1. Nivel Primario: Gemini Flash (Tokens optimizados, latencia ultra-baja y Prompt Caching)
+  // 1. Nivel Primario: Google Gemini Flash (Tokens optimizados, latencia ultra-baja y $0 en cuota)
   if (prefersGemini && gemini) {
-    try {
-      const geminiModel = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-      // Control de tiempo para fallback instantáneo ante 503 o 429 de Google (5 segundos)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+    const modelsToTry = [primaryModel, 'gemini-3.5-flash-lite'];
 
-      const response = await gemini.chat.completions.create(
-        {
-          model: geminiModel,
-          messages: params.messages,
-          tools: params.tools,
-          tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
-          temperature: params.temperature ?? 0.3,
-        },
-        { signal: controller.signal }
-      );
-      clearTimeout(timeoutId);
+    for (const currentGeminiModel of modelsToTry) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      if (response.usage && params.organizationId && params.contactId) {
-        await recordTokenUsage({
-          organizationId: params.organizationId,
-          contactId: params.contactId,
-          promptTokens: response.usage.prompt_tokens,
-          completionTokens: response.usage.completion_tokens,
-          totalTokens: response.usage.total_tokens,
-          model: geminiModel,
-          provider: 'google',
-        });
+        const response = await gemini.chat.completions.create(
+          {
+            model: currentGeminiModel,
+            messages: params.messages,
+            tools: params.tools,
+            tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
+            temperature: params.temperature ?? 0.35,
+          },
+          { signal: controller.signal }
+        );
+        clearTimeout(timeoutId);
+
+        if (response.usage && params.organizationId && params.contactId) {
+          await recordTokenUsage({
+            organizationId: params.organizationId,
+            contactId: params.contactId,
+            promptTokens: response.usage.prompt_tokens,
+            completionTokens: response.usage.completion_tokens,
+            totalTokens: response.usage.total_tokens,
+            model: currentGeminiModel,
+            provider: 'google',
+          });
+        }
+
+        return { response, modelUsed: currentGeminiModel, provider: 'google', isFallback: false };
+      } catch (geminiError: any) {
+        console.warn(`[GEMINI FAILOVER] Modelo ${currentGeminiModel} no disponible (${geminiError?.message || geminiError}).`);
       }
-
-      return { response, modelUsed: geminiModel, provider: 'google', isFallback: false };
-    } catch (geminiError: any) {
-      console.warn(`[GEMINI FLASH FAILOVER] Indisponible temporalmente (${geminiError?.message || geminiError}), recurriendo a OpenAI de emergencia...`);
     }
+    console.warn('[GEMINI FAILOVER] Ambos modelos de Google no respondieron. Recurriendo a OpenAI de emergencia...');
   }
 
   // 2. Nivel Secundario / Emergencia: OpenAI gpt-4o-mini con guardrail financiero
@@ -520,7 +524,7 @@ Responde ÚNICAMENTE el objeto JSON sin texto antes ni después, sin delimitador
     channel = 'whatsapp',
     organization,
   }: ProcessLeadParams): Promise<ProcessLeadResult> {
-    let metaModel = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+    let metaModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
     let metaProvider: 'google' | 'openai' = 'google';
     let isFallback = false;
     let totalPromptTokens = 0;
@@ -644,11 +648,13 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - REGLA DE ORO: NUNCA inventes precios, descuentos, costos de envío, materiales (como madera MDF, plástico, melamina, pino, etc.) ni especificaciones que NO estén expresamente detalladas en el catálogo. Si el catálogo no menciona qué material es o qué incluye, ¡NO LO INVENTES!
    - Si en el catálogo o políticas dice "NO TIENE GARANTIA", NO lo menciones por iniciativa propia en cada mensaje. Solo infórmalo si el cliente pregunta expresamente por la política de garantía.
 
-4. TONO Y PERSONALIDAD 100% HUMANA:
-   - Actúa y exprésate como un asesor comercial humano de la empresa: cercano, empático, educado y enfocado en ayudar a comprar.
+4. TONO Y PERSONALIDAD 100% HUMANA (ASESOR REAL DE WHATSAPP):
+   - Actúa y exprésate como un asesor comercial humano de la empresa: cercano, empático, educado y enfocado en ayudar a comprar con calidez natural.
    - NUNCA menciones que eres una inteligencia artificial, un bot, un sistema automatizado o un modelo de lenguaje.
    - NUNCA uses frases robóticas como "he transferido tu caso", "pausé mis respuestas automáticas", "un asesor humano te contactará", ni menús numéricos ("marca 1").
-   - Escribe en español natural y fluido adaptado a WhatsApp: mensajes directos de 1 a 3 oraciones, sin rodeos ni formalismos excesivos.
+   - PROHIBICIÓN ESTRICTA DEL CONDICIONAL ROBÓTICO: NUNCA uses preguntas artificiales tipo "¿Te gustaría que te comparta...?", "¿A qué ciudad te lo enviaríamos?", "¿Desearías apartar...?", "¿En qué más te puedo colaborar hoy?".
+   - Escribe en presente, cercano y directo como habla un vendedor humano de verdad en WhatsApp: "¿En qué ciudad estás?", "¿Para qué edad la buscas?", "¿Cuál modelo te gustó más?", "¿Para qué fecha la necesitas?".
+   - MENSAJES CORTOS DE CHAT: Máximo 2 a 3 líneas breves por mensaje. Nadie en WhatsApp lee testamentos ni párrafos pesados. Ve al grano con calidez.
    - Haz como máximo UNA sola pregunta por mensaje para no abrumar al prospecto.
 
 5. RELEVO SILENCIOSO E IMPERCEPTIBLE (request_human_handoff):

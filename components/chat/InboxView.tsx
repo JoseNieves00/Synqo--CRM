@@ -622,8 +622,8 @@ export function InboxView({
   const isAdmin = currentUserRole === 'admin' || currentUserRole === 'supervisor';
 
   // Pestañas principales de trabajo:
-  // 'hot' (🔥 Calientes), 'today_reminders' (⏰ Hoy), 'urgent' (🚨 Por Atender), 'mine' (Mis Chats), 'unassigned' (Sin Asignar), 'all' (Todos)
-  const [activeTab, setActiveTab] = useState<'mine' | 'hot' | 'today_reminders' | 'urgent' | 'unassigned' | 'all'>(
+  // 'reactivate' (🔄 Por Reactivar), 'today_reminders' (⏰ Hoy), 'urgent' (🚨 Por Atender), 'mine' (Mis Chats), 'unassigned' (Sin Asignar), 'all' (Todos)
+  const [activeTab, setActiveTab] = useState<'mine' | 'reactivate' | 'today_reminders' | 'urgent' | 'unassigned' | 'all'>(
     isAdmin ? 'all' : 'mine'
   );
 
@@ -850,18 +850,26 @@ export function InboxView({
     () => contactList.filter((c) => unattendedIds.has(c.id)).length,
     [contactList, unattendedIds]
   );
-  const hotCount = useMemo(
-    () =>
-      contactList.filter((c) => {
-        const temp = c.custom_fields?.lead_temperature;
-        return (
-          temp === 'hot' ||
-          c.pipeline_stage === 'calificado' ||
-          c.pipeline_stage === 'cita_agendada'
-        );
-      }).length,
-    [contactList]
-  );
+  const reactivateCount = useMemo(() => {
+    const now = Date.now();
+    const minSilenceMs = 24 * 60 * 60 * 1000; // 24 horas de silencio
+    const maxSilenceMs = 14 * 24 * 60 * 60 * 1000; // 14 días
+
+    return contactList.filter((c) => {
+      if (
+        c.pipeline_stage === 'ganado' ||
+        c.pipeline_stage === 'perdido' ||
+        c.pipeline_stage === 'cita_agendada'
+      ) {
+        return false;
+      }
+      if (unattendedIds.has(c.id)) return false;
+
+      const lastTime = new Date(c.last_interaction_at).getTime();
+      const diff = now - lastTime;
+      return diff >= minSilenceMs && diff <= maxSilenceMs;
+    }).length;
+  }, [contactList, unattendedIds]);
   const todayRemindersCount = useMemo(() => {
     const todayStr = new Date().toDateString();
     return contactList.filter((c) => {
@@ -897,13 +905,20 @@ export function InboxView({
       if (activeTab === 'urgent') {
         const isUrgent = unattendedIds.has(c.id);
         if (!isUrgent) return false;
-      } else if (activeTab === 'hot') {
-        const temp = c.custom_fields?.lead_temperature;
-        const isHot =
-          temp === 'hot' ||
-          c.pipeline_stage === 'calificado' ||
-          c.pipeline_stage === 'cita_agendada';
-        if (!isHot) return false;
+      } else if (activeTab === 'reactivate') {
+        if (
+          c.pipeline_stage === 'ganado' ||
+          c.pipeline_stage === 'perdido' ||
+          c.pipeline_stage === 'cita_agendada'
+        ) {
+          return false;
+        }
+        if (unattendedIds.has(c.id)) return false;
+        const lastTime = new Date(c.last_interaction_at).getTime();
+        const diff = Date.now() - lastTime;
+        const minSilenceMs = 24 * 60 * 60 * 1000;
+        const maxSilenceMs = 14 * 24 * 60 * 60 * 1000;
+        if (diff < minSilenceMs || diff > maxSilenceMs) return false;
       } else if (activeTab === 'today_reminders') {
         const scheduled = c.custom_fields?.active_reminder?.scheduledFor;
         if (!scheduled) return false;
@@ -1130,18 +1145,18 @@ export function InboxView({
               Míos ({myChatsCount})
             </button>
             <button
-              onClick={() => setActiveTab('hot')}
+              onClick={() => setActiveTab('reactivate')}
               className={`px-2.5 py-1 rounded-lg text-center transition cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
-                activeTab === 'hot'
+                activeTab === 'reactivate'
                   ? 'bg-white dark:bg-[#131722] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#232A3B] shadow-2xs font-bold'
                   : 'text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400'
               }`}
-              title="Leads Calientes: Alta intención de compra"
+              title="Leads por Reactivar: Conversaciones en silencio (24h - 14d) listas para recuperar ventas"
             >
-              <span>🔥 Calientes</span>
-              {hotCount > 0 && (
+              <span>🔄 Por Reactivar</span>
+              {reactivateCount > 0 && (
                 <span className="px-1.5 py-0.2 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-full text-[10px] font-mono font-bold">
-                  {hotCount}
+                  {reactivateCount}
                 </span>
               )}
             </button>

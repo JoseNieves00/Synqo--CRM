@@ -114,12 +114,15 @@ export const MessageBubble = React.memo(
     const quoteInfo = useMemo(() => parseQuoteMessageContent(content), [content]);
 
     const voiceNoteInfo = useMemo(() => {
-      if (!content.includes('🎤') && !content.includes('[Nota de voz]')) {
-        return { isVoiceNote: false, transcription: '', isFailed: false };
+      const audioUrlMatch = content.match(/(https?:\/\/[^\s\]\)]+(?:chat-media|\.(?:ogg|opus|mp3|wav|m4a|webm))[^\s\]\)]*)/i);
+      const audioUrl = audioUrlMatch ? audioUrlMatch[1] : undefined;
+
+      if (!content.includes('🎤') && !content.includes('[Nota de voz]') && !audioUrl) {
+        return { isVoiceNote: false, transcription: '', isFailed: false, audioUrl: undefined };
       }
       const isPlaceholder = /\[Nota de voz (?:recibida|inaudible|no reproducible)\]/i.test(content);
       if (isPlaceholder) {
-        return { isVoiceNote: true, transcription: '', isFailed: true };
+        return { isVoiceNote: true, transcription: '', isFailed: true, audioUrl };
       }
       const match = content.match(/🎤\s*\[Nota de voz\](?::\s*["“]([\s\S]*?)["”])?/);
       if (match && match[1]) {
@@ -129,6 +132,7 @@ export const MessageBubble = React.memo(
           isVoiceNote: true,
           transcription: isFallback ? '' : text,
           isFailed: isFallback,
+          audioUrl,
         };
       }
       if (content.startsWith('🎤')) {
@@ -138,9 +142,10 @@ export const MessageBubble = React.memo(
           isVoiceNote: true,
           transcription: isFallback ? '' : text,
           isFailed: isFallback,
+          audioUrl,
         };
       }
-      return { isVoiceNote: false, transcription: '', isFailed: false };
+      return { isVoiceNote: Boolean(audioUrl), transcription: '', isFailed: false, audioUrl };
     }, [content]);
 
     if (senderType === 'system') {
@@ -480,6 +485,14 @@ export const MessageBubble = React.memo(
                     <span className="text-[10px] opacity-75 font-mono">Audio transcrito por IA</span>
                   </div>
                 </div>
+                {voiceNoteInfo.audioUrl && (
+                  <audio
+                    src={voiceNoteInfo.audioUrl}
+                    controls
+                    className="w-full h-8 rounded-lg mt-1"
+                    preload="metadata"
+                  />
+                )}
                 {voiceNoteInfo.transcription ? (
                   <div
                     className={`mt-1.5 p-2 rounded-xl border text-xs leading-relaxed ${

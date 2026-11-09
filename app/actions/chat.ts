@@ -8,6 +8,7 @@ import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
+import { InboundCoreService } from '@/services/inbound-core.service';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -143,7 +144,7 @@ export async function sendAgentMessage(contactId: string, content: string, reply
     reply_to_message_id: replyToMessageId || null,
   });
 
-  revalidatePath('/inbox');
+  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
   revalidatePath(`/inbox/${contactId}`);
 }
 
@@ -211,7 +212,7 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
     meta_message_id: metaId || null,
   });
 
-  revalidatePath('/inbox');
+  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
   revalidatePath(`/inbox/${contactId}`);
 }
 
@@ -417,7 +418,7 @@ export async function sendAgentMediaMessage(
     status: 'sent',
   });
 
-  revalidatePath('/inbox');
+  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
   revalidatePath(`/inbox/${contactId}`);
 }
 
@@ -523,12 +524,13 @@ export async function snoozeContactAi(contactId: string, duration: 30 | 120 | 't
     content: `[Sistema: IA pausada por el asesor por ${labelText} (se reanudará automáticamente el ${resumeDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })})]`,
   });
 
-  revalidatePath('/inbox');
+  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
   revalidatePath(`/inbox/${contactId}`);
 }
 
 /**
  * Conmuta manualmente el switch de IA para un contacto específico.
+ * Si se activa (newState === true), revisa si el último mensaje fue del lead y lo responde de inmediato.
  */
 export async function toggleContactAi(contactId: string, newState: boolean) {
   const supabase = createServerSupabaseClient();
@@ -552,8 +554,38 @@ export async function toggleContactAi(contactId: string, newState: boolean) {
     .eq('id', contactId)
     .eq('organization_id', orgId);
 
-  revalidatePath('/inbox');
+  // Si se acaba de activar la IA, verificar si hay un mensaje pendiente del lead y responderlo
+  if (newState) {
+    // Se ejecuta de fondo sin bloquear la respuesta del switch en la interfaz
+    InboundCoreService.triggerPendingAiForContact(contactId).catch((err) => {
+      console.warn('[TOGGLE AI AUTO TRIGGER WARN]', err);
+    });
+  }
+
+  // Notificar al cliente con revalidate local
   revalidatePath(`/inbox/${contactId}`);
+}
+
+/**
+ * Despacha en lote respuestas de IA para todos los contactos que hayan quedado sin responder.
+ */
+export async function triggerPendingAiBatchAction() {
+  const supabase = createServerSupabaseClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Perfil no encontrado');
+
+  const result = await InboundCoreService.triggerPendingAiBatch(orgId);
+  revalidatePath('/inbox');
+  return result;
 }
 
 /**

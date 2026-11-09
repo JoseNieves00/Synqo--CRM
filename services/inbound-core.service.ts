@@ -1078,4 +1078,85 @@ export class InboundCoreService {
       console.warn('[INBOUND CORE RECORD AI RUN WARN]', err);
     }
   }
+
+  /**
+   * Despacha la respuesta de IA para un contacto cuyo último mensaje del cliente quedó sin responder.
+   * Utilizado cuando se reactiva el switch de IA o se hace un re-intento de cola pendiente.
+   */
+  static async triggerPendingAiForContact(contactId: string): Promise<boolean> {
+    try {
+      const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+        .select('id, name, phone, channel, is_ai_active, organization_id')
+        .eq('id', contactId)
+        .single();
+
+      if (!contact || !contact.is_ai_active) return false;
+
+      const { data: lastMessage } = await (supabaseAdmin.from('messages') as any)
+        .select('id, sender_type, content, created_at')
+        .eq('contact_id', contactId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!lastMessage || lastMessage.sender_type !== 'lead') {
+        return false;
+      }
+
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('*')
+        .eq('id', contact.organization_id)
+        .single();
+
+      if (!org) return false;
+
+      const payload: InboundPayload = {
+        organization: org,
+        channel: (contact.channel as any) || 'whatsapp',
+        channelMessageId: `pending_${lastMessage.id}`,
+        senderId: contact.phone,
+        senderName: contact.name,
+        rawContent: lastMessage.content || '',
+      };
+
+      await this.runAiWorker({
+        payload,
+        contactId: contact.id,
+        insertedMessageId: lastMessage.id,
+      });
+
+      return true;
+    } catch (err) {
+      console.error('[INBOUND CORE TRIGGER PENDING ERROR]', err);
+      return false;
+    }
+  }
+
+  /**
+   * Despacha en lote todos los contactos con IA activa de una organización que tengan un mensaje del lead sin responder.
+   */
+  static async triggerPendingAiBatch(organizationId: string, limit = 25): Promise<{ processed: number; answered: number }> {
+    try {
+      const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('is_ai_active', true)
+        .is('deleted_at', null)
+        .order('last_interaction_at', { ascending: false })
+        .limit(limit);
+
+      if (!contacts || contacts.length === 0) return { processed: 0, answered: 0 };
+
+      let answered = 0;
+      for (const c of contacts) {
+        const sent = await this.triggerPendingAiForContact(c.id);
+        if (sent) answered++;
+      }
+
+      return { processed: contacts.length, answered };
+    } catch (err) {
+      console.error('[INBOUND CORE TRIGGER BATCH ERROR]', err);
+      return { processed: 0, answered: 0 };
+    }
+  }
 }
