@@ -59,6 +59,7 @@ async function handleCron(request: NextRequest) {
     const result = await ReminderService.processAppointmentRemindersAndCancellations(orgId);
     const slaResult = await AssignmentService.reassignStaleHandoffs(orgId);
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
+    const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
     return NextResponse.json({
       success: true,
@@ -66,6 +67,7 @@ async function handleCron(request: NextRequest) {
       ...result,
       reallocatedHandoffs: slaResult.reallocatedCount,
       autonomousReactivations: reactivationResult,
+      autoArchivedUnresponsive: archiveResult.autoArchivedCount,
     });
   } catch (err: any) {
     console.error('[CRON APPOINTMENT REMINDERS ERROR]', err);

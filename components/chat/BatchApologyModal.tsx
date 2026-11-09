@@ -143,9 +143,9 @@ export function BatchApologyModal({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="relative w-full max-w-xl bg-white dark:bg-[#131722] rounded-2xl shadow-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="relative w-full max-w-xl bg-white dark:bg-[#131722] rounded-2xl shadow-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden flex flex-col max-h-[90vh]">
         {/* Cabecera del Modal */}
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-[#232A3B] flex items-center justify-between bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent">
+        <div className="shrink-0 px-5 py-4 border-b border-slate-200 dark:border-[#232A3B] flex items-center justify-between bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/30">
               <Zap className="w-5 h-5" />
@@ -173,8 +173,8 @@ export function BatchApologyModal({
           )}
         </div>
 
-        {/* Contenido del Modal */}
-        <div className="p-5 overflow-y-auto space-y-4 text-xs">
+        {/* Contenido del Modal con Scroll Independiente */}
+        <div className="flex-1 min-h-0 p-5 overflow-y-auto space-y-4 text-xs [scrollbar-width:thin]">
           {sendResult ? (
             /* Pantalla de Éxito */
             <div className="py-6 text-center space-y-4 animate-in fade-in">
@@ -343,9 +343,9 @@ export function BatchApologyModal({
           )}
         </div>
 
-        {/* Pie del Modal con Acciones */}
+        {/* Pie del Modal con Acciones Pinned */}
         {!sendResult && (
-          <div className="px-5 py-3.5 border-t border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B] flex items-center justify-between">
+          <div className="shrink-0 px-5 py-3.5 border-t border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B] flex items-center justify-between">
             <button
               type="button"
               onClick={onClose}

@@ -359,9 +359,9 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
 
       {/* Modal de Agregar / Editar Cuenta (Portaled a document.body) */}
       {isModalOpen && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-white">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#1E2433] pb-3">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 text-slate-900 dark:text-white">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F]">
               <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
                 {editingAccount ? 'Editar Método de Pago' : 'Nuevo Método de Pago'}
@@ -369,123 +369,125 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveForm} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nombre del Método / Banco *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Nequi, Bancolombia Ahorros, Zelle, Bizum, CLABE..."
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  required
-                  autoFocus
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Número de Cuenta / Teléfono / Correo *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: 3001234567, 123-456789-01, correo@zelle.com..."
-                  value={formNumber}
-                  onChange={(e) => setFormNumber(e.target.value)}
-                  required
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nombre del Titular *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Empresa S.A.S. o Juan Pérez"
-                  value={formHolder}
-                  onChange={(e) => setFormHolder(e.target.value)}
-                  required
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+            <form onSubmit={handleSaveForm} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3.5 [scrollbar-width:thin]">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Doc / Cédula / NIT (Opcional)
+                    Nombre del Método / Banco *
                   </label>
                   <input
                     type="text"
-                    placeholder="Ej: NIT 900.123.456-1"
-                    value={formHolderId}
-                    onChange={(e) => setFormHolderId(e.target.value)}
+                    placeholder="Ej: Nequi, Bancolombia Ahorros, Zelle, Bizum, CLABE..."
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    required
+                    autoFocus
                     className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Link de Pago (Opcional)
+                    Número de Cuenta / Teléfono / Correo *
                   </label>
                   <input
                     type="text"
-                    placeholder="pasarela.com/pay/..."
-                    value={formLink}
-                    onChange={(e) => setFormLink(e.target.value)}
+                    placeholder="Ej: 3001234567, 123-456789-01, correo@zelle.com..."
+                    value={formNumber}
+                    onChange={(e) => setFormNumber(e.target.value)}
+                    required
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nombre del Titular *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Empresa S.A.S. o Juan Pérez"
+                    value={formHolder}
+                    onChange={(e) => setFormHolder(e.target.value)}
+                    required
                     className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Instrucciones para el Cliente (Opcional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Enviar comprobante por este chat con tu nombre completo"
-                  value={formInstructions}
-                  onChange={(e) => setFormInstructions(e.target.value)}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Doc / Cédula / NIT (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej: NIT 900.123.456-1"
+                      value={formHolderId}
+                      onChange={(e) => setFormHolderId(e.target.value)}
+                      className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                  </div>
 
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="account-active"
-                  checked={formIsActive}
-                  onChange={(e) => setFormIsActive(e.target.checked)}
-                  className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
-                />
-                <label htmlFor="account-active" className="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer select-none">
-                  Habilitar este método de pago para envío rápido en el Inbox
-                </label>
-              </div>
-
-              {modalError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{modalError}</span>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Link de Pago (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="pasarela.com/pay/..."
+                      value={formLink}
+                      onChange={(e) => setFormLink(e.target.value)}
+                      className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                  </div>
                 </div>
-              )}
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#1E2433]">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Instrucciones para el Cliente (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Enviar comprobante por este chat con tu nombre completo"
+                    value={formInstructions}
+                    onChange={(e) => setFormInstructions(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="account-active"
+                    checked={formIsActive}
+                    onChange={(e) => setFormIsActive(e.target.checked)}
+                    className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
+                  />
+                  <label htmlFor="account-active" className="text-xs text-slate-700 dark:text-slate-300 font-medium cursor-pointer select-none">
+                    Habilitar este método de pago para envío rápido en el Inbox
+                  </label>
+                </div>
+
+                {modalError && (
+                  <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{modalError}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="shrink-0 flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#0E131F]">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
                   disabled={isSaving}
-                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer transition"
                 >
                   Cancelar
                 </button>

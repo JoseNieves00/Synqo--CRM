@@ -90,13 +90,13 @@ export default function AiSummaryModal({
     : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
         className="w-full max-w-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Encabezado */}
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-[#232A3B] flex items-center justify-between bg-gradient-to-r from-blue-50/50 via-indigo-50/30 to-transparent dark:from-[#0052FF]/10 dark:via-indigo-950/20 dark:to-transparent">
+        {/* Encabezado Pinned */}
+        <div className="shrink-0 px-5 py-4 border-b border-slate-200 dark:border-[#232A3B] flex items-center justify-between bg-gradient-to-r from-blue-50/50 via-indigo-50/30 to-transparent dark:from-[#0052FF]/10 dark:via-indigo-950/20 dark:to-transparent">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF]">
               <Sparkles className="w-5 h-5" />
@@ -123,7 +123,7 @@ export default function AiSummaryModal({
         </div>
 
         {/* Contenido */}
-        <div className="p-5 overflow-y-auto space-y-3.5 flex-1">
+        <div className="p-5 overflow-y-auto space-y-3.5 flex-1 min-h-0 [scrollbar-width:thin]">
           {isLoading ? (
             <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
               <Loader2 className="w-8 h-8 text-[#0052FF] dark:text-[#00D2FF] animate-spin" />
@@ -193,8 +193,8 @@ export default function AiSummaryModal({
           ) : null}
         </div>
 
-        {/* Pie de modal */}
-        <div className="px-5 py-3 border-t border-slate-200 dark:border-[#232A3B] flex items-center justify-between bg-slate-50/50 dark:bg-[#090A0F]/50">
+        {/* Pie de modal Pinned */}
+        <div className="shrink-0 px-5 py-3 border-t border-slate-200 dark:border-[#232A3B] flex items-center justify-between bg-slate-50/50 dark:bg-[#090A0F]/50">
           <button
             type="button"
             onClick={handleGenerate}

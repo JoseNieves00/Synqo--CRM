@@ -120,7 +120,7 @@ export function StructuredPromptWizard({
             const tags = g.keywords && g.keywords.length > 0 ? ` (Búsqueda/Sinónimos: ${g.keywords.join(', ')})` : '';
             const priceStr = g.price ? ` - Precio: ${g.price}` : '';
             const heroStr = g.isHero ? ' [Modelo Principal/Estrella]' : '';
-            return `- ${g.name}${priceStr}${heroStr}${tags}: [foto: ${g.url}] (Despachar con send_whatsapp_image cuando el cliente pregunte por este modelo; PROHIBIDO colocar la URL en el texto)`;
+            return `- ${g.name}${priceStr}${heroStr}${tags}: [foto: ${g.url}] (Despachar proactivamente con send_whatsapp_image cuando se consulte o mencione este modelo o sus precios, sin esperar a que pidan fotos; PROHIBIDO colocar la URL en el texto)`;
           })
           .join('\n');
       compiled += galleryBlock;
@@ -854,9 +854,9 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
 
       {/* Modal para Agregar Foto al Catálogo Visual Interno (Portaled a document.body) */}
       {isAddPhotoModalOpen && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full p-5 space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF]">
                   <ImageIcon className="w-4 h-4" />
@@ -869,13 +869,13 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 type="button"
                 onClick={handleCloseAddModal}
                 disabled={isUploadingPhoto}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3.5">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 [scrollbar-width:thin]">
               {/* Campo Nombre del Producto */}
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -937,7 +937,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     />
                     <span className="flex items-center gap-1">
                       <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                      Modelo o foto principal (estrella)
+                      Modelo principal (estrella)
                     </span>
                   </label>
                 </div>
@@ -1056,33 +1056,33 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   <span>{photoUploadError}</span>
                 </div>
               )}
+            </div>
 
-              {/* Botones de Acción */}
-              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-[#232A3B]">
-                <button
-                  type="button"
-                  onClick={handleCloseAddModal}
-                  disabled={isUploadingPhoto}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSavePhotoToGallery}
-                  disabled={isUploadingPhoto || !selectedPhotoFile || !photoName.trim()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
-                >
-                  {isUploadingPhoto ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Guardando foto...</span>
-                    </>
-                  ) : (
-                    <span>Guardar en Catálogo Visual</span>
-                  )}
-                </button>
-              </div>
+            {/* Botones de Acción Pinned */}
+            <div className="shrink-0 flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#0E131F]">
+              <button
+                type="button"
+                onClick={handleCloseAddModal}
+                disabled={isUploadingPhoto}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePhotoToGallery}
+                disabled={isUploadingPhoto || !selectedPhotoFile || !photoName.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {isUploadingPhoto ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Guardando foto...</span>
+                  </>
+                ) : (
+                  <span>Guardar en Catálogo Visual</span>
+                )}
+              </button>
             </div>
           </div>
         </div>,
@@ -1091,9 +1091,9 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
 
       {/* Modal para Editar Nombre de Foto Existente (Portaled a document.body) */}
       {editingPhoto && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-[#0052FF] dark:text-[#00D2FF]">
                   <Pencil className="w-4 h-4" />
@@ -1111,13 +1111,13 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 type="button"
                 onClick={handleCloseEditModal}
                 disabled={isSavingEdit}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md cursor-pointer disabled:opacity-50"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3.5">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 [scrollbar-width:thin]">
               {/* Previsualización actual */}
               <div className="relative rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
                 <img
@@ -1258,32 +1258,33 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </div>
               )}
 
-              {/* Botones de Acción */}
-              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-[#232A3B]">
-                <button
-                  type="button"
-                  onClick={handleCloseEditModal}
-                  disabled={isSavingEdit}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveEditedPhoto}
-                  disabled={isSavingEdit || !editPhotoName.trim()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
-                >
-                  {isSavingEdit ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Guardando cambios...</span>
-                    </>
-                  ) : (
-                    <span>Guardar Nombre</span>
-                  )}
-                </button>
-              </div>
+            </div>
+
+            {/* Botones de Acción Pinned */}
+            <div className="shrink-0 flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#0E131F]">
+              <button
+                type="button"
+                onClick={handleCloseEditModal}
+                disabled={isSavingEdit}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditedPhoto}
+                disabled={isSavingEdit || !editPhotoName.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {isSavingEdit ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Guardando cambios...</span>
+                  </>
+                ) : (
+                  <span>Guardar Nombre</span>
+                )}
+              </button>
             </div>
           </div>
         </div>,
@@ -1292,9 +1293,9 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
 
       {/* Modal Selector de Plantillas Guía por Nicho (Portaled a document.body) */}
       {selectedTemplateModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
               <div>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <FileText className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
@@ -1307,69 +1308,71 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
               <button
                 type="button"
                 onClick={() => setSelectedTemplateModal(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg cursor-pointer p-1"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
               >
-                &times;
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Lista de Plantillas */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {TEMPLATES.map((tpl) => {
-                const Icon = tpl.icon;
-                const isSelected = previewTemplateId === tpl.id;
-                return (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => setPreviewTemplateId(tpl.id)}
-                    className={`p-3.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-2.5 ${
-                      isSelected
-                        ? 'border-[#0052FF] bg-blue-50/50 dark:bg-[#0052FF]/10 shadow-xs'
-                        : 'border-slate-200 dark:border-[#232A3B] bg-slate-50/60 dark:bg-[#090A0F] hover:border-slate-300 dark:hover:border-slate-700'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className={`p-2 rounded-lg ${isSelected ? 'bg-[#0052FF] text-white' : 'bg-slate-200 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-400'}`}>
-                          <Icon className="w-4 h-4" />
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 [scrollbar-width:thin]">
+              {/* Lista de Plantillas */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {TEMPLATES.map((tpl) => {
+                  const Icon = tpl.icon;
+                  const isSelected = previewTemplateId === tpl.id;
+                  return (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => setPreviewTemplateId(tpl.id)}
+                      className={`p-3.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-2.5 ${
+                        isSelected
+                          ? 'border-[#0052FF] bg-blue-50/50 dark:bg-[#0052FF]/10 shadow-xs'
+                          : 'border-slate-200 dark:border-[#232A3B] bg-slate-50/60 dark:bg-[#090A0F] hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className={`p-2 rounded-lg ${isSelected ? 'bg-[#0052FF] text-white' : 'bg-slate-200 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-400'}`}>
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                            {tpl.badge}
+                          </span>
                         </div>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
-                          {tpl.badge}
-                        </span>
+                        <h5 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
+                          {tpl.title}
+                        </h5>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                          {tpl.description}
+                        </p>
                       </div>
-                      <h5 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                        {tpl.title}
-                      </h5>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
-                        {tpl.description}
-                      </p>
-                    </div>
 
-                    <span className="text-[10px] font-semibold text-[#0052FF] dark:text-[#00D2FF]">
-                      {isSelected ? '✓ Seleccionada' : 'Ver modelo'}
-                    </span>
-                  </button>
-                );
-              })}
+                      <span className="text-[10px] font-semibold text-[#0052FF] dark:text-[#00D2FF]">
+                        {isSelected ? '✓ Seleccionada' : 'Ver modelo'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Vista Previa del Modelo */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                  Vista previa del contenido a insertar:
+                </span>
+                <pre className="text-[10px] font-mono leading-relaxed p-3 rounded-xl bg-slate-100 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap">
+                  {TEMPLATES.find((t) => t.id === previewTemplateId)?.content(companyName)}
+                </pre>
+              </div>
             </div>
 
-            {/* Vista Previa del Modelo */}
-            <div className="space-y-1.5">
-              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                Vista previa del contenido a insertar:
-              </span>
-              <pre className="text-[10px] font-mono leading-relaxed p-3 rounded-xl bg-slate-100 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap">
-                {TEMPLATES.find((t) => t.id === previewTemplateId)?.content(companyName)}
-              </pre>
-            </div>
-
-            {/* Botones del Modal */}
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-[#232A3B]">
+            {/* Botones del Modal Pinned */}
+            <div className="shrink-0 flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#0E131F]">
               <button
                 type="button"
                 onClick={() => setSelectedTemplateModal(false)}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
               >
                 Cancelar
               </button>

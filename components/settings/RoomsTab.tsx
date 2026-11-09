@@ -217,9 +217,9 @@ export function RoomsTab({
 
       {/* Modal Crear / Editar Salón */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#0E121B] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1E2433]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0E121B] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F]">
               <div className="flex items-center gap-2">
                 <DoorOpen className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
@@ -227,60 +227,63 @@ export function RoomsTab({
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {formError && (
-              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs">
-                {formError}
-              </div>
-            )}
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 text-xs [scrollbar-width:thin]">
+                {formError && (
+                  <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs">
+                    {formError}
+                  </div>
+                )}
 
-            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Nombre del {roomLabel} *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={`Ej. ${roomLabel} 1 o Principal`}
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full h-10 px-3.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                />
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Nombre del {roomLabel} *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={`Ej. ${roomLabel} 1 o Principal`}
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="w-full h-10 px-3.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Capacidad Máxima (Aforo) *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    required
+                    value={form.capacity}
+                    onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
+                    className="w-full h-10 px-3.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  />
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+                    Define el aforo máximo simultáneo para citas o reservas en este espacio.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Descripción o Notas de Espacio</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ej. Equipamiento disponible, ubicación interior o notas especiales"
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs resize-none"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Capacidad Máxima (Aforo) *</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  required
-                  value={form.capacity}
-                  onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })}
-                  className="w-full h-10 px-3.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                />
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  Define el aforo máximo simultáneo para citas o reservas en este espacio.
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Descripción o Notas de Espacio</label>
-                <textarea
-                  rows={2}
-                  placeholder="Ej. Equipamiento disponible, ubicación interior o notas especiales"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs resize-none"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 dark:border-[#1E2433] flex items-center justify-end gap-2.5">
+              <div className="shrink-0 px-6 py-3.5 border-t border-slate-100 dark:border-[#1E2433] flex items-center justify-end gap-2.5 bg-slate-50/70 dark:bg-[#0E131F]">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}

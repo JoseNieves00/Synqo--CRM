@@ -130,6 +130,9 @@ export const ConversationRow = React.memo(function ConversationRow({
   const isClosed = c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed';
 
   // 6. Indicador de Reactivación Comercial (>24h de silencio y último mensaje fue nuestro)
+  const productOfInterest = c.custom_fields?.ai_summary?.product_of_interest;
+  const hasActiveReminder = Boolean(c.custom_fields?.active_reminder || c.ai_snooze_until);
+
   const isColdForReactivation = useMemo(() => {
     if (c.pipeline_stage === 'ganado' || c.pipeline_stage === 'perdido' || c.pipeline_stage === 'cita_agendada') return false;
     if (isClosed || c.custom_fields?.reactivation_attempted) return false;
@@ -245,6 +248,26 @@ export const ConversationRow = React.memo(function ConversationRow({
           <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] truncate max-w-[90px]">
             {stageObj.label}
           </span>
+
+          {/* Badge de Producto de Interés (Venta a media) */}
+          {productOfInterest && (
+            <span
+              title={`Producto cotizado: ${productOfInterest}`}
+              className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-500/20 truncate max-w-[85px]"
+            >
+              🛒 {productOfInterest}
+            </span>
+          )}
+
+          {/* Badge de Compromiso / Recordatorio */}
+          {hasActiveReminder && (
+            <span
+              title="Compromiso / Recordatorio comercial activo"
+              className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 shrink-0"
+            >
+              ⏰
+            </span>
+          )}
 
           {/* Badge de Reactivación Comercial */}
           {isColdForReactivation && (

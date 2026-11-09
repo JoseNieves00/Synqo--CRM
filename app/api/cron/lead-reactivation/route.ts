@@ -53,12 +53,14 @@ async function handleCron(request: NextRequest) {
 
   try {
     const orgId = searchParams.get('orgId') || undefined;
-    const result = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
+    const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
+    const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
-      ...result,
+      ...reactivationResult,
+      autoArchivedUnresponsive: archiveResult.autoArchivedCount,
     });
   } catch (err: any) {
     console.error('[CRON LEAD REACTIVATION ERROR]', err);

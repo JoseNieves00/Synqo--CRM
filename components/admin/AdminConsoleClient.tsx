@@ -1050,10 +1050,10 @@ export default function AdminConsoleClient({
 
       {/* Modal: Editar Empresa (Plan, Usuarios, Tokens) — Diseño Horizontal Adaptativo */}
       {editingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200 my-auto">
-            {/* Cabecera */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200">
+            {/* Cabecera Pinned */}
+            <div className="shrink-0 px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-[#0052FF]/10 text-[#0052FF] flex items-center justify-center font-bold shadow-xs">
                   <Building2 className="w-5 h-5" />
@@ -1077,9 +1077,10 @@ export default function AdminConsoleClient({
               </button>
             </div>
 
-            <form onSubmit={handleUpdateCompanyDetails} className="p-6">
-              {/* Layout Horizontal de 2 Columnas */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleUpdateCompanyDetails} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 [scrollbar-width:thin]">
+                {/* Layout Horizontal de 2 Columnas */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Columna Izquierda: Información de Empresa & Equipo */}
                 <div className="space-y-4">
                   <div>
@@ -1607,8 +1608,10 @@ export default function AdminConsoleClient({
                 </div>
               </div>
 
-              {/* Botones de Acción (Footer Horizontal) */}
-              <div className="mt-6 pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+              </div>
+
+              {/* Botones de Acción (Footer Horizontal Pinned) */}
+              <div className="shrink-0 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/70">
                 <button
                   type="button"
                   onClick={() => setEditingOrg(null)}
@@ -1632,19 +1635,29 @@ export default function AdminConsoleClient({
 
       {/* Mini-Modal: Actualizar Cobertura de Pago (Mensual o Anual) */}
       {payingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-gray-200 bg-gray-50/50">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-emerald-600" />
-                Actualizar Estado de Pago
-              </h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Empresa: <strong className="text-gray-900">{payingOrg.name}</strong>
-              </p>
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="shrink-0 p-5 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-emerald-600" />
+                  Actualizar Estado de Pago
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Empresa: <strong className="text-gray-900">{payingOrg.name}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayingOrg(null)}
+                className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
 
-            <form onSubmit={handlePaymentSubmit} className="p-5 space-y-4">
+            <form onSubmit={handlePaymentSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4 [scrollbar-width:thin]">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-2">
                   Selecciona el período cubierto:
@@ -1715,7 +1728,9 @@ export default function AdminConsoleClient({
                 <p>• Los tokens de OpenAI se <strong>reinician a 0</strong> para el nuevo ciclo.</p>
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-gray-100">
+              </div>
+
+              <div className="shrink-0 px-5 py-3.5 flex items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/50">
                 <button
                   type="button"
                   onClick={() => setPayingOrg(null)}

@@ -2435,9 +2435,9 @@ export function SettingsForm({
 
       {/* Modal de Edición de Plantilla */}
       {templateToEdit && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4">
-            <div className="flex items-center gap-3">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full max-h-[90vh] flex flex-col overflow-hidden p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150">
+            <div className="shrink-0 flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-[#1E2433]">
               <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 flex items-center justify-center shrink-0">
                 <Pencil className="w-5 h-5" />
               </div>
@@ -2458,69 +2458,71 @@ export function SettingsForm({
               </div>
             )}
 
-            <form onSubmit={handleSaveEditTemplate} className="space-y-3 pt-1">
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
-                  Nombre exacto en Meta <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={templateToEdit.name}
-                  onChange={(e) =>
-                    setTemplateToEdit({
-                      ...templateToEdit,
-                      name: e.target.value.toLowerCase().replace(/\s+/g, '_'),
-                    })
-                  }
-                  placeholder="ej: reactivacion_lead"
-                  className="w-full text-xs font-mono border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
-                  Etiqueta en CRM (Nombre amigable)
-                </label>
-                <input
-                  type="text"
-                  value={templateToEdit.label}
-                  onChange={(e) =>
-                    setTemplateToEdit({
-                      ...templateToEdit,
-                      label: e.target.value,
-                    })
-                  }
-                  placeholder="ej: Reactivación de Lead"
-                  className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
-                  Confirma con tu contraseña <span className="text-rose-400">*</span>
-                </label>
-                <div className="relative">
+            <form onSubmit={handleSaveEditTemplate} className="flex flex-col flex-1 min-h-0 pt-3">
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-3.5 [scrollbar-width:thin] pr-1">
+                <div>
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                    Nombre exacto en Meta <span className="text-rose-400">*</span>
+                  </label>
                   <input
-                    type={showEditPassword ? 'text' : 'password'}
-                    value={editPassword}
-                    onChange={(e) => setEditPassword(e.target.value)}
-                    placeholder="Tu contraseña de Synqo"
-                    className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3 pr-9 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
+                    type="text"
+                    value={templateToEdit.name}
+                    onChange={(e) =>
+                      setTemplateToEdit({
+                        ...templateToEdit,
+                        name: e.target.value.toLowerCase().replace(/\s+/g, '_'),
+                      })
+                    }
+                    placeholder="ej: reactivacion_lead"
+                    className="w-full text-xs font-mono border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
                     required
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowEditPassword(!showEditPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-0.5"
-                    title={showEditPassword ? 'Ocultar' : 'Mostrar'}
-                  >
-                    {showEditPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                    Etiqueta en CRM (Nombre amigable)
+                  </label>
+                  <input
+                    type="text"
+                    value={templateToEdit.label}
+                    onChange={(e) =>
+                      setTemplateToEdit({
+                        ...templateToEdit,
+                        label: e.target.value,
+                      })
+                    }
+                    placeholder="ej: Reactivación de Lead"
+                    className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                    Confirma con tu contraseña <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showEditPassword ? 'text' : 'password'}
+                      value={editPassword}
+                      onChange={(e) => setEditPassword(e.target.value)}
+                      placeholder="Tu contraseña de Synqo"
+                      className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3 pr-9 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPassword(!showEditPassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-0.5"
+                      title={showEditPassword ? 'Ocultar' : 'Mostrar'}
+                    >
+                      {showEditPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="shrink-0 flex items-center gap-2 pt-3 border-t border-slate-100 dark:border-[#1E2433] mt-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -2549,56 +2551,63 @@ export function SettingsForm({
 
       {/* Modal de Confirmación para Eliminar Plantilla */}
       {templateToDelete && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150 space-y-4">
-            <div className="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 flex items-center justify-center">
-              <Trash2 className="w-5 h-5" />
-            </div>
-
-            <div>
-              <h3 className="font-bold text-base text-slate-900 dark:text-white mb-1">
-                ¿Eliminar plantilla de WhatsApp?
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                ¿Estás seguro de que deseas quitar la plantilla{' '}
-                <strong className="text-slate-800 dark:text-slate-200 font-mono">"{templateToDelete}"</strong> del CRM? Ya no estará disponible en el selector del Inbox.
-              </p>
-            </div>
-
-            {deleteError && (
-              <div className="p-2.5 rounded-xl text-xs font-medium bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
-                <span>{deleteError}</span>
+        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full max-h-[90vh] flex flex-col overflow-hidden p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in fade-in zoom-in-95 duration-150">
+            <div className="shrink-0 flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-[#1E2433]">
+              <div className="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
               </div>
-            )}
-
-            <form onSubmit={confirmDeleteTemplate} className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
-                  Confirma con tu contraseña <span className="text-rose-400">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showDeletePassword ? 'text' : 'password'}
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    placeholder="Tu contraseña de Synqo"
-                    className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3 pr-9 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
-                    autoFocus
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowDeletePassword(!showDeletePassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-0.5"
-                    title={showDeletePassword ? 'Ocultar' : 'Mostrar'}
-                  >
-                    {showDeletePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+                <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                  ¿Eliminar plantilla?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Acción irreversible de Meta
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={confirmDeleteTemplate} className="flex flex-col flex-1 min-h-0 pt-3">
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-3.5 [scrollbar-width:thin] pr-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  ¿Estás seguro de que deseas quitar la plantilla{' '}
+                  <strong className="text-slate-800 dark:text-slate-200 font-mono">"{templateToDelete}"</strong> del CRM? Ya no estará disponible en el selector del Inbox.
+                </p>
+
+                {deleteError && (
+                  <div className="p-2.5 rounded-xl text-xs font-medium bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
+                    <span>{deleteError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300 block mb-1">
+                    Confirma con tu contraseña <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showDeletePassword ? 'text' : 'password'}
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      placeholder="Tu contraseña de Synqo"
+                      className="w-full text-xs border border-slate-200 dark:border-[#232A3B] rounded-xl pl-3 pr-9 py-2 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50 dark:bg-[#090A0F]"
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowDeletePassword(!showDeletePassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-0.5"
+                      title={showDeletePassword ? 'Ocultar' : 'Mostrar'}
+                    >
+                      {showDeletePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 pt-1">
+              <div className="shrink-0 flex items-center gap-2 pt-3 border-t border-slate-100 dark:border-[#1E2433] mt-3">
                 <button
                   type="button"
                   onClick={() => {

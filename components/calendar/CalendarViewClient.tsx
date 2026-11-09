@@ -1187,9 +1187,9 @@ export function CalendarViewClient({
 
       {/* Modal Nueva Cita Rápida Adaptable al Nicho */}
       {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 my-8">
-            <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[#1E2433] bg-[#090A0F]/70">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#00D2FF]" />
                 <div>
@@ -1198,20 +1198,21 @@ export function CalendarViewClient({
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsNewModalOpen(false)}
-                className="text-slate-400 hover:text-white transition p-1"
+                className="text-slate-400 hover:text-white transition p-1.5 rounded-lg hover:bg-[#1A1F2C] cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {formError && (
-              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
-                {formError}
-              </div>
-            )}
-
-            <form onSubmit={handleCreateAppointment} className="space-y-4 text-xs">
+            <form onSubmit={handleCreateAppointment} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 text-xs [scrollbar-width:thin]">
+                {formError && (
+                  <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                    {formError}
+                  </div>
+                )}
               {/* 1. Selector de Modalidad */}
               {currentNiche.allowedModalities.length > 1 && (
                 <div>
@@ -1430,19 +1431,20 @@ export function CalendarViewClient({
                   className="w-full px-3 py-2 bg-[#131722] border border-[#232A3B] rounded-lg text-slate-200 text-xs focus:outline-none focus:border-[#00D2FF] resize-none"
                 />
               </div>
+            </div>
 
-              <div className="pt-3 border-t border-[#1E2433] flex items-center justify-end gap-2.5">
+              <div className="shrink-0 px-6 py-3.5 border-t border-[#1E2433] flex items-center justify-end gap-2.5 bg-[#090A0F]/70">
                 <button
                   type="button"
                   onClick={() => setIsNewModalOpen(false)}
-                  className="px-3 py-2 rounded-lg bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl bg-[#131722] hover:bg-[#1A2030] text-slate-400 hover:text-white transition cursor-pointer text-xs font-semibold"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="px-4 py-2 rounded-lg bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0040CC] text-white font-semibold flex items-center gap-2 transition cursor-pointer disabled:opacity-50 text-xs shadow-xs"
                 >
                   {isPending && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{isPending ? 'Agendando...' : 'Confirmar Cita'}</span>
@@ -1455,22 +1457,23 @@ export function CalendarViewClient({
 
       {/* Modal Detalle de Cita */}
       {selectedAppointment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#1E2433]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0E121B] border border-[#232A3B] rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[#1E2433] bg-[#090A0F]/70">
               <div className="flex items-center gap-2">
                 <CalendarIcon className="w-4 h-4 text-[#00D2FF]" />
                 <h3 className="text-base font-bold text-white">Detalle de la Cita</h3>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedAppointment(null)}
-                className="text-slate-400 hover:text-white transition"
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3 text-xs [scrollbar-width:thin]">
               <div className="p-3 rounded-xl bg-[#131722] border border-[#232A3B] space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{selectedAppointment.serviceName}</span>

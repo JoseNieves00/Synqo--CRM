@@ -310,4 +310,77 @@ export class LeadReactivationService {
 
     return result;
   }
+
+  /**
+   * Auto-archiva a 'closed' a los prospectos que recibieron un mensaje de reactivación
+   * y llevan más de 48 horas sin contestar, limpiando el Inbox de forma 100% automática.
+   */
+  static async processAutoArchiveUnresponsiveReactivations(
+    specificOrgId?: string
+  ): Promise<{ autoArchivedCount: number; errors: string[] }> {
+    const result = { autoArchivedCount: 0, errors: [] as string[] };
+
+    let query = (supabaseAdmin.from('contacts') as any)
+      .select('id, name, phone, organization_id, custom_fields, unread_count, conversation_status')
+      .neq('conversation_status', 'closed')
+      .limit(50);
+
+    if (specificOrgId) {
+      query = query.eq('organization_id', specificOrgId);
+    }
+
+    const { data: contacts, error } = await query;
+    if (error) {
+      result.errors.push(`Error consultando leads para auto-archivo: ${error.message}`);
+      return result;
+    }
+
+    if (!contacts || contacts.length === 0) return result;
+
+    for (const contact of contacts) {
+      const custom = (contact.custom_fields as Record<string, any>) || {};
+      if (custom.reactivation_attempted !== true) continue;
+      const sentAt = custom.reactivation_sent_at;
+      if (!sentAt) continue;
+
+      // Verificar si ya pasaron 48h desde el envío de reactivación y no hay mensajes no leídos
+      const sentTime = new Date(sentAt).getTime();
+      if (isNaN(sentTime)) continue;
+      const isPast48h = Date.now() - sentTime >= 48 * 3600 * 1000;
+      const unread = contact.unread_count || 0;
+
+      if (isPast48h && unread === 0) {
+        try {
+          const updatedCustom = {
+            ...custom,
+            conversation_status: 'closed',
+            closed_reason_label: 'Sin respuesta a reactivación (Auto-archivado)',
+            closed_by: 'Sistema (Auto-Archivo Anti-Laberinto)',
+          };
+
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              conversation_status: 'closed',
+              closed_at: new Date().toISOString(),
+              close_reason: 'sin_respuesta_post_reactivacion',
+              custom_fields: updatedCustom,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', contact.id);
+
+          await (supabaseAdmin.from('messages') as any).insert({
+            contact_id: contact.id,
+            sender_type: 'system',
+            content: '[📁 Chat archivado automáticamente en Cerrados tras 48h de silencio post-reactivación para mantener el Inbox 100% limpio]',
+          });
+
+          result.autoArchivedCount++;
+        } catch (itemErr: any) {
+          result.errors.push(`Error auto-archivando lead ${contact.id}: ${itemErr.message}`);
+        }
+      }
+    }
+
+    return result;
+  }
 }

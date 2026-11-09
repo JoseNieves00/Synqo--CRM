@@ -139,10 +139,10 @@ export function ScheduleReminderModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100 space-y-4">
+    <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 dark:border-[#232A3B] animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
         {/* Cabecera */}
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#232A3B] pb-3">
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 flex items-center justify-center shrink-0">
               <Clock className="w-5 h-5" />
@@ -160,20 +160,21 @@ export function ScheduleReminderModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {error && (
-          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+        {/* Contenido con scroll interno */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4 [scrollbar-width:thin]">
+          {error && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
-        <div className="space-y-4">
           {/* 1. Selector de Tipo de Recordatorio */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
@@ -300,8 +301,8 @@ export function ScheduleReminderModal({
           </div>
         </div>
 
-        {/* Botones de acción */}
-        <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-[#232A3B]">
+        {/* Botones de acción fijos */}
+        <div className="shrink-0 flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#0E131F]">
           <button
             type="button"
             onClick={onClose}

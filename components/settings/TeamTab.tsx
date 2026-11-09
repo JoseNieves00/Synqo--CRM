@@ -474,81 +474,92 @@ export function TeamTab({ initialData }: TeamTabProps) {
 
       {/* Modal: Agregar Miembro */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 dark:border-[#232A3B]">
-            <div className="p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#1A1F2C]/50">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
-                Agregar Nuevo Miembro al Equipo
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Crea el acceso asignándole una contraseña temporal para que ingrese de inmediato.
-              </p>
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-[#232A3B]">
+            <div className="shrink-0 p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#1A1F2C]/50 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                  Agregar Nuevo Miembro al Equipo
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Crea el acceso asignándole una contraseña temporal para que ingrese de inmediato.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <form onSubmit={handleAddMember} className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Nombre Completo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Ej. Laura Gómez"
-                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                />
+            <form onSubmit={handleAddMember} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4 [scrollbar-width:thin]">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Nombre Completo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Ej. Laura Gómez"
+                    className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Correo Electrónico *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="laura@empresa.com"
+                    className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Rol de Acceso *
+                  </label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as any)}
+                    className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  >
+                    <option value="agent">Agente (Inbox & Pipeline)</option>
+                    <option value="supervisor">Supervisor (Monitoreo & Reportes)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-slate-400" />
+                    Contraseña Temporal de Acceso * (Mínimo 8 caracteres)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Contraseña inicial para el usuario"
+                    className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  />
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+                    El usuario utilizará este correo y contraseña en /login.
+                  </span>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Correo Electrónico *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="laura@empresa.com"
-                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Rol de Acceso *
-                </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as any)}
-                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                >
-                  <option value="agent">Agente (Inbox & Pipeline)</option>
-                  <option value="supervisor">Supervisor (Monitoreo & Reportes)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Key className="w-3.5 h-3.5 text-slate-400" />
-                  Contraseña Temporal de Acceso * (Mínimo 8 caracteres)
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Contraseña inicial para el usuario"
-                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                />
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-                  El usuario utilizará este correo y contraseña en /login.
-                </span>
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-[#1E2433]">
+              <div className="shrink-0 p-4 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F]/70">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -571,9 +582,9 @@ export function TeamTab({ initialData }: TeamTabProps) {
 
       {/* Modal: Editar Datos No Sensibles del Miembro (Admin) */}
       {editingMember && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-[#232A3B] transition-colors animate-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#1A1F2C]/50 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-[#232A3B] transition-colors animate-in zoom-in-95 duration-200">
+            <div className="shrink-0 p-5 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#1A1F2C]/50 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Pencil className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
@@ -592,84 +603,86 @@ export function TeamTab({ initialData }: TeamTabProps) {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditMember} className="p-5 space-y-4">
-              {/* Banner de Seguridad: Solo Datos No Sensibles */}
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/25 flex items-start gap-2.5 text-xs text-blue-900 dark:text-blue-200">
-                <Shield className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF] shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <span className="font-bold">Modificación Segura de Datos No Sensibles</span>
-                  <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-snug">
-                    Por seguridad, las credenciales de contraseña permanecen cifradas y no se editan directamente. Si el usuario requiere una nueva clave, usa el botón de regenerar contraseña temporal con cambio forzado.
-                  </p>
+            <form onSubmit={handleSaveEditMember} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4 [scrollbar-width:thin]">
+                {/* Banner de Seguridad: Solo Datos No Sensibles */}
+                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/25 flex items-start gap-2.5 text-xs text-blue-900 dark:text-blue-200">
+                  <Shield className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF] shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <span className="font-bold">Modificación Segura de Datos No Sensibles</span>
+                    <p className="text-[11px] text-blue-800 dark:text-blue-300 leading-snug">
+                      Por seguridad, las credenciales de contraseña permanecen cifradas y no se editan directamente. Si el usuario requiere una nueva clave, usa el botón de regenerar contraseña temporal con cambio forzado.
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Nombre Completo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editFullName}
-                  onChange={(e) => setEditFullName(e.target.value)}
-                  placeholder="Ej. Laura Gómez"
-                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Correo Electrónico *
-                </label>
-                <div className="relative">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Nombre Completo *
+                  </label>
                   <input
-                    type="email"
+                    type="text"
                     required
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    placeholder="laura@empresa.com"
-                    className="w-full h-10 pl-9 pr-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs font-mono"
+                    value={editFullName}
+                    onChange={(e) => setEditFullName(e.target.value)}
+                    placeholder="Ej. Laura Gómez"
+                    className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
                   />
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Correo Electrónico *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      required
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      placeholder="laura@empresa.com"
+                      className="w-full h-10 pl-9 pr-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs font-mono"
+                    />
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Número de WhatsApp Personal (Alertas de Relevo)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      value={editWhatsapp}
+                      onChange={(e) => setEditWhatsapp(e.target.value)}
+                      placeholder="ej: 3001234567 o 57300..."
+                      className="w-full h-10 pl-9 pr-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs font-mono"
+                    />
+                    <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  </div>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
+                    Permite al sistema enviar alertas de WhatsApp directo a su celular cuando se le asigne un prospecto.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Rol de Acceso *
+                  </label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value as any)}
+                    className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
+                  >
+                    <option value="agent">Agente (Inbox & Pipeline)</option>
+                    <option value="supervisor">Supervisor (Monitoreo & Reportes)</option>
+                    <option value="admin">Administrador (Control Total de Empresa)</option>
+                  </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Número de WhatsApp Personal (Alertas de Relevo)
-                </label>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    value={editWhatsapp}
-                    onChange={(e) => setEditWhatsapp(e.target.value)}
-                    placeholder="ej: 3001234567 o 57300..."
-                    className="w-full h-10 pl-9 pr-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs font-mono"
-                  />
-                  <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                </div>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-                  Permite al sistema enviar alertas de WhatsApp directo a su celular cuando se le asigne un prospecto.
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Rol de Acceso *
-                </label>
-                <select
-                  value={editRole}
-                  onChange={(e) => setEditRole(e.target.value as any)}
-                  className="w-full h-10 px-3.5 text-sm rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition shadow-xs"
-                >
-                  <option value="agent">Agente (Inbox & Pipeline)</option>
-                  <option value="supervisor">Supervisor (Monitoreo & Reportes)</option>
-                  <option value="admin">Administrador (Control Total de Empresa)</option>
-                </select>
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-[#1E2433]">
+              <div className="shrink-0 p-4 flex items-center justify-end gap-2.5 border-t border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F]/70">
                 <button
                   type="button"
                   onClick={() => setEditingMember(null)}

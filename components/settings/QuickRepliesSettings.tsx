@@ -408,9 +408,9 @@ export function QuickRepliesSettings({
 
       {/* Modal de Creación / Edición de Atajo */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#131722] rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-[#232A3B] space-y-4 animate-in zoom-in-95 duration-200 text-slate-100">
-            <div className="flex items-center justify-between border-b border-[#1E2433] pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#131722] rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-[#232A3B] animate-in zoom-in-95 duration-200 text-slate-100">
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[#1E2433] bg-[#090A0F]/70">
               <div className="flex items-center gap-2.5 text-white">
                 <div className="w-8 h-8 rounded-lg bg-[#090A0F] text-[#00D2FF] border border-[#232A3B] flex items-center justify-center">
                   {editingIndex !== null ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -429,77 +429,79 @@ export function QuickRepliesSettings({
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer"
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {modalError && (
-              <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>{modalError}</span>
-              </div>
-            )}
+            <form onSubmit={handleSaveModal} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 [scrollbar-width:thin]">
+                {modalError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                    <span>{modalError}</span>
+                  </div>
+                )}
 
-            <form onSubmit={handleSaveModal} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-slate-300 block mb-1">
+                      Código de Atajo <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formShortcut}
+                      onChange={(e) => setFormShortcut(e.target.value)}
+                      placeholder="/cuenta"
+                      className="w-full text-xs px-3 py-2 border border-[#232A3B] rounded-xl bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">Ejemplo: /precios, /garantia</span>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-300 block mb-1">
+                      Nombre o Etiqueta
+                    </label>
+                    <input
+                      type="text"
+                      value={formLabel}
+                      onChange={(e) => setFormLabel(e.target.value)}
+                      placeholder="Cuentas Bancarias"
+                      className="w-full text-xs px-3 py-2 border border-[#232A3B] rounded-xl bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">Visible en el menú de sugerencias</span>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="text-xs font-medium text-slate-300 block mb-1">
-                    Código de Atajo <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formShortcut}
-                    onChange={(e) => setFormShortcut(e.target.value)}
-                    placeholder="/cuenta"
-                    className="w-full text-xs px-3 py-2 border border-[#232A3B] rounded-xl bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-slate-300">
+                      Mensaje del Atajo <span className="text-rose-400">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setFormText((prev) => prev + '{primer_nombre}')}
+                      className="text-[10px] text-[#00D2FF] hover:underline cursor-pointer font-mono"
+                      title="Insertar variable de nombre del lead"
+                    >
+                      + Insertar {"{primer_nombre}"}
+                    </button>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={formText}
+                    onChange={(e) => setFormText(e.target.value)}
+                    placeholder="Escribe el mensaje completo. Puedes usar {primer_nombre} para que el CRM lo reemplace por el nombre real del contacto..."
+                    className="w-full text-xs px-3 py-2.5 border border-[#232A3B] rounded-xl bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF] leading-relaxed"
                   />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">Ejemplo: /precios, /garantia</span>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-300 block mb-1">
-                    Nombre o Etiqueta
-                  </label>
-                  <input
-                    type="text"
-                    value={formLabel}
-                    onChange={(e) => setFormLabel(e.target.value)}
-                    placeholder="Cuentas Bancarias"
-                    className="w-full text-xs px-3 py-2 border border-[#232A3B] rounded-xl bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">Visible en el menú de sugerencias</span>
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-slate-300">
-                    Mensaje del Atajo <span className="text-rose-400">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setFormText((prev) => prev + '{primer_nombre}')}
-                    className="text-[10px] text-[#00D2FF] hover:underline cursor-pointer font-mono"
-                    title="Insertar variable de nombre del lead"
-                  >
-                    + Insertar {"{primer_nombre}"}
-                  </button>
-                </div>
-                <textarea
-                  rows={4}
-                  value={formText}
-                  onChange={(e) => setFormText(e.target.value)}
-                  placeholder="Escribe el mensaje completo. Puedes usar {primer_nombre} para que el CRM lo reemplace por el nombre real del contacto..."
-                  className="w-full text-xs px-3 py-2.5 border border-[#232A3B] rounded-xl bg-[#090A0F] text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF] leading-relaxed"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#1E2433]">
+              <div className="shrink-0 flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-[#1E2433] bg-[#0E131F]">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-xl hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
+                  className="px-3.5 py-2 text-xs text-slate-400 hover:text-white rounded-xl hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
                 >
                   Cancelar
                 </button>

@@ -272,10 +272,10 @@ export function ManageQuickRepliesModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-[#131722] rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-[#232A3B] space-y-4 animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col text-slate-100">
-        {/* Cabecera */}
-        <div className="flex items-center justify-between border-b border-[#1E2433] pb-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-[#131722] rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-[#232A3B] animate-in zoom-in-95 duration-200 text-slate-100">
+        {/* Cabecera Pinned */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[#1E2433] bg-[#090A0F]/70">
           <div className="flex items-center gap-2.5 text-white">
             <div className="w-8 h-8 rounded-lg bg-[#090A0F] text-[#00D2FF] border border-[#232A3B] flex items-center justify-center">
               <Zap className="w-4 h-4 text-amber-400" />
@@ -287,28 +287,27 @@ export function ManageQuickRepliesModal({
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {error && (
-          <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-            <span>{error}</span>
-          </div>
-        )}
+        {/* Contenido scrolleable interno */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 [scrollbar-width:thin]">
+          {error && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{error}</span>
+            </div>
+          )}
 
-        {successMsg && (
-          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl font-medium animate-in fade-in duration-150 flex items-center gap-2">
-            <Check className="w-4 h-4 shrink-0 text-emerald-400" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-
-        {/* Contenido scrolleable */}
-        <div className="space-y-4 overflow-y-auto pr-1 flex-1">
+          {successMsg && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl font-medium animate-in fade-in duration-150 flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{successMsg}</span>
+            </div>
+          )}
           {/* SECCIÓN 1: Sugerencias de la IA basadas en el Prompt */}
           {aiSuggestions.length > 0 && (
             <div className="bg-[#090A0F] border border-[#232A3B] rounded-xl p-3.5 space-y-2.5">
@@ -604,8 +603,8 @@ export function ManageQuickRepliesModal({
           </div>
         </div>
 
-        {/* Footer con Guardar Cambios */}
-        <div className="flex items-center justify-between pt-3 border-t border-[#1E2433]">
+        {/* Footer con Guardar Cambios Pinned */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-3.5 border-t border-[#1E2433] bg-[#090A0F]/70">
           <span className="text-[11px] text-slate-500 font-medium">
             {snippets.length} atajo{snippets.length === 1 ? '' : 's'} activo{snippets.length === 1 ? '' : 's'}
           </span>
@@ -613,7 +612,7 @@ export function ManageQuickRepliesModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
+              className="px-3.5 py-2 text-xs text-slate-400 hover:text-white rounded-xl hover:bg-[#1A1F2C] transition cursor-pointer font-medium"
             >
               Cerrar
             </button>
@@ -621,7 +620,7 @@ export function ManageQuickRepliesModal({
               type="button"
               onClick={handleSaveAll}
               disabled={loading}
-              className="px-4 py-1.5 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-lg transition shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold rounded-xl transition shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
             >
               {loading ? (
                 <>

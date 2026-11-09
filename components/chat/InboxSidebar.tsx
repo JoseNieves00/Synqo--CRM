@@ -71,10 +71,40 @@ export function InboxSidebar({
   onOpenBatchApology,
 }: InboxSidebarProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [seguimientoFilter, setSeguimientoFilter] = useState<'all' | 'ventas_a_medias' | 'compromisos' | 'por_reactivar'>('all');
   const listContainerRef = useRef<HTMLDivElement>(null);
 
+  // Filtrado de contactos según la sub-bandeja activa de Seguimiento
+  const displayedContacts = useMemo(() => {
+    if (activeView !== 'seguimiento' || seguimientoFilter === 'all') {
+      return contacts;
+    }
+    const nowTime = Date.now();
+    return contacts.filter((c) => {
+      const isCold =
+        !c.custom_fields?.reactivation_attempted &&
+        c.conversation_status !== 'closed' &&
+        nowTime - new Date(c.last_interaction_at).getTime() >= 24 * 3600 * 1000;
+      const hasReminder = Boolean(c.custom_fields?.active_reminder || c.ai_snooze_until);
+      const hasQuotedProduct = Boolean(
+        c.custom_fields?.ai_summary?.product_of_interest || c.deal_value || c.custom_fields?.last_quoted_product
+      );
+
+      if (seguimientoFilter === 'ventas_a_medias') {
+        return hasQuotedProduct || isCold;
+      }
+      if (seguimientoFilter === 'compromisos') {
+        return hasReminder;
+      }
+      if (seguimientoFilter === 'por_reactivar') {
+        return isCold;
+      }
+      return true;
+    });
+  }, [contacts, activeView, seguimientoFilter]);
+
   const rowVirtualizer = useVirtualizer({
-    count: contacts.length,
+    count: displayedContacts.length,
     getScrollElement: () => listContainerRef.current,
     estimateSize: () => 74,
     overscan: 6,
@@ -83,11 +113,11 @@ export function InboxSidebar({
   // Mantener el contacto seleccionado visible al navegar con J/K o hacer clic
   useEffect(() => {
     if (!selectedContactId) return;
-    const idx = contacts.findIndex((c) => c.id === selectedContactId);
+    const idx = displayedContacts.findIndex((c) => c.id === selectedContactId);
     if (idx >= 0) {
       rowVirtualizer.scrollToIndex(idx, { align: 'auto' });
     }
-  }, [selectedContactId]);
+  }, [selectedContactId, displayedContacts]);
 
   // Mapa de nombres de asesores
   const memberMap = useMemo(() => {
@@ -203,6 +233,59 @@ export function InboxSidebar({
           counts={counts}
           onChangeView={onChangeView}
         />
+
+        {/* 3.1 Sub-bandejas inteligentes de Seguimiento (Ventas a Medias, Compromisos, Por Reactivar) */}
+        {activeView === 'seguimiento' && (
+          <div className="flex items-center gap-1 pt-1 overflow-x-auto no-scrollbar animate-in fade-in duration-150">
+            <button
+              type="button"
+              onClick={() => setSeguimientoFilter('all')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition shrink-0 cursor-pointer ${
+                seguimientoFilter === 'all'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-slate-100 text-slate-600 dark:bg-[#1A1F2C] dark:text-slate-400 hover:bg-slate-200'
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              onClick={() => setSeguimientoFilter('ventas_a_medias')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition shrink-0 cursor-pointer flex items-center gap-1 ${
+                seguimientoFilter === 'ventas_a_medias'
+                  ? 'bg-[#0052FF] text-white shadow-2xs'
+                  : 'bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] hover:bg-blue-500/20'
+              }`}
+            >
+              <span>🛒</span>
+              <span>Ventas a Medias</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSeguimientoFilter('compromisos')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition shrink-0 cursor-pointer flex items-center gap-1 ${
+                seguimientoFilter === 'compromisos'
+                  ? 'bg-amber-600 text-white shadow-2xs'
+                  : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20'
+              }`}
+            >
+              <span>⏰</span>
+              <span>Compromisos</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSeguimientoFilter('por_reactivar')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition shrink-0 cursor-pointer flex items-center gap-1 ${
+                seguimientoFilter === 'por_reactivar'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20'
+              }`}
+            >
+              <span>❄️</span>
+              <span>Por Reactivar</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 4. Barra de Acciones en Bloque (Multi-Select) */}
@@ -259,7 +342,7 @@ export function InboxSidebar({
         ref={listContainerRef}
         className="flex-1 overflow-y-auto"
       >
-        {contacts.length === 0 ? (
+        {displayedContacts.length === 0 ? (
           <div className="p-8 text-center text-slate-400 space-y-2">
             <CheckCircle2 className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
             <h4 className="font-semibold text-xs text-slate-700 dark:text-slate-300">
@@ -278,7 +361,7 @@ export function InboxSidebar({
             }}
           >
             {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-              const c = contacts[virtualItem.index];
+              const c = displayedContacts[virtualItem.index];
               if (!c) return null;
               return (
                 <div
