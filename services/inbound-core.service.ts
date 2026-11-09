@@ -794,18 +794,23 @@ export class InboundCoreService {
         const targetRecipient = customFields.remote_jid || customFields.whatsapp_jid || senderId;
 
         if (cleanedAiText) {
-          const clientMsgId = crypto.randomUUID();
+          const messageId = crypto.randomUUID();
 
-          // 🛡️ PATRÓN OUTBOX: Insertar mensaje con status 'sending' y client_message_id ANTES de llamar a Evolution / Meta.
+          // 🛡️ PATRÓN OUTBOX: Insertar mensaje con status 'sending' e ID primario ANTES de llamar a Evolution / Meta.
           // Esto elimina la carrera donde el eco fromMe de Evolution llega antes de que el mensaje exista en DB.
-          await (supabaseAdmin.from('messages') as any).insert({
+          const { error: outboxInsertErr } = await (supabaseAdmin.from('messages') as any).insert({
+            id: messageId,
             contact_id: contactId,
+            organization_id: organization.id,
             sender_type: 'ai',
             content: cleanedAiText,
-            client_message_id: clientMsgId,
             status: 'sending',
             channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
           });
+
+          if (outboxInsertErr) {
+            console.error('[INBOUND CORE OUTBOX INSERT ERROR]', outboxInsertErr);
+          }
 
           try {
             outboundMessageId = await this.dispatchOutboundMessage({
@@ -823,7 +828,7 @@ export class InboundCoreService {
                 meta_message_id: outboundMessageId || null,
                 updated_at: new Date().toISOString(),
               })
-              .eq('client_message_id', clientMsgId);
+              .eq('id', messageId);
           } catch (dispatchErr: any) {
             console.error('[INBOUND CORE OUTBOUND DISPATCH FAILED]', dispatchErr);
             await (supabaseAdmin.from('messages') as any)
@@ -832,7 +837,7 @@ export class InboundCoreService {
                 error_message: dispatchErr?.message || 'Error de envío',
                 updated_at: new Date().toISOString(),
               })
-              .eq('client_message_id', clientMsgId);
+              .eq('id', messageId);
             throw dispatchErr;
           }
         }
@@ -860,6 +865,8 @@ export class InboundCoreService {
           last_interaction_at: nowIso,
           updated_at: nowIso,
           waiting_since: null,
+          unread_count: 0,
+          conversation_status: 'waiting_customer',
           last_message_sender: 'ai',
           last_message_preview: effectiveLastText.slice(0, 160),
           custom_fields: updatedCustom,

@@ -114,8 +114,8 @@ assert.ok(
   'inbound-core.service.ts debe insertar mensaje con status "sending" antes del envío externo (Outbox)'
 );
 assert.ok(
-  inboundCoreContent.includes('client_message_id: clientMsgId'),
-  'inbound-core.service.ts debe asociar client_message_id único en el outbox'
+  inboundCoreContent.includes('id: messageId') && inboundCoreContent.includes("status: 'sending'"),
+  'inbound-core.service.ts debe asociar id único en el outbox con status sending'
 );
 
 const evoWebhookPath = path.join(process.cwd(), 'app/api/webhooks/whatsapp/evolution/route.ts');

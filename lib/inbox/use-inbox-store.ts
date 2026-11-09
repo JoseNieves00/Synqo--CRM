@@ -252,6 +252,13 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         if (isAlreadyInView) {
           nextViewIds[currentView] = currentIds.filter((id) => id !== contact.id);
         }
+      } else if (
+        currentView === 'por_responder' &&
+        isAlreadyInView &&
+        (updated.conversation_status === 'waiting_customer' ||
+          (updated.is_ai_active && (updated.unread_count || 0) === 0 && !updated.waiting_since))
+      ) {
+        nextViewIds['por_responder'] = currentIds.filter((id) => id !== contact.id);
       } else if (!isAlreadyInView) {
         let matches = false;
         if (currentView === 'por_responder') {
@@ -375,7 +382,10 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       if (existingContact) {
         const isFromLead = msg.sender_type === 'lead';
         const isCurrentActive = state.activeContactId === contactId;
-        const newUnread = isCurrentActive ? 0 : (existingContact.unread_count || 0) + (isFromLead ? 1 : 0);
+        const newUnread = isCurrentActive || !isFromLead ? 0 : (existingContact.unread_count || 0) + 1;
+        const newConversationStatus = isFromLead
+          ? (existingContact.conversation_status === 'closed' ? 'open' : existingContact.conversation_status)
+          : (existingContact.conversation_status === 'closed' ? 'closed' : 'waiting_customer');
 
         updatedContactsById = {
           ...state.contactsById,
@@ -385,19 +395,33 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
             last_message_sender: msg.sender_type,
             last_interaction_at: msg.created_at,
             unread_count: newUnread,
-            ...(isFromLead && existingContact.conversation_status === 'closed' ? { conversation_status: 'open' } : {}),
+            waiting_since: isFromLead ? (existingContact.waiting_since || msg.created_at) : null,
+            conversation_status: newConversationStatus,
           },
         };
 
-        // Si es un nuevo mensaje, reordenar el chat en la vista activa
         const currentView = state.activeView;
         const viewList = nextViewIds[currentView] || [];
-        if (viewList.includes(contactId)) {
-          if (currentView !== 'por_responder') {
+
+        if (isFromLead) {
+          if (viewList.includes(contactId)) {
+            if (currentView !== 'por_responder') {
+              nextViewIds[currentView] = [contactId, ...viewList.filter((id) => id !== contactId)];
+            }
+          } else if (currentView === 'por_responder' || currentView === 'mis_abiertos') {
+            nextViewIds[currentView] = [contactId, ...viewList];
+          }
+        } else {
+          // Si el mensaje es de la IA o de un asesor, ya fue respondido
+          if (nextViewIds['por_responder']?.includes(contactId)) {
+            nextViewIds['por_responder'] = nextViewIds['por_responder'].filter((id) => id !== contactId);
+          }
+          if (existingContact.is_ai_active && nextViewIds['ia_atendiendo'] && !nextViewIds['ia_atendiendo'].includes(contactId)) {
+            nextViewIds['ia_atendiendo'] = [contactId, ...nextViewIds['ia_atendiendo']];
+          }
+          if (viewList.includes(contactId) && currentView !== 'por_responder') {
             nextViewIds[currentView] = [contactId, ...viewList.filter((id) => id !== contactId)];
           }
-        } else if (isFromLead && (currentView === 'por_responder' || currentView === 'mis_abiertos')) {
-          nextViewIds[currentView] = [contactId, ...viewList];
         }
       }
 
