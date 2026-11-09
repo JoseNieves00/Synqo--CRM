@@ -109,6 +109,13 @@ export class MessagingService {
 
     // 1. Ruta Evolution API (VPS / Baileys)
     if (provider === 'evolution') {
+      const evoStatus = (organization.evolution_status || '').toLowerCase();
+      if (evoStatus === 'disconnected' || evoStatus === 'close') {
+        throw new Error(
+          '[EVOLUTION_DISCONNECTED] La línea de WhatsApp está desconectada en el VPS. Por favor ve a Ajustes > Conexión WhatsApp para escanear el código QR y reconectar.'
+        );
+      }
+
       const evoConfig = this.resolveEvolutionConfig(organization);
 
       // Protección Anti-Spam en frío para conexiones VPS
@@ -167,6 +174,12 @@ export class MessagingService {
     const provider = organization.whatsapp_provider || 'meta';
 
     if (provider === 'evolution') {
+      const evoStatus = (organization.evolution_status || '').toLowerCase();
+      if (evoStatus === 'disconnected' || evoStatus === 'close') {
+        throw new Error(
+          '[EVOLUTION_DISCONNECTED] La línea de WhatsApp está desconectada en el VPS. Por favor ve a Ajustes > Conexión WhatsApp para escanear el código QR y reconectar.'
+        );
+      }
       const evoConfig = this.resolveEvolutionConfig(organization);
       if (mediaType === 'audio') {
         return await EvolutionService.sendWhatsAppAudio({
@@ -247,6 +260,12 @@ export class MessagingService {
     const provider = organization.whatsapp_provider || 'meta';
 
     if (provider === 'evolution') {
+      const evoStatus = (organization.evolution_status || '').toLowerCase();
+      if (evoStatus === 'disconnected' || evoStatus === 'close') {
+        throw new Error(
+          '[EVOLUTION_DISCONNECTED] La línea de WhatsApp está desconectada en el VPS. Por favor ve a Ajustes > Conexión WhatsApp para escanear el código QR y reconectar.'
+        );
+      }
       const evoConfig = this.resolveEvolutionConfig(organization);
 
       return await EvolutionService.sendInteractiveButtonsMessage({
@@ -290,6 +309,12 @@ export class MessagingService {
     const provider = organization.whatsapp_provider || 'meta';
 
     if (provider === 'evolution') {
+      const evoStatus = (organization.evolution_status || '').toLowerCase();
+      if (evoStatus === 'disconnected' || evoStatus === 'close') {
+        throw new Error(
+          '[EVOLUTION_DISCONNECTED] La línea de WhatsApp está desconectada en el VPS. Por favor ve a Ajustes > Conexión WhatsApp para escanear el código QR y reconectar.'
+        );
+      }
       const evoConfig = this.resolveEvolutionConfig(organization);
       return await EvolutionService.sendReaction({
         apiUrl: evoConfig.apiUrl,

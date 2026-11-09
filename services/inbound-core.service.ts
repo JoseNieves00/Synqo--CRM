@@ -52,6 +52,7 @@ export interface InboundPayload {
   quotedTextSnippet?: string | null; // Texto de la cita si el proveedor ya lo resolvió
   reactionEmoji?: string | null; // Emoji si el evento es de tipo reacción
   isPaymentReceipt?: boolean;
+  remoteJid?: string | null;
 }
 
 export interface InboundResult {
@@ -324,11 +325,18 @@ export class InboundCoreService {
       assignedAgentId = existingContact.assigned_to;
       isAiActive = isPaymentReceipt ? false : Boolean(existingContact.is_ai_active);
 
+      const existingCustom = (existingContact as any).custom_fields || {};
+      const updatedCustomFields = {
+        ...existingCustom,
+        ...(payload.remoteJid ? { remote_jid: payload.remoteJid, whatsapp_jid: payload.remoteJid } : {}),
+      };
+
       await (supabaseAdmin.from('contacts') as any)
         .update({
           last_interaction_at: new Date().toISOString(),
           name: senderName || undefined,
           channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
+          custom_fields: updatedCustomFields,
           ...(isPaymentReceipt ? { is_ai_active: false } : {}),
         })
         .eq('id', contactId);
@@ -344,6 +352,7 @@ export class InboundCoreService {
         assigned_to: assignedAgentId || null,
         channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
         last_interaction_at: new Date().toISOString(),
+        custom_fields: payload.remoteJid ? { remote_jid: payload.remoteJid, whatsapp_jid: payload.remoteJid } : {},
       };
 
       if (channel === 'instagram') {
@@ -558,6 +567,7 @@ export class InboundCoreService {
     const { payload, contactId, insertedMessageId } = params;
     const { organization, channel, senderId } = payload;
     const startTime = Date.now();
+    let workerId: string | null = null;
 
     try {
       // Anti-Burst Buffer (Debounce de 4.0 segundos para mensajes consecutivos)
@@ -593,27 +603,13 @@ export class InboundCoreService {
         }
       }
 
-      // 🛡️ MUTEX / LOCK POR CONTACTO: Evitar que dos workers atiendan al mismo contacto al mismo tiempo
-      const { data: contactLockCheck } = await (supabaseAdmin.from('contacts') as any)
-        .select('custom_fields')
-        .eq('id', contactId)
-        .single();
-
-      const lockUntil = contactLockCheck?.custom_fields?.ai_lock_until;
-      if (lockUntil && Number(lockUntil) > Date.now()) {
+      // 🛡️ LOCK ATÓMICO POR CONTACTO (Pilar 4.1.3): Evitar concurrencia y duplicación de respuestas
+      workerId = crypto.randomUUID();
+      const hasLock = await this.acquireAiLock(contactId, workerId, 60);
+      if (!hasLock) {
         console.log(`[INBOUND CORE LOCK] Contacto ${contactId} ya está siendo procesado por otro worker activo.`);
         return;
       }
-
-      // Adquirir bloqueo temporal por 25 segundos
-      await (supabaseAdmin.from('contacts') as any)
-        .update({
-          custom_fields: {
-            ...(contactLockCheck?.custom_fields || {}),
-            ai_lock_until: Date.now() + 25000,
-          },
-        })
-        .eq('id', contactId);
 
       // Re-verificar si un asesor humano intervino o pausó la IA durante la espera
       const { data: latestContact } = await (supabaseAdmin.from('contacts') as any)
@@ -789,6 +785,14 @@ export class InboundCoreService {
           .join('\n')
           .trim();
 
+        const { data: contactData } = await (supabaseAdmin.from('contacts') as any)
+          .select('custom_fields')
+          .eq('id', contactId)
+          .single();
+
+        const customFields = (contactData?.custom_fields as Record<string, any>) || {};
+        const targetRecipient = customFields.remote_jid || customFields.whatsapp_jid || senderId;
+
         if (cleanedAiText) {
           const clientMsgId = crypto.randomUUID();
 
@@ -807,7 +811,7 @@ export class InboundCoreService {
             outboundMessageId = await this.dispatchOutboundMessage({
               organization,
               channel,
-              recipientId: senderId,
+              recipientId: targetRecipient,
               text: cleanedAiText,
               contactId,
             });
@@ -841,13 +845,6 @@ export class InboundCoreService {
           sender_type: 'ai',
           created_at: nowIso,
         };
-
-        const { data: contactData } = await (supabaseAdmin.from('contacts') as any)
-          .select('custom_fields')
-          .eq('id', contactId)
-          .single();
-
-        const customFields = (contactData?.custom_fields as Record<string, any>) || {};
         const updatedCustom: Record<string, any> = {
           ...customFields,
           last_message: aiLastMsg,
@@ -955,23 +952,98 @@ export class InboundCoreService {
         errorMessage: workerError?.message || 'Excepción no controlada en el worker de IA',
       });
     } finally {
-      // Liberar el bloqueo temporal del contacto
-      try {
-        const { data: curContact } = await (supabaseAdmin.from('contacts') as any)
-          .select('custom_fields')
-          .eq('id', contactId)
-          .maybeSingle();
-
-        if (curContact?.custom_fields?.ai_lock_until) {
-          const updatedCustom = { ...curContact.custom_fields };
-          delete updatedCustom.ai_lock_until;
-          await (supabaseAdmin.from('contacts') as any)
-            .update({ custom_fields: updatedCustom })
-            .eq('id', contactId);
-        }
-      } catch (unlockErr) {
-        console.warn('[INBOUND CORE UNLOCK WARN]', unlockErr);
+      // Liberar el bloqueo atómico del contacto de inmediato si se adquirió
+      if (workerId) {
+        await this.releaseAiLock(contactId, workerId);
       }
+    }
+  }
+
+  /**
+   * Adquiere un lock de concurrencia atómico para el contacto usando la función RPC en Postgres
+   * o fallback condicional seguro en memoria / base de datos.
+   */
+  private static async acquireAiLock(contactId: string, workerId: string, ttlSeconds = 60): Promise<boolean> {
+    try {
+      const { data, error } = await (supabaseAdmin.rpc as any)('try_acquire_ai_lock', {
+        p_contact_id: contactId,
+        p_worker_id: workerId,
+        p_ttl_seconds: ttlSeconds,
+      });
+
+      if (!error && typeof data === 'boolean') {
+        return data;
+      }
+    } catch {
+      // Fallback a actualización condicional si la función RPC aún no está creada
+    }
+
+    try {
+      const now = Date.now();
+      const lockUntil = now + (ttlSeconds * 1000);
+
+      const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+        .select('custom_fields')
+        .eq('id', contactId)
+        .single();
+
+      const existingLock = contact?.custom_fields?.ai_lock;
+      if (
+        existingLock &&
+        existingLock.lock_until &&
+        Number(existingLock.lock_until) > now &&
+        existingLock.worker_id !== workerId
+      ) {
+        return false;
+      }
+
+      const updatedCustom = {
+        ...(contact?.custom_fields || {}),
+        ai_lock: {
+          worker_id: workerId,
+          lock_until: lockUntil,
+        },
+      };
+
+      const { error: updateError } = await (supabaseAdmin.from('contacts') as any)
+        .update({ custom_fields: updatedCustom })
+        .eq('id', contactId);
+
+      return !updateError;
+    } catch (err) {
+      console.warn('[ACQUIRE AI LOCK WARN]', err);
+      return false;
+    }
+  }
+
+  /**
+   * Libera el lock de concurrencia del contacto una vez finalizado el procesamiento.
+   */
+  private static async releaseAiLock(contactId: string, workerId: string): Promise<void> {
+    try {
+      await (supabaseAdmin.rpc as any)('release_ai_lock', {
+        p_contact_id: contactId,
+        p_worker_id: workerId,
+      });
+      return;
+    } catch {}
+
+    try {
+      const { data: curContact } = await (supabaseAdmin.from('contacts') as any)
+        .select('custom_fields')
+        .eq('id', contactId)
+        .maybeSingle();
+
+      if (curContact?.custom_fields?.ai_lock?.worker_id === workerId) {
+        const updatedCustom = { ...curContact.custom_fields };
+        delete updatedCustom.ai_lock;
+        delete updatedCustom.ai_lock_until;
+        await (supabaseAdmin.from('contacts') as any)
+          .update({ custom_fields: updatedCustom })
+          .eq('id', contactId);
+      }
+    } catch (unlockErr) {
+      console.warn('[RELEASE AI LOCK WARN]', unlockErr);
     }
   }
 

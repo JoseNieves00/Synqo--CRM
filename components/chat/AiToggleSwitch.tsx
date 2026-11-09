@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Bot, UserCheck } from 'lucide-react';
 
 interface AiToggleSwitchProps {
   contactId: string;
@@ -31,7 +30,6 @@ export function AiToggleSwitch({
       await onToggle(nextState);
     } catch (error) {
       console.error('Error toggling AI switch:', error);
-      // Revertir en caso de fallo
       setIsActive(!nextState);
     } finally {
       setIsUpdating(false);
@@ -39,15 +37,35 @@ export function AiToggleSwitch({
   };
 
   return (
-    <div className="flex items-center gap-2 bg-slate-50 dark:bg-[#090A0F] px-2.5 py-1 rounded-xl border border-slate-200 dark:border-[#232A3B] shadow-2xs transition-colors">
+    <div
+      className={`h-8 inline-flex items-center gap-2 px-2.5 rounded-xl border transition-all select-none shrink-0 ${
+        isActive
+          ? 'bg-blue-50/60 dark:bg-[#0052FF]/10 border-blue-200/80 dark:border-blue-500/25 shadow-2xs'
+          : 'bg-slate-50/80 dark:bg-[#090A0F] border-slate-200 dark:border-[#232A3B]'
+      }`}
+      title={
+        isActive
+          ? 'La IA está respondiendo automáticamente (Pulsa para tomar control manual)'
+          : 'Control manual activo (Pulsa para activar la IA)'
+      }
+    >
       <div className="flex items-center gap-1.5">
         {isActive ? (
-          <Bot className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
         ) : (
-          <UserCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+          <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
         )}
-        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 hidden sm:inline">
-          {isActive ? 'IA Activa' : 'Control Humano'}
+        <span
+          className={`text-xs font-semibold hidden sm:inline transition-colors ${
+            isActive
+              ? 'text-[#0052FF] dark:text-[#00D2FF]'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          {isActive ? 'IA Activa' : 'Manual'}
         </span>
       </div>
 

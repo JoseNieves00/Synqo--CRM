@@ -214,15 +214,26 @@ export async function POST(request: NextRequest) {
   }
 
   const messageId = messageKey.id;
-  const isLid = remoteJid.endsWith('@lid');
-  const cleanPhone = remoteJid.replace(/@s\.whatsapp\.net|@c\.us|@lid/g, '').replace(/[^\d]/g, '');
+  const rawRemoteJid = remoteJid || '';
+  const isLid = rawRemoteJid.endsWith('@lid');
+
+  // Baileys y Evolution a veces proveen el número telefónico real en senderPn, participantPn o remoteJidAlt
+  const realPhoneJid = (
+    messageData.senderPn ||
+    messageData.remoteJidAlt ||
+    messageKey.participantPn ||
+    messageData.key?.participantPn ||
+    ''
+  ).replace(/@s\.whatsapp\.net|@c\.us|@lid/g, '').replace(/[^\d]/g, '');
+
+  const cleanPhone = realPhoneJid || rawRemoteJid.replace(/@s\.whatsapp\.net|@c\.us|@lid/g, '').replace(/[^\d]/g, '');
 
   if (!cleanPhone || !messageId) {
     return NextResponse.json({ status: 'ignored_invalid_phone_or_id' }, { status: 200 });
   }
 
   const leadPhone = cleanPhone;
-  const targetRecipient = isLid ? remoteJid : cleanPhone;
+  const targetRecipient = rawRemoteJid;
 
   // 5. FILTRO CRÍTICO: Detección de Mensajes Propios (fromMe: true)
   // Permite la coexistencia natural bot-humano.
@@ -541,6 +552,7 @@ export async function POST(request: NextRequest) {
     replyToChannelMessageId: replyToId,
     quotedTextSnippet: quotedSnippet || null,
     isPaymentReceipt,
+    remoteJid: targetRecipient,
   };
 
   const result = await InboundCoreService.processInbound(inboundPayload);

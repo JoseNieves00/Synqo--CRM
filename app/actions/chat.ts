@@ -113,7 +113,7 @@ export async function sendAgentMessage(
     } else {
       // Obtener credenciales de mensajería de la organización
       const { data: org } = await (supabaseAdmin.from('organizations') as any)
-        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
         .eq('id', orgId)
         .single();
 
@@ -222,7 +222,7 @@ export async function sendAgentTemplate(
   if (!contact) throw new Error('Contacto no encontrado');
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
+    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
     .eq('id', orgId)
     .single();
 
@@ -453,7 +453,7 @@ export async function sendAgentMediaMessage(
   if (contactError || !contact) throw new Error('Contacto no encontrado o acceso denegado');
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
+    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
     .eq('id', orgId)
     .single();
 
@@ -859,6 +859,7 @@ export async function triggerPendingAiBatchAction(limit = 10) {
   revalidatePath('/inbox');
   return result;
 }
+
 
 /**
  * Consulta cuántos prospectos tienen mensajes pendientes de responder con IA.
@@ -2047,5 +2048,24 @@ export async function sendBatchApologyMessage(options: BatchApologyOptions): Pro
   revalidatePath('/inbox');
   return result;
 }
+
+/**
+ * Reintenta el envío de un mensaje que quedó en estado 'failed'.
+ */
+export async function retryFailedMessage(messageId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: msg, error: msgError } = await (supabaseAdmin.from('messages') as any)
+    .select('id, contact_id, content, sender_type, channel')
+    .eq('id', messageId)
+    .single();
+
+  if (msgError || !msg) throw new Error('Mensaje no encontrado');
+
+  return await sendAgentMessage(msg.contact_id, msg.content, undefined, msg.id);
+}
+
 
 

@@ -156,4 +156,47 @@ assert.ok(
 );
 console.log('   ✅ Sincronización de cuentas de pago verificada exitosamente.');
 
-console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SPRINT 1 PASARON EXITOSAMENTE!\n');
+// 11. Verificación de Lock Atómico de Concurrencia de IA (Pilar 4.1.3)
+console.log('1️⃣1️⃣  Verificando Lock Atómico de Concurrencia de IA (Pilar 4.1.3)...');
+const migrationLockPath = path.join(process.cwd(), 'supabase/migrations/20261109040000_ai_concurrency_lock.sql');
+assert.ok(fs.existsSync(migrationLockPath), 'Debe existir la migración SQL 20261109040000_ai_concurrency_lock.sql');
+const migrationContent = fs.readFileSync(migrationLockPath, 'utf8');
+assert.ok(
+  migrationContent.includes('try_acquire_ai_lock') && migrationContent.includes('release_ai_lock'),
+  'La migración SQL debe definir try_acquire_ai_lock y release_ai_lock'
+);
+assert.ok(
+  inboundCoreContent.includes('acquireAiLock') && inboundCoreContent.includes('releaseAiLock'),
+  'inbound-core.service.ts debe implementar acquireAiLock y releaseAiLock en try-finally'
+);
+console.log('   ✅ Lock Atómico de Concurrencia verificado exitosamente.');
+
+// 12. Verificación de Blindaje de Envío ante Desconexión (Pilar 1.1.5)
+console.log('1️⃣2️⃣  Verificando Blindaje de Envío ante Desconexión de WhatsApp (Pilar 1.1.5)...');
+const currentMessagingContent = fs.readFileSync(messagingServicePath, 'utf8');
+const currentChatActionsContent = fs.readFileSync(chatActionsPath, 'utf8');
+assert.ok(
+  currentMessagingContent.includes('EVOLUTION_DISCONNECTED'),
+  'MessagingService debe verificar evolution_status y arrojar error específico si está desconectado'
+);
+assert.ok(
+  currentChatActionsContent.includes('export async function retryFailedMessage'),
+  'chat.ts debe exportar retryFailedMessage para reintentar mensajes fallidos'
+);
+console.log('   ✅ Blindaje de desconexión y acción de reintento verificados.');
+
+// 13. Verificación de Manejo de JIDs @lid y Contactos Reales (Pilar 1.1.4)
+console.log('1️⃣3️⃣  Verificando Manejo de JIDs @lid y Contactos Duplicados (Pilar 1.1.4)...');
+const currentEvoWebhookContent = fs.readFileSync(evoWebhookPath, 'utf8');
+const currentInboundCoreContent = fs.readFileSync(inboundCorePath, 'utf8');
+assert.ok(
+  currentEvoWebhookContent.includes('realPhoneJid') && currentEvoWebhookContent.includes('senderPn'),
+  'Webhook de Evolution debe extraer senderPn o realPhoneJid para no crear contactos duplicados'
+);
+assert.ok(
+  currentInboundCoreContent.includes('targetRecipient = customFields.remote_jid'),
+  'inbound-core.service.ts debe despachar al JID real del lead cuando existe en custom_fields'
+);
+console.log('   ✅ Manejo de JIDs @lid y destinatario exacto verificado.');
+
+console.log('\n🎉 ¡TODAS LAS PRUEBAS DE SPRINT 1 Y NIVEL URGENTE PASARON EXITOSAMENTE!\n');
