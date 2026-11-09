@@ -9,6 +9,7 @@ import { decryptSecret } from '@/lib/security/encryption';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
 import { InboundCoreService } from '@/services/inbound-core.service';
+import { isWithin24HourWindow } from '@/services/contact.service';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -121,10 +122,7 @@ export async function sendAgentMessage(contactId: string, content: string, reply
   };
 
   const currentCustom = contact.custom_fields || {};
-  const updatedCustom: Record<string, any> = {
-    ...currentCustom,
-    last_message: lastMessagePayload,
-  };
+  const updatedCustom: Record<string, any> = { ...currentCustom };
 
   // 🛡️ Si el contacto tenía un recordatorio de reactivación pendiente, limpiarlo
   // porque el asesor ya atendió y contestó directamente al cliente.
@@ -1622,6 +1620,199 @@ export async function submitAiFeedback(params: {
   }
 
   return { success: true };
+}
+
+export interface BatchApologyOptions {
+  contactIds: string[];
+  messageTemplate: string;
+  leaveAiActive?: boolean;
+  assignToMe?: boolean;
+}
+
+export interface BatchApologyResult {
+  total: number;
+  successful: number;
+  failed: number;
+  errors: string[];
+}
+
+/**
+ * ⚡ Acción Masiva de Rescate por Demora:
+ * Envía automáticamente un mensaje de disculpa y reactivación personalizada a múltiples clientes,
+ * respetando las políticas de WhatsApp (Meta 24h / Evolution), límites anti-ban y actualizando
+ * el estado de la bandeja en tiempo real a 'waiting_customer' (despejando el SLA timer).
+ */
+export async function sendBatchApologyMessage(options: BatchApologyOptions): Promise<BatchApologyResult> {
+  const { contactIds, messageTemplate, leaveAiActive = false, assignToMe = true } = options;
+  if (!contactIds || contactIds.length === 0) {
+    throw new Error('No se seleccionó ningún contacto.');
+  }
+  if (!messageTemplate || !messageTemplate.trim()) {
+    throw new Error('El mensaje de disculpa no puede estar vacío.');
+  }
+
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Perfil u organización no encontrada');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, instagram_account_id, instagram_access_token')
+    .eq('id', orgId)
+    .single();
+
+  if (!org) throw new Error('Organización no encontrada.');
+
+  // Obtener contactos seleccionados validados por organización (Anti-IDOR)
+  const { data: contacts, error: contactsError } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, phone, channel, instagram_id, last_interaction_at, custom_fields')
+    .eq('organization_id', orgId)
+    .in('id', contactIds.slice(0, 50)); // Tope de 50 por lote seguro
+
+  if (contactsError || !contacts || contacts.length === 0) {
+    throw new Error('No se encontraron contactos válidos para procesar.');
+  }
+
+  const advisorFirstName = (profile.full_name || 'Asesor').trim().split(' ')[0];
+  const orgName = (org.name || 'nuestro equipo').trim();
+
+  const result: BatchApologyResult = {
+    total: contacts.length,
+    successful: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  for (let i = 0; i < contacts.length; i++) {
+    const contact = contacts[i];
+    try {
+      // 1. Personalizar mensaje con variables dinámicas
+      const rawName = (contact.name || '').trim();
+      const isPhoneOnly = /^[+0-9\s-]+$/.test(rawName) || rawName.startsWith('+');
+      const contactFirstName = rawName && !isPhoneOnly ? rawName.split(' ')[0] : '';
+      const fallbackGreeting = contactFirstName || 'estimado cliente';
+
+      let personalizedMessage = messageTemplate
+        .replace(/\{\{nombre\}\}/gi, contactFirstName || '')
+        .replace(/\{\{nombre_completo\}\}/gi, rawName || fallbackGreeting)
+        .replace(/\{\{asesor\}\}/gi, advisorFirstName)
+        .replace(/\{\{empresa\}\}/gi, orgName)
+        .replace(/¡Hola\s+!/gi, '¡Hola!')
+        .replace(/Hola\s+,/gi, 'Hola,')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+      const isInstagram = contact.channel === 'instagram' || Boolean(contact.instagram_id);
+      let metaMessageId: string | null = null;
+
+      if (isInstagram) {
+        if (!org.instagram_account_id || !org.instagram_access_token) {
+          throw new Error('Credenciales de Instagram no configuradas.');
+        }
+        const decryptedToken = decryptSecret(org.instagram_access_token);
+        const recipientIgId = contact.instagram_id || contact.phone.replace(/^ig_/, '');
+        metaMessageId = await InstagramService.sendDirectMessage({
+          instagramAccountId: org.instagram_account_id,
+          accessToken: decryptedToken,
+          recipientId: recipientIgId,
+          text: personalizedMessage,
+        });
+      } else {
+        const is24hOpen = isWithin24HourWindow(contact.last_interaction_at);
+        const provider = org.whatsapp_provider || 'meta';
+        const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
+
+        if (provider === 'meta' && !is24hOpen) {
+          // Ventana de 24h cerrada en Meta Cloud API -> Despachar plantilla oficial
+          metaMessageId = await MessagingService.sendTemplateMessage({
+            organization: org,
+            to: targetRecipient,
+            templateKey: 'reactivacion_lead',
+            templateName: 'reactivacion_lead',
+            languageCode: 'es',
+          });
+          personalizedMessage = `[Plantilla oficial de rescate por demora: Reactivación]`;
+        } else {
+          // Evolution API o ventana de Meta abierta
+          metaMessageId = await MessagingService.sendTextMessage({
+            organization: org,
+            to: targetRecipient,
+            body: personalizedMessage,
+            simulateTyping: false,
+            isColdOutbound: false,
+          });
+        }
+      }
+
+      // 2. Persistir mensaje en messages con auditoría
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contact.id,
+        sender_type: 'agent_manual',
+        content: personalizedMessage,
+        meta_message_id: metaMessageId || null,
+        channel: isInstagram ? 'instagram' : 'whatsapp',
+        status: 'sent',
+      });
+
+      // 3. Actualizar estado en contacts: limpia espera, reactiva/pausa IA y asigna
+      const nowIso = new Date().toISOString();
+      const lastMessagePayload = {
+        text: personalizedMessage,
+        sender_type: 'agent_manual',
+        created_at: nowIso,
+      };
+
+      const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+      const updatedCustom: Record<string, any> = {
+        ...currentCustom,
+        last_message: lastMessagePayload,
+      };
+      if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+        updatedCustom.active_reminder = null;
+      }
+
+      const updatePayload: Record<string, any> = {
+        last_message: lastMessagePayload,
+        custom_fields: updatedCustom,
+        last_message_sender: 'agent_manual',
+        last_message_preview: personalizedMessage.slice(0, 160),
+        waiting_since: null,
+        conversation_status: 'waiting_customer',
+        unread_count: 0,
+        last_interaction_at: nowIso,
+        updated_at: nowIso,
+        is_ai_active: leaveAiActive ? true : false,
+      };
+
+      if (assignToMe) {
+        updatePayload.assigned_to = user.id;
+      }
+
+      await (supabaseAdmin.from('contacts') as any)
+        .update(updatePayload)
+        .eq('id', contact.id);
+
+      result.successful++;
+
+      // 🛡️ Blindaje Anti-Ban: Pausa segura de 500ms entre envíos
+      if (i < contacts.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch (err: any) {
+      result.failed++;
+      result.errors.push(`Error con ${contact.name || contact.phone}: ${err?.message || 'Fallo desconocido'}`);
+    }
+  }
+
+  revalidatePath('/inbox');
+  return result;
 }
 
 

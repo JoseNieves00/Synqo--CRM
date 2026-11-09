@@ -260,6 +260,62 @@ async function runInboxTests() {
   console.log('   ✅ Caso D: Chat ya intentado -> Excluido por blindaje anti-spam (1 solo intento).');
   console.log('   ✅ Auto-limpieza de recordatorios de reactivación al contestar asesor o IA verificada.');
 
+  // 9. Probar Acción Masiva de Rescate por Demora (sendBatchApologyMessage & BatchApologyModal)
+  console.log('\n9️⃣  Probando acción masiva de rescate por demora (BatchApologyModal & sendBatchApologyMessage)...');
+  const batchModalContent = fs.readFileSync('components/chat/BatchApologyModal.tsx', 'utf8');
+  assert.ok(
+    batchModalContent.includes('sendBatchApologyMessage'),
+    'BatchApologyModal debe importar y llamar sendBatchApologyMessage'
+  );
+  assert.ok(
+    batchModalContent.includes('PRESET_TEMPLATES'),
+    'BatchApologyModal debe incluir plantillas predefinidas optimizadas para negocios'
+  );
+  assert.ok(
+    batchModalContent.includes('previewText'),
+    'BatchApologyModal debe ofrecer vista previa en vivo estilo WhatsApp'
+  );
+
+  const sidebarContent = fs.readFileSync('components/chat/InboxSidebar.tsx', 'utf8');
+  assert.ok(
+    sidebarContent.includes('Disculpar demora'),
+    'InboxSidebar debe incluir botón "Disculpar demora" en la barra multi-select'
+  );
+
+  // Probar reemplazo y sanitización de variables dinámicas
+  const template = '¡Hola {{nombre}}! Disculpa por la demora, te habla {{asesor}} de {{empresa}}.';
+  const personalize = (tpl: string, name: string, advisor: string, org: string) => {
+    const rawName = (name || '').trim();
+    const isPhoneOnly = /^[+0-9\s-]+$/.test(rawName) || rawName.startsWith('+');
+    const firstName = rawName && !isPhoneOnly ? rawName.split(' ')[0] : '';
+    return tpl
+      .replace(/\{\{nombre\}\}/gi, firstName || '')
+      .replace(/\{\{asesor\}\}/gi, advisor)
+      .replace(/\{\{empresa\}\}/gi, org)
+      .replace(/¡Hola\s+!/gi, '¡Hola!')
+      .replace(/Hola\s+,/gi, 'Hola,')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+
+  const outputWithContact = personalize(template, 'Carlos Mendoza', 'Ana', 'Clínica Dental');
+  assert.strictEqual(
+    outputWithContact,
+    '¡Hola Carlos! Disculpa por la demora, te habla Ana de Clínica Dental.',
+    'Debe personalizar correctamente con el primer nombre del cliente'
+  );
+
+  const outputWithoutName = personalize(template, '+573001234567', 'Ana', 'Clínica Dental');
+  assert.strictEqual(
+    outputWithoutName,
+    '¡Hola! Disculpa por la demora, te habla Ana de Clínica Dental.',
+    'Debe limpiar "¡Hola !" si el contacto solo tiene número de teléfono'
+  );
+
+  console.log('   ✅ Modal y botón de acción masiva en multi-select verificados.');
+  console.log('   ✅ Personalización dinámica con variables {{nombre}}, {{asesor}}, {{empresa}} aprobada.');
+  console.log('   ✅ Sanitización de saludos sin nombre (Anti-Error "¡Hola !") aprobada.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }
 

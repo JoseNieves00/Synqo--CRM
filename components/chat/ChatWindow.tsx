@@ -27,7 +27,7 @@ import { claimUnassignedLead, assignLeadByAdmin, takeoverInactiveLead } from '@/
 import dynamic from 'next/dynamic';
 import { deleteContactWithPassword, updateContactDetails } from '@/app/actions/contacts';
 import { completeContactReminder, cancelContactReminder, type ActiveReminderData } from '@/app/actions/reminders';
-import { META_TEMPLATES } from '@/services/whatsapp.service';
+import { META_TEMPLATES } from '@/lib/whatsapp/templates';
 import { createClient } from '@/lib/supabase/client';
 
 const ScheduleReminderModal = dynamic(
@@ -806,6 +806,17 @@ export function ChatWindow({
     contact.last_interaction_at,
   ]);
 
+  const isWaitingForResponse = Boolean(contact.waiting_since || (contact.unread_count && contact.unread_count > 0));
+
+  const handleApplyApologyMessage = () => {
+    const cleanName = (contact.name || '').trim();
+    const isPhoneOnly = /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
+    const firstName = cleanName && !isPhoneOnly ? cleanName.split(' ')[0] : '';
+    const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
+    const text = `${greeting} Te ofrezco una sincera disculpa por la demora en responderte, teníamos congestión en la línea. Ya estoy aquí contigo para atenderte con prioridad. Cuéntame, ¿todavía te podemos colaborar con tu consulta?`;
+    onDraftChange?.(text);
+  };
+
   const handleApplyReactivationMessage = () => {
     const cleanName = (contact.name || '').trim();
     const isPhoneOnly = /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
@@ -1552,6 +1563,26 @@ export function ChatWindow({
               </button>
             </div>
           ) : null}
+
+          {/* Banner de Disculpa Rápida si el cliente está esperando respuesta */}
+          {isWaitingForResponse && !isReadOnly && !isReactivationEligible && (
+            <div className="mx-4 my-1.5 p-2 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 flex items-center justify-between gap-2 text-xs shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 min-w-0">
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="truncate">
+                  <strong>Cliente esperando:</strong> Puedes insertar una disculpa y tomar el chat con 1 clic.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleApplyApologyMessage}
+                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shrink-0 shadow-xs transition"
+              >
+                <Zap className="w-3 h-3" />
+                <span>Disculpar demora</span>
+              </button>
+            </div>
+          )}
 
           {/* Banner de Reactivación Inteligente de 1 solo intento (Anti-Spam) */}
           {isReactivationEligible && (

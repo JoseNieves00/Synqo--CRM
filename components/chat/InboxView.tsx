@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { MessageSquare, Sparkles, RefreshCw } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { InboxSidebar } from './InboxSidebar';
+import { BatchApologyModal } from './BatchApologyModal';
 import { ContactRowData } from './ConversationRow';
 import { FilterState } from './InboxFiltersPopover';
 import { createClient } from '@/lib/supabase/client';
@@ -339,6 +340,23 @@ export function InboxView({
   );
 
   // 12. Acciones en Bloque (Multi-Select)
+  const [isBatchApologyOpen, setIsBatchApologyOpen] = useState(false);
+  const [batchApologyContacts, setBatchApologyContacts] = useState<Array<{ id: string; name: string | null; phone: string }>>([]);
+
+  const handleOpenBatchApology = useCallback((ids: string[]) => {
+    const targets = contactList
+      .filter((c) => ids.includes(c.id))
+      .map((c) => ({ id: c.id, name: c.name, phone: c.phone }));
+    if (targets.length > 0) {
+      setBatchApologyContacts(targets);
+      setIsBatchApologyOpen(true);
+    }
+  }, [contactList]);
+
+  const handleBatchApologySuccess = useCallback(async () => {
+    await Promise.all([loadContacts(0, false), refreshCounts()]);
+  }, [loadContacts, refreshCounts]);
+
   const handleBatchClose = useCallback(
     async (ids: string[]) => {
       await Promise.allSettled(ids.map((id) => endContactConversation(id, 'completed')));
@@ -513,6 +531,7 @@ export function InboxView({
           onQuickClose={handleQuickClose}
           onQuickSnooze={handleQuickSnooze}
           onBatchClose={handleBatchClose}
+          onOpenBatchApology={handleOpenBatchApology}
         />
       </div>
 
@@ -556,6 +575,17 @@ export function InboxView({
           </div>
         )}
       </div>
+
+      {/* Modal de Rescate Masivo por Demora */}
+      {isBatchApologyOpen && (
+        <BatchApologyModal
+          isOpen={isBatchApologyOpen}
+          onClose={() => setIsBatchApologyOpen(false)}
+          selectedContacts={batchApologyContacts}
+          currentUserName={teamMembers.find((m) => m.id === currentUserId)?.full_name || 'Asesor'}
+          onSuccess={handleBatchApologySuccess}
+        />
+      )}
     </div>
   );
 }

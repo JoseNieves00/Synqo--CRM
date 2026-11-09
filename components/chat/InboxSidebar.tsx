@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, X, Loader2, Sparkles, CheckCircle2, UserCheck, Archive } from 'lucide-react';
+import { Search, X, Loader2, Sparkles, CheckCircle2, UserCheck, Archive, Zap } from 'lucide-react';
 import { InboxViewType, InboxCounts } from '@/app/actions/chat';
 import { InboxViewsTabs } from './InboxViewsTabs';
 import { InboxFiltersPopover, InboxActiveFilterChips, FilterState } from './InboxFiltersPopover';
@@ -39,6 +39,7 @@ interface InboxSidebarProps {
   onQuickSnooze?: (contactId: string) => void;
   onBatchClose?: (contactIds: string[]) => void;
   onBatchAssign?: (contactIds: string[], agentId: string) => void;
+  onOpenBatchApology?: (contactIds: string[]) => void;
 }
 
 export function InboxSidebar({
@@ -66,6 +67,7 @@ export function InboxSidebar({
   onQuickSnooze,
   onBatchClose,
   onBatchAssign,
+  onOpenBatchApology,
 }: InboxSidebarProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const listContainerRef = useRef<HTMLDivElement>(null);
@@ -201,6 +203,17 @@ export function InboxSidebar({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {onOpenBatchApology && (
+              <button
+                type="button"
+                onClick={() => onOpenBatchApology(Array.from(selectedIds))}
+                className="px-2.5 py-1 rounded-md bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-xs"
+                title="Escribirles automáticamente a los clientes pidiendo disculpas por la demora"
+              >
+                <Zap className="w-3 h-3" />
+                <span>Disculpar demora</span>
+              </button>
+            )}
             {onBatchClose && (
               <button
                 type="button"
