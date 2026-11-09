@@ -114,6 +114,7 @@ export function InboxView({
         seguimiento: 0,
         cerrados: 0,
       },
+      initialView,
       activeContactId: activeContact?.id || (initialContacts.length > 0 ? initialContacts[0].id : null),
       initialMessages: messages || [],
       templates: customTemplates,
@@ -248,6 +249,9 @@ export function InboxView({
   useEffect(() => {
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
+      if (activeView !== initialView || (contactList.length === 0 && (counts[activeView] || 0) > 0)) {
+        loadContacts(0, false);
+      }
       return;
     }
     loadContacts(0, false);

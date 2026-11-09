@@ -16,47 +16,50 @@ export async function uploadIncomingChatMedia({
   contactId: string;
 }): Promise<string | null> {
   try {
-    const ext = mimeType.includes('png')
-      ? 'png'
-      : mimeType.includes('webp')
-      ? 'webp'
-      : mimeType.includes('gif')
-      ? 'gif'
-      : mimeType.includes('video/mp4') || mimeType.includes('mp4')
-      ? 'mp4'
-      : mimeType.includes('quicktime') || mimeType.includes('mov')
-      ? 'mov'
-      : mimeType.includes('video/webm')
-      ? 'webm'
-      : mimeType.includes('video/3gpp') || mimeType.includes('3gp')
-      ? '3gp'
-      : mimeType.includes('pdf')
-      ? 'pdf'
-      : mimeType.includes('ogg')
-      ? 'ogg'
-      : 'jpg';
+    const rawMime = (mimeType || 'application/octet-stream').toLowerCase();
+    // Limpiar directivas extras como '; codecs=opus' que rompen el validador MIME de Supabase Storage
+    const safeMime = rawMime.split(';')[0].trim();
 
-    const safeMime = mimeType || 'image/jpeg';
+    let ext = 'ogg';
+    if (safeMime.includes('png')) ext = 'png';
+    else if (safeMime.includes('webp')) ext = 'webp';
+    else if (safeMime.includes('gif')) ext = 'gif';
+    else if (safeMime.includes('pdf')) ext = 'pdf';
+    else if (safeMime.includes('audio/mp4') || safeMime.includes('audio/m4a') || safeMime.includes('m4a')) ext = 'm4a';
+    else if (safeMime.includes('audio/mpeg') || safeMime.includes('mp3')) ext = 'mp3';
+    else if (safeMime.includes('audio/wav') || safeMime.includes('wav')) ext = 'wav';
+    else if (safeMime.includes('audio/webm')) ext = 'webm';
+    else if (safeMime.includes('audio/aac') || safeMime.includes('aac')) ext = 'aac';
+    else if (safeMime.includes('audio/ogg') || safeMime.includes('opus')) ext = 'ogg';
+    else if (safeMime.includes('video/mp4')) ext = 'mp4';
+    else if (safeMime.includes('quicktime') || safeMime.includes('mov')) ext = 'mov';
+    else if (safeMime.includes('video/webm')) ext = 'webm';
+    else if (safeMime.includes('video/3gpp') || safeMime.includes('3gp')) ext = '3gp';
+    else if (safeMime.startsWith('image/')) ext = 'jpg';
+
+    const cleanSafeMime = safeMime.startsWith('audio/') || safeMime.startsWith('video/') || safeMime.startsWith('image/') || safeMime === 'application/pdf'
+      ? safeMime
+      : (ext === 'ogg' ? 'audio/ogg' : 'application/octet-stream');
+
     const filePath = `${organizationId}/${contactId}/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-    const res = await fetch(`${supabaseUrl}/storage/v1/object/chat-media/${filePath}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceKey}`,
-        'Content-Type': safeMime,
-      },
-      body: new Uint8Array(buffer),
-    });
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from('chat-media')
+      .upload(filePath, buffer, {
+        contentType: cleanSafeMime,
+        upsert: true,
+      });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error('[STORAGE UPLOAD INCOMING CHAT MEDIA ERROR]', res.status, errText);
+    if (uploadError) {
+      console.error('[STORAGE UPLOAD INCOMING CHAT MEDIA ERROR]', uploadError);
       return null;
     }
 
-    return `${supabaseUrl}/storage/v1/object/public/chat-media/${filePath}`;
+    const { data: publicData } = supabaseAdmin.storage
+      .from('chat-media')
+      .getPublicUrl(filePath);
+
+    return publicData.publicUrl;
   } catch (err: any) {
     console.error('[UPLOAD INCOMING MEDIA EXCEPTION]', err);
     return null;

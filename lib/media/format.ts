@@ -3,6 +3,8 @@
  * Diseñado para compatibilidad universal con base de datos, chat visual y WhatsApp.
  */
 
+import { sanitizeTranscription } from './whisper-sanitizer';
+
 export interface ParsedImageMessage {
   isImage: boolean;
   url?: string;
@@ -240,7 +242,7 @@ export interface ParsedAudioMessage {
  */
 export function formatAudioMessageContent(url: string, transcription?: string): string {
   const cleanUrl = url.trim();
-  const cleanTrans = transcription?.trim();
+  const cleanTrans = sanitizeTranscription(transcription);
   if (cleanTrans) {
     return `🎙️ [Audio: ${cleanUrl}]: "${cleanTrans}"`;
   }
@@ -259,10 +261,11 @@ export function parseAudioMessageContent(content: string | null | undefined): Pa
   if (audioMatch) {
     const rawTrans = audioMatch[2]?.trim() || '';
     const isPlaceholder = /\[Nota de voz/i.test(rawTrans);
+    const cleanTrans = isPlaceholder ? '' : sanitizeTranscription(rawTrans);
     return {
       isAudio: true,
       url: audioMatch[1].trim(),
-      transcription: isPlaceholder ? '' : rawTrans,
+      transcription: cleanTrans,
     };
   }
 

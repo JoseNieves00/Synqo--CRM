@@ -165,12 +165,8 @@ export async function resolveKnowledgeGapAndTrainAI(
         });
       }
 
-      try {
-        const recompiled = compileStructuredPrompt(updatedStructuredData);
-        if (recompiled) finalPrompt = recompiled;
-      } catch (cErr) {
-        console.warn('[RECOMPILE PROMPT FROM FAQ WARN]', cErr);
-      }
+      // 🛡️ REGLA SUPREMA: NUNCA sobreescribir ni resetear el system_prompt original.
+      // Se mantiene finalPrompt anexando la nueva FAQ limpia al prompt existente del usuario, sin re-compilar ni reiniciar plantillas.
     }
 
     // 5. Manejar creación opcional de Atajo Rápido para los asesores

@@ -1420,11 +1420,10 @@ export async function listInbox({
 
   // 1. Filtros por Vista / Bandeja Principal (alineados exactamente con la lógica de inbox_counts)
   if (view === 'por_responder') {
-    // Chats abiertos con espera activa donde la IA está pausada o están asignados a mí
+    // Chats abiertos con espera activa donde el cliente está esperando respuesta
     query = query
       .eq('conversation_status', 'open')
       .or(`waiting_since.not.is.null,unread_count.gt.0,custom_fields->>unattended_handoff.eq.true`)
-      .or(`is_ai_active.eq.false,assigned_to.eq.${user.id}`)
       .order('last_interaction_at', { ascending: true });
   } else if (view === 'mis_abiertos') {
     // Chats asignados a mí que no están cerrados
@@ -1523,8 +1522,16 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       p_user_id: user.id,
     });
     if (!rpcErr && rpcRes) {
+      // Validar por_responder con el conteo real de espera activa para evitar desajustes
+      const { count: realWaitingCount } = await (supabaseAdmin.from('contacts') as any)
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .is('deleted_at', null)
+        .eq('conversation_status', 'open')
+        .or('waiting_since.not.is.null,unread_count.gt.0,custom_fields->>unattended_handoff.eq.true');
+
       return {
-        por_responder: rpcRes.por_responder || 0,
+        por_responder: realWaitingCount ?? rpcRes.por_responder ?? 0,
         mis_abiertos: rpcRes.mis_abiertos || 0,
         ia_atendiendo: rpcRes.ia_atendiendo || 0,
         seguimiento: rpcRes.seguimiento || 0,
@@ -1543,8 +1550,7 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .eq('conversation_status', 'open')
-      .or(`waiting_since.not.is.null,unread_count.gt.0,custom_fields->>unattended_handoff.eq.true`)
-      .or(`is_ai_active.eq.false,assigned_to.eq.${user.id}`),
+      .or(`waiting_since.not.is.null,unread_count.gt.0,custom_fields->>unattended_handoff.eq.true`),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)

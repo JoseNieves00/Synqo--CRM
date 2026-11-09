@@ -750,14 +750,10 @@ export async function saveOrganizationPaymentAccounts(
     };
 
     updatePayload.structured_prompt_data = updatedStructured;
-    try {
-      const compiled = compileStructuredPrompt(updatedStructured);
-      if (compiled) updatePayload.system_prompt = compiled;
-    } catch (compileErr) {
-      console.warn('[SAVE PAYMENT ACCOUNTS COMPILE PROMPT WARN]', compileErr);
-    }
-  } else if (org.system_prompt && paymentAccountsFormatted) {
-    // Si la organización no usa structured_prompt_data pero tiene system_prompt, inyectar el bloque de cuentas bancarias
+  }
+
+  // Si la organización ya tiene system_prompt personalizado, preservar el prompt original y solo inyectar/actualizar las cuentas
+  if (org.system_prompt && paymentAccountsFormatted) {
     const paymentAccountsSection = `\n\n[CUENTAS DE TRANSFERENCIA BANCARIA AUTORIZADAS PARA EL CLIENTE:\n${paymentAccountsFormatted}\nINSTRUCCIÓN: Proporciona estos datos de cuenta inmediatamente y con total exactitud cuando el cliente pregunte por métodos de pago, transferencias o números de cuenta para pagar. Nunca alteres los números ni inventes titulares.]`;
 
     let updatedPrompt = org.system_prompt;

@@ -72,7 +72,26 @@ export async function POST(request: NextRequest) {
   const senderId = messagingEvent.sender?.id; // IGSID del lead
   const recipientId = messagingEvent.recipient?.id; // ID de Instagram de la cuenta empresarial
   const metaMessageId = messagingEvent.message.mid;
-  const rawContent = messagingEvent.message.text || '';
+  let rawContent = (messagingEvent.message.text || '').trim();
+
+  // Enriquecimiento de publicaciones compartidas, reels o historias de Instagram
+  const attachments = messagingEvent.message.attachments;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    const attachParts: string[] = [];
+    for (const att of attachments) {
+      const title = (att.payload?.title || att.title || '').trim();
+      const subtitle = (att.payload?.subtitle || att.subtitle || '').trim();
+      if (title) attachParts.push(`"${title}"`);
+      if (subtitle) attachParts.push(`"${subtitle}"`);
+      if (!title && !subtitle && att.type) {
+        attachParts.push(`[Elemento compartido: ${att.type}]`);
+      }
+    }
+    if (attachParts.length > 0) {
+      const prefix = `[Publicación/Elemento compartido de Instagram: ${attachParts.join(' - ')}]`;
+      rawContent = rawContent ? `${prefix} ${rawContent}` : prefix;
+    }
+  }
 
   if (!senderId || !recipientId) {
     return NextResponse.json({ error: 'Missing sender or recipient ID' }, { status: 400 });

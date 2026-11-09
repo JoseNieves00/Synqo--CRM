@@ -66,6 +66,7 @@ export function ChatInput({
   );
   const [loading, setLoading] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
+  const [snippetsSearch, setSnippetsSearch] = useState('');
   const [selectedSnippetIndex, setSelectedSnippetIndex] = useState(0);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [manageModalInitialShortcut, setManageModalInitialShortcut] = useState<string | null>(null);
@@ -448,40 +449,88 @@ export function ChatInput({
     }
   }, [availableTemplates, selectedTemplate]);
 
-  // Si el usuario empieza a escribir con '/', abrir el menú de atajos automáticamente
-  const isTypingShortcut = message.startsWith('/');
+  // Si el usuario escribe '/' al inicio o tras un espacio, activar menú de atajos automáticamente
+  const shortcutMatch = message.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+  const isTypingShortcut = Boolean(shortcutMatch);
+  const typingShortcutQuery = shortcutMatch ? `/${shortcutMatch[1].toLowerCase()}` : '';
+
   const filteredSnippets = isTypingShortcut
-    ? activeSnippets.filter((s) => s.shortcut.toLowerCase().startsWith(message.toLowerCase()))
+    ? activeSnippets.filter((s) => s.shortcut.toLowerCase().startsWith(typingShortcutQuery))
+    : snippetsSearch.trim()
+    ? activeSnippets.filter(
+        (s) =>
+          s.shortcut.toLowerCase().includes(snippetsSearch.toLowerCase()) ||
+          s.label.toLowerCase().includes(snippetsSearch.toLowerCase()) ||
+          s.text.toLowerCase().includes(snippetsSearch.toLowerCase())
+      )
     : activeSnippets;
 
   // Reiniciar cursor de selección rápida al cambiar el filtro
   useEffect(() => {
     setSelectedSnippetIndex(0);
-  }, [message, showSnippets]);
+  }, [message, showSnippets, snippetsSearch]);
 
   const handleApplySnippet = (snippetText: string) => {
     // Sustitución de variables dinámicas: {nombre}, {primer_nombre}, {telefono}
     const cleanName = (contactName || '').trim();
-    const isPhoneNumberOnly = /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
-    const displayFullName = cleanName && !isPhoneNumberOnly ? cleanName : 'estimado cliente';
-    const displayFirstName = cleanName && !isPhoneNumberOnly ? cleanName.split(' ')[0] : 'hola';
+    const isPhoneNumberOnly = !cleanName || /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
+    const displayFullName = !isPhoneNumberOnly ? cleanName : '';
+    const displayFirstName = !isPhoneNumberOnly ? cleanName.split(' ')[0] : '';
 
-    let processed = snippetText
-      .replace(/\{primer_nombre\}/gi, displayFirstName)
-      .replace(/\{nombre\}/gi, displayFullName)
-      .replace(/\{first_name\}/gi, displayFirstName)
-      .replace(/\{name\}/gi, displayFullName)
-      .replace(/\{telefono\}/gi, contactPhone || '');
+    let processed = snippetText;
+    if (!displayFirstName) {
+      // Sanitización limpia: convertir "¡Hola {primer_nombre}!" en "¡Hola!" sin repetir "¡Hola hola!" ni "estimado cliente"
+      processed = processed
+        .replace(/¡?Hola\s+\{primer_nombre\}!?/gi, '¡Hola!')
+        .replace(/¡?Hola\s+\{nombre\}!?/gi, '¡Hola!')
+        .replace(/¡?Hola\s+\{first_name\}!?/gi, '¡Hola!')
+        .replace(/¡?Hola\s+\{name\}!?/gi, '¡Hola!')
+        .replace(/\{primer_nombre\}/gi, '')
+        .replace(/\{nombre\}/gi, '')
+        .replace(/\{first_name\}/gi, '')
+        .replace(/\{name\}/gi, '');
+    } else {
+      processed = processed
+        .replace(/\{primer_nombre\}/gi, displayFirstName)
+        .replace(/\{nombre\}/gi, displayFullName)
+        .replace(/\{first_name\}/gi, displayFirstName)
+        .replace(/\{name\}/gi, displayFullName);
+    }
+    processed = processed.replace(/\{telefono\}/gi, contactPhone || '').replace(/\s{2,}/g, ' ').trim();
 
-    setMessage(processed);
+    // Inserción inteligente:
+    // Si el texto actual termina con un comando tipo /algo, reemplazarlo con el snippet
+    // Si ya hay texto que no es comando, anexarlo abajo
+    let updatedText = processed;
+    if (message.trim()) {
+      if (/(?:^|\s)\/[a-zA-Z0-9_-]*$/.test(message)) {
+        updatedText = message.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, (match) => {
+          const prefix = match.startsWith(' ') ? ' ' : '';
+          return prefix + processed;
+        });
+      } else {
+        updatedText = `${message}\n\n${processed}`;
+      }
+    }
+
+    setMessage(updatedText);
     if (typeof window !== 'undefined' && contactId) {
       try {
-        localStorage.setItem(`synqo_draft_${contactId}`, processed);
+        localStorage.setItem(`synqo_draft_${contactId}`, updatedText);
       } catch {}
     }
-    onDraftChange?.(processed);
+    onDraftChange?.(updatedText);
     setShowSnippets(false);
-    inputRef.current?.focus();
+    setSnippetsSearch('');
+
+    // Auto-ajustar altura del textarea para que el atajo se vea completo y legible
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.style.height = 'auto';
+        inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 140)}px`;
+        inputRef.current.focus();
+      }
+    }, 10);
   };
 
   const handleTextChange = (newVal: string) => {
@@ -750,13 +799,27 @@ export function ChatInput({
               </button>
               <button
                 type="button"
-                onClick={() => setShowSnippets(false)}
+                onClick={() => {
+                  setShowSnippets(false);
+                  setSnippetsSearch('');
+                }}
                 className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-0.5 rounded cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
+
+          {!isTypingShortcut && (
+            <input
+              type="text"
+              placeholder="Buscar atajo por comando (ej. /cuenta) o texto..."
+              value={snippetsSearch}
+              onChange={(e) => setSnippetsSearch(e.target.value)}
+              className="w-full text-xs px-2.5 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1.5 focus:ring-[#0052FF]"
+              autoFocus
+            />
+          )}
           <div className="max-h-48 overflow-y-auto space-y-0.5 [scrollbar-width:thin]">
             {filteredSnippets.map((s, idx) => {
               const isSelected = idx === selectedSnippetIndex;
@@ -1128,13 +1191,13 @@ export function ChatInput({
         </button>
 
         {/* Snippets rápidos de 1 clic */}
-        {activeSnippets.slice(0, 3).map((snippet) => (
+        {activeSnippets.slice(0, 10).map((snippet) => (
           <button
             key={snippet.shortcut}
             type="button"
             onClick={() => handleApplySnippet(snippet.text)}
-            className="h-7 shrink-0 whitespace-nowrap inline-flex items-center px-2.5 rounded-lg text-xs font-medium bg-slate-50 dark:bg-[#1A1F2C] hover:bg-slate-100 dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-[#232A3B] transition truncate max-w-[150px] cursor-pointer select-none"
-            title={snippet.text}
+            className="h-7 shrink-0 whitespace-nowrap inline-flex items-center px-2.5 rounded-lg text-xs font-medium bg-slate-50 dark:bg-[#1A1F2C] hover:bg-slate-100 dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-[#232A3B] transition truncate max-w-[170px] cursor-pointer select-none active:scale-95"
+            title={`${snippet.shortcut} - ${snippet.text}`}
           >
             {snippet.label}
           </button>
@@ -1501,7 +1564,12 @@ export function ChatInput({
         }}
         activeSnippets={activeSnippets}
         aiSuggestions={aiSuggestions}
-        onSnippetsUpdated={(updated) => setActiveSnippets(updated)}
+        onSnippetsUpdated={(updated) => {
+          setActiveSnippets(updated);
+          useInboxStore.getState().setBootstrap({
+            quickReplies: updated,
+          });
+        }}
         initialEditShortcut={manageModalInitialShortcut}
       />
     </div>

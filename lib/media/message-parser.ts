@@ -10,6 +10,7 @@ import {
   ParsedVideoMessage,
   ParsedQuoteMessage,
 } from './format';
+import { sanitizeTranscription } from './whisper-sanitizer';
 
 export interface ParsedInstagramPost {
   isInstagramPost: boolean;
@@ -105,19 +106,21 @@ function computeMediaParse(content: string): ParsedMediaMessage {
       const match = actualText.match(/🎤\s*\[Nota de voz(?:\](?::\s*["“]([\s\S]*?)["”])?|:\s*["“]([\s\S]*?)["”]\s*\])/i);
       const text = match ? (match[1] || match[2] || '').trim() : '';
       if (text) {
-        const isFallback = /\[Nota de voz/i.test(text);
+        const cleanText = sanitizeTranscription(text);
+        const isFallback = /\[Nota de voz/i.test(text) || !cleanText;
         voiceNote = {
           isVoiceNote: true,
-          transcription: isFallback ? '' : text,
+          transcription: cleanText,
           isFailed: isFallback,
           audioUrl,
         };
       } else if (actualText.startsWith('🎤')) {
         const text = actualText.replace(/^🎤\s*/, '').trim();
-        const isFallback = /\[Nota de voz/i.test(text);
+        const cleanText = sanitizeTranscription(text);
+        const isFallback = /\[Nota de voz/i.test(text) || !cleanText;
         voiceNote = {
           isVoiceNote: true,
-          transcription: isFallback ? '' : text,
+          transcription: cleanText,
           isFailed: isFallback,
           audioUrl,
         };

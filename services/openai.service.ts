@@ -17,6 +17,7 @@ import { InstagramService } from './instagram.service';
 import { HandoffService } from './handoff.service';
 import { formatImageMessageContent } from '@/lib/media/format';
 import { compileStructuredPrompt } from '@/lib/ai/prompt-compiler';
+import { sanitizeTranscription } from '@/lib/media/whisper-sanitizer';
 
 const openaiApiKey = process.env.OPENAI_API_KEY || 'placeholder-key';
 const openai = new OpenAI({ apiKey: openaiApiKey });
@@ -27,6 +28,8 @@ const gemini = geminiApiKey
   ? new OpenAI({
       apiKey: geminiApiKey,
       baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+      maxRetries: 0,
+      timeout: 8000,
     })
   : null;
 
@@ -53,24 +56,64 @@ async function createChatCompletionWithFallback(params: {
 
   // 1. Nivel Primario: Google Gemini Flash (Tokens optimizados, latencia ultra-baja y $0 en cuota)
   if (prefersGemini && gemini) {
-    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
-    const modelsToTry = [primaryModel, 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
+    const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+    const rawModels = [primaryModel, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+    const modelsToTry = rawModels.filter((v, i, a) => a.indexOf(v) === i);
 
     for (const currentGeminiModel of modelsToTry) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        const response = await gemini.chat.completions.create(
-          {
-            model: currentGeminiModel,
-            messages: params.messages,
-            tools: params.tools,
-            tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
-            temperature: params.temperature ?? 0.35,
-          },
-          { signal: controller.signal }
-        );
+        let response: OpenAI.Chat.Completions.ChatCompletion;
+        try {
+          response = await gemini.chat.completions.create(
+            {
+              model: currentGeminiModel,
+              messages: params.messages,
+              tools: params.tools,
+              tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
+              temperature: params.temperature ?? 0.35,
+            },
+            { signal: controller.signal }
+          );
+        } catch (firstErr: any) {
+          // Si falló por 400 (ej: imagen inaccesible de CDN/Instagram o formato multimedia),
+          // reintentar de inmediato con solo texto para no perder la inferencia de Gemini ni drenar OpenAI
+          const isImageError =
+            firstErr?.status === 400 ||
+            firstErr?.message?.includes('image') ||
+            firstErr?.message?.includes('download') ||
+            firstErr?.message?.includes('fetch');
+
+          const hasMultimodal = params.messages.some((m) => Array.isArray(m.content));
+
+          if (isImageError && hasMultimodal) {
+            const textOnlyMessages = params.messages.map((m) => {
+              if (Array.isArray(m.content)) {
+                const textPart = m.content
+                  .filter((p: any) => p.type === 'text')
+                  .map((p: any) => p.text)
+                  .join('\n');
+                return { ...m, content: textPart || '[Imagen recibida de cliente]' };
+              }
+              return m;
+            });
+
+            response = await gemini.chat.completions.create(
+              {
+                model: currentGeminiModel,
+                messages: textOnlyMessages,
+                tools: params.tools,
+                tool_choice: params.tools && params.tools.length > 0 ? (params.toolChoice || 'auto') : undefined,
+                temperature: params.temperature ?? 0.35,
+              },
+              { signal: controller.signal }
+            );
+          } else {
+            throw firstErr;
+          }
+        }
         clearTimeout(timeoutId);
 
         if (response.usage && params.organizationId && params.contactId) {
@@ -90,7 +133,7 @@ async function createChatCompletionWithFallback(params: {
         console.warn(`[GEMINI FAILOVER] Modelo ${currentGeminiModel} no disponible (${geminiError?.message || geminiError}).`);
       }
     }
-    console.warn('[GEMINI FAILOVER] Ambos modelos de Google no respondieron. Recurriendo a OpenAI de emergencia...');
+    console.warn('[GEMINI FAILOVER] Ningún modelo de Google respondió. Recurriendo a OpenAI de emergencia...');
   }
 
   // 2. Nivel Secundario / Emergencia: OpenAI gpt-4o-mini con guardrail financiero
@@ -195,7 +238,7 @@ const requestHumanHandoffTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'request_human_handoff',
-    description: 'Activa el relevo silencioso e imperceptible hacia los asesores del equipo comercial. Debe ejecutarse SIEMPRE que: 1) El cliente haga preguntas sobre productos, precios, garantías o condiciones que NO están en tus instrucciones. 2) Solicite descuentos especiales, pedidos grandes o acuerdos comerciales. 3) Tenga quejas o reclamos. 4) Solicite hablar con alguien. 5) Envíe un comprobante de pago, transferencia bancaria o afirme haber pagado (NUNCA confirmes pagos tú mismo, un humano debe validar el dinero en cuenta bancaria). Apaga la IA y hace sonar la campana en el CRM sin delatar que eres una IA.',
+    description: 'Activa el relevo silencioso e imperceptible hacia los asesores del equipo comercial. Debe ejecutarse SIEMPRE que: 1) El cliente haga preguntas sobre productos, precios, garantías o condiciones que NO están en tus instrucciones. 2) Solicite descuentos especiales, pedidos grandes o acuerdos comerciales. 3) Tenga quejas o reclamos. 4) Solicite hablar con alguien. 5) Envíe un comprobante de pago, transferencia bancaria o afirme haber pagado (NUNCA confirmes pagos tú mismo, un humano debe validar el dinero en cuenta bancaria). 6) El cliente envíe una nota de voz o audio incomprensible, confuso o que no entiendas con certeza (un humano debe escuchar el audio original para atenderlo adecuadamente). Apaga la IA y notifica al asesor sin delatar que eres una IA.',
     parameters: {
       type: 'object',
       properties: {
@@ -415,17 +458,23 @@ export class OpenAIService {
    * Compatible con ogg, opus, mp4, m4a, mp3, wav, aac, webm y notas de voz nativas de WhatsApp.
    */
   static async transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
-    const ext = this.getExtensionFromMime(mimeType);
-    const file = await toFile(audioBuffer, `voice_note.${ext}`, { type: mimeType });
+    try {
+      const ext = this.getExtensionFromMime(mimeType);
+      const file = await toFile(audioBuffer, `voice_note.${ext}`, { type: mimeType });
 
-    const transcription = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      language: 'es', // Forzar español para máxima fidelidad en jerga y acentos latinoamericanos
-      temperature: 0.2, // Baja temperatura para precisión fonética estricta
-    });
+      const transcription = await openai.audio.transcriptions.create({
+        file,
+        model: 'whisper-1',
+        language: 'es', // Forzar español para máxima fidelidad en jerga y acentos latinoamericanos
+        temperature: 0.1, // Baja temperatura para reducir alucinaciones fonéticas
+        prompt: 'Nota de voz de WhatsApp en español, consulta comercial o mensaje de cliente.',
+      });
 
-    return transcription.text.trim();
+      return sanitizeTranscription(transcription.text);
+    } catch (err: any) {
+      console.warn('[OPENAI TRANSCRIBE AUDIO WARN]', err?.message || err);
+      return '';
+    }
   }
 
   private static getExtensionFromMime(mime: string): string {
@@ -636,7 +685,7 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - LAS VENTAS EN WHATSAPP SON 100% VISUALES: La decisión de compra se toma con los ojos. NUNCA esperes a que el cliente te pida fotos explícitamente ("¿tienes fotos?", "mándame una foto").
    - DESPACHO PROACTIVO INMEDIATO:
      * Si el cliente pregunta por un producto específico, modelo, medidas o precios: Si cuentas con la URL de la foto en tus instrucciones ([foto: URL]), DESPACHA LA FOTO DE ESE MODELO DE INMEDIATO con 'send_whatsapp_image' junto a tu respuesta de texto con el precio o información. Ver el producto mientras conoce el precio eleva radicalmente el cierre comercial.
-     * Si el cliente hace una consulta general (ej: "hola qué modelos tienen", "precios", "información", "catálogo"): Envía de inmediato la foto del producto estrella o principal con 'send_whatsapp_image' y acompaña tu resumen de texto.
+     * Si el cliente hace una consulta general (ej: "hola qué modelos tienen", "precios", "información", "catálogo"): Resume con calidez y agilidad las opciones disponibles con sus precios. NO impongas un "modelo favorito" arbitrario; adapta la recomendación a lo que el cliente necesite (espacio, edad, presupuesto) y despacha la foto correspondiente a su interés.
      * Si el cliente solicita fotos explícitamente: Envía de inmediato la foto del modelo correspondiente con 'send_whatsapp_image'.
    - PROHIBICIÓN ESTRICTA DE ENLACES O MARKDOWN EN TEXTO:
      * NUNCA escribas URLs, links ni sintaxis markdown como ![foto](url) o [foto](url) en tu mensaje de texto hacia el cliente. WhatsApp NO interpreta markdown de imágenes; el cliente vería un enlace larguísimo y antiestético.
@@ -710,8 +759,13 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
    - Si la imagen es un comprobante de pago o transferencia bancaria: NUNCA apruebes el dinero por tu cuenta. Responde breve: "¡Listo, recibido! Ya lo verifico aquí en sistema y te confirmo." y ejecuta request_human_handoff(reason: 'Comprobante de pago recibido').
 
 7. NOTAS DE VOZ (AUDIOS DE WHATSAPP):
-   - Cuando el mensaje provenga de una nota de voz con transcripción exitosa ("🎤 [Nota de voz]: ..."), responde con total naturalidad al contenido que el cliente expresó.
-   - PROHIBICIÓN ESTRICTA DE ALUCINAR AUDIOS: Si el mensaje indica que la nota de voz fue inaudible, no transcrita o dice "[El cliente envió una nota de voz pero no fue posible transcribirla...]", NUNCA digas "Escuché tu audio con atención", NUNCA finjas que entendiste el mensaje ni inventes lo que dijo. Responde de forma muy amable y humana: "Disculpa, no alcancé a escuchar con claridad tu audio o no se pudo reproducir bien. ¿Me podrías escribir por aquí en texto lo que necesitas o prefieres que te comunique con un asesor humano?".
+   - Cuando el mensaje provenga de una nota de voz con transcripción exitosa ("🎙️ [Audio: ...]: \"...\"" o "🎤 [Nota de voz]: \"...\""):
+     * Responde con total naturalidad, calidez y agilidad al contenido que el cliente expresó.
+     * PROHIBICIÓN ABSOLUTA DE RESPONDER A CIEGAS O SUPONER: Si la transcripción es confusa, ambigua, incompleta, o no comprendes con total certeza qué producto, modelo o requerimiento solicita el cliente:
+       - NUNCA inventes lo que dijo, NUNCA envíes listas de precios al azar ni intentes adivinar sin saber qué dice.
+       - Ejecuta DE INMEDIATO request_human_handoff(reason: 'Nota de voz no comprensible por IA / Requiere que un asesor escuche el audio').
+       - Responde con calidez como asesor humano: "¡Hola! He recibido tu nota de voz, pero para asegurarme de darte la información exacta le acabo de pasar tu audio a uno de nuestros asesores para que lo escuche y te responda en un momento 🙌."
+   - PROHIBICIÓN ESTRICTA DE ALUCINAR AUDIOS INAUDIBLES: Si el mensaje indica que la nota de voz fue inaudible, no transcrita o sin audio claro, NUNCA digas "Escuché tu audio", NUNCA finjas que entendiste y NUNCA contestes a ciegas. Ejecuta DE INMEDIATO request_human_handoff(reason: 'Nota de voz inaudible o no comprensible por IA') para que el asesor humano atienda al cliente.
 
 8. AGENDAMIENTO NATIVO DE CITAS Y CLASES:
    - Cuando el cliente quiera agendar una cita o clase, utiliza 'check_native_availability' para consultar los turnos libres reales en la agenda de la empresa.
@@ -783,30 +837,31 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
               (contentText.startsWith('🎙️ [Audio:') && !contentText.includes(']: "'));
 
             if (isUntranscribedVoice) {
-              // Inyectar con few-shot: primero el mensaje del cliente, luego el patrón de respuesta correcto
+              // Inyectar con few-shot: primero el mensaje del cliente, luego el patrón de respuesta de relevo a asesor
               conversationHistory.push({
                 role: 'user',
-                content: '[NOTA DE VOZ NO TRANSCRITA - El cliente envió un audio de WhatsApp pero el sistema no pudo transcribirlo. PROHIBICIÓN ABSOLUTA: NO uses "escuché tu audio", NO finjas que lo entendiste, NO inventes lo que dijo.]',
+                content: '[NOTA DE VOZ NO COMPRENSIBLE - El cliente envió un audio de WhatsApp pero el sistema no pudo transcribirlo con claridad. PROHIBICIÓN ABSOLUTA: NO uses "escuché tu audio", NO finjas que lo entendiste, NO inventes lo que dijo ni envíes precios a ciegas.]',
               });
               conversationHistory.push({
                 role: 'assistant',
-                content: 'Disculpa, no pude escuchar bien tu nota de voz 🙏 ¿Me podrías escribir en texto lo que necesitas? Así te ayudo mejor 😊',
+                content: 'He recibido tu nota de voz, le acabo de pasar tu audio a un asesor para que lo escuche personalmente y te atienda 🙌.',
               });
               continue;
             }
 
             // Detección estricta de imágenes reales (fotos de WhatsApp, capturas o miniaturas de Instagram / Ads)
-            // Blindaje: Audios (.oga/.ogg/.mp3), videos (.mp4/.mov) y documentos (.pdf) NUNCA deben enviarse como imagen a la API de visión
+            // Blindaje: Audios, videos, documentos y páginas web (instagram.com/p/, etc.) NUNCA deben enviarse como imagen a la API de visión
             const isNonImageMediaType = Boolean((msg as any).media_type && (msg as any).media_type !== 'image');
             const nonImageExtensionsRegex = /\.(?:oga|ogg|mp3|wav|m4a|aac|opus|mp4|mov|avi|webm|pdf|docx?|xlsx?|txt|zip)(?:\?[^\s"'<>\)]*)?$/i;
+            const webpageRegex = /instagram\.com\/(?:p|reel|stories|tv)\/|facebook\.com\//i;
 
             let imageMatch: RegExpMatchArray | null = null;
             if (!isNonImageMediaType) {
               const candidate =
                 contentText.match(/https?:\/\/[^\s"'<>\)]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^\s"'<>\)]*)?/i) ||
-                contentText.match(/https?:\/\/[^\s"'<>\)]*(?:fbcdn|cdninstagram|instagram\.com\/p\/)[^\s"'<>\)]*/i);
+                contentText.match(/https?:\/\/[^\s"'<>\)]*(?:fbcdn|cdninstagram)[^\s"'<>\)]*/i);
 
-              if (candidate && !nonImageExtensionsRegex.test(candidate[0])) {
+              if (candidate && !nonImageExtensionsRegex.test(candidate[0]) && !webpageRegex.test(candidate[0])) {
                 imageMatch = candidate;
               }
             }
@@ -843,6 +898,52 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
 
       // Detección de retraso en la atención (si el último mensaje del cliente tiene más de 6 horas)
       const lastLeadMsg = [...(dbMessages || [])].reverse().find((m: any) => m.sender_type === 'lead');
+
+      // 🛡️ REGLA ESTRICTA DE NOTA DE VOZ:
+      // Cuando el último mensaje del lead sea una nota de voz inaudible o no comprensible,
+      // la IA NUNCA debe contestar a ciegas ni suponer respuestas.
+      // Debe requerir de inmediato la intervención de un asesor humano y pausar la IA.
+      if (lastLeadMsg) {
+        const lastContent = (lastLeadMsg.content || '').trim();
+        const isUntranscribedAudio =
+          lastContent.includes('[Nota de voz inaudible]') ||
+          lastContent.includes('[Nota de voz no reproducible]') ||
+          lastContent.includes('[Nota de voz recibida]') ||
+          (lastContent.startsWith('🎙️ [Audio:') && !lastContent.includes(']: "')) ||
+          (lastContent.startsWith('🎤 [Nota de voz]') && !lastContent.includes(']: "'));
+
+        if (isUntranscribedAudio) {
+          const handoffReason = 'Nota de voz no comprensible por IA (requiere que un asesor escuche el audio)';
+          pauseAfterSend = true;
+          detectedHandoffReason = handoffReason;
+
+          await supabaseAdmin.from('messages').insert({
+            contact_id: contactId,
+            sender_type: 'system',
+            content: `[🚨 Relevo Solicitado: Asesor requerido - Motivo: "${handoffReason}"]`,
+          });
+
+          HandoffService.notifyHandoff({
+            organizationId,
+            contactId,
+            reason: handoffReason,
+            channel: (channel as any) || 'whatsapp',
+          }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
+
+          return {
+            text: '¡Hola! He recibido tu nota de voz, pero para asegurarme de darte la información exacta le acabo de pasar tu audio a uno de nuestros asesores para que lo escuche y te responda en un momento 🙌.',
+            modelUsed: 'audio-handoff-rule',
+            provider: 'google',
+            isFallback: false,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            cachedTokens: 0,
+            pauseAfterSend: true,
+            handoffReason,
+          };
+        }
+      }
       if (lastLeadMsg?.created_at) {
         const hoursAgo = (Date.now() - new Date(lastLeadMsg.created_at).getTime()) / (1000 * 60 * 60);
         if (hoursAgo >= 6) {
@@ -1319,25 +1420,13 @@ ${systemPromptConfig || 'Eres el asesor comercial inteligente de Synqo CRM.'}
         }
 
         // 5. Segunda llamada de inferencia para redactar la respuesta final en lenguaje natural
-        // ⚡ OPTIMIZACIÓN FINANCIERA DE TOKENS: Para la redacción final, reemplazamos el pesado System Prompt (3.500+ tokens)
-        // por una directriz compacta de redacción de cierre. Esto ahorra ~3.300 tokens de entrada en CADA despacho de imagen o tool.
-        const followUpMessages = conversationHistory.map((msg, idx) => {
-          if (idx === 0 && msg.role === 'system') {
-            return {
-              role: 'system' as const,
-              content: `Eres la asesora comercial de ${organization?.name || 'la empresa'}. Redacta la respuesta final en lenguaje natural de WhatsApp (1 a 2 líneas breves, cercana y cálida). La herramienta ya ejecutó la acción (ej: la foto oficial ya fue despachada y entregada directamente en WhatsApp); PROHIBIDO repetir URLs de fotos o usar markdown ![foto](url). Solo complementa con calidez y sigue la ruta comercial.`,
-            };
-          }
-          return msg;
-        });
-
         const {
           response: followUp,
           modelUsed: followUpModel,
           provider: followUpProvider,
           isFallback: followUpFallback,
         } = await createChatCompletionWithFallback({
-          messages: followUpMessages,
+          messages: conversationHistory,
           temperature: 0.3,
           aiProvider,
           organizationId,

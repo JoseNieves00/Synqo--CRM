@@ -108,6 +108,7 @@ export interface InboxStoreState {
     currentUserRole: string;
     initialContacts: ContactItem[];
     initialCounts: InboxCounts;
+    initialView?: InboxViewType;
     activeContactId?: string | null;
     initialMessages?: MessageItem[];
     templates?: Array<{ name: string; label: string }>;
@@ -185,6 +186,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     currentUserRole,
     initialContacts,
     initialCounts,
+    initialView,
     activeContactId,
     initialMessages,
     templates,
@@ -208,28 +210,32 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       };
     }
 
-    set((state) => ({
-      organizationId,
-      currentUserId,
-      currentUserRole,
-      contactsById: { ...state.contactsById, ...contactsMap },
-      viewIds: {
-        ...state.viewIds,
-        [state.activeView]: ids,
-      },
-      messagesByContact: { ...state.messagesByContact, ...messagesMap },
-      counts: initialCounts,
-      activeContactId: activeContactId ?? state.activeContactId,
-      bootstrap: state.bootstrap ?? {
-        paymentAccounts: [],
-        catalog: [],
-        quickReplies: [],
-        templates: templates || [],
-        teamMembers: teamMembers || [],
-        loadedAt: Date.now(),
-      },
-      lastSyncAt: new Date().toISOString(),
-    }));
+    set((state) => {
+      const targetView = initialView || state.activeView || 'por_responder';
+      return {
+        organizationId,
+        currentUserId,
+        currentUserRole,
+        activeView: targetView,
+        contactsById: { ...state.contactsById, ...contactsMap },
+        viewIds: {
+          ...state.viewIds,
+          [targetView]: ids,
+        },
+        messagesByContact: { ...state.messagesByContact, ...messagesMap },
+        counts: initialCounts,
+        activeContactId: activeContactId ?? state.activeContactId,
+        bootstrap: state.bootstrap ?? {
+          paymentAccounts: [],
+          catalog: [],
+          quickReplies: [],
+          templates: templates || [],
+          teamMembers: teamMembers || [],
+          loadedAt: Date.now(),
+        },
+        lastSyncAt: new Date().toISOString(),
+      };
+    });
   },
 
   setActiveView: (view) => set({ activeView: view }),

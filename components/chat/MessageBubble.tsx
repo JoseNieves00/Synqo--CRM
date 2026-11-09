@@ -27,6 +27,7 @@ import {
 import { submitAiFeedback } from '@/app/actions/chat';
 import { parseMessageContentFast } from '@/lib/media/message-parser';
 import { formatFullDateTime } from '@/lib/utils/inbox-date';
+import { AudioMessagePlayer } from './AudioMessagePlayer';
 
 interface MessageBubbleProps {
   id?: string;
@@ -84,17 +85,6 @@ export const MessageBubble = React.memo(
     const [localFeedback, setLocalFeedback] = useState<string | null>(reactions?.ai_feedback || null);
     const [feedbackSuccessNotice, setFeedbackSuccessNotice] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const [playbackRate, setPlaybackRate] = useState<1 | 1.5 | 2>(1);
-    const audioRef = React.useRef<HTMLAudioElement>(null);
-    const voiceNoteRef = React.useRef<HTMLAudioElement>(null);
-
-    const togglePlaybackRate = (audioEl: HTMLAudioElement | null) => {
-      const nextRate: 1 | 1.5 | 2 = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
-      setPlaybackRate(nextRate);
-      if (audioEl) {
-        audioEl.playbackRate = nextRate;
-      }
-    };
 
     const handleSelectEmoji = (emoji: string) => {
       setShowEmojiPicker(false);
@@ -477,127 +467,23 @@ export const MessageBubble = React.memo(
                 )}
               </div>
             ) : audioInfo.isAudio && audioInfo.url ? (
-              /* Renderizado de Audio / Nota de Voz Grabada en CRM */
-              <div className="space-y-1.5 my-1 min-w-[220px] sm:min-w-[260px]">
-                <div
-                  className={`p-2.5 rounded-xl border flex flex-col gap-2 ${
-                    isAgent
-                      ? 'bg-white/15 border-white/20 text-white'
-                      : 'bg-slate-50 dark:bg-[#131722] border-slate-200 dark:border-[#232A3B] text-slate-800 dark:text-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className={`p-1.5 rounded-full ${isAgent ? 'bg-white/20 text-white' : 'bg-emerald-500 text-white'}`}>
-                        <Mic className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[11px] font-semibold truncate block">Nota de Voz</span>
-                        <span className="text-[10px] opacity-75 font-mono">Audio oficial</span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => togglePlaybackRate(audioRef.current)}
-                      className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 dark:border-slate-600 bg-white/40 dark:bg-black/20 hover:bg-white/70 transition shrink-0 select-none cursor-pointer"
-                      title="Cambiar velocidad de reproducción"
-                    >
-                      {playbackRate}×
-                    </button>
-                  </div>
-                  <audio
-                    ref={audioRef}
-                    src={audioInfo.url}
-                    controls
-                    className="w-full h-8 rounded-lg"
-                    preload="metadata"
-                  />
-                </div>
-                {audioInfo.transcription && !/\[Nota de voz/i.test(audioInfo.transcription) && (
-                  <div
-                    className={`mt-1.5 p-2 rounded-xl border text-xs leading-relaxed ${
-                      isAgent
-                        ? 'bg-white/10 border-white/20 text-white'
-                        : 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-500/20 text-slate-800 dark:text-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-1 select-none">
-                      <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>Transcripción del audio</span>
-                    </div>
-                    <p className="select-text font-normal italic pl-0.5">
-                      «{audioInfo.transcription}»
-                    </p>
-                  </div>
-                )}
-              </div>
+              /* Renderizado de Audio / Nota de Voz Grabada en CRM con Reproducción y Descarga Directa */
+              <AudioMessagePlayer
+                audioUrl={audioInfo.url}
+                messageId={id}
+                transcription={audioInfo.transcription}
+                isAgent={isAgent}
+                isVoiceNote={false}
+              />
             ) : voiceNoteInfo.isVoiceNote ? (
-              /* Renderizado de Nota de Voz de WhatsApp */
-              <div className="space-y-2 my-1 min-w-[210px] sm:min-w-[240px]">
-                <div
-                  className={`flex items-center gap-2.5 p-2 rounded-xl border ${
-                    isAgent
-                      ? 'bg-white/15 border-white/20 text-white'
-                      : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-500/20 text-emerald-950 dark:text-emerald-200'
-                  }`}
-                >
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                      isAgent ? 'bg-white/25 text-white' : 'bg-emerald-500 text-white shadow-xs'
-                    }`}
-                  >
-                    <Mic className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="text-[11px] font-semibold truncate">Nota de Voz WhatsApp</span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => togglePlaybackRate(voiceNoteRef.current)}
-                          className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 dark:border-slate-600 bg-white/40 dark:bg-black/20 hover:bg-white/70 transition select-none cursor-pointer"
-                          title="Cambiar velocidad de reproducción"
-                        >
-                          {playbackRate}×
-                        </button>
-                        <AudioLines className="w-3.5 h-3.5 opacity-75 shrink-0" />
-                      </div>
-                    </div>
-                    <span className="text-[10px] opacity-75 font-mono">Audio transcrito por IA</span>
-                  </div>
-                </div>
-                {voiceNoteInfo.audioUrl && (
-                  <audio
-                    ref={voiceNoteRef}
-                    src={voiceNoteInfo.audioUrl}
-                    controls
-                    className="w-full h-8 rounded-lg mt-1"
-                    preload="metadata"
-                  />
-                )}
-                {voiceNoteInfo.transcription ? (
-                  <div
-                    className={`mt-1.5 p-2 rounded-xl border text-xs leading-relaxed ${
-                      isAgent
-                        ? 'bg-white/10 border-white/20 text-white'
-                        : 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-500/20 text-slate-800 dark:text-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-1 select-none">
-                      <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>Transcripción del audio</span>
-                    </div>
-                    <p className="select-text font-normal italic pl-0.5">
-                      «{voiceNoteInfo.transcription}»
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-1 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 select-none">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    <span className="text-[11px] font-medium">Nota de voz no se pudo transcribir (escuchar en WhatsApp)</span>
-                  </div>
-                )}
-              </div>
+              /* Renderizado de Nota de Voz de WhatsApp con Reproducción y Descarga Directa */
+              <AudioMessagePlayer
+                audioUrl={voiceNoteInfo.audioUrl}
+                messageId={id}
+                transcription={voiceNoteInfo.transcription}
+                isAgent={isAgent}
+                isVoiceNote={true}
+              />
             ) : instagramPostInfo.isInstagramPost ? (
               /* Renderizado de Publicación / Anuncio de Instagram Compartido */
               <div className="space-y-2 my-1 max-w-[280px] sm:max-w-[340px]">
