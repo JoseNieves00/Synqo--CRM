@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import { MessageSquare, Instagram, Clock, CheckCircle2, UserCheck, Bot, User, Check, Pause } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
+import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
 
 export interface ContactRowData {
   id: string;
@@ -50,18 +51,9 @@ export const ConversationRow = React.memo(function ConversationRow({
   onQuickClose,
   onQuickSnooze,
 }: ConversationRowProps) {
-  // 1. Formatear hora de última interacción
-  const timeStr = useMemo(() => {
-    try {
-      const d = new Date(c.last_interaction_at);
-      const now = new Date();
-      if (d.toDateString() === now.toDateString()) {
-        return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-      }
-      return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-    } catch {
-      return '';
-    }
+  // 1. Formatear fecha y hora inteligente de última interacción (Hoy, Ayer, o día)
+  const dateFormatted = useMemo(() => {
+    return formatInboxConversationDate(c.last_interaction_at);
   }, [c.last_interaction_at]);
 
   // 2. Cálculo del temporizador de espera (SLA)
@@ -186,7 +178,7 @@ export const ConversationRow = React.memo(function ConversationRow({
           </h3>
         </div>
 
-        {/* Hora y Temporizador SLA */}
+        {/* Hora / Fecha y Temporizador SLA */}
         <div className="flex items-center gap-1.5 shrink-0 text-right">
           {waitingInfo && (
             <span
@@ -197,7 +189,16 @@ export const ConversationRow = React.memo(function ConversationRow({
               <span>{waitingInfo.label}</span>
             </span>
           )}
-          <span className="text-[10px] text-slate-400 font-mono">{timeStr}</span>
+          <span
+            title={dateFormatted.tooltip}
+            className={`text-[10px] font-mono ${
+              dateFormatted.isToday
+                ? 'text-slate-600 dark:text-slate-300 font-semibold'
+                : 'text-slate-400 dark:text-slate-500'
+            }`}
+          >
+            {dateFormatted.label}
+          </span>
         </div>
       </div>
 

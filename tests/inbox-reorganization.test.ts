@@ -109,6 +109,43 @@ async function runInboxTests() {
   );
   console.log('   ✅ Atajos de teclado J / K / E / A aprobados.');
 
+  // 7. Probar Formateo Inteligente de Fechas ("Hoy", "Ayer", días de la semana y separadores)
+  console.log('\n7️⃣  Probando formateo inteligente de fechas y separadores de chat (inbox-date.ts)...');
+  const { formatInboxConversationDate, formatMessageDateDivider } = await import('../lib/utils/inbox-date');
+
+  const now = new Date();
+  const todayStr = now.toISOString();
+
+  const yesterdayDate = new Date(now);
+  yesterdayDate.setDate(now.getDate() - 1);
+  const yesterdayStr = yesterdayDate.toISOString();
+
+  const pastDate = new Date(now);
+  pastDate.setDate(now.getDate() - 4);
+  const pastStr = pastDate.toISOString();
+
+  const todayFmt = formatInboxConversationDate(todayStr);
+  assert.ok(todayFmt.isToday === true, 'Debe identificar que fue hoy');
+  assert.ok(todayFmt.label.startsWith('Hoy '), 'Debe comenzar con "Hoy "');
+
+  const yesterdayFmt = formatInboxConversationDate(yesterdayStr);
+  assert.ok(yesterdayFmt.isToday === false, 'Ayer no es hoy');
+  assert.ok(yesterdayFmt.label.startsWith('Ayer '), 'Debe comenzar con "Ayer "');
+
+  const pastFmt = formatInboxConversationDate(pastStr);
+  assert.ok(pastFmt.isToday === false);
+  assert.ok(pastFmt.label.length > 5, 'Debe incluir día y hora');
+
+  // Separadores de chat
+  assert.strictEqual(formatMessageDateDivider(todayStr), 'Hoy', 'Separador de hoy debe ser "Hoy"');
+  assert.strictEqual(formatMessageDateDivider(yesterdayStr), 'Ayer', 'Separador de ayer debe ser "Ayer"');
+
+  console.log('   ✅ Formateo de fechas:');
+  console.log('      - Hoy:', todayFmt.label);
+  console.log('      - Ayer:', yesterdayFmt.label);
+  console.log('      - Días anteriores:', pastFmt.label);
+  console.log('      - Separadores de mensajes: "Hoy", "Ayer" verificados.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }
 

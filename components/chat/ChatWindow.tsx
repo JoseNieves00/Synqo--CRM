@@ -9,6 +9,7 @@ import { AiToggleSwitch } from './AiToggleSwitch';
 import { ChatHeader } from './ChatHeader';
 import { ContactPanel } from './ContactPanel';
 import { LeadDetailsDrawer } from './LeadDetailsDrawer';
+import { formatMessageDateDivider } from '@/lib/utils/inbox-date';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
 import {
   sendAgentMessage,
@@ -191,10 +192,10 @@ export function ChatWindow({
     }
   }, [showMoreActions]);
 
-  const handleSnoozeAi = async (duration: number | 'tomorrow') => {
+  const handleSnoozeAi = async (duration: 30 | 120 | 'tomorrow') => {
     setShowSnoozeMenu(false);
     try {
-      await snoozeContactAi(contact.id, duration as any);
+      await snoozeContactAi(contact.id, duration);
       onContactUpdate?.({ is_ai_active: false });
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error al pausar la IA');
@@ -849,25 +850,435 @@ export function ChatWindow({
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-colors">
-      {/* Cabecera Limpia del Chat */}
-      <ChatHeader
-        contact={contact}
-        currentUserId={currentUserId}
-        currentUserRole={currentUserRole}
-        teamMembers={teamMembers}
-        isRightPanelOpen={isRightPanelOpen}
-        onToggleRightPanel={() => setIsRightPanelOpen((prev) => !prev)}
-        onToggleAi={async () => { await handleToggleAi(!contact.is_ai_active); }}
-        onSnoozeAi={handleSnoozeAi}
-        onClaimLead={handleClaimLead}
-        onReassignLead={handleAdminReassign}
-        onCloseChat={() => setIsEndChatModalOpen(true)}
-        onReopenChat={handleReopenChat}
-        onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
-        onOpenSendTemplate={() => setIsTemplatesModalOpen(true)}
-        onDeleteChat={isAdminOrSupervisor ? () => setShowDeleteModal(true) : undefined}
-        onBack={onBack}
-      />
+      {/* Cabecera del Chat */}
+      <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] flex flex-wrap items-center justify-between gap-3">
+        {/* Info del Contacto y Asignación */}
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-lg transition cursor-pointer"
+              title="Volver a la lista de chats"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <div className="flex items-center gap-2">
+            {isEditingName ? (
+              <div className="flex items-center gap-1.5 animate-in fade-in">
+                <input
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveQuickName();
+                    if (e.key === 'Escape') setIsEditingName(false);
+                  }}
+                  autoFocus
+                  placeholder="Nombre del cliente..."
+                  className="text-xs px-2.5 py-1 border border-[#0052FF] rounded-lg bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white focus:outline-none font-semibold w-40 sm:w-56 shadow-2xs"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveQuickName}
+                  disabled={isSavingName}
+                  className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg cursor-pointer"
+                  title="Guardar nombre"
+                >
+                  {isSavingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingName(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+                  title="Cancelar"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 group">
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-[180px] sm:max-w-xs">
+                  {contact.name ||
+                    (contact.channel === 'instagram'
+                      ? contact.instagram_username
+                        ? `@${contact.instagram_username}`
+                        : 'Contacto Instagram'
+                      : 'Lead de WhatsApp')}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempName(contact.name || '');
+                    setIsEditingName(true);
+                  }}
+                  className="opacity-60 group-hover:opacity-100 p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] rounded transition cursor-pointer"
+                  title="Editar nombre rápidamente con 1 clic"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-0.5 text-xs">
+              <Flag className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
+              <select
+                value={contact.pipeline_stage || 'nuevo'}
+                onChange={(e) => handleStageChange(e.target.value as PipelineStage)}
+                disabled={isUpdatingStage}
+                title="Fase del embudo de ventas"
+                className="bg-transparent text-[11px] font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+              >
+                {PIPELINE_STAGES.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200">
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              {isUpdatingStage && <Loader2 className="w-2.5 h-2.5 animate-spin text-[#0052FF]" />}
+            </div>
+          </div>
+          {contact.channel === 'instagram' ? (
+            <div className="flex items-center gap-1.5 text-xs text-pink-700 dark:text-pink-300 font-mono mt-0.5">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-pink-50 dark:bg-pink-500/10 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/20">
+                <Instagram className="w-3 h-3 text-pink-500 dark:text-pink-400" />
+                <span>Instagram Direct</span>
+              </span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {contact.instagram_username ? `@${contact.instagram_username}` : contact.phone}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20">
+                <MessageSquare className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
+                <span>WhatsApp</span>
+              </span>
+              <span>{contact.phone}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+        {/* Controles: Asignación, 24h, IA Switch y Ficha */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Badge o Selector de Asignación */}
+          {isAdminOrSupervisor ? (
+            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1 text-xs">
+              <User className="w-3.5 h-3.5 text-slate-400" />
+              <select
+                value={contact.assigned_to || 'unassigned'}
+                onChange={(e) => handleAdminReassign(e.target.value)}
+                className="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value="unassigned" className="bg-white dark:bg-[#131722] text-amber-700 dark:text-amber-400">Sin Asignar</option>
+                {teamMembers.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200">
+                    {m.full_name} {m.id === currentUserId ? '(Tú)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : isUnassigned ? (
+            <button
+              onClick={handleClaimLead}
+              disabled={isClaiming}
+              className="flex items-center gap-1.5 px-3 py-1 bg-[#0052FF] hover:bg-[#0043D4] text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 shadow-xs"
+            >
+              {isClaiming ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Tomando...</span>
+                </>
+              ) : claimSuccess ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                  <span>Asignado</span>
+                </>
+              ) : (
+                <>
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Tomar cliente</span>
+                </>
+              )}
+            </button>
+          ) : isAssignedToMe ? (
+            <span className="px-2.5 py-1 bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 rounded-lg text-xs font-medium flex items-center gap-1">
+              <User className="w-3 h-3" /> Asignado a ti
+            </span>
+          ) : isAssignedToOther && canTakeoverInactive ? (
+            <button
+              type="button"
+              onClick={handleTakeoverInactive}
+              disabled={isClaiming}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs animate-pulse"
+              title={`El asesor ${assignedMember?.full_name || 'asignado'} lleva ${Math.round(inactiveAdvisorMinutes)}m sin responder al cliente. Haz clic para rescatar la atención.`}
+            >
+              {isClaiming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+              <span>⚡ Rescatar Lead (&gt;5m)</span>
+            </button>
+          ) : (
+            <span className="px-2.5 py-1 bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] rounded-lg text-xs font-medium flex items-center gap-1">
+              <User className="w-3 h-3 text-slate-400" /> {assignedMember?.full_name || 'Otro asesor'}
+            </span>
+          )}
+
+          {/* Indicador de Ventana de 24h Meta (Solo se muestra cuando ha expirado, para no generar ruido visual) */}
+          {!isBaileys && !is24hValid && (
+            <div
+              suppressHydrationWarning
+              title="La ventana de 24 horas de Meta ha vencido. Debes enviar una plantilla autorizada para reactivar."
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30"
+            >
+              <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <span>24h Expirada</span>
+            </div>
+          )}
+
+          {/* Botón de Respuesta Rápida con IA cuando el cliente está esperando */}
+          {isLastMessageFromLead && (
+            <button
+              type="button"
+              onClick={handleTriggerSingleAi}
+              disabled={isTriggeringAi}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition shadow-xs cursor-pointer shrink-0"
+              title="Generar y enviar respuesta de IA para este prospecto ahora"
+            >
+              {isTriggeringAi ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span className="hidden sm:inline">Generando...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Responder con IA</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Switch IA / Control Humano y Pausa Temporal */}
+          <div className="flex items-center gap-1 relative">
+            <AiToggleSwitch
+              contactId={contact.id}
+              initialIsAiActive={contact.is_ai_active}
+              onToggle={handleToggleAi}
+            />
+            {contact.is_ai_active && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowSnoozeMenu((prev) => !prev)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
+                  title="Pausar IA temporalmente (30m, 2h o hasta mañana)"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                </button>
+                {showSnoozeMenu && (
+                  <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95">
+                    <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 border-b border-slate-100 dark:border-[#232A3B] select-none">
+                      Pausa temporal de IA
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeAi(30)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>⏱️</span> Pausar 30 minutos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeAi(120)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>⏱️</span> Pausar 2 horas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeAi('tomorrow')}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>☀️</span> Hasta mañana (8 AM)
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Chip de Recordatorio Activo o Botón para Programar */}
+          {activeReminder ? (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-500/30">
+              {activeReminder.reminderType === 'shipping' ? (
+                <Package className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              ) : activeReminder.reminderType === 'reactivation' ? (
+                <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              ) : (
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              )}
+              <span className="truncate max-w-[130px] sm:max-w-[180px]" title={activeReminder.note || 'Recordatorio activo'}>
+                {activeReminder.reminderType === 'shipping' ? 'Envío' : activeReminder.reminderType === 'reactivation' ? 'Reactivar' : 'Recordar'}: {new Date(activeReminder.scheduledFor).toLocaleDateString([], { day: 'numeric', month: 'short' })} {new Date(activeReminder.scheduledFor).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <button
+                type="button"
+                onClick={handleCompleteReminder}
+                disabled={isCompletingReminder}
+                title="Marcar recordatorio como completado"
+                className="ml-1 px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold inline-flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+              >
+                {isCompletingReminder ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Check className="w-2.5 h-2.5" />}
+                <span className="hidden sm:inline">Listo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsReminderModalOpen(true)}
+                title="Editar recordatorio"
+                className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 rounded cursor-pointer"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelReminder}
+                title="Descartar recordatorio"
+                className="p-1 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsReminderModalOpen(true)}
+              title="Programar recordatorio de envío o reactivación comercial"
+              className="px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:border-blue-300 dark:hover:border-blue-500/30"
+            >
+              <Clock className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden sm:inline">Recordatorio</span>
+            </button>
+          )}
+
+          {/* Botón Resumen IA (Visible en pantallas medianas/grandes) */}
+          <button
+            type="button"
+            onClick={() => setIsAiSummaryModalOpen(true)}
+            title="Ver o generar resumen ejecutivo de la negociación con IA"
+            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#0052FF]/10 dark:to-indigo-950/20 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-blue-500/30 hover:border-blue-400 dark:hover:border-blue-400 shadow-2xs"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+            <span>Resumen IA</span>
+          </button>
+
+          {/* Botón Ficha del Lead (Acción Principal de Contexto) */}
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+            title="Abrir detalles y notas del prospecto"
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+              isDrawerOpen
+                ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                : 'bg-white dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-50 dark:hover:bg-[#232A3B]'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Ficha</span>
+          </button>
+
+          {/* Menú Estructurado de Más Opciones (...) */}
+          <div className="relative" ref={moreActionsRef}>
+            <button
+              type="button"
+              onClick={() => setShowMoreActions((prev) => !prev)}
+              title="Más opciones de la conversación"
+              className={`p-1.5 rounded-xl border transition cursor-pointer shadow-2xs ${
+                showMoreActions
+                  ? 'bg-slate-200 dark:bg-[#232A3B] text-slate-900 dark:text-white border-slate-300 dark:border-slate-600'
+                  : 'bg-white dark:bg-[#1A1F2C] text-slate-500 dark:text-slate-400 border-slate-200 dark:border-[#232A3B] hover:text-slate-800 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-[#232A3B]'
+              }`}
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+
+            {showMoreActions && (
+              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 divide-y divide-slate-100 dark:divide-[#1E2433]">
+                <div className="py-1">
+                  {/* Resumen IA (para pantallas donde el botón superior está oculto) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setIsAiSummaryModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
+                  >
+                    <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                    <div>
+                      <div className="font-semibold text-xs">Resumen IA</div>
+                      <div className="text-[10px] text-slate-400">Ver acuerdos y contexto clave</div>
+                    </div>
+                  </button>
+
+                  {/* Programar Recordatorio */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setIsReminderModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
+                  >
+                    <Clock className="w-4 h-4 text-amber-500" />
+                    <div>
+                      <div className="font-semibold text-xs">Programar Recordatorio</div>
+                      <div className="text-[10px] text-slate-400">Envío, cobro o reactivación</div>
+                    </div>
+                  </button>
+
+                  {/* Dar Fin a la Conversación */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setIsEndChatModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <div>
+                      <div className="font-semibold text-xs">Finalizar Conversación</div>
+                      <div className="text-[10px] text-slate-400">Marcar resolución y archivar</div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Zona de Destrucción / Admin */}
+                {isAdminOrSupervisor && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreActions(false);
+                        setDeleteError(null);
+                        setDeletePassword('');
+                        setShowDeleteModal(true);
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 transition cursor-pointer flex items-center gap-2.5"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-500" />
+                      <div>
+                        <div className="font-semibold text-xs">Eliminar Conversación</div>
+                        <div className="text-[10px] text-rose-400/80">Borrado permanente con clave</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Alerta de Error de Meta o Concurrencia */}
       {errorMessage && (
@@ -1034,21 +1445,35 @@ export function ChatWindow({
                   </div>
                 )}
 
-                {messages.map((msg) => (
-                  <MessageBubble
-                    key={msg.id}
-                    id={msg.id}
-                    content={msg.content}
-                    senderType={msg.sender_type}
-                    createdAt={msg.created_at}
-                    status={msg.status}
-                    replyToMessageId={msg.reply_to_message_id}
-                    reactions={msg.reactions}
-                    contactId={contact.id}
-                    onReply={(target) => setReplyingToMessage(target)}
-                    onRetry={handleRetryMessage}
-                  />
-                ))}
+                {messages.map((msg, idx) => {
+                  const currentDate = new Date(msg.created_at).toDateString();
+                  const prevDate = idx > 0 ? new Date(messages[idx - 1].created_at).toDateString() : null;
+                  const showDateDivider = currentDate !== prevDate;
+
+                  return (
+                    <React.Fragment key={msg.id}>
+                      {showDateDivider && (
+                        <div className="flex justify-center my-3 sticky top-1 z-10 select-none">
+                          <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-white/95 dark:bg-[#131722]/95 backdrop-blur-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs">
+                            {formatMessageDateDivider(msg.created_at)}
+                          </span>
+                        </div>
+                      )}
+                      <MessageBubble
+                        id={msg.id}
+                        content={msg.content}
+                        senderType={msg.sender_type}
+                        createdAt={msg.created_at}
+                        status={msg.status}
+                        replyToMessageId={msg.reply_to_message_id}
+                        reactions={msg.reactions}
+                        contactId={contact.id}
+                        onReply={(target) => setReplyingToMessage(target)}
+                        onRetry={handleRetryMessage}
+                      />
+                    </React.Fragment>
+                  );
+                })}
               </>
             )}
             <div ref={messagesEndRef} />
@@ -1138,34 +1563,12 @@ export function ChatWindow({
           />
         </div>
 
-        {/* Columna Derecha: Panel de Contacto Fijo (Desktop) */}
-        {isRightPanelOpen && (
-          <div className="hidden lg:block shrink-0 h-full">
-            <ContactPanel
-              contact={contact}
-              teamMembers={teamMembers}
-              onContactUpdate={onContactUpdate}
-              onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
-              onClosePanel={() => setIsRightPanelOpen(false)}
-            />
-          </div>
-        )}
-
-        {/* Drawer en móvil */}
-        {isRightPanelOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex justify-end animate-in fade-in">
-            <div className="w-80 max-w-[85vw] h-full shadow-2xl">
-              <ContactPanel
-                contact={contact}
-                teamMembers={teamMembers}
-                onContactUpdate={onContactUpdate}
-                onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
-                onClosePanel={() => setIsRightPanelOpen(false)}
-                isMobileDrawer
-              />
-            </div>
-          </div>
-        )}
+        {/* Drawer de Detalles del Lead */}
+        <LeadDetailsDrawer
+          contact={contact as any}
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+        />
       </div>
 
       {/* Modal de Confirmación Rápida para Eliminar Chat */}

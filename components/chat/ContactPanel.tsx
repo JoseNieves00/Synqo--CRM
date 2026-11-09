@@ -28,6 +28,7 @@ import { PIPELINE_STAGES } from '@/services/contact.service';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { updateContactDetails } from '@/app/actions/contacts';
 import { generateContactAiSummary, endContactConversation, reopenContactConversation } from '@/app/actions/chat';
+import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
 
 interface ContactPanelProps {
   contact: {
@@ -240,16 +241,27 @@ export function ContactPanel({
             <h4 className="font-bold text-slate-900 dark:text-white truncate">
               {contact.name || 'Sin nombre registrado'}
             </h4>
-            <div className="flex items-center gap-1 text-[11px] text-slate-500 font-mono">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono flex-wrap">
               {contact.channel === 'instagram' ? (
-                <>
+                <span className="flex items-center gap-1">
                   <Instagram className="w-3 h-3 text-pink-500" />
                   <span>@{contact.instagram_username || contact.phone}</span>
-                </>
+                </span>
               ) : (
-                <>
+                <span className="flex items-center gap-1">
                   <MessageSquare className="w-3 h-3 text-[#0052FF]" />
                   <span>{contact.phone}</span>
+                </span>
+              )}
+              {contact.last_interaction_at && (
+                <>
+                  <span className="text-slate-300 dark:text-[#232A3B]">•</span>
+                  <span
+                    title={formatInboxConversationDate(contact.last_interaction_at).tooltip}
+                    className="text-[10px] text-slate-400 font-sans"
+                  >
+                    {formatInboxConversationDate(contact.last_interaction_at).label}
+                  </span>
                 </>
               )}
             </div>

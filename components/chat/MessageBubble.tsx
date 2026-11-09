@@ -31,6 +31,7 @@ import {
   parseVideoMessageContent,
   parseQuoteMessageContent,
 } from '@/lib/media/format';
+import { formatFullDateTime } from '@/lib/utils/inbox-date';
 
 interface MessageBubbleProps {
   id?: string;
@@ -595,9 +596,9 @@ export const MessageBubble = React.memo(
               </p>
             )}
 
-            {/* Hora y Ticks de Estado (Sent, Delivered, Read) */}
+            {/* Hora y Ticks de Estado (Sent, Delivered, Read) con Tooltip de Fecha Completa */}
             <div suppressHydrationWarning className="text-[10px] mt-1 text-right font-mono opacity-75 flex items-center justify-end gap-0.5 select-none">
-              <span>{formattedTime}</span>
+              <span title={formatFullDateTime(createdAt)} className="cursor-help">{formattedTime}</span>
               {renderTicks()}
             </div>
 
