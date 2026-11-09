@@ -17,18 +17,18 @@ function assert(condition: boolean, msg: string) {
 async function runTests() {
   console.log('\n🧪 Iniciando Suite de Pruebas: Auditoría IA, Instagram Ads & Despeje de Relevos...\n');
 
-  // 1. Obtener organización de prueba
+  // 1. Obtener organización de prueba (Empresa Synqo de test)
   console.log('1️⃣  Obteniendo organización y configuración de prueba...');
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
     .select('id, name, system_prompt, ai_tokens_limit, ai_tokens_used, ai_tokens_openai_backup_limit, ai_tokens_openai_used')
-    .eq('name', 'Filippo Kids')
+    .eq('name', 'Empresa Synqo')
     .maybeSingle();
 
   const testOrg = org || (await (supabaseAdmin.from('organizations') as any).select('id, name').limit(1).single()).data;
   assert(Boolean(testOrg?.id), 'Debe existir una organización para la prueba');
   console.log(`   ✅ Organización: "${testOrg.name}"`);
 
-  // 2. Verificar que Filippo Kids tiene cuota desbloqueada para OpenAI
+  // 2. Verificar que la organización tiene cuota desbloqueada para OpenAI
   console.log('\n2️⃣  Verificando blindaje de cuota y disponibilidad de IA...');
   const { data: refreshedOrg } = await (supabaseAdmin.from('organizations') as any)
     .select('ai_tokens_limit, ai_tokens_used, ai_tokens_openai_backup_limit, ai_tokens_openai_used')

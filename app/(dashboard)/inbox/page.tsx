@@ -2,6 +2,8 @@ import React from 'react';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { getKnowledgeGapsCount } from '@/app/actions/knowledge-gaps';
+import { listInbox, getInboxCounts, InboxViewType } from '@/app/actions/chat';
+import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { redirect } from 'next/navigation';
 import { InboxView } from '@/components/chat/InboxView';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
@@ -23,22 +25,35 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     redirect('/login');
   }
 
-  // Consultar contactos reales de la organización, miembros del equipo y conteo de vacíos de IA
-  const [{ data: contacts }, { data: teamMembers }, gapsCount] = await Promise.all([
-    (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
-      .eq('organization_id', current.organization.id)
-      .is('deleted_at', null)
-      .order('updated_at', { ascending: false })
-      .limit(50),
+  const activeView: InboxViewType = (searchParams?.view as InboxViewType) || 'por_responder';
+  const channelFilter = (searchParams?.ch as any) || 'all';
+
+  // Consultar contactos, contadores, miembros, catálogo y cuentas de pago en paralelo (cero saltos visuales)
+  const [inboxRes, initialCounts, { data: teamMembers }, gapsCount, paymentAccounts, catalogItems] = await Promise.all([
+    listInbox({
+      view: activeView,
+      channel: channelFilter,
+      search: '',
+      offset: 0,
+      limit: 30,
+    }).catch(() => ({ contacts: [], totalCount: 0 })),
+    getInboxCounts().catch(() => ({
+      por_responder: 0,
+      mis_abiertos: 0,
+      ia_atendiendo: 0,
+      seguimiento: 0,
+      cerrados: 0,
+    })),
     (supabaseAdmin.from('profiles') as any)
       .select('id, full_name, email, role')
       .eq('organization_id', current.organization.id)
       .order('full_name', { ascending: true }),
     getKnowledgeGapsCount(),
+    getOrganizationPaymentAccounts().catch(() => []),
+    getOrganizationCatalogGallery().catch(() => []),
   ]);
 
-  const contactList = contacts || [];
+  const contactList = inboxRes.contacts || [];
   const targetContactId = searchParams?.c;
   let activeContact = targetContactId
     ? contactList.find((c: any) => c.id === targetContactId) || null
@@ -46,7 +61,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
   if (targetContactId && !activeContact) {
     const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until')
+      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
       .eq('id', targetContactId)
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
@@ -71,6 +86,10 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       contacts={contactList}
       activeContact={activeContact}
       messages={messages}
+      initialCounts={initialCounts}
+      paymentAccounts={paymentAccounts || []}
+      catalogItems={catalogItems || []}
+      initialView={activeView}
       customTemplates={(current.organization as any)?.whatsapp_templates || []}
       whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.evolution_instance_name ? 'evolution' : 'meta')}
       currentUserId={current.user.id}

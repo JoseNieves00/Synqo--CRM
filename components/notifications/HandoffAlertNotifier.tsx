@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter, usePathname } from 'next/navigation';
 import { Bell, BellRing, MessageSquare, X, UserCheck, AlertCircle } from 'lucide-react';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
+import { useInboxStore } from '@/lib/inbox/use-inbox-store';
 
 interface HandoffAlertNotifierProps {
   organizationId: string;
@@ -192,14 +193,21 @@ export function HandoffAlertNotifier({
     };
   }, []);
 
-  // 1. Carga inicial y sondeo periódico de respaldo (cada 30s)
+  // 1. Carga inicial y escucha reactiva del store (sin sondeo repetitivo cada 30s)
+  const porResponderCount = useInboxStore((s) => s.counts.por_responder);
+
   useEffect(() => {
     if (!organizationId) return;
-
     syncUnattended();
-    const interval = setInterval(syncUnattended, 30000);
-    return () => clearInterval(interval);
   }, [organizationId]);
+
+  useEffect(() => {
+    if (porResponderCount === 0) {
+      setUnattendedList([]);
+    } else {
+      syncUnattended();
+    }
+  }, [porResponderCount]);
 
   // 2. Campanada insistente periódica (cada 2.5 min si hay chats sin responder)
   useEffect(() => {
@@ -255,108 +263,26 @@ export function HandoffAlertNotifier({
     };
   }, [unattendedList.length]);
 
-  // 4. Suscripción Supabase Realtime a contacts y messages
+  // 4. Escuchar eventos de relevo del SyncEngine único (cero canales Realtime duplicados)
   useEffect(() => {
-    if (!organizationId) return;
-
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel(`anti-visto-${organizationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'contacts',
-          filter: `organization_id=eq.${organizationId}`,
-        },
-        (payload) => {
-          const oldRecord = payload.old as any;
-          const newRecord = payload.new as any;
-
-          if (!newRecord) return;
-
-          // Relevo humano activado (detección tolerante a REPLICA IDENTITY)
-          const prevAi = oldRecord?.is_ai_active !== undefined
-            ? oldRecord.is_ai_active
-            : knownAiStatesRef.current.get(newRecord.id);
-
-          const isHandoffTransition = prevAi !== false && newRecord.is_ai_active === false;
-          knownAiStatesRef.current.set(newRecord.id, newRecord.is_ai_active);
-
-          if (isHandoffTransition) {
-            const isMyLead = newRecord.assigned_to === currentUserId;
-            if (isMyLead || isAdmin || !newRecord.assigned_to) {
-              triggerAlert({
-                id: newRecord.id,
-                name: newRecord.name || 'Prospecto WhatsApp',
-                phone: newRecord.phone || '',
-                timestamp: Date.now(),
-                type: 'handoff',
-              });
-            }
-          }
-
-          // Asignación de lead al agente actual
-          const prevAssigned = oldRecord?.assigned_to !== undefined
-            ? oldRecord.assigned_to
-            : knownAssignmentsRef.current.get(newRecord.id);
-
-          knownAssignmentsRef.current.set(newRecord.id, newRecord.assigned_to);
-
-          if (
-            currentUserId &&
-            prevAssigned !== currentUserId &&
-            newRecord.assigned_to === currentUserId
-          ) {
-            triggerAlert({
-              id: newRecord.id,
-              name: newRecord.name || 'Prospecto WhatsApp',
-              phone: newRecord.phone || '',
-              timestamp: Date.now(),
-              type: 'assignment',
-            });
-          }
-
-          syncUnattended();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-        },
-        (payload) => {
-          const newMsg = payload.new as any;
-          if (newMsg && newMsg.sender_type === 'system') {
-            const isHandoffNotice =
-              typeof newMsg.content === 'string' &&
-              (newMsg.content.includes('Relevo Silencioso') ||
-               newMsg.content.includes('Relevo Solicitado') ||
-               newMsg.content.includes('Asesor humano'));
-
-            if (isHandoffNotice && newMsg.contact_id) {
-              triggerAlert({
-                id: newMsg.contact_id,
-                name: 'Relevo Requerido',
-                phone: '',
-                timestamp: Date.now(),
-                type: 'handoff',
-              });
-            }
-          }
-          syncUnattended();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
+    const handleHandoffEvent = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      triggerAlert({
+        id: detail.id,
+        name: detail.name || 'Prospecto WhatsApp',
+        phone: detail.phone || '',
+        timestamp: Date.now(),
+        type: detail.type || 'handoff',
+      });
+      syncUnattended();
     };
-  }, [organizationId, currentUserId, isAdmin]);
+
+    window.addEventListener('synqo-inbox-handoff-alert', handleHandoffEvent as EventListener);
+    return () => {
+      window.removeEventListener('synqo-inbox-handoff-alert', handleHandoffEvent as EventListener);
+    };
+  }, []);
 
   const triggerAlert = (alert: AlertData) => {
     const isHandoff = alert.type === 'handoff';
@@ -385,10 +311,10 @@ export function HandoffAlertNotifier({
           window.focus();
           notif.close();
           if (typeof window !== 'undefined' && window.location.pathname.startsWith('/inbox')) {
-            window.history.pushState({ contactId: alert.id }, '', `/inbox/${alert.id}`);
+            window.history.pushState(null, '', `/inbox?c=${alert.id}`);
             window.dispatchEvent(new CustomEvent('synqo-select-contact', { detail: alert.id }));
           } else {
-            router.push(`/inbox/${alert.id}`);
+            router.push(`/inbox?c=${alert.id}`);
           }
         };
       } catch (e) {
@@ -478,10 +404,10 @@ export function HandoffAlertNotifier({
                       onClick={() => {
                         dismissAlert(alert.id);
                         if (typeof window !== 'undefined' && window.location.pathname.startsWith('/inbox')) {
-                          window.history.pushState({ contactId: alert.id }, '', `/inbox/${alert.id}`);
+                          window.history.pushState(null, '', `/inbox?c=${alert.id}`);
                           window.dispatchEvent(new CustomEvent('synqo-select-contact', { detail: alert.id }));
                         } else {
-                          router.push(`/inbox/${alert.id}`);
+                          router.push(`/inbox?c=${alert.id}`);
                         }
                       }}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-bold text-xs rounded-lg transition shadow-md cursor-pointer text-white ${
@@ -591,10 +517,10 @@ export function HandoffAlertNotifier({
                 <button
                   onClick={() => {
                     if (typeof window !== 'undefined' && window.location.pathname.startsWith('/inbox')) {
-                      window.history.pushState({ contactId: latestUnattended.id }, '', `/inbox/${latestUnattended.id}`);
+                      window.history.pushState(null, '', `/inbox?c=${latestUnattended.id}`);
                       window.dispatchEvent(new CustomEvent('synqo-select-contact', { detail: latestUnattended.id }));
                     } else {
-                      router.push(`/inbox/${latestUnattended.id}`);
+                      router.push(`/inbox?c=${latestUnattended.id}`);
                     }
                   }}
                   className="flex-1 inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-[#0052FF] hover:bg-[#0047E0] font-semibold text-xs text-white rounded-xl shadow-xs transition cursor-pointer"

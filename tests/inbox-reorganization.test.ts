@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
-import { normalizeContactInboxState } from '../app/actions/chat';
+import { normalizeContactInboxState } from '../lib/inbox/normalize';
 
 async function runInboxTests() {
   console.log('\n🧪 Iniciando Suite de Pruebas: Reorganización del Inbox (Fase 1.5 & Bugs Clave)...\n');

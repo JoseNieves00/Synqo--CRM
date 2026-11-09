@@ -293,10 +293,10 @@ export class LeadReactivationService {
               })
               .eq('id', contact.id);
 
-            // Completar en la tabla scheduled_reminders si existía
+            // Cancelar en la tabla scheduled_reminders si existía
             try {
               await (supabaseAdmin.from('scheduled_reminders') as any)
-                .update({ status: 'completed' })
+                .update({ status: 'cancelled' })
                 .eq('contact_id', contact.id)
                 .eq('reminder_type', 'reactivation')
                 .eq('status', 'pending');

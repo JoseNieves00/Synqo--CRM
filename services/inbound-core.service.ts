@@ -403,9 +403,8 @@ export class InboundCoreService {
 
     const messageId = insertedMsg?.id;
 
-    // 6. Actualización de Contador de No Leídos, Último Mensaje y Verificación de Snooze
+    // 6. Verificación de Snooze y Actualización del Contacto (unread_count lo maneja exclusivamente el trigger de messages)
     const currentCustom = ((existingContact as any)?.custom_fields as Record<string, any>) || {};
-    const unreadCount = ((existingContact as any)?.unread_count || currentCustom.unread_count || 0) + 1;
     const lastMsgPayload = {
       text: sanitizedContent,
       sender_type: 'lead',
@@ -426,16 +425,9 @@ export class InboundCoreService {
 
     await (supabaseAdmin.from('contacts') as any)
       .update({
-        unread_count: unreadCount,
         last_message: lastMsgPayload,
         is_ai_active: effectiveAiActive,
         ai_snooze_until: clearSnooze ? null : ((existingContact as any)?.ai_snooze_until || null),
-        custom_fields: {
-          ...currentCustom,
-          unread_count: unreadCount,
-          last_message: lastMsgPayload,
-          ai_snooze_until: clearSnooze ? null : currentCustom.ai_snooze_until,
-        },
         last_interaction_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -857,7 +849,7 @@ export class InboundCoreService {
         // Desactivar recordatorios de reactivación pendientes en tabla scheduled_reminders
         try {
           await (supabaseAdmin.from('scheduled_reminders') as any)
-            .update({ status: 'completed' })
+            .update({ status: 'cancelled' })
             .eq('contact_id', contactId)
             .eq('reminder_type', 'reactivation')
             .eq('status', 'pending');

@@ -209,14 +209,11 @@ export async function takeoverInactiveLead(contactId: string): Promise<{ success
 
   // Registrar auditoría interna en mensajes
   await (supabaseAdmin.from('messages') as any).insert({
-    organization_id: profile.organization_id,
     contact_id: contactId,
     sender_type: 'system',
     content: `[⚡ Rescate Comercial: Lead transferido a ${profile.full_name || 'asesor'} por inactividad (>5m sin respuesta)]`,
   });
 
-  revalidatePath('/inbox');
-  revalidatePath(`/inbox/${contactId}`);
   return { success: true };
 }
 

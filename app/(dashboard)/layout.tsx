@@ -13,6 +13,7 @@ import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbe
 import { SupportHeaderButton } from '@/components/support/SupportHeaderButton';
 import { WhatsAppConnectionIndicator } from '@/components/dashboard/WhatsAppConnectionIndicator';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
+import { InboxSyncProvider } from '@/components/inbox/InboxSyncProvider';
 
 const MustChangePasswordModal = nextDynamic(
   () => import('@/components/profile/MustChangePasswordModal').then((m) => m.MustChangePasswordModal),
@@ -116,6 +117,9 @@ export default async function DashboardLayout({
           signOutAction={signOut}
         />
       </aside>
+
+      {/* Sincronizador de Datos en Tiempo Real (Sync Engine Único) */}
+      <InboxSyncProvider organizationId={orgId} currentUserId={current?.user?.id} />
 
       {/* Latido de Presencia y Detección Antifantasma */}
       <UserPresenceHeartbeat />

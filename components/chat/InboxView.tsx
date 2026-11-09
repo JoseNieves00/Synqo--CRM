@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Sparkles, RefreshCw } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { InboxSidebar } from './InboxSidebar';
 import { BatchApologyModal } from './BatchApologyModal';
+import { InboxCommandPalette } from '@/components/inbox/InboxCommandPalette';
 import { ContactRowData } from './ConversationRow';
 import { FilterState } from './InboxFiltersPopover';
-import { createClient } from '@/lib/supabase/client';
 import {
   InboxViewType,
   InboxCounts,
@@ -19,8 +19,12 @@ import {
   endContactConversation,
   snoozeContactAi,
 } from '@/app/actions/chat';
-import { claimUnassignedLead, assignLeadByAdmin } from '@/app/actions/assignment';
-import { importRecentEvolutionChats } from '@/app/actions/evolution';
+import { claimUnassignedLead } from '@/app/actions/assignment';
+import {
+  useInboxStore,
+  useInboxCounts,
+  useViewContactIds,
+} from '@/lib/inbox/use-inbox-store';
 
 interface MessageItem {
   id: string;
@@ -50,6 +54,10 @@ interface InboxViewProps {
   currentUserRole?: string;
   teamMembers?: TeamMember[];
   pendingGapsCount?: number;
+  initialCounts?: InboxCounts;
+  paymentAccounts?: any[];
+  catalogItems?: any[];
+  initialView?: InboxViewType;
 }
 
 export function InboxView({
@@ -63,11 +71,15 @@ export function InboxView({
   currentUserRole = 'agent',
   teamMembers = [],
   pendingGapsCount = 0,
+  initialCounts,
+  paymentAccounts = [],
+  catalogItems = [],
+  initialView = 'por_responder',
 }: InboxViewProps) {
   const router = useRouter();
 
   // 1. Estado de la Vista / Bandeja Activa (URL como fuente de verdad)
-  const [activeView, setActiveView] = useState<InboxViewType>('por_responder');
+  const [activeView, setActiveView] = useState<InboxViewType>(initialView);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     activeContact?.id || (initialContacts.length > 0 ? initialContacts[0].id : null)
   );
@@ -80,33 +92,66 @@ export function InboxView({
     temperature: 'all',
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
-  // 3. Lista de Contactos & Paginación
-  const [contactList, setContactList] = useState<ContactRowData[]>(initialContacts || []);
+  // 3. Estado local de carga y paginación
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState<number | null>(null);
-
-  // 4. Contadores reales del Servidor
-  const [counts, setCounts] = useState<InboxCounts>({
-    por_responder: 0,
-    mis_abiertos: 0,
-    ia_atendiendo: 0,
-    seguimiento: 0,
-    cerrados: 0,
-  });
-
-  // 5. Caché de Mensajes & Borradores en Memoria (0ms switching)
-  const messagesCacheRef = useRef<Record<string, MessageItem[]>>({});
-  const [messagesCache, setMessagesCache] = useState<Record<string, MessageItem[]>>(() => {
-    if (activeContact?.id && messages && messages.length > 0) {
-      return { [activeContact.id]: messages };
-    }
-    return {};
-  });
-  const draftsRef = useRef<Record<string, string>>({});
-  const [draftText, setDraftText] = useState('');
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+  // 4. Inicializar Zustand Store con datos SSR (Zero Layout Shift)
+  useEffect(() => {
+    useInboxStore.getState().initialize({
+      organizationId,
+      currentUserId: currentUserId || '',
+      currentUserRole: currentUserRole || 'agent',
+      initialContacts: initialContacts || [],
+      initialCounts: initialCounts || {
+        por_responder: 0,
+        mis_abiertos: 0,
+        ia_atendiendo: 0,
+        seguimiento: 0,
+        cerrados: 0,
+      },
+      activeContactId: activeContact?.id || (initialContacts.length > 0 ? initialContacts[0].id : null),
+      initialMessages: messages || [],
+      templates: customTemplates,
+      teamMembers: teamMembers,
+    });
+
+    if (paymentAccounts.length > 0 || catalogItems.length > 0) {
+      useInboxStore.getState().setBootstrap({
+        paymentAccounts,
+        catalog: catalogItems,
+      });
+    }
+  }, [organizationId]);
+
+  // 5. Selectores Finos del Store Normalizado
+  const counts = useInboxCounts();
+  const contactsById = useInboxStore((s) => s.contactsById);
+  const viewContactIds = useViewContactIds(activeView);
+  const messagesByContact = useInboxStore((s) => s.messagesByContact);
+
+  // Lista de contactos de la vista actual
+  const contactList = useMemo(() => {
+    return viewContactIds.map((id) => contactsById[id]).filter(Boolean) as ContactRowData[];
+  }, [viewContactIds, contactsById]);
+
+  // Mensajes de la conversación activa
+  const activeMessages = useMemo(() => {
+    if (!selectedContactId) return [];
+    return messagesByContact[selectedContactId]?.items || [];
+  }, [messagesByContact, selectedContactId]);
+
+  // Contacto activo en pantalla
+  const activeContactData = useMemo(() => {
+    if (selectedContactId && contactsById[selectedContactId]) {
+      return contactsById[selectedContactId] as ContactRowData;
+    }
+    return activeContact || null;
+  }, [contactsById, selectedContactId, activeContact]);
 
   // 6. Sincronización inicial desde URL (query params)
   useEffect(() => {
@@ -118,28 +163,26 @@ export function InboxView({
 
     if (viewParam && ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'].includes(viewParam)) {
       setActiveView(viewParam);
+      useInboxStore.getState().setActiveView(viewParam);
     }
     if (contactParam) {
       setSelectedContactId(contactParam);
+      useInboxStore.getState().setActiveContactId(contactParam);
     }
     if (channelParam && ['all', 'whatsapp', 'instagram'].includes(channelParam)) {
       setFilters((prev) => ({ ...prev, channel: channelParam }));
     }
   }, []);
 
-  // 7. Cargar contadores del servidor al montar
+  // 7. Refrescar contadores desde servidor
   const refreshCounts = useCallback(async () => {
     try {
       const serverCounts = await getInboxCounts();
-      setCounts(serverCounts);
+      useInboxStore.getState().setCounts(serverCounts);
     } catch (err) {
       console.warn('[InboxView] Error obteniendo contadores:', err);
     }
   }, []);
-
-  useEffect(() => {
-    refreshCounts();
-  }, [refreshCounts]);
 
   // 8. Cargar lista de contactos cuando cambia la vista, filtros o búsqueda
   const loadContacts = useCallback(
@@ -157,17 +200,11 @@ export function InboxView({
           limit: 30,
         });
 
-        if (isAppend) {
-          setContactList((prev) => {
-            const existingIds = new Set(prev.map((c) => c.id));
-            const newOnes = res.contacts.filter((c: any) => !existingIds.has(c.id));
-            return [...prev, ...newOnes];
-          });
-        } else {
-          setContactList(res.contacts);
-          // Si el contacto seleccionado ya no pertenece a la vista, seleccionar el primero disponible
+        useInboxStore.getState().setViewContacts(activeView, res.contacts, isAppend);
+
+        if (!isAppend) {
           if (res.contacts.length > 0 && (!selectedContactId || !res.contacts.some((c: any) => c.id === selectedContactId))) {
-            setSelectedContactId(res.contacts[0].id);
+            openChat(res.contacts[0].id);
           }
         }
 
@@ -189,36 +226,35 @@ export function InboxView({
     loadContacts(0, false);
   }, [activeView, filters, searchQuery]);
 
-  // 9. Manejar selección de contacto y sincronizar URL
-  const handleSelectContact = useCallback(
-    async (contactId: string) => {
+  // 9. Mapeo unificado para abrir chat (URL, clicks, popstate, notificaciones, J/K)
+  const openChat = useCallback(
+    async (contactId: string, options?: { skipPushState?: boolean }) => {
       if (!contactId) return;
       setSelectedContactId(contactId);
+      useInboxStore.getState().setActiveContactId(contactId);
 
       // Despejar badge de no leídos inmediatamente (optimistic UI)
-      setContactList((prev) =>
-        prev.map((c) => (c.id === contactId ? { ...c, unread_count: 0 } : c))
-      );
+      useInboxStore.getState().upsertContact({ id: contactId, unread_count: 0 });
       markContactAsRead(contactId).catch(() => {});
 
-      // Sincronizar URL sin recargar
-      if (typeof window !== 'undefined') {
+      // Sincronizar URL sin recargar el layout
+      if (!options?.skipPushState && typeof window !== 'undefined') {
         const url = new URL(window.location.href);
         url.searchParams.set('view', activeView);
         url.searchParams.set('c', contactId);
         window.history.pushState(null, '', url.toString());
       }
 
-      // Cargar mensajes si no están en memoria
-      if (messagesCacheRef.current[contactId]) {
+      // Cargar mensajes si no están en memoria (0ms switching si ya están en store)
+      const cached = useInboxStore.getState().messagesByContact[contactId];
+      if (cached && cached.items && cached.items.length > 0) {
         return;
       }
 
       setIsLoadingMessages(true);
       try {
         const msgs = await getContactMessages(contactId);
-        messagesCacheRef.current[contactId] = msgs;
-        setMessagesCache((prev) => ({ ...prev, [contactId]: msgs }));
+        useInboxStore.getState().setContactMessages(contactId, msgs);
       } catch (err) {
         console.error('[InboxView] Error cargando mensajes:', err);
       } finally {
@@ -228,60 +264,111 @@ export function InboxView({
     [activeView]
   );
 
+  const handleSelectContact = useCallback(
+    (contactId: string) => {
+      openChat(contactId);
+    },
+    [openChat]
+  );
+
   // Escuchar botón Atrás del navegador (Popstate)
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
       const contactParam = params.get('c');
       const viewParam = params.get('view') as InboxViewType | null;
-      if (viewParam) setActiveView(viewParam);
-      if (contactParam) setSelectedContactId(contactParam);
+      if (viewParam) {
+        setActiveView(viewParam);
+        useInboxStore.getState().setActiveView(viewParam);
+      }
+      if (contactParam) openChat(contactParam, { skipPushState: true });
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, [openChat]);
+
+  // Escuchar eventos globales de selección de contacto (Notificaciones, Relevos, etc.)
+  useEffect(() => {
+    const handleSelectContactEvent = (e: any) => {
+      const contactId = e.detail;
+      if (contactId) {
+        openChat(contactId);
+      }
+    };
+    window.addEventListener('synqo-select-contact', handleSelectContactEvent as EventListener);
+    return () => window.removeEventListener('synqo-select-contact', handleSelectContactEvent as EventListener);
+  }, [openChat]);
+
+  // Escuchar eventos de Inbox Zero: Salto automático al siguiente chat disponible tras finalizar o con ⌘+Enter
+  useEffect(() => {
+    const handleInboxZeroNext = (e: any) => {
+      const closedId = e.detail?.closedContactId;
+      const currentList = contactList;
+      const currentIdx = currentList.findIndex((c: any) => c.id === closedId);
+
+      let nextContact: any = null;
+      if (currentIdx !== -1) {
+        nextContact = currentList[currentIdx + 1] || currentList[currentIdx - 1];
+      } else if (currentList.length > 0) {
+        nextContact = currentList[0];
+      }
+
+      if (nextContact && nextContact.id !== closedId) {
+        openChat(nextContact.id);
+      } else if (!e.detail?.jumpOnly) {
+        // Si no hay más contactos y se cerró la conversación, limpiar selección
+        setSelectedContactId(null);
+        useInboxStore.getState().setActiveContactId(null);
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('c');
+          window.history.pushState(null, '', url.toString());
+        }
+      }
+    };
+
+    window.addEventListener('synqo-inbox-zero-next', handleInboxZeroNext as EventListener);
+    return () => window.removeEventListener('synqo-inbox-zero-next', handleInboxZeroNext as EventListener);
+  }, [contactList, openChat]);
+
+  // Cargar lote anterior de mensajes por keyset pagination (sin saltos de scroll)
+  const handleLoadOlderMessages = useCallback(async (contactId: string): Promise<number> => {
+    const cached = useInboxStore.getState().messagesByContact[contactId];
+    const current = cached?.items || [];
+    if (current.length === 0) return 0;
+    const oldestCreatedAt = current[0]?.created_at;
+    if (!oldestCreatedAt) return 0;
+
+    try {
+      const older = await getContactMessages(contactId, oldestCreatedAt, 40);
+      if (!older || older.length === 0) return 0;
+
+      useInboxStore.getState().setContactMessages(contactId, older, {
+        isPrepend: true,
+        hasMoreOlder: older.length >= 40,
+      });
+
+      return older.length;
+    } catch (err) {
+      console.error('[InboxView] Error cargando mensajes anteriores:', err);
+      return 0;
+    }
   }, []);
 
   // 10. Actualización optimista de mensajes
   const handleOptimisticMessage = useCallback((msg: MessageItem) => {
     if (!selectedContactId) return;
-    setMessagesCache((prev) => {
-      const current = prev[selectedContactId] || [];
-      // Si ya existe por id temporal, reemplazarlo
-      const existingIdx = current.findIndex((m) => m.id === msg.id);
-      let updated: MessageItem[];
-      if (existingIdx >= 0) {
-        updated = [...current];
-        updated[existingIdx] = msg;
-      } else {
-        updated = [...current, msg];
-      }
-      messagesCacheRef.current[selectedContactId] = updated;
-      return { ...prev, [selectedContactId]: updated };
+    useInboxStore.getState().upsertMessage({
+      ...msg,
+      contact_id: selectedContactId,
     });
-
-    // Actualizar preview local
-    setContactList((prev) =>
-      prev.map((c) =>
-        c.id === selectedContactId
-          ? {
-              ...c,
-              last_message_preview: msg.content.slice(0, 150),
-              last_message_sender: msg.sender_type,
-              last_interaction_at: msg.created_at,
-              unread_count: 0,
-            }
-          : c
-      )
-    );
   }, [selectedContactId]);
 
   // Actualizar contacto en lista local
   const handleContactUpdate = useCallback(
     (fields: Partial<ContactRowData>) => {
       if (!selectedContactId) return;
-      setContactList((prev) =>
-        prev.map((c) => (c.id === selectedContactId ? { ...c, ...fields } : c))
-      );
+      useInboxStore.getState().upsertContact({ id: selectedContactId, ...fields });
       refreshCounts();
     },
     [selectedContactId, refreshCounts]
@@ -293,9 +380,7 @@ export function InboxView({
       if (!currentUserId) return;
       try {
         await claimUnassignedLead(contactId);
-        setContactList((prev) =>
-          prev.map((c) => (c.id === contactId ? { ...c, assigned_to: currentUserId } : c))
-        );
+        useInboxStore.getState().upsertContact({ id: contactId, assigned_to: currentUserId });
         refreshCounts();
       } catch (err) {
         console.error('[InboxView] Error al auto-asignarse lead:', err);
@@ -308,13 +393,10 @@ export function InboxView({
     async (contactId: string) => {
       try {
         await endContactConversation(contactId, 'completed');
-        // Remover de la vista si estamos en una vista de abiertos
         if (activeView !== 'cerrados') {
-          setContactList((prev) => prev.filter((c) => c.id !== contactId));
+          useInboxStore.getState().removeContact(contactId);
         } else {
-          setContactList((prev) =>
-            prev.map((c) => (c.id === contactId ? { ...c, conversation_status: 'closed' } : c))
-          );
+          useInboxStore.getState().upsertContact({ id: contactId, conversation_status: 'closed' });
         }
         refreshCounts();
       } catch (err) {
@@ -328,9 +410,7 @@ export function InboxView({
     async (contactId: string) => {
       try {
         await snoozeContactAi(contactId, 30);
-        setContactList((prev) =>
-          prev.map((c) => (c.id === contactId ? { ...c, is_ai_active: false } : c))
-        );
+        useInboxStore.getState().upsertContact({ id: contactId, is_ai_active: false });
         refreshCounts();
       } catch (err) {
         console.error('[InboxView] Error pausando IA:', err);
@@ -360,103 +440,22 @@ export function InboxView({
   const handleBatchClose = useCallback(
     async (ids: string[]) => {
       await Promise.allSettled(ids.map((id) => endContactConversation(id, 'completed')));
-      setContactList((prev) => prev.filter((c) => !ids.includes(c.id)));
+      ids.forEach((id) => useInboxStore.getState().removeContact(id));
       refreshCounts();
     },
     [refreshCounts]
   );
 
-  // 13. Suscripción Realtime a Supabase
-  useEffect(() => {
-    const supabase = createClient();
-
-    // Canal de contactos para actualizar preview, estado y badges a 60 FPS
-    const contactChannel = supabase
-      .channel(`inbox_contacts_${organizationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'contacts',
-          filter: `organization_id=eq.${organizationId}`,
-        },
-        (payload) => {
-          const updated = payload.new as any;
-          if (!updated || !updated.id) return;
-
-          setContactList((prev) => {
-            const idx = prev.findIndex((c) => c.id === updated.id);
-            if (idx >= 0) {
-              const copy = [...prev];
-              copy[idx] = { ...copy[idx], ...updated };
-              return copy;
-            }
-            return prev;
-          });
-
-          refreshCounts();
-        }
-      )
-      .subscribe();
-
-    // Canal de mensajes para recibir nuevos chats en vivo
-    const messagesChannel = supabase
-      .channel(`inbox_messages_${organizationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-        },
-        (payload) => {
-          const newMsg = payload.new as MessageItem & { contact_id: string };
-          if (!newMsg || !newMsg.contact_id) return;
-
-          // Si el mensaje pertenece al chat activo, insertarlo
-          if (newMsg.contact_id === selectedContactId) {
-            setMessagesCache((prev) => {
-              const current = prev[selectedContactId] || [];
-              if (current.some((m) => m.id === newMsg.id)) return prev;
-              const updated = [...current, newMsg];
-              messagesCacheRef.current[selectedContactId] = updated;
-              return { ...prev, [selectedContactId]: updated };
-            });
-          }
-
-          // Actualizar vista previa del contacto
-          setContactList((prev) =>
-            prev.map((c) =>
-              c.id === newMsg.contact_id
-                ? {
-                    ...c,
-                    last_message_preview: newMsg.content.slice(0, 150),
-                    last_message_sender: newMsg.sender_type,
-                    last_interaction_at: newMsg.created_at,
-                    unread_count:
-                      newMsg.contact_id === selectedContactId
-                        ? 0
-                        : (c.unread_count || 0) + (newMsg.sender_type === 'lead' ? 1 : 0),
-                  }
-                : c
-            )
-          );
-
-          refreshCounts();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(contactChannel);
-      supabase.removeChannel(messagesChannel);
-    };
-  }, [organizationId, selectedContactId, refreshCounts]);
-
-  // 14. Atajos de Teclado (J = Siguiente, K = Anterior)
+  // 13. Atajos de Teclado (⌘K = Comandos, J = Siguiente, K = Anterior)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Atajo global ⌘K / Ctrl+K para abrir la paleta de comandos
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
       const activeEl = document.activeElement;
       const isTyping =
         activeEl?.tagName === 'INPUT' ||
@@ -470,6 +469,8 @@ export function InboxView({
         const currentIdx = contactList.findIndex((c) => c.id === selectedContactId);
         if (currentIdx >= 0 && currentIdx < contactList.length - 1) {
           handleSelectContact(contactList[currentIdx + 1].id);
+        } else if (currentIdx === -1 && contactList.length > 0) {
+          handleSelectContact(contactList[0].id);
         }
       } else if (e.key === 'k' || e.key === 'K') {
         e.preventDefault();
@@ -483,16 +484,6 @@ export function InboxView({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [contactList, selectedContactId, handleSelectContact]);
-
-  // Contacto activo en pantalla
-  const activeContactData = useMemo(() => {
-    return contactList.find((c) => c.id === selectedContactId) || activeContact || null;
-  }, [contactList, selectedContactId, activeContact]);
-
-  const activeMessages = useMemo(() => {
-    if (!selectedContactId) return [];
-    return messagesCache[selectedContactId] || [];
-  }, [messagesCache, selectedContactId]);
 
   return (
     <div className="flex h-[calc(100vh-80px)] overflow-hidden rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] shadow-xs">
@@ -514,6 +505,7 @@ export function InboxView({
           onSelectContact={handleSelectContact}
           onChangeView={(v) => {
             setActiveView(v);
+            useInboxStore.getState().setActiveView(v);
             if (typeof window !== 'undefined') {
               const url = new URL(window.location.href);
               url.searchParams.set('view', v);
@@ -539,21 +531,20 @@ export function InboxView({
       <div className={`flex-1 h-full min-w-0 ${!selectedContactId ? 'hidden md:flex' : 'flex'}`}>
         {activeContactData ? (
           <ChatWindow
-            key={activeContactData.id}
             contact={activeContactData}
             messages={activeMessages}
             isLoadingMessages={isLoadingMessages}
             onOptimisticMessage={handleOptimisticMessage}
             onContactUpdate={handleContactUpdate}
+            onLoadOlderMessages={handleLoadOlderMessages}
             customTemplates={customTemplates}
             whatsappProvider={whatsappProvider}
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             teamMembers={teamMembers}
-            draftText={draftText}
-            onDraftChange={setDraftText}
             onBack={() => {
               setSelectedContactId(null);
+              useInboxStore.getState().setActiveContactId(null);
               if (typeof window !== 'undefined') {
                 const url = new URL(window.location.href);
                 url.searchParams.delete('c');
@@ -563,15 +554,31 @@ export function InboxView({
           />
         ) : (
           <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 bg-slate-50/50 dark:bg-[#090A0F]/50">
-            <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] flex items-center justify-center mb-3">
-              <MessageSquare className="w-7 h-7" />
-            </div>
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
-              Selecciona una conversación
-            </h3>
-            <p className="text-xs text-slate-500 max-w-xs mt-1">
-              Elige un chat de la lista izquierda o usa los atajos <strong>J / K</strong> para navegar rápidamente entre prospectos.
-            </p>
+            {activeView === 'por_responder' && counts.por_responder === 0 ? (
+              <div className="flex flex-col items-center animate-in zoom-in-95 duration-200 max-w-sm">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3.5 shadow-2xs border border-emerald-200 dark:border-emerald-500/20">
+                  <span className="text-3xl">🎉</span>
+                </div>
+                <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                  ¡Bandeja al día! (Inbox Zero)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Has atendido todas las conversaciones pendientes en esta bandeja. Los nuevos mensajes entrantes aparecerán aquí en tiempo real.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] flex items-center justify-center mb-3">
+                  <MessageSquare className="w-7 h-7" />
+                </div>
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
+                  Selecciona una conversación
+                </h3>
+                <p className="text-xs text-slate-500 max-w-xs mt-1">
+                  Elige un chat de la lista izquierda o usa los atajos <strong>J / K</strong> para navegar rápidamente entre prospectos.
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -586,6 +593,49 @@ export function InboxView({
           onSuccess={handleBatchApologySuccess}
         />
       )}
+
+      {/* Paleta de Comandos Global ⌘K para Asesores Comerciales */}
+      <InboxCommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        activeContactId={selectedContactId}
+        onSelectView={(v) => {
+          setActiveView(v);
+          useInboxStore.getState().setActiveView(v);
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('view', v);
+            window.history.pushState(null, '', url.toString());
+          }
+        }}
+        onNextChat={() => {
+          const currentIdx = contactList.findIndex((c) => c.id === selectedContactId);
+          if (currentIdx >= 0 && currentIdx < contactList.length - 1) {
+            handleSelectContact(contactList[currentIdx + 1].id);
+          } else if (currentIdx === -1 && contactList.length > 0) {
+            handleSelectContact(contactList[0].id);
+          }
+        }}
+        onPrevChat={() => {
+          const currentIdx = contactList.findIndex((c) => c.id === selectedContactId);
+          if (currentIdx > 0) {
+            handleSelectContact(contactList[currentIdx - 1].id);
+          }
+        }}
+        onRequestAiDraft={() => {
+          // Disparar generación con copiloto simulando Ctrl+J
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true, ctrlKey: true }));
+        }}
+        onToggleAi={(activate) => {
+          if (selectedContactId) {
+            useInboxStore.getState().upsertContact({ id: selectedContactId, is_ai_active: activate });
+          }
+        }}
+        onOpenCloseChatModal={(resolution) => {
+          // Abre modal de fin de conversación en ChatWindow
+          window.dispatchEvent(new CustomEvent('synqo-open-end-chat-modal', { detail: { resolution } }));
+        }}
+      />
     </div>
   );
 }

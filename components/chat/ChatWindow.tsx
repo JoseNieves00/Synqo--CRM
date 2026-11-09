@@ -8,7 +8,6 @@ import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { ChatHeader } from './ChatHeader';
 import { ContactPanel } from './ContactPanel';
-import { LeadDetailsDrawer } from './LeadDetailsDrawer';
 import { formatMessageDateDivider } from '@/lib/utils/inbox-date';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
 import {
@@ -21,7 +20,9 @@ import {
   markContactReactivationDismissed,
   snoozeContactAi,
   triggerSinglePendingAiAction,
+  reactToMessage,
 } from '@/app/actions/chat';
+import { useInboxStore } from '@/lib/inbox/use-inbox-store';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent, formatQuoteMessageContent } from '@/lib/media/format';
 import { claimUnassignedLead, assignLeadByAdmin, takeoverInactiveLead } from '@/app/actions/assignment';
 import dynamic from 'next/dynamic';
@@ -64,6 +65,9 @@ import {
   X,
   Receipt,
   MoreVertical,
+  ChevronDown,
+  ChevronUp,
+  Search,
 } from 'lucide-react';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { PipelineStage } from '@/lib/supabase/types';
@@ -101,6 +105,7 @@ interface ChatWindowProps {
     instagram_id?: string | null;
     conversation_status?: string;
     waiting_since?: string | null;
+    deal_value?: number | null;
     unread_count?: number;
     last_message?: any;
     last_message_sender?: string | null;
@@ -116,8 +121,6 @@ interface ChatWindowProps {
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
-  draftText?: string;
-  onDraftChange?: (text: string) => void;
   onBack?: () => void;
 }
 
@@ -133,12 +136,9 @@ export function ChatWindow({
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
-  draftText,
-  onDraftChange,
   onBack,
 }: ChatWindowProps) {
   const router = useRouter();
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositionsRef = useRef<Record<string, number>>({});
@@ -168,7 +168,18 @@ export function ChatWindow({
   const [isEndChatModalOpen, setIsEndChatModalOpen] = useState(false);
   const [endResolution, setEndResolution] = useState<'completed' | 'won' | 'lost'>('completed');
   const [endNote, setEndNote] = useState('');
+  const [endDealValue, setEndDealValue] = useState(contact.deal_value ? String(contact.deal_value) : '');
   const [isEndingChat, setIsEndingChat] = useState(false);
+
+  useEffect(() => {
+    const handleOpenEndModal = (e: any) => {
+      const res = e.detail?.resolution;
+      if (res) setEndResolution(res);
+      setIsEndChatModalOpen(true);
+    };
+    window.addEventListener('synqo-open-end-chat-modal', handleOpenEndModal as EventListener);
+    return () => window.removeEventListener('synqo-open-end-chat-modal', handleOpenEndModal as EventListener);
+  }, []);
 
   // Estados de Citar / Responder Mensaje
   const [replyingToMessage, setReplyingToMessage] = useState<{
@@ -176,6 +187,115 @@ export function ChatWindow({
     senderType: MessageSender;
     content: string;
   } | null>(null);
+
+  const handleReplyMessage = React.useCallback(
+    (target: { id?: string; senderType: MessageSender; content: string }) => {
+      setReplyingToMessage(target);
+    },
+    []
+  );
+
+  // Limpiar estados locales al cambiar de conversación
+  useEffect(() => {
+    setReplyingToMessage(null);
+    setShowMoreActions(false);
+    setShowSnoozeMenu(false);
+    setIsSearchOpen(false);
+    setChatSearchQuery('');
+    setUnreadBelowCount(0);
+    setShowScrollBottom(false);
+  }, [contact.id]);
+
+  // 1. Reacciones bidireccionales con emojis
+  const handleReactMessage = React.useCallback(
+    async (messageId: string, emoji: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      const isRemoving = msg?.reactions?.emoji === emoji;
+      const nextReactions = isRemoving ? null : { emoji, from: 'agent', reacted_at: new Date().toISOString() };
+      useInboxStore.getState().updateMessageReaction(messageId, contact.id, nextReactions);
+
+      try {
+        await reactToMessage(messageId, emoji);
+      } catch (err) {
+        console.warn('[ChatWindow] Error reaccionando al mensaje:', err);
+      }
+    },
+    [contact.id, messages]
+  );
+
+  // 2. Búsqueda dentro de la conversación actual (WhatsApp Web Parity)
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [currentMatchIdx, setCurrentMatchIdx] = useState(0);
+
+  const searchMatches = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return messages
+      .map((m, idx) => (m.content?.toLowerCase().includes(q) ? idx : -1))
+      .filter((idx) => idx !== -1);
+  }, [messages, chatSearchQuery]);
+
+  useEffect(() => {
+    setCurrentMatchIdx(0);
+  }, [chatSearchQuery]);
+
+  const handleNextMatch = () => {
+    if (searchMatches.length === 0) return;
+    const next = (currentMatchIdx + 1) % searchMatches.length;
+    setCurrentMatchIdx(next);
+    const targetMsg = messages[searchMatches[next]];
+    if (targetMsg?.id) {
+      document.getElementById(`msg-${targetMsg.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const handlePrevMatch = () => {
+    if (searchMatches.length === 0) return;
+    const prev = (currentMatchIdx - 1 + searchMatches.length) % searchMatches.length;
+    setCurrentMatchIdx(prev);
+    const targetMsg = messages[searchMatches[prev]];
+    if (targetMsg?.id) {
+      document.getElementById(`msg-${targetMsg.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  // 3. Botón flotante ↓ de salto al fondo con contador de nuevos mensajes
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [unreadBelowCount, setUnreadBelowCount] = useState(0);
+  const prevMessagesLengthRef = useRef(messages.length);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const isFar = fromBottom > 200;
+    setShowScrollBottom(isFar);
+    if (!isFar) {
+      setUnreadBelowCount(0);
+    }
+  };
+
+  useEffect(() => {
+    if (messages.length > prevMessagesLengthRef.current) {
+      if (showScrollBottom) {
+        setUnreadBelowCount((prev) => prev + (messages.length - prevMessagesLengthRef.current));
+      }
+    }
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages.length, showScrollBottom]);
+
+  // 4. Divisor visual de mensajes no leídos al abrir la conversación
+  const initialUnreadCountRef = useRef<number>(contact.unread_count || 0);
+  useEffect(() => {
+    initialUnreadCountRef.current = contact.unread_count || 0;
+  }, [contact.id]);
+
+  const unreadDividerIndex = useMemo(() => {
+    const count = initialUnreadCountRef.current;
+    if (count <= 0) return -1;
+    const idx = messages.length - count;
+    return idx >= 0 ? idx : 0;
+  }, [messages.length]);
 
   // Estados de Pausa Temporal de IA (Snooze)
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
@@ -269,7 +389,6 @@ export function ChatWindow({
         await toggleContactAi(contact.id, true);
       }
       await triggerSinglePendingAiAction(contact.id);
-      router.refresh();
     } catch (e: any) {
       setErrorMessage(e?.message || 'Error al solicitar respuesta de IA');
     } finally {
@@ -358,8 +477,9 @@ export function ChatWindow({
   }, [contact.id]);
 
   const latestHandoffReason = React.useMemo(() => {
-    if (contact.is_ai_active) return null;
-    for (let i = messages.length - 1; i >= 0; i--) {
+    if (contact.is_ai_active || messages.length === 0) return null;
+    const startIdx = Math.max(0, messages.length - 15);
+    for (let i = messages.length - 1; i >= startIdx; i--) {
       const m = messages[i];
       if (
         m.sender_type === 'system' &&
@@ -373,17 +493,35 @@ export function ChatWindow({
     return null;
   }, [messages, contact.is_ai_active]);
 
+  // Pre-computar índices de divisores de fecha (cero asignaciones new Date() por mensaje)
+  const dateDividers = React.useMemo(() => {
+    const dividerSet = new Set<number>();
+    let lastDateStr = '';
+    for (let i = 0; i < messages.length; i++) {
+      const dateStr = messages[i].created_at ? messages[i].created_at.slice(0, 10) : '';
+      if (dateStr && dateStr !== lastDateStr) {
+        dividerSet.add(i);
+        lastDateStr = dateStr;
+      }
+    }
+    return dividerSet;
+  }, [messages]);
+
   const lastMessage = messages[messages.length - 1];
   const isWaitingForHuman = !contact.is_ai_active && lastMessage && lastMessage.sender_type === 'lead';
 
-  // Detección de Comprobante de Pago pendiente de verificación por asesor humano
-  const hasPendingReceipt =
-    contact.pipeline_stage !== 'ganado' &&
-    messages.some(
-      (m) =>
-        m.content?.includes('Comprobante de pago recibido') ||
-        m.content?.toLowerCase().includes('comprobante de pago')
-    );
+  // Detección acotada de Comprobante de Pago pendiente de verificación por asesor humano
+  const hasPendingReceipt = React.useMemo(() => {
+    if (contact.pipeline_stage === 'ganado' || messages.length === 0) return false;
+    const startIdx = Math.max(0, messages.length - 20);
+    for (let i = messages.length - 1; i >= startIdx; i--) {
+      const c = messages[i].content;
+      if (c && (c.includes('Comprobante de pago recibido') || c.toLowerCase().includes('comprobante de pago'))) {
+        return true;
+      }
+    }
+    return false;
+  }, [messages, contact.pipeline_stage]);
 
   // Preservar la posición de scroll individual por conversación al cambiar de contacto
   useEffect(() => {
@@ -571,17 +709,17 @@ export function ChatWindow({
     }
     setReplyingToMessage(null);
 
-    const tempId = `temp-${Date.now()}`;
+    const clientMessageId = crypto.randomUUID();
     onOptimisticMessage?.({
-      id: tempId,
+      id: clientMessageId,
       sender_type: 'agent_manual',
       content: finalContent,
       created_at: new Date().toISOString(),
-      status: 'pending',
+      status: 'sending',
       reply_to_message_id: replyMeta?.id || null,
     });
     try {
-      await sendAgentMessage(contact.id, finalContent, replyMeta?.id);
+      await sendAgentMessage(contact.id, finalContent, replyMeta?.id, clientMessageId);
       if (isReactivationEligible) {
         markContactReactivationDismissed(contact.id).catch(() => {});
         onContactUpdate?.({
@@ -594,7 +732,7 @@ export function ChatWindow({
     } catch (err: any) {
       console.error('[SEND MESSAGE ERROR]', err);
       onOptimisticMessage?.({
-        id: tempId,
+        id: clientMessageId,
         sender_type: 'agent_manual',
         content: finalContent,
         created_at: new Date().toISOString(),
@@ -617,28 +755,25 @@ export function ChatWindow({
 
   const handleRetryMessage = async (msg: { id?: string; content: string }) => {
     setErrorMessage(null);
-    if (msg.id) {
+    const retryId = msg.id || crypto.randomUUID();
+    onOptimisticMessage?.({
+      id: retryId,
+      sender_type: 'agent_manual',
+      content: msg.content,
+      created_at: new Date().toISOString(),
+      status: 'sending',
+    });
+    try {
+      await sendAgentMessage(contact.id, msg.content, undefined, retryId);
+    } catch (err: any) {
+      console.error('[RETRY MESSAGE ERROR]', err);
       onOptimisticMessage?.({
-        id: msg.id,
+        id: retryId,
         sender_type: 'agent_manual',
         content: msg.content,
         created_at: new Date().toISOString(),
-        status: 'pending',
+        status: 'failed',
       });
-    }
-    try {
-      await sendAgentMessage(contact.id, msg.content);
-    } catch (err: any) {
-      console.error('[RETRY MESSAGE ERROR]', err);
-      if (msg.id) {
-        onOptimisticMessage?.({
-          id: msg.id,
-          sender_type: 'agent_manual',
-          content: msg.content,
-          created_at: new Date().toISOString(),
-          status: 'failed',
-        });
-      }
       setErrorMessage(`Error al reintentar envío: ${err?.message || 'Error de conexión con WhatsApp'}`);
     }
   };
@@ -659,20 +794,20 @@ export function ChatWindow({
       : isDocument
       ? formatDocumentMessageContent(mediaUrl, fileName, caption)
       : formatImageMessageContent(mediaUrl, caption);
-    const tempId = `temp-${Date.now()}`;
+    const clientMessageId = crypto.randomUUID();
     onOptimisticMessage?.({
-      id: tempId,
+      id: clientMessageId,
       sender_type: 'agent_manual',
       content: formatted,
       created_at: new Date().toISOString(),
-      status: 'pending',
+      status: 'sending',
     });
     try {
-      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument, isAudio, isVideo);
+      await sendAgentMediaMessage(contact.id, mediaUrl, caption, fileName, isDocument, isAudio, isVideo, clientMessageId);
     } catch (err: any) {
       console.error('[SEND MEDIA ERROR]', err);
       onOptimisticMessage?.({
-        id: tempId,
+        id: clientMessageId,
         sender_type: 'agent_manual',
         content: formatted,
         created_at: new Date().toISOString(),
@@ -686,20 +821,20 @@ export function ChatWindow({
   const handleSendTemplate = async (templateKey: string) => {
     setErrorMessage(null);
     const tplLabel = (META_TEMPLATES as any)[templateKey]?.label || templateKey;
-    const tempId = `temp-${Date.now()}`;
+    const clientMessageId = crypto.randomUUID();
     onOptimisticMessage?.({
-      id: tempId,
+      id: clientMessageId,
       sender_type: 'agent_manual',
       content: `[Plantilla oficial: ${tplLabel}]`,
       created_at: new Date().toISOString(),
-      status: 'pending',
+      status: 'sending',
     });
     try {
-      await sendAgentTemplate(contact.id, templateKey);
+      await sendAgentTemplate(contact.id, templateKey, clientMessageId);
     } catch (err: any) {
       console.error('[SEND TEMPLATE ERROR]', err);
       onOptimisticMessage?.({
-        id: tempId,
+        id: clientMessageId,
         sender_type: 'agent_manual',
         content: `[Plantilla oficial: ${tplLabel}]`,
         created_at: new Date().toISOString(),
@@ -814,7 +949,12 @@ export function ChatWindow({
     const firstName = cleanName && !isPhoneOnly ? cleanName.split(' ')[0] : '';
     const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
     const text = `${greeting} Te ofrezco una sincera disculpa por la demora en responderte, teníamos congestión en la línea. Ya estoy aquí contigo para atenderte con prioridad. Cuéntame, ¿todavía te podemos colaborar con tu consulta?`;
-    onDraftChange?.(text);
+    if (typeof window !== 'undefined' && contact.id) {
+      try {
+        localStorage.setItem(`synqo_draft_${contact.id}`, text);
+        window.dispatchEvent(new CustomEvent('synqo-apply-draft', { detail: { contactId: contact.id, text } }));
+      } catch {}
+    }
   };
 
   const handleApplyReactivationMessage = () => {
@@ -823,7 +963,12 @@ export function ChatWindow({
     const firstName = cleanName && !isPhoneOnly ? cleanName.split(' ')[0] : '';
     const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
     const text = `${greeting} ¿Cómo estás? Quería saber si tuviste oportunidad de revisar la información que te compartimos o si tienes alguna inquietud en la que podamos apoyarte 😊`;
-    onDraftChange?.(text);
+    if (typeof window !== 'undefined' && contact.id) {
+      try {
+        localStorage.setItem(`synqo_draft_${contact.id}`, text);
+        window.dispatchEvent(new CustomEvent('synqo-apply-draft', { detail: { contactId: contact.id, text } }));
+      } catch {}
+    }
   };
 
   const handleDismissReactivation = async () => {
@@ -846,16 +991,25 @@ export function ChatWindow({
     setIsEndingChat(true);
     setErrorMessage(null);
     try {
-      await endContactConversation(contact.id, endResolution, endNote);
+      const dealNum = endResolution === 'won' && endDealValue ? parseFloat(endDealValue.replace(/[^0-9.]/g, '')) || null : null;
+      await endContactConversation(contact.id, endResolution, endNote, dealNum);
       setIsEndChatModalOpen(false);
       setEndNote('');
       onContactUpdate?.({
         pipeline_stage: endResolution === 'won' ? 'ganado' : endResolution === 'lost' ? 'perdido' : contact.pipeline_stage,
+        conversation_status: 'closed',
+        deal_value: dealNum ?? contact.deal_value,
         custom_fields: {
           ...(contact.custom_fields || {}),
           conversation_status: 'closed',
+          ...(dealNum ? { deal_value: dealNum } : {}),
         },
       });
+
+      // Despachar evento para saltar automáticamente al siguiente chat en la cola (Inbox Zero)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('synqo-inbox-zero-next', { detail: { closedContactId: contact.id } }));
+      }
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error al finalizar conversación');
     } finally {
@@ -907,438 +1061,95 @@ export function ChatWindow({
   }, [contact.is_ai_active, contact.id]);
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-colors">
-      {/* Cabecera del Chat */}
-      <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] flex flex-wrap items-center justify-between gap-3">
-        {/* Info del Contacto y Asignación */}
-        <div className="flex items-center gap-2">
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-lg transition cursor-pointer"
-              title="Volver a la lista de chats"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
-          <div>
-            <div className="flex items-center gap-2">
-            {isEditingName ? (
-              <div className="flex items-center gap-1.5 animate-in fade-in">
-                <input
-                  type="text"
-                  value={tempName}
-                  onChange={(e) => setTempName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveQuickName();
-                    if (e.key === 'Escape') setIsEditingName(false);
-                  }}
-                  autoFocus
-                  placeholder="Nombre del cliente..."
-                  className="text-xs px-2.5 py-1 border border-[#0052FF] rounded-lg bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white focus:outline-none font-semibold w-40 sm:w-56 shadow-2xs"
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveQuickName}
-                  disabled={isSavingName}
-                  className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg cursor-pointer"
-                  title="Guardar nombre"
-                >
-                  {isSavingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingName(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
-                  title="Cancelar"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 group">
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-[180px] sm:max-w-xs">
-                  {contact.name ||
-                    (contact.channel === 'instagram'
-                      ? contact.instagram_username
-                        ? `@${contact.instagram_username}`
-                        : 'Contacto Instagram'
-                      : 'Lead de WhatsApp')}
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTempName(contact.name || '');
-                    setIsEditingName(true);
-                  }}
-                  className="opacity-60 group-hover:opacity-100 p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] rounded transition cursor-pointer"
-                  title="Editar nombre rápidamente con 1 clic"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-1 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-0.5 text-xs">
-              <Flag className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
-              <select
-                value={contact.pipeline_stage || 'nuevo'}
-                onChange={(e) => handleStageChange(e.target.value as PipelineStage)}
-                disabled={isUpdatingStage}
-                title="Fase del embudo de ventas"
-                className="bg-transparent text-[11px] font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
-              >
-                {PIPELINE_STAGES.map((s) => (
-                  <option key={s.id} value={s.id} className="bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200">
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-              {isUpdatingStage && <Loader2 className="w-2.5 h-2.5 animate-spin text-[#0052FF]" />}
-            </div>
-          </div>
-          {contact.channel === 'instagram' ? (
-            <div className="flex items-center gap-1.5 text-xs text-pink-700 dark:text-pink-300 font-mono mt-0.5">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-pink-50 dark:bg-pink-500/10 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/20">
-                <Instagram className="w-3 h-3 text-pink-500 dark:text-pink-400" />
-                <span>Instagram Direct</span>
-              </span>
-              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                {contact.instagram_username ? `@${contact.instagram_username}` : contact.phone}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20">
-                <MessageSquare className="w-3 h-3 text-[#0052FF] dark:text-[#00D2FF]" />
-                <span>WhatsApp</span>
-              </span>
-              <span>{contact.phone}</span>
-            </div>
-          )}
-        </div>
-      </div>
+    <div className="flex h-full w-full bg-white dark:bg-[#131722] rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-colors">
+      <div className="flex flex-col flex-1 h-full min-w-0">
+        {/* Cabecera Modular del Chat */}
+        <ChatHeader
+          contact={contact as any}
+          whatsappProvider={whatsappProvider}
+          currentUserId={currentUserId}
+          currentUserRole={currentUserRole}
+          teamMembers={teamMembers}
+          isRightPanelOpen={isRightPanelOpen}
+          onToggleRightPanel={() => setIsRightPanelOpen((prev) => !prev)}
+          isSearchOpen={isSearchOpen}
+          onToggleSearch={() => setIsSearchOpen((prev) => !prev)}
+          onToggleAi={() => handleToggleAi(!contact.is_ai_active)}
+          onSnoozeAi={handleSnoozeAi}
+          onClaimLead={handleClaimLead}
+          onReassignLead={handleAdminReassign}
+          onCloseChat={() => setIsEndChatModalOpen(true)}
+          onReopenChat={handleReopenChat}
+          onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+          onOpenSendTemplate={() => setIsTemplatesModalOpen(true)}
+          onDeleteChat={() => setShowDeleteModal(true)}
+          onBack={onBack}
+        />
 
-        {/* Controles: Asignación, 24h, IA Switch y Ficha */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Badge o Selector de Asignación */}
-          {isAdminOrSupervisor ? (
-            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1 text-xs">
-              <User className="w-3.5 h-3.5 text-slate-400" />
-              <select
-                value={contact.assigned_to || 'unassigned'}
-                onChange={(e) => handleAdminReassign(e.target.value)}
-                className="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-              >
-                <option value="unassigned" className="bg-white dark:bg-[#131722] text-amber-700 dark:text-amber-400">Sin Asignar</option>
-                {teamMembers.map((m) => (
-                  <option key={m.id} value={m.id} className="bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200">
-                    {m.full_name} {m.id === currentUserId ? '(Tú)' : ''}
-                  </option>
-                ))}
-              </select>
+        {/* Barra de Búsqueda Dentro del Chat (WhatsApp Web Parity) */}
+        {isSearchOpen && (
+          <div className="px-4 py-2 bg-slate-50 dark:bg-[#0E121B] border-b border-slate-200 dark:border-[#232A3B] flex items-center justify-between gap-3 text-xs animate-in slide-in-from-top-1 transition-colors">
+            <div className="flex-1 flex items-center gap-2 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1.5 shadow-2xs focus-within:border-[#0052FF]">
+              <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={chatSearchQuery}
+                onChange={(e) => setChatSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (e.shiftKey) handlePrevMatch();
+                    else handleNextMatch();
+                  } else if (e.key === 'Escape') {
+                    setIsSearchOpen(false);
+                  }
+                }}
+                placeholder="Buscar en este chat (Enter: sig, Shift+Enter: ant)..."
+                className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden"
+                autoFocus
+              />
             </div>
-          ) : isUnassigned ? (
-            <button
-              onClick={handleClaimLead}
-              disabled={isClaiming}
-              className="flex items-center gap-1.5 px-3 py-1 bg-[#0052FF] hover:bg-[#0043D4] text-white rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 shadow-xs"
-            >
-              {isClaiming ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Tomando...</span>
-                </>
-              ) : claimSuccess ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                  <span>Asignado</span>
-                </>
-              ) : (
-                <>
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Tomar cliente</span>
-                </>
-              )}
-            </button>
-          ) : isAssignedToMe ? (
-            <span className="px-2.5 py-1 bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-[#00D2FF]/20 rounded-lg text-xs font-medium flex items-center gap-1">
-              <User className="w-3 h-3" /> Asignado a ti
-            </span>
-          ) : isAssignedToOther && canTakeoverInactive ? (
-            <button
-              type="button"
-              onClick={handleTakeoverInactive}
-              disabled={isClaiming}
-              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs animate-pulse"
-              title={`El asesor ${assignedMember?.full_name || 'asignado'} lleva ${Math.round(inactiveAdvisorMinutes)}m sin responder al cliente. Haz clic para rescatar la atención.`}
-            >
-              {isClaiming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-              <span>⚡ Rescatar Lead (&gt;5m)</span>
-            </button>
-          ) : (
-            <span className="px-2.5 py-1 bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] rounded-lg text-xs font-medium flex items-center gap-1">
-              <User className="w-3 h-3 text-slate-400" /> {assignedMember?.full_name || 'Otro asesor'}
-            </span>
-          )}
-
-          {/* Indicador de Ventana de 24h Meta (Solo se muestra cuando ha expirado, para no generar ruido visual) */}
-          {!isBaileys && !is24hValid && (
-            <div
-              suppressHydrationWarning
-              title="La ventana de 24 horas de Meta ha vencido. Debes enviar una plantilla autorizada para reactivar."
-              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30"
-            >
-              <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-              <span>24h Expirada</span>
-            </div>
-          )}
-
-          {/* Botón de Respuesta Rápida con IA cuando el cliente está esperando */}
-          {isLastMessageFromLead && (
-            <button
-              type="button"
-              onClick={handleTriggerSingleAi}
-              disabled={isTriggeringAi}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition shadow-xs cursor-pointer shrink-0"
-              title="Generar y enviar respuesta de IA para este prospecto ahora"
-            >
-              {isTriggeringAi ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span className="hidden sm:inline">Generando...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>Responder con IA</span>
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Switch IA / Control Humano y Pausa Temporal */}
-          <div className="flex items-center gap-1 relative">
-            <AiToggleSwitch
-              contactId={contact.id}
-              initialIsAiActive={contact.is_ai_active}
-              onToggle={handleToggleAi}
-            />
-            {contact.is_ai_active && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowSnoozeMenu((prev) => !prev)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
-                  title="Pausar IA temporalmente (30m, 2h o hasta mañana)"
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                </button>
-                {showSnoozeMenu && (
-                  <div className="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95">
-                    <div className="px-3 py-1 font-semibold text-[10px] text-slate-400 border-b border-slate-100 dark:border-[#232A3B] select-none">
-                      Pausa temporal de IA
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleSnoozeAi(30)}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
-                    >
-                      <span>⏱️</span> Pausar 30 minutos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSnoozeAi(120)}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
-                    >
-                      <span>⏱️</span> Pausar 2 horas
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSnoozeAi('tomorrow')}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 transition cursor-pointer flex items-center gap-1.5"
-                    >
-                      <span>☀️</span> Hasta mañana (8 AM)
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Chip de Recordatorio Activo o Botón para Programar */}
-          {activeReminder ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-500/30">
-              {activeReminder.reminderType === 'shipping' ? (
-                <Package className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              ) : activeReminder.reminderType === 'reactivation' ? (
-                <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              ) : (
-                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              )}
-              <span className="truncate max-w-[130px] sm:max-w-[180px]" title={activeReminder.note || 'Recordatorio activo'}>
-                {activeReminder.reminderType === 'shipping' ? 'Envío' : activeReminder.reminderType === 'reactivation' ? 'Reactivar' : 'Recordar'}: {new Date(activeReminder.scheduledFor).toLocaleDateString([], { day: 'numeric', month: 'short' })} {new Date(activeReminder.scheduledFor).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 px-1">
+                {chatSearchQuery.trim()
+                  ? searchMatches.length > 0
+                    ? `${currentMatchIdx + 1} de ${searchMatches.length}`
+                    : 'Sin coincidencias'
+                  : `${messages.length} mensajes`}
               </span>
               <button
                 type="button"
-                onClick={handleCompleteReminder}
-                disabled={isCompletingReminder}
-                title="Marcar recordatorio como completado"
-                className="ml-1 px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold inline-flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                onClick={handlePrevMatch}
+                disabled={searchMatches.length === 0}
+                className="p-1 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 cursor-pointer"
+                title="Coincidencia anterior"
               >
-                {isCompletingReminder ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Check className="w-2.5 h-2.5" />}
-                <span className="hidden sm:inline">Listo</span>
+                <ChevronUp className="w-4 h-4" />
               </button>
               <button
                 type="button"
-                onClick={() => setIsReminderModalOpen(true)}
-                title="Editar recordatorio"
-                className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 rounded cursor-pointer"
+                onClick={handleNextMatch}
+                disabled={searchMatches.length === 0}
+                className="p-1 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-30 cursor-pointer"
+                title="Siguiente coincidencia"
               >
-                <Pencil className="w-3 h-3" />
+                <ChevronDown className="w-4 h-4" />
               </button>
               <button
                 type="button"
-                onClick={handleCancelReminder}
-                title="Descartar recordatorio"
-                className="p-1 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 rounded cursor-pointer"
+                onClick={() => {
+                  setIsSearchOpen(false);
+                  setChatSearchQuery('');
+                }}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Cerrar búsqueda"
               >
-                <X className="w-3 h-3" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsReminderModalOpen(true)}
-              title="Programar recordatorio de envío o reactivación comercial"
-              className="px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:border-blue-300 dark:hover:border-blue-500/30"
-            >
-              <Clock className="w-3.5 h-3.5 text-amber-500" />
-              <span className="hidden sm:inline">Recordatorio</span>
-            </button>
-          )}
-
-          {/* Botón Resumen IA (Visible en pantallas medianas/grandes) */}
-          <button
-            type="button"
-            onClick={() => setIsAiSummaryModalOpen(true)}
-            title="Ver o generar resumen ejecutivo de la negociación con IA"
-            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#0052FF]/10 dark:to-indigo-950/20 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-blue-500/30 hover:border-blue-400 dark:hover:border-blue-400 shadow-2xs"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
-            <span>Resumen IA</span>
-          </button>
-
-          {/* Botón Ficha del Lead (Acción Principal de Contexto) */}
-          <button
-            type="button"
-            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            title="Abrir detalles y notas del prospecto"
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-              isDrawerOpen
-                ? 'bg-[#0052FF] text-white border-[#0052FF]'
-                : 'bg-white dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-50 dark:hover:bg-[#232A3B]'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Ficha</span>
-          </button>
-
-          {/* Menú Estructurado de Más Opciones (...) */}
-          <div className="relative" ref={moreActionsRef}>
-            <button
-              type="button"
-              onClick={() => setShowMoreActions((prev) => !prev)}
-              title="Más opciones de la conversación"
-              className={`p-1.5 rounded-xl border transition cursor-pointer shadow-2xs ${
-                showMoreActions
-                  ? 'bg-slate-200 dark:bg-[#232A3B] text-slate-900 dark:text-white border-slate-300 dark:border-slate-600'
-                  : 'bg-white dark:bg-[#1A1F2C] text-slate-500 dark:text-slate-400 border-slate-200 dark:border-[#232A3B] hover:text-slate-800 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-[#232A3B]'
-              }`}
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-
-            {showMoreActions && (
-              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 divide-y divide-slate-100 dark:divide-[#1E2433]">
-                <div className="py-1">
-                  {/* Resumen IA (para pantallas donde el botón superior está oculto) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMoreActions(false);
-                      setIsAiSummaryModalOpen(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
-                  >
-                    <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
-                    <div>
-                      <div className="font-semibold text-xs">Resumen IA</div>
-                      <div className="text-[10px] text-slate-400">Ver acuerdos y contexto clave</div>
-                    </div>
-                  </button>
-
-                  {/* Programar Recordatorio */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMoreActions(false);
-                      setIsReminderModalOpen(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
-                  >
-                    <Clock className="w-4 h-4 text-amber-500" />
-                    <div>
-                      <div className="font-semibold text-xs">Programar Recordatorio</div>
-                      <div className="text-[10px] text-slate-400">Envío, cobro o reactivación</div>
-                    </div>
-                  </button>
-
-                  {/* Dar Fin a la Conversación */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMoreActions(false);
-                      setIsEndChatModalOpen(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 transition cursor-pointer flex items-center gap-2.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <div>
-                      <div className="font-semibold text-xs">Finalizar Conversación</div>
-                      <div className="text-[10px] text-slate-400">Marcar resolución y archivar</div>
-                    </div>
-                  </button>
-                </div>
-
-                {/* Zona de Destrucción / Admin */}
-                {isAdminOrSupervisor && (
-                  <div className="py-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowMoreActions(false);
-                        setDeleteError(null);
-                        setDeletePassword('');
-                        setShowDeleteModal(true);
-                      }}
-                      className="w-full text-left px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 transition cursor-pointer flex items-center gap-2.5"
-                    >
-                      <Trash2 className="w-4 h-4 text-rose-500" />
-                      <div>
-                        <div className="font-semibold text-xs">Eliminar Conversación</div>
-                        <div className="text-[10px] text-rose-400/80">Borrado permanente con clave</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Alerta de Error de Meta o Concurrencia */}
+              {/* Alerta de Error de Meta o Concurrencia */}
       {errorMessage && (
         <div className="mx-4 mt-2.5 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center justify-between gap-3 animate-in fade-in">
           <div className="flex items-center gap-2">
@@ -1461,9 +1272,9 @@ export function ChatWindow({
       {/* Contenedor Principal: Chat + Drawer */}
       <div className="flex-1 flex overflow-hidden">
         {/* Columna de Mensajes + Input */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           {/* Lista de Mensajes con Preservación de Scroll */}
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50 dark:bg-[#090A0F] space-y-1 transition-colors">
+          <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50 dark:bg-[#090A0F] space-y-1 transition-colors">
             {isLoadingMessages ? (
               <div className="h-full flex flex-col justify-end space-y-3 p-2 animate-pulse">
                 <div className="flex justify-start">
@@ -1504,9 +1315,8 @@ export function ChatWindow({
                 )}
 
                 {messages.map((msg, idx) => {
-                  const currentDate = new Date(msg.created_at).toDateString();
-                  const prevDate = idx > 0 ? new Date(messages[idx - 1].created_at).toDateString() : null;
-                  const showDateDivider = currentDate !== prevDate;
+                  const showDateDivider = dateDividers.has(idx);
+                  const showUnreadDivider = idx === unreadDividerIndex;
 
                   return (
                     <React.Fragment key={msg.id}>
@@ -1515,6 +1325,15 @@ export function ChatWindow({
                           <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-white/95 dark:bg-[#131722]/95 backdrop-blur-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#232A3B] shadow-2xs">
                             {formatMessageDateDivider(msg.created_at)}
                           </span>
+                        </div>
+                      )}
+                      {showUnreadDivider && (
+                        <div className="flex items-center gap-3 my-4 select-none px-4">
+                          <div className="flex-1 h-px bg-blue-200 dark:bg-blue-500/30" />
+                          <span className="text-[11px] font-bold text-[#0052FF] dark:text-[#00D2FF] bg-blue-50 dark:bg-[#0052FF]/15 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-500/30 shadow-2xs">
+                            Mensajes no leídos
+                          </span>
+                          <div className="flex-1 h-px bg-blue-200 dark:bg-blue-500/30" />
                         </div>
                       )}
                       <MessageBubble
@@ -1526,8 +1345,10 @@ export function ChatWindow({
                         replyToMessageId={msg.reply_to_message_id}
                         reactions={msg.reactions}
                         contactId={contact.id}
-                        onReply={(target) => setReplyingToMessage(target)}
+                        onReply={handleReplyMessage}
                         onRetry={handleRetryMessage}
+                        onReact={handleReactMessage}
+                        isSearchMatch={searchMatches[currentMatchIdx] === idx}
                       />
                     </React.Fragment>
                   );
@@ -1536,6 +1357,27 @@ export function ChatWindow({
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Botón flotante ↓ de salto al fondo con contador de nuevos mensajes */}
+          {showScrollBottom && (
+            <button
+              type="button"
+              onClick={() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                setUnreadBelowCount(0);
+              }}
+              className="absolute right-6 bottom-24 z-20 flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#232A3B] rounded-full shadow-lg hover:bg-slate-50 dark:hover:bg-[#232A3B] transition cursor-pointer text-xs font-semibold animate-in fade-in zoom-in-95"
+            >
+              <ChevronDown className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+              {unreadBelowCount > 0 ? (
+                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-[#0052FF] text-white rounded-full">
+                  {unreadBelowCount}
+                </span>
+              ) : (
+                <span>Ir al final</span>
+              )}
+            </button>
+          )}
 
           {/* Banner de Estado de la IA / Sugerencia de Reactivación antes del Input */}
           {contact.is_ai_active && !isReadOnly ? (
@@ -1632,8 +1474,6 @@ export function ChatWindow({
                 : undefined
             }
             onTyping={handleTypingBroadcast}
-            draftText={draftText}
-            onDraftChange={onDraftChange}
             isAiActive={contact.is_ai_active}
             onToggleAi={handleToggleAi}
             replyingToMessage={replyingToMessage}
@@ -1641,13 +1481,35 @@ export function ChatWindow({
           />
         </div>
 
-        {/* Drawer de Detalles del Lead */}
-        <LeadDetailsDrawer
-          contact={contact as any}
-          isOpen={isDrawerOpen}
-          onClose={() => setIsDrawerOpen(false)}
-        />
       </div>
+
+      {/* Panel Lateral de Detalles del Lead (Desktop) */}
+      {isRightPanelOpen && (
+        <div className="hidden lg:block w-80 h-full border-l border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] overflow-y-auto shrink-0 animate-in slide-in-from-right-4 duration-200">
+          <ContactPanel
+            contact={contact as any}
+            teamMembers={teamMembers}
+            onContactUpdate={onContactUpdate}
+            onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+            onClosePanel={() => setIsRightPanelOpen(false)}
+          />
+        </div>
+      )}
+
+      {/* Panel Lateral de Detalles del Lead (Mobile Drawer) */}
+      {isRightPanelOpen && (
+        <div className="lg:hidden">
+          <ContactPanel
+            contact={contact as any}
+            teamMembers={teamMembers}
+            onContactUpdate={onContactUpdate}
+            onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+            onClosePanel={() => setIsRightPanelOpen(false)}
+            isMobileDrawer={true}
+          />
+        </div>
+      )}
+    </div>
 
       {/* Modal de Confirmación Rápida para Eliminar Chat */}
       {showDeleteModal && mounted && createPortal(
@@ -1827,6 +1689,28 @@ export function ChatWindow({
                   </button>
                 </div>
               </div>
+
+              {/* Campo de Monto de la Venta (Solo si el resultado es Ganado) */}
+              {endResolution === 'won' && (
+                <div className="animate-in fade-in slide-in-from-top-1 duration-150">
+                  <label className="block text-xs font-semibold text-emerald-800 dark:text-emerald-300 mb-1">
+                    Valor de la Venta Ganada ($):
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-xs font-semibold text-slate-400">$</span>
+                    <input
+                      type="text"
+                      value={endDealValue}
+                      onChange={(e) => setEndDealValue(e.target.value)}
+                      placeholder="0 COP"
+                      className="w-full pl-7 pr-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-emerald-300 dark:border-emerald-500/40 rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    Este monto alimentará tus métricas de conversión comercial y analítica de ROI.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">

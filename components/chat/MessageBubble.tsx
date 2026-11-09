@@ -22,15 +22,10 @@ import {
   Pencil,
   Loader2,
   AlertCircle,
+  Smile,
 } from 'lucide-react';
 import { submitAiFeedback } from '@/app/actions/chat';
-import {
-  parseImageMessageContent,
-  parseDocumentMessageContent,
-  parseAudioMessageContent,
-  parseVideoMessageContent,
-  parseQuoteMessageContent,
-} from '@/lib/media/format';
+import { parseMessageContentFast } from '@/lib/media/message-parser';
 import { formatFullDateTime } from '@/lib/utils/inbox-date';
 
 interface MessageBubbleProps {
@@ -44,10 +39,24 @@ interface MessageBubbleProps {
   contactId?: string;
   onReply?: (msg: { id?: string; senderType: MessageSender; content: string }) => void;
   onRetry?: (msg: { id?: string; content: string }) => void;
+  onReact?: (messageId: string, emoji: string) => void;
+  isSearchMatch?: boolean;
 }
 
 export const MessageBubble = React.memo(
-  function MessageBubble({ id, content, senderType, createdAt, status, reactions, contactId, onReply, onRetry }: MessageBubbleProps) {
+  function MessageBubble({
+    id,
+    content,
+    senderType,
+    createdAt,
+    status,
+    reactions,
+    contactId,
+    onReply,
+    onRetry,
+    onReact,
+    isSearchMatch,
+  }: MessageBubbleProps) {
     const formattedTime = useMemo(() => {
       return new Date(createdAt).toLocaleTimeString([], {
         hour: '2-digit',
@@ -67,6 +76,25 @@ export const MessageBubble = React.memo(
     const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
     const [localFeedback, setLocalFeedback] = useState<string | null>(reactions?.ai_feedback || null);
     const [feedbackSuccessNotice, setFeedbackSuccessNotice] = useState(false);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [playbackRate, setPlaybackRate] = useState<1 | 1.5 | 2>(1);
+    const audioRef = React.useRef<HTMLAudioElement>(null);
+    const voiceNoteRef = React.useRef<HTMLAudioElement>(null);
+
+    const togglePlaybackRate = (audioEl: HTMLAudioElement | null) => {
+      const nextRate: 1 | 1.5 | 2 = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
+      setPlaybackRate(nextRate);
+      if (audioEl) {
+        audioEl.playbackRate = nextRate;
+      }
+    };
+
+    const handleSelectEmoji = (emoji: string) => {
+      setShowEmojiPicker(false);
+      if (id && onReact) {
+        onReact(id, emoji);
+      }
+    };
 
     const handleQuickFeedback = async (type: 'helpful' | 'needs_improvement') => {
       if (!id || !contactId || isSubmittingFeedback) return;
@@ -110,64 +138,16 @@ export const MessageBubble = React.memo(
     };
 
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-    const imageInfo = useMemo(() => parseImageMessageContent(content), [content]);
-    const docInfo = useMemo(() => parseDocumentMessageContent(content), [content]);
-    const audioInfo = useMemo(() => parseAudioMessageContent(content), [content]);
-    const videoInfo = useMemo(() => parseVideoMessageContent(content), [content]);
-    const quoteInfo = useMemo(() => parseQuoteMessageContent(content), [content]);
-
-    const instagramPostInfo = useMemo(() => {
-      const match = content.match(/^\[(?:Publicación\/Anuncio compartido de Instagram|Anuncio\/Publicación de Instagram):\s*([\s\S]*?)\]\s*([\s\S]*)$/i);
-      if (!match) return { isInstagramPost: false, details: '', clientMessage: '', imageUrl: undefined };
-
-      const details = match[1].trim();
-      const clientMessage = match[2].trim();
-      const imageMatch = details.match(/\[Foto:\s*(https?:\/\/[^\s\]]+)\]/i) || details.match(/(https?:\/\/[^\s\]\)]+(?:cdninstagram|fbcdn|chat-media)[^\s\]\)]*)/i);
-      const imageUrl = imageMatch ? imageMatch[1] : undefined;
-      const cleanDetails = details.replace(/\[Foto:\s*https?:\/\/[^\s\]]+\]/gi, '').replace(/"/g, '').trim();
-
-      return {
-        isInstagramPost: true,
-        details: cleanDetails,
-        clientMessage,
-        imageUrl,
-      };
-    }, [content]);
-
-    const voiceNoteInfo = useMemo(() => {
-      const audioUrlMatch = content.match(/(https?:\/\/[^\s\]\)]+(?:chat-media|\.(?:ogg|opus|mp3|wav|m4a|webm))[^\s\]\)]*)/i);
-      const audioUrl = audioUrlMatch ? audioUrlMatch[1] : undefined;
-
-      if (!content.includes('🎤') && !content.includes('[Nota de voz]') && !audioUrl) {
-        return { isVoiceNote: false, transcription: '', isFailed: false, audioUrl: undefined };
-      }
-      const isPlaceholder = /\[Nota de voz (?:recibida|inaudible|no reproducible)\]/i.test(content);
-      if (isPlaceholder) {
-        return { isVoiceNote: true, transcription: '', isFailed: true, audioUrl };
-      }
-      const match = content.match(/🎤\s*\[Nota de voz\](?::\s*["“]([\s\S]*?)["”])?/);
-      if (match && match[1]) {
-        const text = match[1].trim();
-        const isFallback = /\[Nota de voz/i.test(text);
-        return {
-          isVoiceNote: true,
-          transcription: isFallback ? '' : text,
-          isFailed: isFallback,
-          audioUrl,
-        };
-      }
-      if (content.startsWith('🎤')) {
-        const text = content.replace(/^🎤\s*/, '').trim();
-        const isFallback = /\[Nota de voz/i.test(text);
-        return {
-          isVoiceNote: true,
-          transcription: isFallback ? '' : text,
-          isFailed: isFallback,
-          audioUrl,
-        };
-      }
-      return { isVoiceNote: Boolean(audioUrl), transcription: '', isFailed: false, audioUrl };
-    }, [content]);
+    const parsedMedia = useMemo(() => parseMessageContentFast(content), [content]);
+    const {
+      image: imageInfo,
+      document: docInfo,
+      audio: audioInfo,
+      video: videoInfo,
+      quote: quoteInfo,
+      instagram: instagramPostInfo,
+      voiceNote: voiceNoteInfo,
+    } = parsedMedia;
 
     if (senderType === 'system') {
       const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado') || content.includes('IA pausada');
@@ -257,7 +237,10 @@ export const MessageBubble = React.memo(
 
     return (
       <>
-        <div className={`group flex w-full my-1.5 items-center gap-1.5 ${isLead ? 'justify-start' : 'justify-end'}`}>
+        <div
+          id={id ? `msg-${id}` : undefined}
+          className={`group flex w-full my-1.5 items-center gap-1.5 ${isLead ? 'justify-start' : 'justify-end'}`}
+        >
           {/* Botones para mensajes salientes a la izquierda de la burbuja */}
           {!isLead && (
             <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
@@ -270,6 +253,33 @@ export const MessageBubble = React.memo(
                 >
                   <Reply className="w-3 h-3" />
                 </button>
+              )}
+
+              {onReact && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker((prev) => !prev)}
+                    className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-amber-500 dark:hover:text-amber-400 cursor-pointer"
+                    title="Reaccionar con emoji"
+                  >
+                    <Smile className="w-3 h-3" />
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="absolute bottom-full mb-1 left-0 z-50 bg-white dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] shadow-lg rounded-full px-2 py-1 flex items-center gap-1 text-sm animate-in zoom-in-95">
+                      {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => handleSelectEmoji(emoji)}
+                          className="hover:scale-125 transition-transform p-0.5 cursor-pointer leading-none"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {isAi && id && contactId && (
@@ -307,7 +317,9 @@ export const MessageBubble = React.memo(
           )}
 
           <div
-            className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 shadow-2xs text-xs relative transition-colors ${
+            className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 shadow-2xs text-xs relative transition-all ${
+              isSearchMatch ? 'ring-2 ring-amber-400 dark:ring-amber-400 shadow-md scale-[1.01]' : ''
+            } ${
               isLead
                 ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-[#F8FAFC] border border-slate-200 dark:border-[#232A3B] rounded-tl-xs'
                 : isAi
@@ -467,16 +479,27 @@ export const MessageBubble = React.memo(
                       : 'bg-slate-50 dark:bg-[#131722] border-slate-200 dark:border-[#232A3B] text-slate-800 dark:text-slate-100'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className={`p-1.5 rounded-full ${isAgent ? 'bg-white/20 text-white' : 'bg-emerald-500 text-white'}`}>
-                      <Mic className="w-3.5 h-3.5" />
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`p-1.5 rounded-full ${isAgent ? 'bg-white/20 text-white' : 'bg-emerald-500 text-white'}`}>
+                        <Mic className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] font-semibold truncate block">Nota de Voz</span>
+                        <span className="text-[10px] opacity-75 font-mono">Audio oficial</span>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[11px] font-semibold truncate block">Nota de Voz</span>
-                      <span className="text-[10px] opacity-75 font-mono">Audio oficial</span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => togglePlaybackRate(audioRef.current)}
+                      className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 dark:border-slate-600 bg-white/40 dark:bg-black/20 hover:bg-white/70 transition shrink-0 select-none cursor-pointer"
+                      title="Cambiar velocidad de reproducción"
+                    >
+                      {playbackRate}×
+                    </button>
                   </div>
                   <audio
+                    ref={audioRef}
                     src={audioInfo.url}
                     controls
                     className="w-full h-8 rounded-lg"
@@ -521,13 +544,24 @@ export const MessageBubble = React.memo(
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1.5">
                       <span className="text-[11px] font-semibold truncate">Nota de Voz WhatsApp</span>
-                      <AudioLines className="w-3.5 h-3.5 opacity-75 shrink-0" />
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => togglePlaybackRate(voiceNoteRef.current)}
+                          className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 dark:border-slate-600 bg-white/40 dark:bg-black/20 hover:bg-white/70 transition select-none cursor-pointer"
+                          title="Cambiar velocidad de reproducción"
+                        >
+                          {playbackRate}×
+                        </button>
+                        <AudioLines className="w-3.5 h-3.5 opacity-75 shrink-0" />
+                      </div>
                     </div>
                     <span className="text-[10px] opacity-75 font-mono">Audio transcrito por IA</span>
                   </div>
                 </div>
                 {voiceNoteInfo.audioUrl && (
                   <audio
+                    ref={voiceNoteRef}
                     src={voiceNoteInfo.audioUrl}
                     controls
                     className="w-full h-8 rounded-lg mt-1"
@@ -604,25 +638,58 @@ export const MessageBubble = React.memo(
 
             {/* Reacción de WhatsApp con Emoji si existe */}
             {reactions?.emoji && (
-              <div
-                className={`absolute -bottom-2.5 ${isLead ? 'right-2' : 'left-2'} px-1.5 py-0.5 rounded-full bg-white dark:bg-[#1E2433] border border-slate-200 dark:border-[#2E384D] shadow-xs text-xs flex items-center justify-center select-none z-10 animate-in zoom-in-75 duration-150`}
-                title={reactions.from === 'lead' ? 'Reacción del cliente' : 'Reacción'}
+              <button
+                type="button"
+                onClick={() => onReact && id && onReact(id, reactions.emoji)}
+                className={`absolute -bottom-2.5 ${isLead ? 'right-2' : 'left-2'} px-1.5 py-0.5 rounded-full bg-white dark:bg-[#1E2433] border border-slate-200 dark:border-[#2E384D] shadow-xs text-xs flex items-center justify-center select-none z-10 animate-in zoom-in-75 duration-150 hover:scale-110 cursor-pointer transition-transform`}
+                title={reactions.from === 'lead' ? 'Reacción del cliente (clic para responder con la misma)' : 'Tu reacción (clic para quitar)'}
               >
                 <span className="text-[13px] leading-none">{reactions.emoji}</span>
-              </div>
+              </button>
             )}
           </div>
 
-          {/* Botón de Citar (para mensajes entrantes a la derecha) */}
-          {isLead && onReply && (
-            <button
-              type="button"
-              onClick={() => onReply({ id, senderType, content: quoteInfo.actualText || content })}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer shrink-0"
-              title="Responder a este mensaje"
-            >
-              <Reply className="w-3 h-3" />
-            </button>
+          {/* Botones de acción para mensajes entrantes (Citar y Reaccionar) */}
+          {isLead && (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+              {onReply && (
+                <button
+                  type="button"
+                  onClick={() => onReply({ id, senderType, content: quoteInfo.actualText || content })}
+                  className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer shrink-0"
+                  title="Responder a este mensaje"
+                >
+                  <Reply className="w-3 h-3" />
+                </button>
+              )}
+
+              {onReact && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker((prev) => !prev)}
+                    className="p-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-amber-500 dark:hover:text-amber-400 cursor-pointer shrink-0"
+                    title="Reaccionar con emoji"
+                  >
+                    <Smile className="w-3 h-3" />
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="absolute bottom-full mb-1 right-0 z-50 bg-white dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] shadow-lg rounded-full px-2 py-1 flex items-center gap-1 text-sm animate-in zoom-in-95">
+                      {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => handleSelectEmoji(emoji)}
+                          className="hover:scale-125 transition-transform p-0.5 cursor-pointer leading-none"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -780,6 +847,7 @@ export const MessageBubble = React.memo(
       prevProps.senderType === nextProps.senderType &&
       prevProps.createdAt === nextProps.createdAt &&
       prevProps.status === nextProps.status &&
+      prevProps.isSearchMatch === nextProps.isSearchMatch &&
       prevProps.replyToMessageId === nextProps.replyToMessageId &&
       JSON.stringify(prevProps.reactions) === JSON.stringify(nextProps.reactions)
     );

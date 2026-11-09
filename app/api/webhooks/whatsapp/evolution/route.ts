@@ -172,9 +172,16 @@ export async function POST(request: NextRequest) {
           mappedStatus = 'read';
         }
         if (metaId && mappedStatus) {
-          await (supabaseAdmin.from('messages') as any)
+          let query = (supabaseAdmin.from('messages') as any)
             .update({ status: mappedStatus })
             .eq('meta_message_id', metaId);
+
+          // Progresión monotónica: 'delivered' nunca sobreescribe 'read'
+          if (mappedStatus === 'delivered') {
+            query = query.neq('status', 'read');
+          }
+
+          await query;
         }
       }
     } catch (err: any) {
@@ -243,9 +250,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'bot_echo_ignored' }, { status: 200 });
     }
 
-    // Si NO fue enviado por Synqo, significa que el ASESOR HUMANO escribió directamente desde el celular físico
-    console.log(`[EVOLUTION HUMAN TAKEOVER] Asesor intervino desde el celular en el chat con ${leadPhone}.`);
-
+    // Buscar el contacto
     const { data: contact } = await supabaseAdmin
       .from('contacts')
       .select('id, name, is_ai_active')
@@ -254,6 +259,34 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (contact) {
+      // 🛡️ RECONCILIACIÓN ANTI-DUPLICADOS: Si el CRM envió este mensaje, ya existe con status 'sending'
+      const thirtySecAgo = new Date(Date.now() - 30 * 1000).toISOString();
+      const { data: pendingSendingMsg } = await supabaseAdmin
+        .from('messages')
+        .select('id')
+        .eq('contact_id', contact.id)
+        .eq('sender_type', 'agent_manual')
+        .eq('status', 'sending')
+        .gte('created_at', thirtySecAgo)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (pendingSendingMsg) {
+        // Reconciliar con el mensaje optimista que el asesor envió desde el CRM
+        await (supabaseAdmin.from('messages') as any)
+          .update({
+            status: 'sent',
+            meta_message_id: messageId,
+          })
+          .eq('id', pendingSendingMsg.id);
+
+        return NextResponse.json({ status: 'bot_echo_reconciled', messageId: pendingSendingMsg.id }, { status: 200 });
+      }
+
+      // Si NO fue enviado por Synqo, significa que el ASESOR HUMANO escribió directamente desde el celular físico
+      console.log(`[EVOLUTION HUMAN TAKEOVER] Asesor intervino desde el celular en el chat con ${leadPhone}.`);
+
       // 1. Pausar la IA en este contacto para no competir con el humano
       await (supabaseAdmin.from('contacts') as any)
         .update({
@@ -288,6 +321,7 @@ export async function POST(request: NextRequest) {
         content: typeof rawText === 'string' ? rawText : JSON.stringify(rawText),
         meta_message_id: messageId,
         channel: 'whatsapp',
+        status: 'sent',
       });
     }
 

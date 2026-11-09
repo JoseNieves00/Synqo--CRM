@@ -75,9 +75,9 @@ BEGIN
       END
     WHERE id = NEW.contact_id;
 
-    -- Completar en tabla scheduled_reminders si existía recordatorio de reactivación
+    -- Cancelar en tabla scheduled_reminders si existía recordatorio de reactivación
     UPDATE scheduled_reminders
-    SET status = 'completed'
+    SET status = 'cancelled'
     WHERE contact_id = NEW.contact_id 
       AND reminder_type = 'reactivation' 
       AND status = 'pending';

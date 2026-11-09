@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   User,
@@ -21,6 +21,7 @@ import {
   ChevronRight,
   PanelRightOpen,
   PanelRightClose,
+  Search,
 } from 'lucide-react';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
@@ -47,11 +48,14 @@ interface ChatHeaderProps {
     instagram_username?: string | null;
     conversation_status?: string;
   };
+  whatsappProvider?: 'meta' | 'evolution';
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
   isRightPanelOpen: boolean;
   onToggleRightPanel: () => void;
+  isSearchOpen?: boolean;
+  onToggleSearch?: () => void;
   onToggleAi: () => Promise<void>;
   onSnoozeAi: (durationMinutes: 30 | 120 | 'tomorrow') => Promise<void>;
   onClaimLead: () => Promise<void>;
@@ -66,11 +70,14 @@ interface ChatHeaderProps {
 
 export function ChatHeader({
   contact,
+  whatsappProvider = 'meta',
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
   isRightPanelOpen,
   onToggleRightPanel,
+  isSearchOpen = false,
+  onToggleSearch,
   onToggleAi,
   onSnoozeAi,
   onClaimLead,
@@ -86,6 +93,24 @@ export function ChatHeader({
   const [showSnoozeSubmenu, setShowSnoozeSubmenu] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  const window24h = useMemo(() => {
+    if (contact.channel === 'instagram') {
+      return { isOpen: true, label: 'Instagram Direct', tooltip: 'Mensajería directa de Instagram', isEvolution: false };
+    }
+    if (whatsappProvider === 'evolution') {
+      return { isOpen: true, label: 'WhatsApp Web', tooltip: 'Sesión WhatsApp Web activa (sin restricción de ventana 24h)', isEvolution: true };
+    }
+    if (!contact.last_interaction_at) {
+      return { isOpen: false, label: '24h Expirada', tooltip: 'Requiere plantilla oficial pre-aprobada por Meta', isEvolution: false };
+    }
+    const diffHours = (Date.now() - new Date(contact.last_interaction_at).getTime()) / (1000 * 3600);
+    if (diffHours >= 24) {
+      return { isOpen: false, label: '24h Expirada', tooltip: 'Ventana de 24h cerrada. Pulsa para enviar plantilla oficial', isEvolution: false };
+    }
+    const remainingHours = Math.max(1, Math.floor(24 - diffHours));
+    return { isOpen: true, label: `${remainingHours}h restantes`, tooltip: `Ventana de 24h Meta activa (${remainingHours}h para texto libre)`, isEvolution: false };
+  }, [contact.channel, contact.last_interaction_at, whatsappProvider]);
 
   const isAdminOrSupervisor = currentUserRole === 'admin' || currentUserRole === 'supervisor';
   const isAssignedToMe = contact.assigned_to === currentUserId;
@@ -172,6 +197,35 @@ export function ChatHeader({
                 </span>
               </>
             )}
+
+            {/* Indicador Inteligente de Ventana de 24h / WhatsApp Web */}
+            <span className="text-slate-300 dark:text-[#232A3B]">•</span>
+            {window24h.isEvolution ? (
+              <span
+                title={window24h.tooltip}
+                className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20"
+              >
+                <span>{window24h.label}</span>
+              </span>
+            ) : window24h.isOpen ? (
+              <span
+                title={window24h.tooltip}
+                className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-500/20 font-sans"
+              >
+                <Clock className="w-2.5 h-2.5" />
+                <span>{window24h.label}</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenSendTemplate}
+                title={window24h.tooltip}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition cursor-pointer animate-pulse font-sans"
+              >
+                <AlertCircle className="w-2.5 h-2.5 text-amber-500" />
+                <span>24h Expirada · Enviar plantilla</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -243,6 +297,22 @@ export function ChatHeader({
           >
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="hidden sm:inline">Cerrar chat</span>
+          </button>
+        )}
+
+        {/* Botón Buscar en la Conversación */}
+        {onToggleSearch && (
+          <button
+            type="button"
+            onClick={onToggleSearch}
+            className={`p-1.5 rounded-lg border transition cursor-pointer ${
+              isSearchOpen
+                ? 'bg-blue-50 dark:bg-[#0052FF]/15 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-[#00D2FF]/30'
+                : 'bg-white dark:bg-[#131722] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border-slate-200 dark:border-[#232A3B]'
+            }`}
+            title="Buscar en la conversación"
+          >
+            <Search className="w-4 h-4" />
           </button>
         )}
 

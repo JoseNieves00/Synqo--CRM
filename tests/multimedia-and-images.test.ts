@@ -159,23 +159,24 @@ Ubicación: Valledupar
 
   // 6. Ciclo Completo de Adición, Eliminación y Persistencia en Base de Datos
   console.log('\n6️⃣  Probando ciclo de Adición, Guardado, Visualización y Eliminación en Base de Datos...');
-  const testOrgId = 'da8cb0c8-f326-4f0c-873b-7bf73319be83'; // Filippo Kids
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (supabaseUrl && serviceKey) {
-    // A. Consultar estado actual
-    const getRes = await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}&select=id,name,system_prompt,structured_prompt_data`, {
+    // Buscar una organización de prueba (Empresa Synqo o PRUEBA EVOLUTION, NUNCA clientes en producción)
+    const orgsRes = await fetch(`${supabaseUrl}/rest/v1/organizations?name=eq.Empresa%20Synqo&select=id,name,system_prompt,structured_prompt_data`, {
       headers: {
         apikey: serviceKey,
         Authorization: `Bearer ${serviceKey}`,
       },
     });
-    const [currentOrg] = await getRes.json();
-    assert.ok(currentOrg, 'La organización de prueba debe existir en Supabase');
+    const [testOrg] = await orgsRes.json();
+    assert.ok(testOrg, 'La organización de prueba Empresa Synqo debe existir en Supabase');
+    const testOrgId = testOrg.id;
 
-    const originalPrompt = currentOrg.system_prompt || '';
-    const originalStructuredData = currentOrg.structured_prompt_data || {};
+    // A. Consultar estado actual exacto
+    const originalPrompt = testOrg.system_prompt || '';
+    const originalStructuredData = testOrg.structured_prompt_data || {};
     const originalGallery = Array.isArray(originalStructuredData.gallery) ? originalStructuredData.gallery : [];
 
     // B. Simular Adición de Nueva Foto
@@ -229,13 +230,7 @@ Ubicación: Valledupar
       'El system_prompt compilado debe contener el nombre del producto en el catálogo visual'
     );
 
-    // E. Simular Eliminación de la Foto de Prueba (Restaurar)
-    const galleryAfterDeletion = savedGallery.filter((g: any) => g.id !== newTestPhoto.id);
-    const restoredBlock = galleryAfterDeletion.length > 0
-      ? '\n\n=== CATÁLOGO VISUAL DE FOTOS (DISPATCH INTERNO) ===\n' +
-        galleryAfterDeletion.map((g: any) => `- ${g.name}: ${g.url}`).join('\n')
-      : '';
-
+    // E. Restaurar el estado original 100% exacto en Base de Datos
     await fetch(`${supabaseUrl}/rest/v1/organizations?id=eq.${testOrgId}`, {
       method: 'PATCH',
       headers: {
@@ -244,11 +239,8 @@ Ubicación: Valledupar
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        system_prompt: cleanText + restoredBlock,
-        structured_prompt_data: {
-          ...originalStructuredData,
-          gallery: galleryAfterDeletion,
-        },
+        system_prompt: originalPrompt,
+        structured_prompt_data: originalStructuredData,
       }),
     });
 

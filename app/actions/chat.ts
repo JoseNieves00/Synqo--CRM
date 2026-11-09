@@ -3,6 +3,8 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
+import { EvolutionService } from '@/services/evolution.service';
+import { normalizeContactInboxState as normalizeContactPure } from '@/lib/inbox/normalize';
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
@@ -18,7 +20,12 @@ import { revalidatePath } from 'next/cache';
  * para otorgar el control completo al operador humano.
  * Soporta citar/responder mensajes anteriores mediante replyToMessageId.
  */
-export async function sendAgentMessage(contactId: string, content: string, replyToMessageId?: string) {
+export async function sendAgentMessage(
+  contactId: string,
+  content: string,
+  replyToMessageId?: string,
+  clientMessageId?: string
+) {
   const supabase = createServerSupabaseClient();
 
   // 1. Validar sesión del usuario autenticado
@@ -55,9 +62,24 @@ export async function sendAgentMessage(contactId: string, content: string, reply
   }
 
   const isInstagram = contact.channel === 'instagram' || Boolean(contact.instagram_id);
-  let metaMessageId: string | null = null;
+  const messageId = clientMessageId || crypto.randomUUID();
 
-  // 4. Inmediato Human Takeover: silenciar la IA ANTES del despacho de red para evitar colisiones
+  // 4. Persistir inmediatamente con estado 'sending' e ID idempotente (cero duplicados)
+  await (supabaseAdmin.from('messages') as any).upsert(
+    {
+      id: messageId,
+      contact_id: contactId,
+      sender_type: 'agent_manual',
+      content: cleanContent,
+      meta_message_id: null,
+      channel: isInstagram ? 'instagram' : 'whatsapp',
+      status: 'sending',
+      reply_to_message_id: replyToMessageId || null,
+    },
+    { onConflict: 'id' }
+  );
+
+  // 5. Inmediato Human Takeover: silenciar la IA ANTES del despacho de red
   await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: false,
@@ -65,111 +87,117 @@ export async function sendAgentMessage(contactId: string, content: string, reply
     })
     .eq('id', contactId);
 
-  if (isInstagram) {
-    // 5. Obtener credenciales de Instagram Direct
-    const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('instagram_account_id, instagram_access_token')
-      .eq('id', orgId)
-      .single();
+  let metaMessageId: string | null = null;
 
-    if (!org?.instagram_account_id || !org?.instagram_access_token) {
-      throw new Error('Credenciales de Instagram Direct no configuradas en la organización');
-    }
-
-    const decryptedToken = decryptSecret(org.instagram_access_token);
-    const recipientIgId = contact.instagram_id || contact.phone.replace(/^ig_/, '');
-
-    metaMessageId = await InstagramService.sendDirectMessage({
-      instagramAccountId: org.instagram_account_id,
-      accessToken: decryptedToken,
-      recipientId: recipientIgId,
-      text: cleanContent,
-    });
-  } else {
-    // 5. Obtener credenciales de mensajería de la organización
-    const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
-      .eq('id', orgId)
-      .single();
-
-    if (!org) {
-      throw new Error('Organización no encontrada.');
-    }
-
-    if (cleanContent.length > 4096) {
-      throw new Error('El mensaje supera el límite permitido por WhatsApp (4,096 caracteres).');
-    }
-
-    // Si el contacto nunca ha tenido interacción previa, se considera envío en frío (outbound)
-    const isCold = !contact.last_interaction_at;
-
-    // 6. Enviar mensaje mediante el motor configurado (Meta Cloud API o Evolution API)
-    const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
-    metaMessageId = await MessagingService.sendTextMessage({
-      organization: org,
-      to: targetRecipient,
-      body: cleanContent,
-      simulateTyping: false,
-      isColdOutbound: isCold,
-    });
-  }
-
-  const nowIso = new Date().toISOString();
-  const lastMessagePayload = {
-    text: cleanContent,
-    sender_type: 'agent_manual',
-    created_at: nowIso,
-  };
-
-  const currentCustom = contact.custom_fields || {};
-  const updatedCustom: Record<string, any> = { ...currentCustom };
-
-  // 🛡️ Si el contacto tenía un recordatorio de reactivación pendiente, limpiarlo
-  // porque el asesor ya atendió y contestó directamente al cliente.
-  if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
-    updatedCustom.active_reminder = null;
-  }
-
-  await (supabaseAdmin.from('contacts') as any)
-    .update({
-      last_message: lastMessagePayload,
-      custom_fields: updatedCustom,
-      last_interaction_at: nowIso,
-      updated_at: nowIso,
-      waiting_since: null,
-      last_message_sender: 'agent_manual',
-      last_message_preview: cleanContent.slice(0, 160),
-    })
-    .eq('id', contactId);
-
-  // Completar recordatorios de reactivación pendientes en tabla scheduled_reminders
   try {
-    await (supabaseAdmin.from('scheduled_reminders') as any)
-      .update({ status: 'completed' })
-      .eq('contact_id', contactId)
-      .eq('reminder_type', 'reactivation')
-      .eq('status', 'pending');
-  } catch {}
+    if (isInstagram) {
+      // Obtener credenciales de Instagram Direct
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('instagram_account_id, instagram_access_token')
+        .eq('id', orgId)
+        .single();
 
-  // 7. Persistir el mensaje en la base de datos con sender_type = 'agent_manual' y estado 'sent'
-  await (supabaseAdmin.from('messages') as any).insert({
-    contact_id: contactId,
-    sender_type: 'agent_manual',
-    content: cleanContent,
-    meta_message_id: metaMessageId || null,
-    channel: isInstagram ? 'instagram' : 'whatsapp',
-    status: 'sent',
-    reply_to_message_id: replyToMessageId || null,
-  });
+      if (!org?.instagram_account_id || !org?.instagram_access_token) {
+        throw new Error('Credenciales de Instagram Direct no configuradas en la organización');
+      }
 
-  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
-  revalidatePath(`/inbox/${contactId}`);
+      const decryptedToken = decryptSecret(org.instagram_access_token);
+      const recipientIgId = contact.instagram_id || contact.phone.replace(/^ig_/, '');
+
+      metaMessageId = await InstagramService.sendDirectMessage({
+        instagramAccountId: org.instagram_account_id,
+        accessToken: decryptedToken,
+        recipientId: recipientIgId,
+        text: cleanContent,
+      });
+    } else {
+      // Obtener credenciales de mensajería de la organización
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour')
+        .eq('id', orgId)
+        .single();
+
+      if (!org) {
+        throw new Error('Organización no encontrada.');
+      }
+
+      if (cleanContent.length > 4096) {
+        throw new Error('El mensaje supera el límite permitido por WhatsApp (4,096 caracteres).');
+      }
+
+      const isCold = !contact.last_interaction_at;
+      const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
+
+      metaMessageId = await MessagingService.sendTextMessage({
+        organization: org,
+        to: targetRecipient,
+        body: cleanContent,
+        simulateTyping: false,
+        isColdOutbound: isCold,
+      });
+    }
+
+    // 6. Actualizar mensaje a 'sent' y meta_message_id
+    await (supabaseAdmin.from('messages') as any)
+      .update({
+        status: 'sent',
+        meta_message_id: metaMessageId || null,
+      })
+      .eq('id', messageId);
+
+    const nowIso = new Date().toISOString();
+    const lastMessagePayload = {
+      text: cleanContent,
+      sender_type: 'agent_manual',
+      created_at: nowIso,
+    };
+
+    const currentCustom = contact.custom_fields || {};
+    const updatedCustom: Record<string, any> = { ...currentCustom };
+
+    if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+      updatedCustom.active_reminder = null;
+    }
+
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        last_message: lastMessagePayload,
+        custom_fields: updatedCustom,
+        last_interaction_at: nowIso,
+        updated_at: nowIso,
+        waiting_since: null,
+        last_message_sender: 'agent_manual',
+        last_message_preview: cleanContent.slice(0, 160),
+      })
+      .eq('id', contactId);
+
+    // Cancelar recordatorios de reactivación pendientes en tabla scheduled_reminders
+    try {
+      await (supabaseAdmin.from('scheduled_reminders') as any)
+        .update({ status: 'cancelled' })
+        .eq('contact_id', contactId)
+        .eq('reminder_type', 'reactivation')
+        .eq('status', 'pending');
+    } catch {}
+
+    return { success: true, messageId, metaMessageId };
+  } catch (err: any) {
+    // Marcar como fallido en la base de datos para mostrar botón de reintentar
+    await (supabaseAdmin.from('messages') as any)
+      .update({ status: 'failed' })
+      .eq('id', messageId);
+    throw err;
+  }
 }
 
 /**
  * Envía una plantilla oficial de Meta cuando la ventana de 24h ha vencido o para iniciar un lead nuevo.
  */
-export async function sendAgentTemplate(contactId: string, templateKey: string) {
+export async function sendAgentTemplate(
+  contactId: string,
+  templateKey: string,
+  clientMessageId?: string
+) {
   const supabase = createServerSupabaseClient();
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -207,71 +235,91 @@ export async function sendAgentTemplate(contactId: string, templateKey: string) 
   const templateLabel = templateDef?.label || templateKey;
 
   const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
+  const messageId = clientMessageId || crypto.randomUUID();
 
-  const metaId = await MessagingService.sendTemplateMessage({
-    organization: org,
-    to: targetRecipient,
-    templateKey,
-    templateName,
-    languageCode: 'es',
-  });
+  // 1. Persistir inmediatamente con 'sending' e ID idempotente
+  await (supabaseAdmin.from('messages') as any).upsert(
+    {
+      id: messageId,
+      contact_id: contactId,
+      sender_type: 'agent_manual',
+      content: `[Plantilla oficial: ${templateLabel}]`,
+      meta_message_id: null,
+      channel: 'whatsapp',
+      status: 'sending',
+    },
+    { onConflict: 'id' }
+  );
 
-  const nowIso = new Date().toISOString();
-  const templateMsgPayload = {
-    text: `[Plantilla oficial: ${templateLabel}]`,
-    sender_type: 'agent_manual',
-    created_at: nowIso,
-  };
-
-  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
-  const updatedCustom: Record<string, any> = {
-    ...currentCustom,
-    last_message: templateMsgPayload,
-  };
-
-  // 🛡️ Si es plantilla de reactivación, registrar blindaje anti-spam de 1 solo intento
-  if (templateKey.includes('reactiva')) {
-    updatedCustom.reactivation_attempted = true;
-    updatedCustom.reactivation_sent_at = nowIso;
-    updatedCustom.reactivation_type = 'template_manual';
-  }
-
-  // 🛡️ Si tenía recordatorio de reactivación, completarlo automáticamente
-  if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
-    updatedCustom.active_reminder = null;
-  }
-
-  // Registrar actualización en el contacto (sin desactivar la IA si el lead está configurado con IA)
-  await (supabaseAdmin.from('contacts') as any)
-    .update({
-      last_message: templateMsgPayload,
-      last_interaction_at: nowIso,
-      updated_at: nowIso,
-      waiting_since: null,
-      last_message_sender: 'agent_manual',
-      last_message_preview: `[Plantilla oficial: ${templateLabel}]`,
-      custom_fields: updatedCustom,
-    })
-    .eq('id', contactId);
-
-  // Completar recordatorios de reactivación en la tabla scheduled_reminders
   try {
-    await (supabaseAdmin.from('scheduled_reminders') as any)
-      .update({ status: 'completed' })
-      .eq('contact_id', contactId)
-      .eq('reminder_type', 'reactivation')
-      .eq('status', 'pending');
-  } catch {}
+    const metaId = await MessagingService.sendTemplateMessage({
+      organization: org,
+      to: targetRecipient,
+      templateKey,
+      templateName,
+      languageCode: 'es',
+    });
 
-  await (supabaseAdmin.from('messages') as any).insert({
-    contact_id: contactId,
-    sender_type: 'agent_manual',
-    content: `[Plantilla oficial: ${templateLabel}]`,
-    meta_message_id: metaId || null,
-  });
+    // 2. Actualizar a 'sent'
+    await (supabaseAdmin.from('messages') as any)
+      .update({
+        status: 'sent',
+        meta_message_id: metaId || null,
+      })
+      .eq('id', messageId);
 
-  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
-  revalidatePath(`/inbox/${contactId}`);
+    const nowIso = new Date().toISOString();
+    const templateMsgPayload = {
+      text: `[Plantilla oficial: ${templateLabel}]`,
+      sender_type: 'agent_manual',
+      created_at: nowIso,
+    };
+
+    const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+    const updatedCustom: Record<string, any> = {
+      ...currentCustom,
+      last_message: templateMsgPayload,
+    };
+
+    // Si es plantilla de reactivación, registrar blindaje anti-spam de 1 solo intento
+    if (templateKey.includes('reactiva')) {
+      updatedCustom.reactivation_attempted = true;
+      updatedCustom.reactivation_sent_at = nowIso;
+      updatedCustom.reactivation_type = 'template_manual';
+    }
+
+    if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
+      updatedCustom.active_reminder = null;
+    }
+
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        last_message: templateMsgPayload,
+        last_interaction_at: nowIso,
+        updated_at: nowIso,
+        waiting_since: null,
+        last_message_sender: 'agent_manual',
+        last_message_preview: `[Plantilla oficial: ${templateLabel}]`,
+        custom_fields: updatedCustom,
+      })
+      .eq('id', contactId);
+
+    // Cancelar recordatorios pendientes con status 'cancelled'
+    try {
+      await (supabaseAdmin.from('scheduled_reminders') as any)
+        .update({ status: 'cancelled' })
+        .eq('contact_id', contactId)
+        .eq('reminder_type', 'reactivation')
+        .eq('status', 'pending');
+    } catch {}
+
+    return { success: true, messageId, metaId };
+  } catch (err: any) {
+    await (supabaseAdmin.from('messages') as any)
+      .update({ status: 'failed' })
+      .eq('id', messageId);
+    throw err;
+  }
 }
 
 /**
@@ -380,7 +428,8 @@ export async function sendAgentMediaMessage(
   fileName?: string,
   isDocument?: boolean,
   isAudio?: boolean,
-  isVideo?: boolean
+  isVideo?: boolean,
+  clientMessageId?: string
 ) {
   const supabase = createServerSupabaseClient();
 
@@ -412,26 +461,8 @@ export async function sendAgentMediaMessage(
 
   const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
   const mediaType = isVideo ? 'video' : isAudio ? 'audio' : isDocument ? 'document' : 'image';
+  const msgId = clientMessageId || crypto.randomUUID();
 
-  // 1. Silenciar IA de inmediato (Human Takeover) antes del despacho de red
-  await (supabaseAdmin.from('contacts') as any)
-    .update({
-      is_ai_active: false,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', contactId);
-
-  // 2. Despachar video, imagen, documento o nota de voz a WhatsApp
-  const messageId = await MessagingService.sendMediaMessage({
-    organization: org,
-    to: targetRecipient,
-    mediaUrl,
-    caption: caption || undefined,
-    mediaType,
-    fileName: fileName || (isVideo ? 'video.mp4' : isAudio ? 'nota_de_voz.ogg' : isDocument ? 'documento.pdf' : 'imagen.jpg'),
-  });
-
-  // 3. Persistir en la tabla messages con formato correspondiente
   const formattedContent = isVideo
     ? formatVideoMessageContent(mediaUrl, caption)
     : isAudio
@@ -440,44 +471,81 @@ export async function sendAgentMediaMessage(
     ? formatDocumentMessageContent(mediaUrl, fileName, caption)
     : formatImageMessageContent(mediaUrl, caption);
 
-  const previewText = isVideo
-    ? (caption ? `📹 ${caption}` : '📹 [Video]')
-    : isAudio
-    ? '🎙️ [Nota de voz]'
-    : isDocument
-    ? `📄 [Documento: ${fileName || 'Archivo'}]`
-    : (caption ? `📷 ${caption}` : '📷 [Foto]');
+  // 1. Persistir inmediatamente con 'sending' e ID idempotente
+  await (supabaseAdmin.from('messages') as any).upsert(
+    {
+      id: msgId,
+      contact_id: contactId,
+      sender_type: 'agent_manual',
+      content: formattedContent,
+      meta_message_id: null,
+      channel: 'whatsapp',
+      status: 'sending',
+    },
+    { onConflict: 'id' }
+  );
 
-  const nowIso = new Date().toISOString();
-  const lastMsgPayload = {
-    text: previewText,
-    sender_type: 'agent_manual',
-    created_at: nowIso,
-  };
-
-  const currentCustom = contact.custom_fields || {};
+  // 2. Silenciar IA de inmediato (Human Takeover) antes del despacho de red
   await (supabaseAdmin.from('contacts') as any)
     .update({
-      last_message: lastMsgPayload,
-      custom_fields: {
-        ...currentCustom,
-        last_message: lastMsgPayload,
-      },
-      last_interaction_at: nowIso,
-      updated_at: nowIso,
+      is_ai_active: false,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', contactId);
 
-  await (supabaseAdmin.from('messages') as any).insert({
-    contact_id: contactId,
-    sender_type: 'agent_manual',
-    content: formattedContent,
-    meta_message_id: messageId || null,
-    status: 'sent',
-  });
+  try {
+    // 3. Despachar video, imagen, documento o nota de voz a WhatsApp
+    const metaMessageId = await MessagingService.sendMediaMessage({
+      organization: org,
+      to: targetRecipient,
+      mediaUrl,
+      caption: caption || undefined,
+      mediaType,
+      fileName: fileName || (isVideo ? 'video.mp4' : isAudio ? 'nota_de_voz.ogg' : isDocument ? 'documento.pdf' : 'imagen.jpg'),
+    });
 
-  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
-  revalidatePath(`/inbox/${contactId}`);
+    const previewText = isVideo
+      ? (caption ? `📹 ${caption}` : '📹 [Video]')
+      : isAudio
+      ? '🎙️ [Nota de voz]'
+      : isDocument
+      ? `📄 [Documento: ${fileName || 'Archivo'}]`
+      : (caption ? `📷 ${caption}` : '📷 [Foto]');
+
+    const nowIso = new Date().toISOString();
+    const lastMsgPayload = {
+      text: previewText,
+      sender_type: 'agent_manual',
+      created_at: nowIso,
+    };
+
+    const currentCustom = contact.custom_fields || {};
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        last_message: lastMsgPayload,
+        custom_fields: {
+          ...currentCustom,
+          last_message: lastMsgPayload,
+        },
+        last_interaction_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', contactId);
+
+    await (supabaseAdmin.from('messages') as any)
+      .update({
+        status: 'sent',
+        meta_message_id: metaMessageId || null,
+      })
+      .eq('id', msgId);
+
+    return { success: true, messageId: msgId, metaMessageId };
+  } catch (err: any) {
+    await (supabaseAdmin.from('messages') as any)
+      .update({ status: 'failed' })
+      .eq('id', msgId);
+    throw err;
+  }
 }
 
 /**
@@ -498,26 +566,137 @@ export async function markContactAsRead(contactId: string) {
     if (!orgId) return;
 
     const { data: contact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, custom_fields')
+      .select('id, phone, custom_fields')
       .eq('id', contactId)
       .eq('organization_id', orgId)
       .single();
 
     if (!contact) return;
 
-    const currentCustom = contact.custom_fields || {};
+    // 1. Despejar unread_count en la base de datos
     await (supabaseAdmin.from('contacts') as any)
       .update({
         unread_count: 0,
-        custom_fields: {
-          ...currentCustom,
-          unread_count: 0,
-        },
       })
       .eq('id', contactId);
+
+    // 2. Notificar recibo de lectura real a WhatsApp (doble tilde azul en el celular del cliente)
+    const { data: latestLeadMsgs } = await (supabaseAdmin.from('messages') as any)
+      .select('id, meta_message_id')
+      .eq('contact_id', contactId)
+      .eq('sender_type', 'lead')
+      .not('meta_message_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    if (latestLeadMsgs && latestLeadMsgs.length > 0) {
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name')
+        .eq('id', orgId)
+        .single();
+
+      if (org) {
+        const isEvolution = org.whatsapp_provider === 'evolution' || Boolean(org.evolution_instance_name);
+        for (const msg of latestLeadMsgs) {
+          if (!msg.meta_message_id) continue;
+          if (isEvolution && org.evolution_api_key && org.evolution_instance_name) {
+            EvolutionService.markMessageAsRead({
+              apiUrl: org.evolution_api_url,
+              apiKey: org.evolution_api_key,
+              instanceName: org.evolution_instance_name,
+              remoteJid: contact.phone,
+              messageId: msg.meta_message_id,
+            }).catch(() => {});
+          } else if (org.whatsapp_phone_number_id && org.whatsapp_access_token) {
+            WhatsAppService.markAsRead(
+              org.whatsapp_phone_number_id,
+              org.whatsapp_access_token,
+              msg.meta_message_id
+            ).catch(() => {});
+          }
+        }
+      }
+    }
   } catch (err: any) {
     console.warn('[markContactAsRead] Error marcando chat como leído:', err?.message || err);
   }
+}
+
+/**
+ * Envía o retira una reacción con emoji a un mensaje tanto en la base de datos
+ * como en WhatsApp (Meta Cloud API o Evolution API).
+ */
+export async function reactToMessage(messageId: string, emoji: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada');
+
+  const { data: msg } = await (supabaseAdmin.from('messages') as any)
+    .select('id, contact_id, meta_message_id, reactions')
+    .eq('id', messageId)
+    .single();
+
+  if (!msg) throw new Error('Mensaje no encontrado');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, phone, organization_id')
+    .eq('id', msg.contact_id)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (!contact) throw new Error('Acceso denegado a este contacto');
+
+  const currentEmoji = msg.reactions?.emoji;
+  const isRemoving = currentEmoji === emoji || !emoji;
+  const nextReactions = isRemoving
+    ? null
+    : { emoji, from: 'agent', reacted_at: new Date().toISOString() };
+
+  await (supabaseAdmin.from('messages') as any)
+    .update({ reactions: nextReactions })
+    .eq('id', messageId);
+
+  // Despacho a WhatsApp si el mensaje tiene ID externo
+  if (msg.meta_message_id) {
+    const { data: org } = await (supabaseAdmin.from('organizations') as any)
+      .select('whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name')
+      .eq('id', orgId)
+      .single();
+
+    if (org) {
+      const isEvolution = org.whatsapp_provider === 'evolution' || Boolean(org.evolution_instance_name);
+      const emojiToSend = isRemoving ? '' : emoji;
+
+      if (isEvolution && org.evolution_api_key && org.evolution_instance_name) {
+        EvolutionService.sendReaction({
+          apiUrl: org.evolution_api_url,
+          apiKey: org.evolution_api_key,
+          instanceName: org.evolution_instance_name,
+          remoteJid: contact.phone,
+          messageId: msg.meta_message_id,
+          emoji: emojiToSend,
+        }).catch((err: any) => console.warn('[reactToMessage Evolution warning]', err));
+      } else if (org.whatsapp_phone_number_id && org.whatsapp_access_token) {
+        WhatsAppService.sendReaction({
+          phoneNumberId: org.whatsapp_phone_number_id,
+          accessToken: org.whatsapp_access_token,
+          to: contact.phone,
+          messageId: msg.meta_message_id,
+          emoji: emojiToSend,
+        }).catch((err) => console.warn('[reactToMessage Meta warning]', err));
+      }
+    }
+  }
+
+  return { success: true, reactions: nextReactions };
 }
 
 /**
@@ -562,7 +741,11 @@ export async function snoozeContactAi(contactId: string, duration: 30 | 120 | 't
     .eq('organization_id', orgId)
     .single();
 
-  const currentCustom = contact?.custom_fields || {};
+  if (!contact) {
+    throw new Error('Contacto no encontrado o acceso denegado');
+  }
+
+  const currentCustom = contact.custom_fields || {};
 
   await (supabaseAdmin.from('contacts') as any)
     .update({
@@ -574,16 +757,14 @@ export async function snoozeContactAi(contactId: string, duration: 30 | 120 | 't
       },
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contactId);
+    .eq('id', contactId)
+    .eq('organization_id', orgId);
 
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contactId,
     sender_type: 'system',
     content: `[Sistema: IA pausada por el asesor por ${labelText} (se reanudará automáticamente el ${resumeDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })})]`,
   });
-
-  // Solo revalidamos la conversación puntual, nunca la lista completa de /inbox (se actualiza vía Realtime a 60 FPS)
-  revalidatePath(`/inbox/${contactId}`);
 }
 
 /**
@@ -676,8 +857,23 @@ export async function triggerSinglePendingAiAction(contactId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
 
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Perfil no encontrado');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado o acceso denegado');
+
   const success = await InboundCoreService.triggerPendingAiForContact(contactId);
-  revalidatePath(`/inbox/${contactId}`);
   return { success };
 }
 
@@ -973,7 +1169,8 @@ export async function saveOrganizationQuickReplies(
 export async function endContactConversation(
   contactId: string,
   resolution: 'completed' | 'won' | 'lost' | 'dismissed' = 'completed',
-  note?: string
+  note?: string,
+  dealValue?: number | null
 ) {
   const supabase = createServerSupabaseClient();
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
@@ -1002,6 +1199,7 @@ export async function endContactConversation(
     closed_by: profile.full_name || 'Asesor',
     close_resolution: resolution,
     close_note: note?.trim() || null,
+    ...(dealValue !== undefined && dealValue !== null ? { deal_value: dealValue } : {}),
   };
 
   const updatePayload: Record<string, any> = {
@@ -1012,6 +1210,10 @@ export async function endContactConversation(
     close_reason: resolution,
     updated_at: new Date().toISOString(),
   };
+
+  if (dealValue !== undefined && dealValue !== null) {
+    updatePayload.deal_value = dealValue;
+  }
 
   if (resolution === 'won') {
     updatePayload.pipeline_stage = 'ganado';
@@ -1024,8 +1226,9 @@ export async function endContactConversation(
     .eq('id', contactId);
 
   // Inserción de mensaje de auditoría en la conversación
+  const dealStr = dealValue !== undefined && dealValue !== null ? ` por $${dealValue.toLocaleString('es-CO')}` : '';
   const auditLabel = resolution === 'won'
-    ? 'Cierre Ganado'
+    ? `Cierre Ganado${dealStr}`
     : resolution === 'lost'
     ? 'No concretado / Perdido'
     : 'Atención completada';
@@ -1140,21 +1343,8 @@ export interface InboxCounts {
 /**
  * Normaliza cualquier contacto al formato uniforme del nuevo Inbox por estado
  */
-export function normalizeContactInboxState(c: any) {
-  const isClosed = c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed';
-  const status = isClosed ? 'closed' : (c.conversation_status || 'open');
-  const waitingSince = c.waiting_since || (c.unread_count > 0 ? c.last_interaction_at : null);
-  const lastMsg = c.last_message || c.custom_fields?.last_message;
-  const lastMsgText = c.last_message_preview || (typeof lastMsg === 'string' ? lastMsg : lastMsg?.text || '');
-  const lastMsgSender = c.last_message_sender || (typeof lastMsg === 'object' ? lastMsg?.sender_type : null);
-
-  return {
-    ...c,
-    conversation_status: status,
-    waiting_since: waitingSince,
-    last_message_preview: lastMsgText,
-    last_message_sender: lastMsgSender,
-  };
+export async function normalizeContactInboxState(c: any) {
+  return normalizeContactPure(c);
 }
 
 /**
@@ -1188,44 +1378,44 @@ export async function listInbox({
   // Consulta base
   let query = (supabaseAdmin.from('contacts') as any)
     .select(
-      'id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, ai_snooze_until',
+      'id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until',
       { count: 'exact' }
     )
     .eq('organization_id', orgId)
     .is('deleted_at', null);
 
-  // 1. Filtros por Vista / Bandeja Principal
+  // 1. Filtros por Vista / Bandeja Principal (alineados exactamente con la lógica de inbox_counts)
   if (view === 'por_responder') {
-    // Chats que esperan atención del asesor: no cerrados y con espera activa (no contestados por asesor ni IA)
+    // Chats abiertos con espera activa donde la IA está pausada o están asignados a mí
     query = query
-      .neq('custom_fields->>conversation_status', 'closed')
-      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,waiting_since.not.is.null`);
-    // Prioridad: los que llevan más tiempo esperando
-    query = query.order('last_interaction_at', { ascending: true });
+      .eq('conversation_status', 'open')
+      .or(`waiting_since.not.is.null,unread_count.gt.0,custom_fields->>unattended_handoff.eq.true`)
+      .or(`is_ai_active.eq.false,assigned_to.eq.${user.id}`)
+      .order('last_interaction_at', { ascending: true });
   } else if (view === 'mis_abiertos') {
     // Chats asignados a mí que no están cerrados
     query = query
       .eq('assigned_to', user.id)
-      .neq('custom_fields->>conversation_status', 'closed')
+      .in('conversation_status', ['open', 'waiting_customer'])
       .order('updated_at', { ascending: false });
   } else if (view === 'ia_atendiendo') {
     // Chats activos donde la IA tiene el control
     query = query
       .eq('is_ai_active', true)
-      .neq('custom_fields->>conversation_status', 'closed')
+      .neq('conversation_status', 'closed')
       .order('updated_at', { ascending: false });
   } else if (view === 'seguimiento') {
     // Chats con pausa de IA (snooze), recordatorio activo, o prospectos en silencio (>24h y <10d) para reactivar
     const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
     query = query
-      .neq('custom_fields->>conversation_status', 'closed')
+      .neq('conversation_status', 'closed')
       .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0)`)
       .order('updated_at', { ascending: false });
   } else if (view === 'cerrados') {
     // Historial archivado de chats finalizados
     query = query
-      .eq('custom_fields->>conversation_status', 'closed')
+      .eq('conversation_status', 'closed')
       .order('updated_at', { ascending: false });
   } else {
     query = query.order('updated_at', { ascending: false });
@@ -1269,7 +1459,7 @@ export async function listInbox({
     throw new Error('Error al listar contactos de la bandeja');
   }
 
-  const normalized = (contacts || []).map(normalizeContactInboxState);
+  const normalized = (contacts || []).map(normalizeContactPure);
   return { contacts: normalized, totalCount: count ?? null };
 }
 
@@ -1315,31 +1505,32 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .is('deleted_at', null)
-      .neq('custom_fields->>conversation_status', 'closed')
-      .or(`unread_count.gt.0,custom_fields->>unattended_handoff.eq.true,waiting_since.not.is.null`),
+      .eq('conversation_status', 'open')
+      .or(`waiting_since.not.is.null,unread_count.gt.0,custom_fields->>unattended_handoff.eq.true`)
+      .or(`is_ai_active.eq.false,assigned_to.eq.${user.id}`),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .eq('assigned_to', user.id)
-      .neq('custom_fields->>conversation_status', 'closed'),
+      .in('conversation_status', ['open', 'waiting_customer']),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .eq('is_ai_active', true)
-      .neq('custom_fields->>conversation_status', 'closed'),
+      .neq('conversation_status', 'closed'),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .is('deleted_at', null)
-      .neq('custom_fields->>conversation_status', 'closed')
+      .neq('conversation_status', 'closed')
       .or(`ai_snooze_until.not.is.null,custom_fields->active_reminder.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0)`),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .is('deleted_at', null)
-      .eq('custom_fields->>conversation_status', 'closed'),
+      .eq('conversation_status', 'closed'),
   ]);
 
   return {
@@ -1574,7 +1765,16 @@ export async function submitAiFeedback(params: {
 
   const { messageId, contactId, feedback, feedbackText, correctAnswer } = params;
 
-  // 1. Obtener el mensaje evaluado
+  // 1. Validar pertenencia del contacto a la organización (Anti-IDOR)
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado o acceso denegado');
+
+  // 2. Obtener el mensaje evaluado
   const { data: msg } = await (supabaseAdmin.from('messages') as any)
     .select('id, content, reactions')
     .eq('id', messageId)

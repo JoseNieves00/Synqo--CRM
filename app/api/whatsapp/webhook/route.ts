@@ -67,16 +67,79 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'ignored_empty_value' }, { status: 200 });
   }
 
-  // B. Capturar y persistir notificaciones de estado (sent, delivered, read) para ticks de entrega en vivo
+  const phoneNumberId = value.metadata?.phone_number_id;
+  if (!phoneNumberId) {
+    return NextResponse.json({ error: 'Missing phoneNumberId in metadata' }, { status: 400 });
+  }
+
+  // B. Identificar la Organización dueña del WABA Phone Number ID
+  const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, subscription_status, is_active, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
+    .eq('whatsapp_phone_number_id', phoneNumberId)
+    .single();
+
+  if (orgError || !organization) {
+    console.error(`[ORG NOT FOUND] No hay organización vinculada al phone_number_id: ${phoneNumberId}`);
+    return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+  }
+
+  // C. Verificación Criptográfica Multi-tenant (App Secret por Organización con fallback a env global)
+  // 🛡️ Fail-closed estricto: responder 401 si no hay secreto configurado o si la firma es inválida
+  let secretToVerify = process.env.META_APP_SECRET || '';
+  if (organization.whatsapp_app_secret) {
+    try {
+      secretToVerify = decryptSecret(organization.whatsapp_app_secret);
+    } catch (err) {
+      console.warn(`[WEBHOOK] Error desencriptando whatsapp_app_secret para org "${organization.name}":`, err);
+    }
+  }
+
+  if (!secretToVerify) {
+    console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: ni la organización "${organization.name}" ni el servidor tienen META_APP_SECRET configurado.`);
+    return new NextResponse('Unauthorized: App Secret not configured', { status: 401 });
+  }
+
+  if (!signature) {
+    console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
+    return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
+  }
+
+  const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
+  if (!isValidSignature) {
+    console.error(`[SECURITY ALERT] Firma HMAC inválida rechazada para org "${organization.name}".`);
+    return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
+  }
+
+  // D. Capturar y persistir notificaciones de estado (sent, delivered, read) para ticks de entrega en vivo
+  // 🛡️ Monotónico: se ejecuta SOLO tras validar HMAC y no permite retroceder (ej. read -> delivered)
   if (value.statuses && (!value.messages || value.messages.length === 0)) {
+    const STATUS_RANK: Record<string, number> = {
+      sending: 1,
+      sent: 2,
+      delivered: 3,
+      read: 4,
+      failed: 5,
+    };
+
     try {
       for (const st of value.statuses) {
         const metaId = st.id;
         const newStatus = st.status; // 'sent' | 'delivered' | 'read' | 'failed'
         if (metaId && newStatus) {
-          await (supabaseAdmin.from('messages') as any)
-            .update({ status: newStatus })
-            .eq('meta_message_id', metaId);
+          const { data: existingMsg } = await (supabaseAdmin.from('messages') as any)
+            .select('id, status')
+            .eq('meta_message_id', metaId)
+            .maybeSingle();
+
+          if (existingMsg) {
+            const currentRank = STATUS_RANK[existingMsg.status] || 0;
+            const newRank = STATUS_RANK[newStatus] || 0;
+            if (newRank > currentRank || newStatus === 'failed') {
+              await (supabaseAdmin.from('messages') as any)
+                .update({ status: newStatus })
+                .eq('id', existingMsg.id);
+            }
+          }
         }
       }
     } catch (statusErr: any) {
@@ -90,7 +153,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'no_incoming_message' }, { status: 200 });
   }
 
-  // C. Filtrar tipos de mensajes
+  // E. Filtrar tipos de mensajes
   const msgType = incomingMessage.type;
   const supportedTypes = ['text', 'audio', 'button', 'interactive', 'image', 'document', 'location', 'video', 'sticker', 'contacts', 'reaction'];
   if (!supportedTypes.includes(msgType)) {
@@ -100,51 +163,12 @@ export async function POST(request: NextRequest) {
   const metaMessageId = incomingMessage.id;
   const leadPhone = incomingMessage.from;
   const leadName = value.contacts?.[0]?.profile?.name || 'Lead WhatsApp';
-  const phoneNumberId = value.metadata?.phone_number_id;
 
-  if (!phoneNumberId || !leadPhone) {
-    return NextResponse.json({ error: 'Missing phoneNumberId or leadPhone in metadata' }, { status: 400 });
+  if (!leadPhone) {
+    return NextResponse.json({ error: 'Missing leadPhone' }, { status: 400 });
   }
 
   try {
-    // D. Identificar la Organización dueña del WABA Phone Number ID
-    const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
-      .eq('whatsapp_phone_number_id', phoneNumberId)
-      .single();
-
-    if (orgError || !organization) {
-      console.error(`[ORG NOT FOUND] No hay organización vinculada al phone_number_id: ${phoneNumberId}`);
-      return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
-    }
-
-    // E. Verificación Criptográfica Multi-tenant (App Secret por Organización con fallback a env global)
-    // 🛡️ Fail-closed estricto: responder 401 si no hay secreto configurado o si la firma es inválida
-    let secretToVerify = process.env.META_APP_SECRET || '';
-    if (organization.whatsapp_app_secret) {
-      try {
-        secretToVerify = decryptSecret(organization.whatsapp_app_secret);
-      } catch (err) {
-        console.warn(`[WEBHOOK] Error desencriptando whatsapp_app_secret para org "${organization.name}":`, err);
-      }
-    }
-
-    if (!secretToVerify) {
-      console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: ni la organización "${organization.name}" ni el servidor tienen META_APP_SECRET configurado.`);
-      return new NextResponse('Unauthorized: App Secret not configured', { status: 401 });
-    }
-
-    if (!signature) {
-      console.error(`[SECURITY ALERT] Webhook de WhatsApp rechazado: falta cabecera x-hub-signature-256 para org "${organization.name}".`);
-      return new NextResponse('Unauthorized: Missing HMAC signature', { status: 401 });
-    }
-
-    const isValidSignature = verifyMetaSignature(rawBody, signature, secretToVerify);
-    if (!isValidSignature) {
-      console.error(`[SECURITY ALERT] Firma HMAC inválida rechazada para org "${organization.name}".`);
-      return new NextResponse('Unauthorized: Invalid HMAC signature', { status: 401 });
-    }
-
     // F. Control de Tasa (Rate Limiting) y Prevención de Wallet Exhaustion (ejecutado SOLO tras validar firma)
     const rateLimitResult = await checkRateLimit(`phone:${leadPhone}`);
     const isRateLimited = !rateLimitResult.success;

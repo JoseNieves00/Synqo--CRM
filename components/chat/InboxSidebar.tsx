@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, X, Loader2, Sparkles, CheckCircle2, UserCheck, Archive, Zap } from 'lucide-react';
 import { InboxViewType, InboxCounts } from '@/app/actions/chat';
 import { InboxViewsTabs } from './InboxViewsTabs';
@@ -71,6 +72,22 @@ export function InboxSidebar({
 }: InboxSidebarProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const listContainerRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: contacts.length,
+    getScrollElement: () => listContainerRef.current,
+    estimateSize: () => 74,
+    overscan: 6,
+  });
+
+  // Mantener el contacto seleccionado visible al navegar con J/K o hacer clic
+  useEffect(() => {
+    if (!selectedContactId) return;
+    const idx = contacts.findIndex((c) => c.id === selectedContactId);
+    if (idx >= 0) {
+      rowVirtualizer.scrollToIndex(idx, { align: 'auto' });
+    }
+  }, [selectedContactId]);
 
   // Mapa de nombres de asesores
   const memberMap = useMemo(() => {
@@ -237,10 +254,10 @@ export function InboxSidebar({
         </div>
       )}
 
-      {/* 5. Lista de Conversaciones */}
+      {/* 5. Lista Virtualizada de Conversaciones (60 FPS para >2.000 chats) */}
       <div
         ref={listContainerRef}
-        className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-[#232A3B]/40"
+        className="flex-1 overflow-y-auto"
       >
         {contacts.length === 0 ? (
           <div className="p-8 text-center text-slate-400 space-y-2">
@@ -253,44 +270,67 @@ export function InboxSidebar({
             </p>
           </div>
         ) : (
-          <>
-            {contacts.map((c) => (
-              <ConversationRow
-                key={c.id}
-                contact={c}
-                isActive={c.id === selectedContactId}
-                isSelected={selectedIds.has(c.id)}
-                isMine={c.assigned_to === currentUserId}
-                assignedUserName={c.assigned_to ? memberMap.get(c.assigned_to) : undefined}
-                onSelect={onSelectContact}
-                onToggleSelect={handleToggleSelect}
-                onQuickAssign={onQuickAssign ? (id, e) => onQuickAssign(id) : undefined}
-                onQuickClose={onQuickClose ? (id, e) => onQuickClose(id) : undefined}
-                onQuickSnooze={onQuickSnooze ? (id, e) => onQuickSnooze(id) : undefined}
-              />
-            ))}
-
-            {/* Paginación infinita */}
-            {hasMore && (
-              <div className="p-3 text-center border-t border-slate-100 dark:border-[#232A3B]">
-                <button
-                  type="button"
-                  onClick={onLoadMore}
-                  disabled={isLoading}
-                  className="w-full py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+              const c = contacts[virtualItem.index];
+              if (!c) return null;
+              return (
+                <div
+                  key={c.id}
+                  data-index={virtualItem.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                  className="border-b border-slate-100 dark:border-[#232A3B]/40"
                 >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin text-[#0052FF]" />
-                      <span>Cargando chats...</span>
-                    </>
-                  ) : (
-                    <span>Cargar más conversaciones</span>
-                  )}
-                </button>
-              </div>
-            )}
-          </>
+                  <ConversationRow
+                    contact={c}
+                    isActive={c.id === selectedContactId}
+                    isSelected={selectedIds.has(c.id)}
+                    isMine={c.assigned_to === currentUserId}
+                    assignedUserName={c.assigned_to ? memberMap.get(c.assigned_to) : undefined}
+                    onSelect={onSelectContact}
+                    onToggleSelect={handleToggleSelect}
+                    onQuickAssign={onQuickAssign ? (id, e) => onQuickAssign(id) : undefined}
+                    onQuickClose={onQuickClose ? (id, e) => onQuickClose(id) : undefined}
+                    onQuickSnooze={onQuickSnooze ? (id, e) => onQuickSnooze(id) : undefined}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Paginación */}
+        {hasMore && contacts.length > 0 && (
+          <div className="p-3 text-center border-t border-slate-100 dark:border-[#232A3B]">
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={isLoading}
+              className="w-full py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-[#0052FF]" />
+                  <span>Cargando chats...</span>
+                </>
+              ) : (
+                <span>Cargar más conversaciones</span>
+              )}
+            </button>
+          </div>
         )}
       </div>
     </div>

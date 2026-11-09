@@ -828,5 +828,48 @@ export class EvolutionService {
       return false;
     }
   }
+
+  /**
+   * Marca mensajes de un chat como leídos en WhatsApp (doble tilde azul).
+   * Endpoint oficial: POST /chat/markMessageAsRead/{instance}
+   */
+  static async markMessageAsRead({
+    apiUrl,
+    apiKey,
+    instanceName,
+    remoteJid,
+    messageId,
+  }: EvolutionCredentials & {
+    remoteJid: string;
+    messageId: string;
+  }): Promise<boolean> {
+    const baseUrl = this.resolveBaseUrl(apiUrl);
+    const cleanInstance = this.sanitizeInstanceName(instanceName);
+    const url = `${baseUrl}/chat/markMessageAsRead/${cleanInstance}`;
+
+    const formattedJid = remoteJid.includes('@')
+      ? remoteJid
+      : `${remoteJid.replace(/[^\d]/g, '')}@s.whatsapp.net`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.buildHeaders(apiKey),
+        body: JSON.stringify({
+          readMessages: [
+            {
+              remoteJid: formattedJid,
+              id: messageId,
+              fromMe: false,
+            },
+          ],
+        }),
+      });
+
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
 }
 

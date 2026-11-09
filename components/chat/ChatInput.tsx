@@ -9,6 +9,8 @@ import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { CustomPaymentAccount, formatPaymentAccountText, formatAllPaymentAccountsText } from '@/lib/types/payments';
 import { GalleryPhotoItem } from '@/lib/media/format';
+import { compressImageClient } from '@/lib/media/client-compression';
+import { useBootstrap, useInboxStore } from '@/lib/inbox/use-inbox-store';
 
 const ManageQuickRepliesModal = dynamic(
   () => import('./ManageQuickRepliesModal').then((m) => m.ManageQuickRepliesModal),
@@ -67,19 +69,31 @@ export function ChatInput({
   const [selectedSnippetIndex, setSelectedSnippetIndex] = useState(0);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [manageModalInitialShortcut, setManageModalInitialShortcut] = useState<string | null>(null);
-  const [activeSnippets, setActiveSnippets] = useState<QuickSnippet[]>(BASE_DEFAULT_SNIPPETS);
-  const [aiSuggestions, setAiSuggestions] = useState<QuickSnippet[]>([]);
+  const bootstrap = useBootstrap();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [activeSnippets, setActiveSnippets] = useState<QuickSnippet[]>(() => {
+    const b = bootstrap?.quickReplies as any;
+    return (b?.activeSnippets && b.activeSnippets.length > 0) ? b.activeSnippets : BASE_DEFAULT_SNIPPETS;
+  });
+  const [aiSuggestions, setAiSuggestions] = useState<QuickSnippet[]>(() => {
+    const b = bootstrap?.quickReplies as any;
+    return b?.aiSuggestions || [];
+  });
+
   // Estado para cuentas y métodos de pago personalizables
-  const [paymentAccounts, setPaymentAccounts] = useState<CustomPaymentAccount[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<CustomPaymentAccount[]>(
+    () => (bootstrap?.paymentAccounts as CustomPaymentAccount[]) || []
+  );
   const [showPaymentMenu, setShowPaymentMenu] = useState(false);
   const paymentButtonRef = useRef<HTMLButtonElement>(null);
   const paymentMenuRef = useRef<HTMLDivElement>(null);
 
   // Catálogo visual para envío rápido por asesores humanos
-  const [catalogItems, setCatalogItems] = useState<GalleryPhotoItem[]>([]);
+  const [catalogItems, setCatalogItems] = useState<GalleryPhotoItem[]>(
+    () => (bootstrap?.catalog as GalleryPhotoItem[]) || []
+  );
   const [showCatalogMenu, setShowCatalogMenu] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [isSendingCatalogPhoto, setIsSendingCatalogPhoto] = useState<string | null>(null);
@@ -105,25 +119,59 @@ export function ChatInput({
     }
   };
 
-  // Cargar cuentas de pago y catálogo de fotos configurados al montar
+  // Anticipación proactiva: Genera en segundo plano sugerencia de Copiloto IA al entrar a chat desatendido
   useEffect(() => {
-    let isMounted = true;
-    getOrganizationPaymentAccounts()
-      .then((accs) => {
-        if (isMounted) setPaymentAccounts(accs || []);
-      })
-      .catch((err) => console.warn('[ChatInput] Error cargando cuentas de pago:', err));
+    let cancelled = false;
+    const activeContact = useInboxStore.getState().contactsById[contactId];
+    const isUnattended = activeContact && (Number(activeContact.unread_count || 0) > 0 || Boolean(activeContact.waiting_since));
 
-    getOrganizationCatalogGallery()
-      .then((items) => {
-        if (isMounted) setCatalogItems(items || []);
-      })
-      .catch((err) => console.warn('[ChatInput] Error cargando catálogo:', err));
+    if (isUnattended && !activeContact.is_ai_active && !message.trim()) {
+      const timer = setTimeout(async () => {
+        if (cancelled || isGeneratingDraft || aiDraft) return;
+        try {
+          const res = await generateDraftAiReply(contactId);
+          if (!cancelled && res?.draft) {
+            setAiDraft(res.draft);
+          }
+        } catch {}
+      }, 400);
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    }
+  }, [contactId]);
+
+  // Cuentas de pago y catálogo: leer de bootstrap cacheado o consultar una sola vez
+  useEffect(() => {
+    const b = useInboxStore.getState().bootstrap;
+    if (b?.paymentAccounts && b.paymentAccounts.length > 0) {
+      setPaymentAccounts(b.paymentAccounts as CustomPaymentAccount[]);
+    } else {
+      getOrganizationPaymentAccounts()
+        .then((accs) => {
+          if (accs) {
+            setPaymentAccounts(accs);
+            useInboxStore.getState().setBootstrap({ paymentAccounts: accs });
+          }
+        })
+        .catch((err) => console.warn('[ChatInput] Error cargando cuentas de pago:', err));
+    }
+
+    if (b?.catalog && b.catalog.length > 0) {
+      setCatalogItems(b.catalog as GalleryPhotoItem[]);
+    } else {
+      getOrganizationCatalogGallery()
+        .then((items) => {
+          if (items) {
+            setCatalogItems(items);
+            useInboxStore.getState().setBootstrap({ catalog: items });
+          }
+        })
+        .catch((err) => console.warn('[ChatInput] Error cargando catálogo:', err));
+    }
+  }, [bootstrap?.paymentAccounts, bootstrap?.catalog]);
 
   // Cerrar popover de catálogo al hacer clic fuera
   useEffect(() => {
@@ -183,6 +231,11 @@ export function ChatInput({
     const text = formatPaymentAccountText(account);
     const updated = message ? `${message}\n\n${text}` : text;
     setMessage(updated);
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        localStorage.setItem(`synqo_draft_${contactId}`, updated);
+      } catch {}
+    }
     onDraftChange?.(updated);
     setShowPaymentMenu(false);
     inputRef.current?.focus();
@@ -192,14 +245,47 @@ export function ChatInput({
     const text = formatAllPaymentAccountsText(paymentAccounts);
     const updated = message ? `${message}\n\n${text}` : text;
     setMessage(updated);
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        localStorage.setItem(`synqo_draft_${contactId}`, updated);
+      } catch {}
+    }
     onDraftChange?.(updated);
     setShowPaymentMenu(false);
     inputRef.current?.focus();
   };
 
-  // Sincronizar borrador al cambiar de contacto activo
+  // Sincronizar borrador persistido por contacto en localStorage
   useEffect(() => {
-    setMessage(draftText || '');
+    let saved = '';
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        saved = localStorage.getItem(`synqo_draft_${contactId}`) || '';
+      } catch {}
+    }
+    setMessage(saved || draftText || '');
+
+    const handleApplyDraft = (e: any) => {
+      if (e.detail?.contactId === contactId && e.detail?.text) {
+        setMessage(e.detail.text);
+        if (inputRef.current) {
+          inputRef.current.style.height = 'auto';
+          inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 140)}px`;
+          inputRef.current.focus();
+        }
+      }
+    };
+    window.addEventListener('synqo-apply-draft', handleApplyDraft as EventListener);
+    return () => window.removeEventListener('synqo-apply-draft', handleApplyDraft as EventListener);
+  }, [contactId, draftText]);
+
+  // Limpiar menús y adjuntos no enviados al cambiar de contacto
+  useEffect(() => {
+    setPendingMedia(null);
+    setMediaError(null);
+    setShowSnippets(false);
+    setShowPaymentMenu(false);
+    setShowCatalogMenu(false);
   }, [contactId]);
 
   // Estado para previsualización y envío de imagen adjunta
@@ -238,15 +324,16 @@ export function ChatInput({
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
 
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-          mimeType = 'audio/ogg;codecs=opus';
-        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        } else {
-          mimeType = '';
-        }
+      // Priorizar formatos nativos compatibles con WhatsApp oficial (OGG/Opus o MP4/AAC)
+      let mimeType = '';
+      if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+        mimeType = 'audio/ogg;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeType = 'audio/webm';
       }
 
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
@@ -303,8 +390,8 @@ export function ChatInput({
           return;
         }
 
-        const ext = recorder.mimeType.includes('webm') ? 'webm' : recorder.mimeType.includes('mp4') ? 'mp4' : 'ogg';
-        const audioFile = new File([audioBlob], `nota_voz_${Date.now()}.${ext}`, { type: audioBlob.type });
+        const ext = recorder.mimeType.includes('ogg') ? 'ogg' : recorder.mimeType.includes('mp4') ? 'm4a' : 'ogg';
+        const audioFile = new File([audioBlob], `nota_voz_${Date.now()}.${ext}`, { type: recorder.mimeType || 'audio/ogg' });
 
         const formData = new FormData();
         formData.append('file', audioFile);
@@ -330,26 +417,30 @@ export function ChatInput({
     }
   };
 
-  // Cargar atajos personalizados y sugerencias generadas por la IA según el prompt
+  // Cargar atajos personalizados y sugerencias generadas por la IA: leer de bootstrap o consultar una sola vez
   useEffect(() => {
-    let isMounted = true;
+    const b = useInboxStore.getState().bootstrap;
+    const qr = b?.quickReplies as any;
+    if (qr && qr.activeSnippets) {
+      if (qr.activeSnippets.length > 0) setActiveSnippets(qr.activeSnippets);
+      if (qr.aiSuggestions) setAiSuggestions(qr.aiSuggestions);
+      return;
+    }
+
     getOrganizationQuickReplies().then((data) => {
-      if (isMounted && data) {
+      if (data) {
         if (data.activeSnippets && data.activeSnippets.length > 0) {
           setActiveSnippets(data.activeSnippets);
         }
         if (data.aiSuggestions) {
           setAiSuggestions(data.aiSuggestions);
         }
+        useInboxStore.getState().setBootstrap({ quickReplies: data as any });
       }
     }).catch((err) => {
       console.warn('[ChatInput] Error cargando atajos:', err);
     });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  }, [bootstrap?.quickReplies]);
 
   useEffect(() => {
     if (availableTemplates.length > 0 && !availableTemplates.some((t) => t.name === selectedTemplate)) {
@@ -383,6 +474,11 @@ export function ChatInput({
       .replace(/\{telefono\}/gi, contactPhone || '');
 
     setMessage(processed);
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        localStorage.setItem(`synqo_draft_${contactId}`, processed);
+      } catch {}
+    }
     onDraftChange?.(processed);
     setShowSnippets(false);
     inputRef.current?.focus();
@@ -390,6 +486,15 @@ export function ChatInput({
 
   const handleTextChange = (newVal: string) => {
     setMessage(newVal);
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        if (newVal) {
+          localStorage.setItem(`synqo_draft_${contactId}`, newVal);
+        } else {
+          localStorage.removeItem(`synqo_draft_${contactId}`);
+        }
+      } catch {}
+    }
     onDraftChange?.(newVal);
     onTyping?.();
 
@@ -453,6 +558,20 @@ export function ChatInput({
       }
     }
 
+    // Atajo Inbox Zero: ⌘+Enter o Ctrl+Enter envía y salta al siguiente chat de la cola
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmitText(e);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('synqo-inbox-zero-next', {
+            detail: { closedContactId: contactId, jumpOnly: true },
+          })
+        );
+      }
+      return;
+    }
+
     // Comportamiento WhatsApp: Enter envía, Shift+Enter añade nueva línea
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -466,6 +585,11 @@ export function ChatInput({
 
     const textToSend = message;
     setMessage('');
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        localStorage.removeItem(`synqo_draft_${contactId}`);
+      } catch {}
+    }
     onDraftChange?.('');
     setShowSnippets(false);
     if (inputRef.current) {
@@ -477,6 +601,11 @@ export function ChatInput({
       await onSendMessage(textToSend);
     } catch {
       setMessage(textToSend);
+      if (typeof window !== 'undefined' && contactId) {
+        try {
+          localStorage.setItem(`synqo_draft_${contactId}`, textToSend);
+        } catch {}
+      }
       onDraftChange?.(textToSend);
     } finally {
       setLoading(false);
@@ -489,6 +618,11 @@ export function ChatInput({
 
     const textToSend = message;
     setMessage('');
+    if (typeof window !== 'undefined' && contactId) {
+      try {
+        localStorage.removeItem(`synqo_draft_${contactId}`);
+      } catch {}
+    }
     onDraftChange?.('');
     setShowSnippets(false);
     setShowPaymentMenu(false);
@@ -504,6 +638,11 @@ export function ChatInput({
       }
     } catch {
       setMessage(textToSend);
+      if (typeof window !== 'undefined' && contactId) {
+        try {
+          localStorage.setItem(`synqo_draft_${contactId}`, textToSend);
+        } catch {}
+      }
       onDraftChange?.(textToSend);
     } finally {
       setLoading(false);
@@ -1267,7 +1406,7 @@ export function ChatInput({
               ref={fileInputRef}
               type="file"
               accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
-              onChange={(e) => {
+              onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
                 if (file.size > 25 * 1024 * 1024) {
@@ -1277,9 +1416,11 @@ export function ChatInput({
                 setMediaError(null);
                 const isVideo = file.type.startsWith('video/');
                 const isDoc = !file.type.startsWith('image/') && !isVideo;
+                const fileToUse = (!isDoc && !isVideo) ? await compressImageClient(file) : file;
+
                 setPendingMedia({
-                  file,
-                  previewUrl: isDoc ? undefined : URL.createObjectURL(file),
+                  file: fileToUse,
+                  previewUrl: isDoc ? undefined : URL.createObjectURL(fileToUse),
                   caption: message.trim(),
                   isDocument: isDoc,
                 });
@@ -1296,7 +1437,7 @@ export function ChatInput({
               value={message}
               onChange={(e) => handleTextChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              onPaste={(e) => {
+              onPaste={async (e) => {
                 const items = e.clipboardData?.items;
                 if (!items) return;
                 for (let i = 0; i < items.length; i++) {
@@ -1304,20 +1445,21 @@ export function ChatInput({
                   if (item.type.indexOf('image') !== -1) {
                     const file = item.getAsFile();
                     if (file) {
-                      if (file.size > 15 * 1024 * 1024) {
-                        setMediaError('La imagen pegada supera el límite de 15 MB.');
+                      if (file.size > 25 * 1024 * 1024) {
+                        setMediaError('La imagen pegada supera el límite de 25 MB.');
                         return;
                       }
                       setMediaError(null);
+                      const compressed = await compressImageClient(file);
                       setPendingMedia({
-                        file,
-                        previewUrl: URL.createObjectURL(file),
+                        file: compressed,
+                        previewUrl: URL.createObjectURL(compressed),
                         caption: message.trim(),
                         isDocument: false,
                       });
                       setMessage('');
                       e.preventDefault();
-                      return;
+                      break;
                     }
                   }
                 }
