@@ -1,4 +1,4 @@
-import type { LeadTemperature } from '@/lib/ai/follow-up-types';
+import { resolveLeadTemperature, type FollowUpCategory, type LeadTemperature } from '@/lib/ai/follow-up-types';
 
 /**
  * Convierte partes locales (año, mes, día, hora, minuto) en la zona horaria del negocio a un Date UTC real.
@@ -338,12 +338,12 @@ export function extractRecontactPromptDigest(fullPrompt: string, maxChars = 2200
   const introBudget = Math.min(450, Math.floor(maxChars * 0.25));
   const intro = cleaned.slice(0, introBudget).trim();
 
-  // Prioridad 1: reglas explícitas de recontacto, plan separe, apartados, abonos y envío de imágenes
+  // Prioridad 1: reglas explícitas de recontacto, reservas, apartados, abonos y envío de imágenes
   const highPriorityPattern =
-    /(recontact|seguimiento|recordatorio|reactivar|plan separe|separe|abono|apartado|foto|imagen)/i;
-  // Prioridad 2: beneficios de cierre, envíos, garantías, pagos y promos
+    /(recontact|seguimiento|recordatorio|reactivar|abono|apartado|separe|cuota|anticipo|foto|imagen)/i;
+  // Prioridad 2: beneficios de cierre, envíos, garantías, medios de pago y promos
   const secondaryPattern =
-    /(reserva|cita|env[ií]o|domicilio|contraentrega|descuento|promo|garant[ií]a|pago|bancolombia|nequi|daviplata|obsequio|regalo|beneficio)/i;
+    /(reserva|cita|env[ií]o|domicilio|contraentrega|descuento|promo|garant[ií]a|pago|transferencia|tarjeta|obsequio|regalo|beneficio)/i;
 
   const blocks = cleaned
     .slice(introBudget)
@@ -377,4 +377,97 @@ export function extractRecontactPromptDigest(fullPrompt: string, maxChars = 2200
 
   return selected.length > 0 ? `${intro}\n...\n${selected.join('\n')}` : cleaned.slice(0, maxChars);
 }
+
+export interface AutonomousCadenceDecision {
+  category: FollowUpCategory;
+  attemptIndex: number; // 0 = primer toque, 1 = segundo y último toque
+  nextTouchDelayHours: number | null; // null cuando ya es el último intento
+}
+
+/**
+ * Evalúa si un contacto sin secuencias manuales activas califica para recontacto autónomo guiado por prompt,
+ * respetando cadencia por temperatura, ventana de 24h de Meta y límite anti-spam de máximo 2 intentos por ciclo.
+ */
+export function evaluateAutonomousCadenceSlot(params: {
+  contact: any;
+  nowTime?: number;
+}): AutonomousCadenceDecision | null {
+  const { contact } = params;
+  const nowTime = params.nowTime ?? Date.now();
+  if (!contact) return null;
+  if (contact.pipeline_stage === 'ganado' || contact.pipeline_stage === 'perdido' || contact.pipeline_stage === 'cita_agendada') {
+    return null;
+  }
+
+  const cf = (contact.custom_fields as Record<string, any>) || {};
+  if (cf.opted_out === true || cf.follow_up?.paused === true || cf.follow_up?.completed === true) {
+    return null;
+  }
+
+  const temp = resolveLeadTemperature(cf);
+  if (temp === 'cold') return null;
+
+  const attemptIndex = Number(
+    cf.follow_up?.autonomousAttemptCount ?? (cf.reactivation_attempted === true || cf.reactivation_sent_at ? 2 : 0)
+  );
+  // Blindaje anti-spam: máximo 2 intentos automáticos por ciclo sin respuesta
+  if (!Number.isFinite(attemptIndex) || attemptIndex >= 2) {
+    return null;
+  }
+
+  if (!contact.last_interaction_at) return null;
+  const lastMs = new Date(contact.last_interaction_at).getTime();
+  if (!Number.isFinite(lastMs)) return null;
+
+  const hoursSinceInteraction = (nowTime - lastMs) / (1000 * 3600);
+  if (hoursSinceInteraction > 240) return null;
+
+  const category: FollowUpCategory =
+    temp === 'hot'
+      ? 'hot_unclosed'
+      : temp === 'qualified_doubt' || contact.pipeline_stage === 'calificado'
+      ? 'qualified_doubt'
+      : temp === 'warm'
+      ? 'warm'
+      : 'unresponsive';
+
+  if (attemptIndex === 0) {
+    const minFirstHours =
+      category === 'hot_unclosed' ? 3.5 : category === 'qualified_doubt' ? 6 : 24;
+    if (hoursSinceInteraction < minFirstHours) return null;
+
+    // Segundo toque: dentro de la ventana de 24h de Meta para calientes/dudas; 48h después para tibios
+    const nextTouchDelayHours =
+      category === 'hot_unclosed' ? 15 : category === 'qualified_doubt' ? 14 : 48;
+    return {
+      category,
+      attemptIndex: 0,
+      nextTouchDelayHours,
+    };
+  }
+
+  // Segundo y último toque (attemptIndex === 1)
+  const lastTouchBaseMs = cf.follow_up?.lastSentAt ? new Date(cf.follow_up.lastSentAt).getTime() : lastMs;
+  const hoursSinceLastTouch = Number.isFinite(lastTouchBaseMs)
+    ? (nowTime - lastTouchBaseMs) / (1000 * 3600)
+    : hoursSinceInteraction;
+
+  const minSecondWaitHours =
+    category === 'hot_unclosed' ? 12 : category === 'qualified_doubt' ? 12 : 44;
+
+  // Si ya había nextSendAt programado para el 2do toque, respetarlo también
+  if (cf.follow_up?.nextSendAt) {
+    const scheduledMs = new Date(cf.follow_up.nextSendAt).getTime();
+    if (Number.isFinite(scheduledMs) && nowTime < scheduledMs) return null;
+  }
+
+  if (hoursSinceLastTouch < minSecondWaitHours) return null;
+
+  return {
+    category,
+    attemptIndex: 1,
+    nextTouchDelayHours: null,
+  };
+}
+
 

@@ -4,6 +4,10 @@ import { isWithin24HourWindow } from '@/services/contact.service';
 import { sleep } from '@/lib/anti-ban/cadence';
 import { formatImageMessageContent } from '@/lib/media/format';
 import { AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
+import {
+  evaluateAutonomousCadenceSlot,
+  type AutonomousCadenceDecision,
+} from '@/lib/ai/autonomous-reminder';
 import { findGalleryProductMatch, resolveOrganizationGallery } from '@/lib/ai/product-gallery';
 import { OpenAIService } from '@/services/openai.service';
 import {
@@ -149,6 +153,44 @@ export class LeadReactivationService {
   }
 
   /**
+   * Cuenta mensajes automatizados enviados en los últimos 60 min (persistido en DB) para blindaje Anti-Ban.
+   */
+  private static async getRecentHourlyFollowUpsCount(orgId: string): Promise<number> {
+    try {
+      const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
+      const { count } = await (supabaseAdmin.from('messages') as any)
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .eq('sender_type', 'ai')
+        .gte('created_at', oneHourAgoIso)
+        .or('content.ilike.%[Seguimiento %,content.ilike.%[Reactivación Autónoma%,content.ilike.%[Campaña%');
+
+      return count || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Evita envíos repetidos o traslapados al mismo contacto dentro de la ventana de enfriamiento.
+   */
+  private static async hasRecentFollowUpForContact(contactId: string, cooldownHours: number): Promise<boolean> {
+    try {
+      const cutoffIso = new Date(Date.now() - cooldownHours * 3600 * 1000).toISOString();
+      const { count } = await (supabaseAdmin.from('messages') as any)
+        .select('id', { count: 'exact', head: true })
+        .eq('contact_id', contactId)
+        .eq('sender_type', 'ai')
+        .gte('created_at', cutoffIso)
+        .or('content.ilike.%[Seguimiento %,content.ilike.%[Reactivación Autónoma%');
+
+      return (count || 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Despacha un paso de seguimiento (texto + imágenes o plantilla Meta fuera de 24h)
    * y retorna metadatos del resultado.
    */
@@ -197,6 +239,9 @@ export class LeadReactivationService {
 
         for (const imgUrl of imageUrls.slice(0, 3)) {
           try {
+            if (provider === 'evolution') {
+              await sleep(1200 + Math.floor(Math.random() * 1000));
+            }
             const imgId = await MessagingService.sendMediaMessage({
               organization: org,
               to: targetRecipient,
@@ -356,7 +401,12 @@ export class LeadReactivationService {
       const seqConfig = normalizeFollowUpSettings(org.appointment_settings?.follow_up_sequences);
       const hasCustomSequences = Object.values(seqConfig.sequences).some((s) => s.enabled && s.steps.length > 0);
       const dailyCap = seqConfig.dailyCap || 40;
+      const hourlyCap =
+        (org.whatsapp_provider || 'meta') === 'evolution' && org.evolution_anti_ban_mode !== false
+          ? Math.max(1, Number(org.evolution_max_outbound_per_hour || 20))
+          : 500;
       let sentToday = await this.getTodayFollowUpsSentCount(org.id, timeZone);
+      let sentThisHour = await this.getRecentHourlyFollowUpsCount(org.id);
 
       // -----------------------------------------------------------
       // A. Procesar recordatorios programados vencidos (scheduled_reminders)
@@ -382,9 +432,11 @@ export class LeadReactivationService {
         const cMap = new Map<string, any>((remContacts || []).map((c: any) => [c.id, c]));
 
         for (const rem of dueReminders) {
-          if (sentToday >= dailyCap) break;
+          if (sentToday >= dailyCap || sentThisHour >= hourlyCap) break;
           const contact = cMap.get(rem.contact_id);
           if (!contact || !contact.phone) continue;
+          if (processedContactIds.has(contact.id)) continue;
+          if (await this.hasRecentFollowUpForContact(contact.id, 0.75)) continue;
 
           const cf = (contact.custom_fields as Record<string, any>) || {};
           if (cf.opted_out === true || cf.follow_up?.paused === true) {
@@ -462,6 +514,7 @@ export class LeadReactivationService {
 
           if (dispatch.sent) {
             sentToday++;
+            sentThisHour++;
             result.reactivationsSent++;
             result.scheduledRemindersSent++;
             processedContactIds.add(contact.id);
@@ -519,6 +572,7 @@ export class LeadReactivationService {
         category: FollowUpCategory;
         stepIndex: number;
         step?: FollowUpStep;
+        autonomousDecision?: AutonomousCadenceDecision;
       }> = [];
 
       for (let offset = 0; offset < MAX_SCAN; offset += PAGE_SIZE) {
@@ -579,14 +633,15 @@ export class LeadReactivationService {
               eligibleQueue.push({ contact, category, stepIndex, step });
             }
           } else {
-            // Modo Respaldo Legado (1-toque entre 24h y 240h) si aún no ha activado secuencias personalizadas
-            if (contact.pipeline_stage === 'ganado') continue;
-            if (cf.reactivation_attempted === true || cf.reactivation_sent_at) continue;
-            if (resolveLeadTemperature(cf) === 'cold') continue;
-
-            const hoursElapsed = (nowTime - lastTime) / (1000 * 3600);
-            if (hoursElapsed >= 24 && hoursElapsed <= 240) {
-              eligibleQueue.push({ contact, category: 'unresponsive', stepIndex: 0 });
+            // Modo Autónomo guiado por Prompt (cadencia inteligente por temperatura + ventana Meta 24h + máx 2 toques)
+            const autonomousDecision = evaluateAutonomousCadenceSlot({ contact, nowTime });
+            if (autonomousDecision) {
+              eligibleQueue.push({
+                contact,
+                category: autonomousDecision.category,
+                stepIndex: autonomousDecision.attemptIndex,
+                autonomousDecision,
+              });
             }
           }
         }
@@ -610,11 +665,15 @@ export class LeadReactivationService {
       });
 
       const remainingToday = Math.max(0, dailyCap - sentToday);
-      const batchLimit = Math.min(remainingToday, (org.whatsapp_provider || 'meta') === 'evolution' ? 8 : 20);
+      const remainingThisHour = Math.max(0, hourlyCap - sentThisHour);
+      const providerRunCap = (org.whatsapp_provider || 'meta') === 'evolution' ? 6 : 20;
+      const batchLimit = Math.min(remainingToday, remainingThisHour, providerRunCap);
       const batchToProcess = eligibleQueue.slice(0, batchLimit);
 
       for (const item of batchToProcess) {
-        const { contact, category, stepIndex, step } = item;
+        if (sentToday >= dailyCap || sentThisHour >= hourlyCap) break;
+        const { contact, category, stepIndex, step, autonomousDecision } = item;
+        if (await this.hasRecentFollowUpForContact(contact.id, 2.5)) continue;
         const cf = (contact.custom_fields as Record<string, any>) || {};
         result.processedCount++;
 
@@ -670,12 +729,19 @@ export class LeadReactivationService {
 
         if (dispatch.sent) {
           sentToday++;
+          sentThisHour++;
           result.reactivationsSent++;
 
           const steps = seqConfig.sequences[category]?.steps || [];
           const nextIdx = stepIndex + 1;
           const nextStep = steps[nextIdx];
-          const isSequenceDone = step ? !nextStep : true;
+          const isSequenceDone = step
+            ? !nextStep
+            : autonomousDecision?.nextTouchDelayHours == null;
+          const autonomousNextIso =
+            !step && autonomousDecision?.nextTouchDelayHours
+              ? new Date(nowTime + autonomousDecision.nextTouchDelayHours * 3600 * 1000).toISOString()
+              : null;
 
           const updatedCustom: Record<string, any> = {
             ...cf,
@@ -694,11 +760,30 @@ export class LeadReactivationService {
                   },
                 }
               : {
-                  reactivation_attempted: true,
-                  reactivation_sent_at: nowIso,
-                  reactivation_type: 'autonomous_cron',
+                  follow_up: {
+                    ...(cf.follow_up || {}),
+                    category,
+                    currentStepIndex: nextIdx,
+                    autonomousAttemptCount: nextIdx,
+                    lastSentAt: nowIso,
+                    ...(autonomousNextIso ? { nextSendAt: autonomousNextIso } : {}),
+                    paused: false,
+                    completed: isSequenceDone,
+                    ...(isSequenceDone ? { completedAt: nowIso } : {}),
+                  },
+                  ...(isSequenceDone
+                    ? {
+                        reactivation_attempted: true,
+                        reactivation_sent_at: nowIso,
+                        reactivation_type: 'autonomous_cron',
+                      }
+                    : {}),
                 }),
           };
+
+          if (isSequenceDone && updatedCustom.follow_up) {
+            delete updatedCustom.follow_up.nextSendAt;
+          }
 
           if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
             delete updatedCustom.active_reminder;
@@ -723,7 +808,7 @@ export class LeadReactivationService {
           } catch {}
 
           if ((org.whatsapp_provider || 'meta') === 'evolution') {
-            await sleep(2200 + Math.floor(Math.random() * 1500));
+            await sleep(2500 + Math.floor(Math.random() * 2000));
           }
         }
       }

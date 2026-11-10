@@ -526,6 +526,7 @@ async function runInboxTests() {
   console.log('\n1️⃣2️⃣ Probando sub-bandejas excluyentes de Seguimiento, recordatorios autónomos y Dashboard de tokens...');
   const { classifySeguimientoSubBucket } = await import('../lib/inbox/buckets');
   const {
+    evaluateAutonomousCadenceSlot,
     extractRecontactPromptDigest,
     inferAutonomousReminderFromLeadMessage,
     parseFollowUpScheduleDate,
@@ -645,6 +646,92 @@ async function runInboxTests() {
     'Dashboard NO debe exponer métricas de costo en USD'
   );
   console.log('   ✅ Sub-bandejas excluyentes, recordatorios autónomos y Dashboard de Tokens verificados.');
+
+  // 13. Blindaje Anti-Spam persistido, cadencia inteligente por temperatura (máx 2 toques) y sub-filtros en servidor
+  console.log('\n1️⃣3️⃣ Probando cadencia autónoma por temperatura, tope anti-spam (2 toques) y sub-filtros en servidor...');
+  const hot3hAgo = {
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 4 * 3600 * 1000).toISOString(),
+    custom_fields: { lead_temperature: 'hot' },
+  };
+  const hot1hAgo = {
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 1.5 * 3600 * 1000).toISOString(),
+    custom_fields: { lead_temperature: 'hot' },
+  };
+  const qd7hAgo = {
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 7 * 3600 * 1000).toISOString(),
+    custom_fields: { lead_temperature: 'qualified_doubt' },
+  };
+  const warm8hAgo = {
+    pipeline_stage: 'nuevo',
+    last_interaction_at: new Date(nowEpoch - 8 * 3600 * 1000).toISOString(),
+    custom_fields: { lead_temperature: 'warm' },
+  };
+  const hotSecondTouchReady = {
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 20 * 3600 * 1000).toISOString(),
+    custom_fields: {
+      lead_temperature: 'hot',
+      follow_up: {
+        category: 'hot_unclosed',
+        autonomousAttemptCount: 1,
+        lastSentAt: new Date(nowEpoch - 16 * 3600 * 1000).toISOString(),
+        nextSendAt: new Date(nowEpoch - 30 * 60 * 1000).toISOString(),
+      },
+    },
+  };
+  const maxedOutLead = {
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 48 * 3600 * 1000).toISOString(),
+    custom_fields: {
+      lead_temperature: 'hot',
+      follow_up: { autonomousAttemptCount: 2, completed: true },
+    },
+  };
+
+  assert.strictEqual(evaluateAutonomousCadenceSlot({ contact: hot1hAgo, nowTime: nowEpoch }), null, 'Hot <3.5h no debe enviarse aún');
+  const hotSlot = evaluateAutonomousCadenceSlot({ contact: hot3hAgo, nowTime: nowEpoch });
+  assert.strictEqual(hotSlot?.category, 'hot_unclosed');
+  assert.strictEqual(hotSlot?.attemptIndex, 0);
+  assert.strictEqual(evaluateAutonomousCadenceSlot({ contact: qd7hAgo, nowTime: nowEpoch })?.category, 'qualified_doubt');
+  assert.strictEqual(evaluateAutonomousCadenceSlot({ contact: warm8hAgo, nowTime: nowEpoch }), null, 'Warm <24h debe esperar 24h');
+  const secondSlot = evaluateAutonomousCadenceSlot({ contact: hotSecondTouchReady, nowTime: nowEpoch });
+  assert.strictEqual(secondSlot?.attemptIndex, 1);
+  assert.strictEqual(secondSlot?.nextTouchDelayHours, null, '2do toque debe cerrar ciclo sin programar 3er toque');
+  assert.strictEqual(evaluateAutonomousCadenceSlot({ contact: maxedOutLead, nowTime: nowEpoch }), null, 'Tope anti-spam máximo 2 intentos');
+
+  const messagingTsContent = fs.readFileSync('services/messaging.service.ts', 'utf8');
+  assert.ok(
+    messagingTsContent.includes('hourlyDbCount') &&
+      reactivationTsContent.includes('getRecentHourlyFollowUpsCount') &&
+      reactivationTsContent.includes('hasRecentFollowUpForContact'),
+    'Anti-spam horario y enfriamiento por contacto deben consultarse en base de datos'
+  );
+  assert.ok(
+    chatTsContent.includes('seguimientoSubView') && chatTsContent.includes('seguimientoSubCounts'),
+    'listInbox debe resolver sub-bandejas y conteos completos en servidor'
+  );
+  const convRowContent = fs.readFileSync('components/chat/ConversationRow.tsx', 'utf8');
+  assert.ok(
+    convRowContent.includes('nextFollowUpBadge'),
+    'ConversationRow debe mostrar el próximo seguimiento programado'
+  );
+  const updatedOpenaiContent = fs.readFileSync('services/openai.service.ts', 'utf8');
+  assert.ok(
+    updatedOpenaiContent.includes('isUntranscribedOnlyLead') &&
+      updatedOpenaiContent.includes('isSpecificDoubtSignal') &&
+      updatedOpenaiContent.includes('split(\',\').length <= 2'),
+    'OpenAIService debe proteger audios sin transcribir, permitir ascenso progresivo y evitar contaminación de product_interest'
+  );
+  const followUpUiContent = fs.readFileSync('components/settings/FollowUpSequencesSettings.tsx', 'utf8');
+  assert.strictEqual(
+    followUpUiContent.includes('Tope diario anti-spam:'),
+    false,
+    'Cliente no debe ver input editable de tope diario anti-spam'
+  );
+  console.log('   ✅ Blindaje Anti-Spam en DB, cadencia autónoma por temperatura y sub-filtros en servidor aprobados.');
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }

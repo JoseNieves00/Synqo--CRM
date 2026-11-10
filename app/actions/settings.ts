@@ -884,6 +884,13 @@ export async function saveFollowUpSequences(
     .eq('id', orgId)
     .single();
 
+  const existingDailyCap = Number((org?.appointment_settings as any)?.follow_up_sequences?.dailyCap);
+  // El tope diario anti-spam lo controla Synqo/SuperAdmin para evitar bloqueos de WhatsApp
+  if (!profile.is_super_admin) {
+    cleanConfig.dailyCap =
+      Number.isFinite(existingDailyCap) && existingDailyCap > 0 ? existingDailyCap : 40;
+  }
+
   const updatedSettings = {
     ...((org?.appointment_settings as Record<string, any>) || {}),
     follow_up_sequences: cleanConfig,

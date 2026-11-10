@@ -274,7 +274,7 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'update_lead_profile',
     description:
-      'Clasifica silenciosamente al prospecto en 4 grupos dentro del mismo turno: hot (pide medios de pago, cuentas, contraentrega, reservar/agendar o entrega datos), qualified_doubt (quiere una opción puntual pero pregunta especificación/garantía antes de pedir pago; nunca si dice "lo pienso"), warm (consulta general o dice "lo pienso" / "consulto"), cold (no interesado / descarte).',
+      'Clasifica silenciosamente al prospecto en 4 grupos: hot (pide medios/datos de pago, enlace, contraentrega, agendar cita exacta o entrega datos), qualified_doubt (elige o pregunta por una opción específica con duda puntual de características, qué incluye, envío, garantía, disponibilidad o facilidades de pago; nunca por solo pedir lista general de precios ni si dice "lo pienso"), warm (consulta precios/info general o dice "lo pienso"), cold (rechaza explícitamente).',
     parameters: {
       type: 'object',
       properties: {
@@ -282,11 +282,11 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
           type: 'string',
           enum: ['hot', 'qualified_doubt', 'warm', 'cold'],
           description:
-            'hot = pide pago/cuentas/contraentrega/agendar o entrega datos; qualified_doubt = duda puntual de especificación/garantía sin pedir pago ni decir "lo pienso"; warm = consulta general o "lo pienso"; cold = no interesado.',
+            'hot = listo para pagar/agendar/datos; qualified_doubt = duda concreta sobre una opción específica (sin "lo pienso"); warm = consulta general de precios o "lo pienso"; cold = rechazo expreso.',
         },
         product_of_interest: {
           type: 'string',
-          description: 'Nombre del producto o servicio que busca el cliente.',
+          description: 'Nombre del producto o servicio específico elegido/consultado por el cliente (omitir si solo pidió precios generales).',
         },
         objection: {
           type: 'string',
@@ -294,7 +294,7 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
         },
         lost_reason: {
           type: 'string',
-          description: 'Motivo si el cliente indica que no está interesado o descarta avanzar.',
+          description: 'Motivo real si el cliente rechaza explícitamente avanzar.',
         },
       },
       required: ['temperature'],
@@ -688,9 +688,10 @@ export interface EvalDryRunTrace {
 
 export class OpenAIService {
   static async transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
+    const cleanMime = (mimeType || 'audio/ogg').split(';')[0].trim().toLowerCase() || 'audio/ogg';
     try {
-      const ext = this.getExtensionFromMime(mimeType);
-      const file = await toFile(audioBuffer, `voice_note.${ext}`, { type: mimeType });
+      const ext = this.getExtensionFromMime(cleanMime);
+      const file = await toFile(audioBuffer, `voice_note.${ext}`, { type: cleanMime });
 
       const transcription = await openai.audio.transcriptions.create({
         file,
@@ -700,11 +701,61 @@ export class OpenAIService {
         prompt: 'Nota de voz de WhatsApp en español, consulta comercial o mensaje de cliente.',
       });
 
-      return sanitizeTranscription(transcription.text);
+      const cleaned = sanitizeTranscription(transcription.text);
+      if (cleaned) return cleaned;
     } catch (err: any) {
       console.warn('[OPENAI TRANSCRIBE AUDIO WARN]', err?.message || err);
-      return '';
     }
+
+    // Respaldo multimodal con Google si Whisper falla o devuelve vacío sobre .ogg/opus
+    if (geminiApiKey && audioBuffer.length > 0 && audioBuffer.length <= 12 * 1024 * 1024) {
+      try {
+        const googleModel =
+          getAiUtilityChain().find((e) => e.provider === 'google')?.model ||
+          getAiChatChain().find((e) => e.provider === 'google')?.model;
+
+        if (googleModel) {
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+            googleModel
+          )}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: 'Transcribe literalmente en español el contenido de esta nota de voz comercial. Si únicamente contiene silencio o ruido incomprensible responde [INAUDIBLE].',
+                    },
+                    {
+                      inline_data: {
+                        mime_type: cleanMime,
+                        data: audioBuffer.toString('base64'),
+                      },
+                    },
+                  ],
+                },
+              ],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 350 },
+            }),
+            signal: AbortSignal.timeout(AI_OPERATIONAL_CONFIG.timeoutMs),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            if (!/\[INAUDIBLE\]/i.test(rawText)) {
+              const cleanedBackup = sanitizeTranscription(rawText);
+              if (cleanedBackup) return cleanedBackup;
+            }
+          }
+        }
+      } catch (gemErr: any) {
+        console.warn('[GEMINI AUDIO FALLBACK WARN]', gemErr?.message || gemErr);
+      }
+    }
+
+    return '';
   }
 
   private static getExtensionFromMime(mime: string): string {
@@ -976,6 +1027,18 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             sender_type: 'system',
             content: `[🚨 Relevo Solicitado: Asesor requerido - Motivo: "${handoffReason}"]`,
           });
+
+          // Asegurar que una nota de voz pendiente de escucha nunca quede sin clasificar o como fría/perdida
+          if (!resolveLeadTemperature(contactData?.custom_fields)) {
+            const audioSync = buildSynchronizedClassification({
+              customFields: contactData?.custom_fields || {},
+              currentStage: contactData?.pipeline_stage,
+              temperature: 'warm',
+            });
+            await (supabaseAdmin.from('contacts') as any)
+              .update({ custom_fields: audioSync.customFields, updated_at: new Date().toISOString() })
+              .eq('id', contactId);
+          }
 
           HandoffService.notifyHandoff({
             organizationId,
@@ -1765,34 +1828,58 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         };
       }
 
-      // Garantizar clasificación automática si el contacto aún no tiene nivel asignado y el modelo no llamó update_lead_profile
-      if (!leadProfileUpdatedThisTurn && !resolveLeadTemperature(contactData?.custom_fields)) {
+      // Garantizar clasificación automática y ascenso progresivo (warm -> qualified_doubt -> hot) si el modelo omitió update_lead_profile
+      if (!leadProfileUpdatedThisTurn) {
         try {
           const { data: latestC } = await (supabaseAdmin.from('contacts') as any)
-            .select('pipeline_stage, custom_fields')
+            .select('pipeline_stage, custom_fields, deal_value')
             .eq('id', contactId)
             .maybeSingle();
 
-          if (latestC && !resolveLeadTemperature(latestC.custom_fields)) {
-            const latestLeadText =
-              [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead')?.content || '';
-            const lowerLeadMsg = String(latestLeadText).toLowerCase();
-            let inferredTemp: LeadTemperature =
-              /(cuenta|nequi|daviplata|bancolombia|contraentrega|link de pago|quiero comprar|quiero pedir|apartar|reservar|agendar)/i.test(
-                lowerLeadMsg
-              )
-                ? 'hot'
-                : /(no me interesa|no gracias|muy caro|fuera de presupuesto)/i.test(lowerLeadMsg)
-                ? 'cold'
-                : 'warm';
-            if (inferredTemp === 'warm' && latestC.pipeline_stage === 'calificado') {
-              inferredTemp = 'qualified_doubt';
-            }
+          const currentTemp = resolveLeadTemperature(latestC?.custom_fields);
+          const latestLeadText =
+            [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead')?.content || '';
+          const lowerLeadMsg = String(latestLeadText).toLowerCase();
 
+          const isHotSignal =
+            /(datos de pago|m[eé]todos? de pago|link de pago|enlace de pago|contraentrega|transferencia|tarjeta|quiero comprar|quiero pedir|voy a pedir|c[oó]mo pago|a qu[eé] cuenta|p[aá]same la cuenta|apartar|reservar|agendar.*(cita|hora|ma[ñn]ana|hoy)|confirmo el pedido)/i.test(
+              lowerLeadMsg
+            );
+          const isExplicitColdSignal =
+            /(no me interesa|no gracias|muy caro|fuera de mi presupuesto|no deseo continuar|ya compr[eé] en otro)/i.test(
+              lowerLeadMsg
+            );
+          const hasProductContext = Boolean(resolveProductInterest(latestC?.custom_fields, latestC?.deal_value));
+          const isSpecificDoubtSignal =
+            !/(lo pienso|luego te aviso|despu[eé]s te confirmo|consulto con)/i.test(lowerLeadMsg) &&
+            (hasProductContext || latestC?.pipeline_stage === 'calificado') &&
+            /(medida|tama[ñn]o|incluye|accesorio|garant[ií]a|env[ií]o|domicilio|disponib|cuota|abono|apartado|requisito|horario|c[oó]mo funciona)/i.test(
+              lowerLeadMsg
+            );
+
+          let targetTemp: LeadTemperature | null = null;
+          if (!currentTemp) {
+            targetTemp = isHotSignal
+              ? 'hot'
+              : isExplicitColdSignal
+              ? 'cold'
+              : isSpecificDoubtSignal
+              ? 'qualified_doubt'
+              : 'warm';
+          } else if (currentTemp === 'warm') {
+            if (isHotSignal) targetTemp = 'hot';
+            else if (isSpecificDoubtSignal) targetTemp = 'qualified_doubt';
+            else if (isExplicitColdSignal) targetTemp = 'cold';
+          } else if (currentTemp === 'qualified_doubt') {
+            if (isHotSignal) targetTemp = 'hot';
+            else if (isExplicitColdSignal) targetTemp = 'cold';
+          }
+
+          if (latestC && targetTemp && targetTemp !== currentTemp) {
             const syncRes = buildSynchronizedClassification({
               customFields: latestC.custom_fields || {},
               currentStage: latestC.pipeline_stage,
-              temperature: inferredTemp,
+              temperature: targetTemp,
               followUpSettings: orgData?.appointment_settings?.follow_up_sequences
                 ? normalizeFollowUpSettings(orgData.appointment_settings.follow_up_sequences)
                 : null,
@@ -2422,12 +2509,12 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       .in('contact_id', contactIds)
       .in('sender_type', ['lead', 'ai', 'agent_manual'])
       .order('created_at', { ascending: false })
-      .limit(safeLimit * 8);
+      .limit(safeLimit * 10);
 
     const msgsByContact = new Map<string, Array<{ sender_type: string; content: string }>>();
     for (const m of allMsgs || []) {
       const arr = msgsByContact.get(m.contact_id) || [];
-      if (arr.length < 6) {
+      if (arr.length < 8) {
         arr.push(m);
         msgsByContact.set(m.contact_id, arr);
       }
@@ -2491,6 +2578,34 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       else cold++;
     };
 
+    const sanitizeForBatchClassifier = (raw: string): string => {
+      const txt = String(raw || '').trim();
+      if (!txt) return '';
+      if (txt.startsWith('📷 [Imagen:') || txt.includes('[Imagen:')) {
+        return txt.replace(/(?:📷\s*)?\[Imagen:\s*https?:\/\/[^\]]+\]/gi, '[Imagen enviada]').trim();
+      }
+      if (/^(?:🎙️|🎤)\s*\[(?:Audio|Nota de voz)/i.test(txt)) {
+        const quoted = txt.match(/:\s*["“]([\s\S]+)["”]$/);
+        return quoted ? `[Audio transcrito]: ${quoted[1].trim()}` : '[Nota de voz pendiente sin transcripción]';
+      }
+      return txt.replace(/https?:\/\/[^\s]+/gi, '[URL]').slice(0, 320);
+    };
+
+    const isUntranscribedOnlyLead = (leadMessages: Array<{ content: string }>): boolean => {
+      return (
+        leadMessages.length > 0 &&
+        leadMessages.every((m) => {
+          const c = String(m.content || '').trim();
+          return (
+            c.includes('[Nota de voz inaudible]') ||
+            c.includes('[Nota de voz no reproducible]') ||
+            c.includes('[Nota de voz recibida]') ||
+            ((c.startsWith('🎙️ [Audio:') || c.startsWith('🎤')) && !c.includes(']: "'))
+          );
+        })
+      );
+    };
+
     for (const c of list) {
       const cf = (c.custom_fields as Record<string, any>) || {};
       if (c.pipeline_stage === 'ganado' || Boolean(cf.order) || Boolean(c.deal_value)) {
@@ -2503,12 +2618,14 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       }
       const msgs = (msgsByContact.get(c.id) || []).slice().reverse();
       const leadMsgs = msgs.filter((m) => m.sender_type === 'lead');
-      if (leadMsgs.length === 0) {
+      if (leadMsgs.length === 0 || isUntranscribedOnlyLead(leadMsgs)) {
+        // Sin texto o solo nota de voz pendiente de transcribir: nunca enfriar ni marcar perdido
         await applyClassification(c, 'warm');
         continue;
       }
       const snippet = msgs
-        .map((m) => `${m.sender_type === 'lead' ? 'C' : 'V'}: ${String(m.content || '').slice(0, 220)}`)
+        .map((m) => `${m.sender_type === 'lead' ? 'C' : 'V'}: ${sanitizeForBatchClassifier(m.content)}`)
+        .filter((line) => line.length > 3)
         .join('\n');
       toInfer.push({ contact: c, snippet });
     }
@@ -2526,7 +2643,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
             {
               role: 'system',
               content:
-                'Clasifica conversaciones comerciales en JSON: { "results": [{ "idx": number, "temperature": "hot"|"qualified_doubt"|"warm"|"cold", "product": string|null, "objection": string|null, "lost_reason": string|null }] }. Criterio: "hot"=listo para cerrar (pide pagar/cuentas/entrega/agendar o entrega datos); "qualified_doubt"=calificado con intención clara sobre un producto o servicio específico pero con dudas puntuales antes de confirmar (condiciones, especificaciones, disponibilidad o fecha); "warm"=consulta precios/info general o dice "lo pienso" sin decidir; "cold"=rechaza o indica no estar interesado.',
+                'Clasifica conversaciones comerciales multi-nicho en JSON: { "results": [{ "idx": number, "temperature": "hot"|"qualified_doubt"|"warm"|"cold", "product": string|null, "objection": string|null, "lost_reason": string|null }] }.\nReglas estrictas:\n- "hot": pide medios/datos de pago, enlace, contraentrega, reservar/agendar fecha exacta o entrega datos de cierre.\n- "qualified_doubt": eligió o preguntó por UNA opción/servicio puntual y hace duda concreta (medidas, qué incluye, garantía, envío, disponibilidad, abonos/cuotas/facilidades) sin decir "lo pienso".\n- "warm": saludo, pide precios o catálogo general sin elegir opción, dice "lo pienso"/"luego te aviso", o quedó en audio/espera técnica.\n- "cold": ÚNICAMENTE si el cliente (C) rechaza explícitamente o dice que no le interesa / fuera de presupuesto (nunca por audios sin transcribir).\n- "product": coloca SOLO la opción puntual que el cliente (C) eligió o consultó específicamente. Si solo preguntó precios/info general y el vendedor (V) listó varias opciones, DEBE ser null.',
             },
             {
               role: 'user',
@@ -2557,8 +2674,16 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
           if (temp === 'warm' && toInfer[i].contact.pipeline_stage === 'calificado') {
             temp = 'qualified_doubt';
           }
+          // Blindaje anti-falsos cold: exigir motivo explícito del cliente
+          if (temp === 'cold' && !r?.lost_reason?.trim()) {
+            temp = 'warm';
+          }
+          const cleanProd =
+            typeof r?.product === 'string' && r.product.trim() && r.product.split(',').length <= 2
+              ? r.product.trim()
+              : null;
           await applyClassification(toInfer[i].contact, temp, {
-            product: r?.product || null,
+            product: cleanProd,
             objection: r?.objection || null,
             lostReason: temp === 'cold' ? r?.lost_reason || null : null,
           });

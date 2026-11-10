@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   FOLLOW_UP_CATEGORY_META,
@@ -47,7 +48,7 @@ export function FollowUpSequencesSettings({
   const [config, setConfig] = useState<FollowUpSettingsConfig>(
     initialConfig || createEmptyFollowUpSettings()
   );
-  const [expandedCat, setExpandedCat] = useState<FollowUpCategory>('hot_unclosed');
+  const [expandedCat, setExpandedCat] = useState<FollowUpCategory | null>('hot_unclosed');
   const [isSaving, setIsSaving] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [uploadingStepId, setUploadingStepId] = useState<string | null>(null);
@@ -240,22 +241,9 @@ export function FollowUpSequencesSettings({
             </span>
           </label>
 
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-500 dark:text-slate-400">Tope diario anti-spam:</span>
-            <input
-              type="number"
-              min={5}
-              max={500}
-              value={config.dailyCap ?? 40}
-              onChange={(e) =>
-                setConfig((p) => ({
-                  ...p,
-                  dailyCap: Math.max(5, Math.min(500, Number(e.target.value) || 40)),
-                }))
-              }
-              className="w-16 px-2 py-1 rounded-lg bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-center font-mono text-xs"
-            />
-            <span className="text-slate-500 dark:text-slate-400">envíos/día</span>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 text-[11px] font-medium shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Protección anti-spam activa (máx. {config.dailyCap || 40}/día)</span>
           </div>
         </div>
 
@@ -280,13 +268,17 @@ export function FollowUpSequencesSettings({
           const seq = config.sequences[cat];
           const isOpen = expandedCat === cat;
 
+          const toggleCategory = () => {
+            setExpandedCat((prev) => (prev === cat ? null : cat));
+          };
+
           return (
             <div
               key={cat}
               className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden"
             >
               <div
-                onClick={() => setExpandedCat(cat)}
+                onClick={toggleCategory}
                 className="p-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/50 transition"
               >
                 <div className="min-w-0">
@@ -322,8 +314,12 @@ export function FollowUpSequencesSettings({
                   </label>
                   <button
                     type="button"
-                    onClick={() => setExpandedCat(isOpen ? cat : cat)}
-                    className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCategory();
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+                    aria-label={isOpen ? 'Encoger categoría' : 'Expandir categoría'}
                   >
                     {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>

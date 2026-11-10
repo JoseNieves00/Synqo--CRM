@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
 import { EvolutionService } from '@/services/evolution.service';
 import { normalizeContactInboxState as normalizeContactPure } from '@/lib/inbox/normalize';
+import { classifySeguimientoSubBucket } from '@/lib/inbox/buckets';
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
@@ -1321,9 +1322,17 @@ export async function endContactConversation(
 }
 
 export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
+export type SeguimientoFilterType = 'all' | 'ventas_a_medias' | 'compromisos' | 'por_reactivar';
+
+export interface SeguimientoSubCounts {
+  ventas_a_medias: number;
+  compromisos: number;
+  por_reactivar: number;
+}
 
 export interface ListInboxParams {
   view?: InboxViewType;
+  seguimientoSubView?: SeguimientoFilterType;
   channel?: 'all' | 'whatsapp' | 'instagram';
   agentId?: string; // 'all' | 'unassigned' | profile_id
   stage?: string; // 'all' | pipeline_stage
@@ -1373,6 +1382,7 @@ const SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR =
  */
 export async function listInbox({
   view = 'por_responder',
+  seguimientoSubView = 'all',
   channel = 'all',
   agentId = 'all',
   stage = 'all',
@@ -1480,6 +1490,40 @@ export async function listInbox({
     query = query.or(`name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%,instagram_username.ilike.%${cleanSearch}%`);
   }
 
+  // Para Seguimiento, evaluamos el universo filtrado completo (excluyente entre sub-bandejas) para evitar pérdida por paginación
+  if (view === 'seguimiento') {
+    const { data: segContacts, error: segErr } = await query.range(0, 999);
+    if (segErr) {
+      console.error('[LIST INBOX SEGUIMIENTO ERROR]', segErr);
+      throw new Error('Error al listar contactos de seguimiento');
+    }
+
+    const nowMs = Date.now();
+    const normalizedAll = (segContacts || []).map(normalizeContactPure);
+    const subCounts: SeguimientoSubCounts = {
+      ventas_a_medias: 0,
+      compromisos: 0,
+      por_reactivar: 0,
+    };
+    const filteredAll: any[] = [];
+
+    for (const c of normalizedAll) {
+      const sb = classifySeguimientoSubBucket(c, nowMs);
+      if (sb) {
+        subCounts[sb]++;
+      }
+      if (seguimientoSubView === 'all' || sb === seguimientoSubView) {
+        filteredAll.push(c);
+      }
+    }
+
+    return {
+      contacts: filteredAll.slice(safeOffset, safeOffset + safeLimit),
+      totalCount: filteredAll.length,
+      seguimientoSubCounts: subCounts,
+    };
+  }
+
   // Paginación por rango
   const { data: contacts, error, count } = await query.range(safeOffset, safeOffset + safeLimit - 1);
 
@@ -1489,7 +1533,7 @@ export async function listInbox({
   }
 
   const normalized = (contacts || []).map(normalizeContactPure);
-  return { contacts: normalized, totalCount: count ?? null };
+  return { contacts: normalized, totalCount: count ?? null, seguimientoSubCounts: null };
 }
 
 /**

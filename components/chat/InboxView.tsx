@@ -12,6 +12,8 @@ import { FilterState } from './InboxFiltersPopover';
 import {
   InboxViewType,
   InboxCounts,
+  SeguimientoFilterType,
+  SeguimientoSubCounts,
   listInbox,
   getInboxCounts,
   getContactMessages,
@@ -82,6 +84,8 @@ export function InboxView({
 
   // 1. Estado de la Vista / Bandeja Activa (URL como fuente de verdad)
   const [activeView, setActiveView] = useState<InboxViewType>(initialView);
+  const [seguimientoFilter, setSeguimientoFilter] = useState<SeguimientoFilterType>('all');
+  const [seguimientoSubCounts, setSeguimientoSubCounts] = useState<SeguimientoSubCounts | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     activeContact?.id || (initialContacts.length > 0 ? initialContacts[0].id : null)
   );
@@ -239,6 +243,7 @@ export function InboxView({
       try {
         const res = await listInbox({
           view: activeView,
+          seguimientoSubView: activeView === 'seguimiento' ? seguimientoFilter : 'all',
           channel: filters.channel,
           agentId: filters.agentId,
           stage: filters.stage,
@@ -249,6 +254,9 @@ export function InboxView({
         });
 
         useInboxStore.getState().setViewContacts(activeView, res.contacts, isAppend);
+        if (res.seguimientoSubCounts) {
+          setSeguimientoSubCounts(res.seguimientoSubCounts);
+        }
 
         if (!isAppend) {
           // Solo auto-seleccionar el primer chat si el usuario no tiene ninguna conversación activa
@@ -267,20 +275,24 @@ export function InboxView({
         setIsLoadingList(false);
       }
     },
-    [activeView, filters, searchQuery, selectedContactId]
+    [activeView, seguimientoFilter, filters, searchQuery, selectedContactId]
   );
 
   // Recargar contactos cuando cambian vista o filtros (evitar re-fetch redundante en el primer render con datos SSR)
   useEffect(() => {
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
-      if (activeView !== initialView || (contactList.length === 0 && (counts[activeView] || 0) > 0)) {
+      if (
+        activeView === 'seguimiento' ||
+        activeView !== initialView ||
+        (contactList.length === 0 && (counts[activeView] || 0) > 0)
+      ) {
         loadContacts(0, false);
       }
       return;
     }
     loadContacts(0, false);
-  }, [activeView, filters, searchQuery]);
+  }, [activeView, seguimientoFilter, filters, searchQuery]);
 
   // 9. Mapeo unificado para abrir chat (URL, clicks, popstate, notificaciones, J/K)
   const openChat = useCallback(
@@ -555,6 +567,8 @@ export function InboxView({
           contacts={contactList}
           counts={counts}
           activeView={activeView}
+          seguimientoFilter={seguimientoFilter}
+          serverSeguimientoSubCounts={seguimientoSubCounts}
           selectedContactId={selectedContactId}
           filters={filters}
           searchQuery={searchQuery}
@@ -565,6 +579,7 @@ export function InboxView({
           currentUserRole={currentUserRole}
           pendingGapsCount={pendingGapsCount}
           onSelectContact={handleSelectContact}
+          onChangeSeguimientoFilter={setSeguimientoFilter}
           onChangeView={(v) => {
             setActiveView(v);
             useInboxStore.getState().setActiveView(v);

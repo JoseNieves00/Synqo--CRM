@@ -2,6 +2,7 @@ import { decryptSecret } from '@/lib/security/encryption';
 import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from './whatsapp.service';
 import { EvolutionService } from './evolution.service';
 import { checkOutboundRateLimit } from '@/lib/anti-ban/cadence';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export interface MessagingOrganization {
   id: string;
@@ -118,7 +119,7 @@ export class MessagingService {
 
       const evoConfig = this.resolveEvolutionConfig(organization);
 
-      // Protección Anti-Spam en frío para conexiones VPS
+      // Protección Anti-Spam en frío persistida en DB + memoria para conexiones VPS
       if (isColdOutbound && organization.evolution_anti_ban_mode !== false) {
         const maxPerHour = organization.evolution_max_outbound_per_hour || 20;
         const rateCheck = checkOutboundRateLimit(organization.id, maxPerHour);
@@ -126,6 +127,24 @@ export class MessagingService {
           throw new Error(
             `[ANTI-BAN SYNQO] Límite de seguridad alcanzado: Máximo ${maxPerHour} mensajes salientes/hora para proteger tu línea de WhatsApp en VPS. Podrás enviar más en ${rateCheck.resetInMinutes} minutos.`
           );
+        }
+        try {
+          const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
+          const { count: hourlyDbCount } = await (supabaseAdmin.from('messages') as any)
+            .select('id', { count: 'exact', head: true })
+            .eq('organization_id', organization.id)
+            .eq('sender_type', 'ai')
+            .gte('created_at', oneHourAgoIso)
+            .or('content.ilike.%[Seguimiento %,content.ilike.%[Reactivación Autónoma%,content.ilike.%[Campaña%');
+          if ((hourlyDbCount || 0) >= maxPerHour) {
+            throw new Error(
+              `[ANTI-BAN SYNQO] Límite horario en base de datos alcanzado (${hourlyDbCount}/${maxPerHour} mensajes salientes en los últimos 60 min).`
+            );
+          }
+        } catch (dbRateErr: any) {
+          if (String(dbRateErr?.message || '').includes('[ANTI-BAN SYNQO]')) {
+            throw dbRateErr;
+          }
         }
       }
 

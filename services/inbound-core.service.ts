@@ -120,8 +120,13 @@ export function isCourtesyClosingMessage(text: string | null | undefined): boole
   if (!clean || clean.length > 45) return false;
   if (text.includes('?') || text.includes('¿')) return false;
 
-  // Palabras comerciales o de pregunta que impiden que sea un simple cierre
-  const commercialKeywords = ['cuanto', 'precio', 'valor', 'vale', 'costo', 'foto', 'modelo', 'comprar', 'tienen', 'envio', 'pago', 'nequi', 'daviplata', 'cuenta', 'apartar', 'pedir', 'medida', 'color'];
+  // Palabras comerciales o de intención multi-nicho que impiden que sea un simple cierre
+  const commercialKeywords = [
+    'cuanto', 'precio', 'valor', 'vale', 'costo', 'foto', 'modelo', 'comprar', 'tienen',
+    'envio', 'domicilio', 'pago', 'transferencia', 'tarjeta', 'cuenta', 'apartar', 'abono',
+    'pedir', 'medida', 'color', 'cita', 'agenda', 'horario', 'disponibilidad', 'reserva',
+    'plan', 'servicio', 'presupuesto', 'cotizacion', 'ubicacion', 'garantia',
+  ];
   if (commercialKeywords.some((kw) => clean.includes(kw))) {
     return false;
   }

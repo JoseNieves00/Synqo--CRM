@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, X, Loader2, Sparkles, CheckCircle2, UserCheck, Archive, Zap } from 'lucide-react';
-import { InboxViewType, InboxCounts } from '@/app/actions/chat';
+import { InboxViewType, InboxCounts, SeguimientoFilterType, SeguimientoSubCounts } from '@/app/actions/chat';
 import { InboxViewsTabs } from './InboxViewsTabs';
 import { InboxFiltersPopover, InboxActiveFilterChips, FilterState } from './InboxFiltersPopover';
 import { ConversationRow, ContactRowData } from './ConversationRow';
@@ -20,6 +20,8 @@ interface InboxSidebarProps {
   contacts: ContactRowData[];
   counts: InboxCounts;
   activeView: InboxViewType;
+  seguimientoFilter?: SeguimientoFilterType;
+  serverSeguimientoSubCounts?: SeguimientoSubCounts | null;
   selectedContactId: string | null;
   filters: FilterState;
   searchQuery: string;
@@ -31,6 +33,7 @@ interface InboxSidebarProps {
   pendingGapsCount?: number;
   onSelectContact: (id: string) => void;
   onChangeView: (view: InboxViewType) => void;
+  onChangeSeguimientoFilter?: (subView: SeguimientoFilterType) => void;
   onChangeSearch: (query: string) => void;
   onChangeFilter: <K extends keyof FilterState>(key: K, value: FilterState[K]) => void;
   onClearFilters: () => void;
@@ -48,6 +51,8 @@ export function InboxSidebar({
   contacts,
   counts,
   activeView,
+  seguimientoFilter: controlledSeguimientoFilter,
+  serverSeguimientoSubCounts = null,
   selectedContactId,
   filters,
   searchQuery,
@@ -59,6 +64,7 @@ export function InboxSidebar({
   pendingGapsCount = 0,
   onSelectContact,
   onChangeView,
+  onChangeSeguimientoFilter,
   onChangeSearch,
   onChangeFilter,
   onClearFilters,
@@ -72,14 +78,19 @@ export function InboxSidebar({
   onOpenBatchApology,
 }: InboxSidebarProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [seguimientoFilter, setSeguimientoFilter] = useState<'all' | 'ventas_a_medias' | 'compromisos' | 'por_reactivar'>('all');
+  const [internalSeguimientoFilter, setInternalSeguimientoFilter] = useState<SeguimientoFilterType>('all');
+  const seguimientoFilter = controlledSeguimientoFilter ?? internalSeguimientoFilter;
+  const setSeguimientoFilter = (next: SeguimientoFilterType) => {
+    setInternalSeguimientoFilter(next);
+    onChangeSeguimientoFilter?.(next);
+  };
   const listContainerRef = useRef<HTMLDivElement>(null);
 
   // Contadores y filtrado mutuamente excluyente por sub-bandeja de Seguimiento
   const { displayedContacts, seguimientoSubCounts } = useMemo(() => {
-    const counts = { ventas_a_medias: 0, compromisos: 0, por_reactivar: 0 };
+    const localCounts = { ventas_a_medias: 0, compromisos: 0, por_reactivar: 0 };
     if (activeView !== 'seguimiento') {
-      return { displayedContacts: contacts, seguimientoSubCounts: counts };
+      return { displayedContacts: contacts, seguimientoSubCounts: localCounts };
     }
     const nowTime = Date.now();
     const matched: ContactRowData[] = [];
@@ -87,15 +98,18 @@ export function InboxSidebar({
     for (const c of contacts) {
       const subBucket = classifySeguimientoSubBucket(c, nowTime);
       if (subBucket) {
-        counts[subBucket]++;
+        localCounts[subBucket]++;
       }
       if (seguimientoFilter === 'all' || subBucket === seguimientoFilter) {
         matched.push(c);
       }
     }
 
-    return { displayedContacts: matched, seguimientoSubCounts: counts };
-  }, [contacts, activeView, seguimientoFilter]);
+    return {
+      displayedContacts: matched,
+      seguimientoSubCounts: serverSeguimientoSubCounts ?? localCounts,
+    };
+  }, [contacts, activeView, seguimientoFilter, serverSeguimientoSubCounts]);
 
   const rowVirtualizer = useVirtualizer({
     count: displayedContacts.length,

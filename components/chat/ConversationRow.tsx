@@ -133,9 +133,33 @@ export const ConversationRow = React.memo(function ConversationRow({
   const unreadCount = c.unread_count ?? c.custom_fields?.unread_count ?? 0;
   const isClosed = c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed';
 
-  // 6. Indicador de Reactivación Comercial (>24h de silencio y último mensaje fue nuestro)
+  // 6. Indicador de Reactivación Comercial y Próximo Seguimiento Programado
   const productOfInterest = resolveProductInterest(c.custom_fields, c.deal_value);
-  const hasActiveReminder = Boolean(c.custom_fields?.active_reminder || c.ai_snooze_until);
+  const nextFollowUpBadge = useMemo(() => {
+    const activeRem = c.custom_fields?.active_reminder;
+    const fu = c.custom_fields?.follow_up;
+    const targetIso =
+      activeRem?.scheduledFor ||
+      c.ai_snooze_until ||
+      (!fu?.completed && !fu?.paused ? fu?.nextSendAt : null);
+
+    if (!targetIso && !activeRem) return null;
+
+    let shortLabel = 'Programado';
+    let fullTooltip = activeRem?.note
+      ? `Seguimiento IA: ${activeRem.note}`
+      : 'Próximo seguimiento automático programado';
+
+    if (targetIso) {
+      try {
+        const fmt = formatInboxConversationDate(targetIso);
+        shortLabel = fmt.label;
+        fullTooltip = `${activeRem?.note ? `${activeRem.note} · ` : ''}Próximo contacto IA: ${fmt.tooltip}`;
+      } catch {}
+    }
+
+    return { label: shortLabel, tooltip: fullTooltip };
+  }, [c.custom_fields, c.ai_snooze_until]);
 
   const isColdForReactivation = useMemo(() => {
     if (c.pipeline_stage === 'ganado' || c.pipeline_stage === 'perdido' || c.pipeline_stage === 'cita_agendada') return false;
@@ -263,13 +287,13 @@ export const ConversationRow = React.memo(function ConversationRow({
             </span>
           )}
 
-          {/* Badge de Compromiso / Recordatorio */}
-          {hasActiveReminder && (
+          {/* Badge de Compromiso / Próximo Seguimiento Programado */}
+          {nextFollowUpBadge && (
             <span
-              title="Compromiso / Recordatorio comercial activo"
-              className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 shrink-0"
+              title={nextFollowUpBadge.tooltip}
+              className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 truncate max-w-[92px] shrink-0"
             >
-              ⏰
+              ⏰ {nextFollowUpBadge.label}
             </span>
           )}
 
