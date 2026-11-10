@@ -85,9 +85,7 @@ export function PromptAssistantPanel({
   const [health, setHealth] = useState<PromptHealthReport | null>(null);
   const [preset, setPreset] = useState<IndustryPreset>('custom');
   const [whatsappProvider, setWhatsappProvider] = useState<'meta' | 'evolution'>('meta');
-  const [activeSlotId, setActiveSlotId] = useState<string | null>(
-    PROMPT_BLUEPRINT_SLOTS[0].id
-  );
+  const [activeSlotId, setActiveSlotId] = useState<string | null>('free');
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [catalogInlineMax, setCatalogInlineMax] = useState(15);
 
@@ -120,7 +118,8 @@ export function PromptAssistantPanel({
       setHealth(res.health);
       setPreset(res.preset);
       setWhatsappProvider(res.whatsappProvider);
-      setActiveSlotId(res.nextSlotId || PROMPT_BLUEPRINT_SLOTS[0].id);
+      const hasExisting = currentPrompt.trim().length >= 35;
+      setActiveSlotId(hasExisting ? 'free' : res.nextSlotId || 'free');
       setDailyLimitReached(Boolean(res.dailyLimitReached));
       if (res.catalogInlineMax) setCatalogInlineMax(res.catalogInlineMax);
       setBootstrapped(true);
@@ -157,7 +156,7 @@ export function PromptAssistantPanel({
     ]);
   };
 
-  const handleSubmitAnswer = async (slot: BlueprintSlot, answer: string) => {
+  const handleSubmitAnswer = async (slot: BlueprintSlot | null, answer: string) => {
     setFeed((prev) => [
       ...prev.slice(-14),
       { id: `u-${Date.now()}`, role: 'user', text: answer },
@@ -165,8 +164,8 @@ export function PromptAssistantPanel({
 
     try {
       const res = await interpretAssistantAnswerAction({
-        sectionId: slot.sectionId,
-        slotId: slot.id,
+        sectionId: slot ? slot.sectionId : 'free',
+        slotId: slot ? slot.id : 'free',
         answer,
         currentPrompt,
       });
@@ -179,12 +178,12 @@ export function PromptAssistantPanel({
 
       if (res.state) setState(res.state);
       if (Array.isArray(res.versions)) setVersions(res.versions);
-      if (res.nextSlotId) setActiveSlotId(res.nextSlotId);
+      if (res.nextSlotId && activeSlotId !== 'free') setActiveSlotId(res.nextSlotId);
 
       if (res.patchedPrompt) {
         onApplyPromptFromAssistant(
           res.patchedPrompt,
-          res.highlightedSection || slot.sectionTitle,
+          res.highlightedSection || slot?.sectionTitle || 'Reglas adicionales',
           (res as any).structuredData
         );
       }
@@ -216,7 +215,7 @@ export function PromptAssistantPanel({
       }
       if (res.state) setState(res.state);
       setConflicts(res.conflicts || []);
-      if (res.nextSlotId) setActiveSlotId(res.nextSlotId);
+      if (res.nextSlotId && activeSlotId !== 'free') setActiveSlotId(res.nextSlotId);
       const propCount = res.proposals?.length || 0;
       setFeed((prev) => [
         ...prev.slice(-14),
@@ -445,18 +444,20 @@ export function PromptAssistantPanel({
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-5 right-5 z-[990] px-4 py-3 rounded-2xl bg-[#0052FF] hover:bg-[#0043D4] text-white shadow-2xl shadow-blue-900/25 flex items-center gap-2.5 text-xs font-bold transition-transform hover:scale-[1.02] cursor-pointer border border-blue-400/30"
+        className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-[990] w-12 h-12 sm:w-13 sm:h-13 rounded-full bg-gradient-to-tr from-[#0052FF] via-[#0066FF] to-[#00D2FF] text-white shadow-xl shadow-blue-600/30 hover:shadow-blue-600/50 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer border border-white/20 select-none group"
+        title="Asistente de Prompt & Bot"
+        aria-label="Abrir Asistente de Prompt"
       >
-        <div className="w-6 h-6 rounded-lg bg-white/15 flex items-center justify-center">
-          <Sparkles className="w-3.5 h-3.5" />
-        </div>
-        <span>Asistente de Prompt</span>
+        <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:rotate-12 transition-transform duration-200" />
+        {health && health.completenessPct < 100 && (
+          <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white dark:border-[#0E121B] animate-pulse" />
+        )}
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[990] w-[calc(100vw-2rem)] sm:w-[440px] h-[82vh] max-h-[700px] bg-white dark:bg-[#0E121B] border border-slate-200 dark:border-[#1E2433] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
+    <div className="fixed bottom-20 md:bottom-5 right-3 sm:right-5 z-[990] w-[calc(100vw-1.5rem)] sm:w-[440px] h-[82vh] max-h-[700px] bg-white dark:bg-[#0E121B] border border-slate-200 dark:border-[#1E2433] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
       {/* Cabecera */}
       <div className="px-4 py-3 bg-slate-50 dark:bg-[#131722] border-b border-slate-200 dark:border-[#1E2433] shrink-0 space-y-2">
         <div className="flex items-center justify-between gap-2">
