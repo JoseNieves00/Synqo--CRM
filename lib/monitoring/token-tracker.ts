@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { NotificationService } from '@/lib/notifications/resend';
 import { MessagingService } from '@/services/messaging.service';
 import { HandoffService } from '@/services/handoff.service';
+import { PlatformAlertService } from '@/services/platform-alert.service';
 import {
   computeTokenStatus,
   formatPushTokenAlertMessage,
@@ -102,6 +103,19 @@ async function dispatchTokenThresholdPushAlerts(params: {
         threshold,
         overageTokens: status.overageTokens,
         overageMode: true,
+      });
+    }
+
+    if (threshold >= 80) {
+      await PlatformAlertService.notifySuperAdminEvent({
+        type: 'company_token_threshold',
+        orgId: org.id,
+        companyName: org.name || 'Empresa Synqo',
+        title: threshold >= 100 ? 'Plan de Tokens al 100% (Excedente)' : `Consumo de Tokens al ${threshold}%`,
+        details: `Uso actual: ${status.used.toLocaleString('es-CO')} / ${status.limit.toLocaleString('es-CO')} (${status.rawPercentage}%).${
+          status.overageTokens > 0 ? ` Excedente: ${status.overageTokens.toLocaleString('es-CO')} tokens.` : ''
+        }`,
+        dedupeWindowMinutes: 60,
       });
     }
   } catch (err) {

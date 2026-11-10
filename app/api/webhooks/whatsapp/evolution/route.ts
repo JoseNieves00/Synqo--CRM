@@ -14,6 +14,11 @@ import { formatImageMessageContent, formatVideoMessageContent, formatAudioMessag
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
 import { resolveInboundThumbnailMessage } from '@/lib/media/inbound-thumbnail';
 import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
+import {
+  HumanOutboundService,
+  unwrapEvolutionOutboundMessage,
+} from '@/services/human-outbound.service';
+import { PlatformAlertService } from '@/services/platform-alert.service';
 
 export const maxDuration = 60;
 
@@ -154,6 +159,17 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      waitUntil(
+        PlatformAlertService.notifySuperAdminEvent({
+          type: 'channel_disconnected',
+          orgId,
+          companyName: organization.name || 'Empresa Synqo',
+          title: 'WhatsApp Evolution Desconectado',
+          details: `Instancia "${cleanInstance}" pasó a estado close (sesión cerrada o sin conexión).`,
+          dedupeWindowMinutes: 30,
+        })
+      );
+
       return NextResponse.json({ status: 'disconnection_status_updated_close' }, { status: 200 });
     }
 
@@ -239,111 +255,111 @@ export async function POST(request: NextRequest) {
   const targetRecipient = rawRemoteJid;
 
   // 5. FILTRO CRÍTICO: Detección de Mensajes Propios (fromMe: true)
-  // Permite la coexistencia natural bot-humano.
+  // Permite coexistencia natural entre WhatsApp móvil del asesor y la IA de Synqo.
   if (messageKey.fromMe === true) {
-    // 1. Verificar si este mensaje fue emitido por la IA o asesor desde Synqo
-    let { data: existingMsg } = await supabaseAdmin
-      .from('messages')
-      .select('id')
-      .eq('meta_message_id', messageId)
-      .maybeSingle();
-
-    if (!existingMsg) {
-      // Breve margen (800ms) para tolerar la latencia de persistencia del worker emisor de Synqo
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const { data: retryMsg } = await supabaseAdmin
-        .from('messages')
-        .select('id')
-        .eq('meta_message_id', messageId)
-        .maybeSingle();
-      existingMsg = retryMsg;
+    const { msgObj, isNonConversationalSignal } = unwrapEvolutionOutboundMessage(messageData.message || {});
+    if (isNonConversationalSignal) {
+      return NextResponse.json({ status: 'ignored_non_conversational_from_me' }, { status: 200 });
     }
 
-    if (existingMsg) {
-      // Es el eco del mensaje que nuestro propio CRM/bot envió. Ignorar para evitar bucles.
-      return NextResponse.json({ status: 'bot_echo_ignored' }, { status: 200 });
-    }
+    let rawText =
+      msgObj.conversation ||
+      msgObj.extendedTextMessage?.text ||
+      msgObj.buttonsResponseMessage?.selectedDisplayText ||
+      '';
 
-    // Buscar el contacto
-    const { data: contact } = await supabaseAdmin
-      .from('contacts')
-      .select('id, name, is_ai_active')
-      .eq('organization_id', orgId)
-      .or(`phone.eq.${leadPhone},phone.eq.+${leadPhone}`)
-      .maybeSingle();
-
-    if (contact) {
-      // 🛡️ RECONCILIACIÓN ANTI-DUPLICADOS: Si el CRM o la IA enviaron este mensaje, ya existe con status 'sending'
-      const thirtySecAgo = new Date(Date.now() - 30 * 1000).toISOString();
-      const { data: pendingSendingMsg } = await supabaseAdmin
-        .from('messages')
-        .select('id, sender_type')
-        .eq('contact_id', contact.id)
-        .in('sender_type', ['agent_manual', 'ai'])
-        .eq('status', 'sending')
-        .gte('created_at', thirtySecAgo)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (pendingSendingMsg) {
-        // Reconciliar con el mensaje optimista que el asesor o la IA enviaron desde el CRM
-        await (supabaseAdmin.from('messages') as any)
-          .update({
-            status: 'sent',
-            meta_message_id: messageId,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', pendingSendingMsg.id);
-
-        return NextResponse.json(
-          { status: 'bot_echo_reconciled', senderType: pendingSendingMsg.sender_type, messageId: pendingSendingMsg.id },
-          { status: 200 }
-        );
+    if (!rawText) {
+      const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
+      if (msgObj.imageMessage) {
+        const caption = (msgObj.imageMessage.caption || '').trim();
+        let imageUrl: string | null = null;
+        try {
+          const media = await EvolutionService.getBase64Media({
+            apiUrl: organization.evolution_api_url,
+            apiKey: finalApiKey,
+            instanceName: cleanInstance,
+            messageId,
+          });
+          if (media?.base64) {
+            imageUrl = await uploadIncomingChatMedia({
+              buffer: Buffer.from(media.base64, 'base64'),
+              mimeType: media.mimetype || 'image/jpeg',
+              organizationId: orgId,
+              contactId: leadPhone || 'mobile-outbound',
+            });
+          }
+        } catch {}
+        rawText = imageUrl
+          ? formatImageMessageContent(imageUrl, caption)
+          : caption
+          ? `📷 [Foto]: ${caption}`
+          : '📷 [Foto enviada]';
+      } else if (msgObj.audioMessage) {
+        let audioBuffer: Buffer | null = null;
+        let audioMime = msgObj.audioMessage.mimetype || 'audio/ogg; codecs=opus';
+        try {
+          if (messageData.base64) audioBuffer = Buffer.from(messageData.base64, 'base64');
+          else if (msgObj.audioMessage.base64) audioBuffer = Buffer.from(msgObj.audioMessage.base64, 'base64');
+          else {
+            const media = await EvolutionService.getBase64Audio({
+              apiUrl: organization.evolution_api_url,
+              apiKey: finalApiKey,
+              instanceName: cleanInstance,
+              messageId,
+              messagePayload: messageData,
+            });
+            if (media?.base64) {
+              audioBuffer = Buffer.from(media.base64, 'base64');
+              audioMime = media.mimetype || audioMime;
+            }
+          }
+        } catch {}
+        let audioUrl: string | null = null;
+        let transcription = '';
+        if (audioBuffer) {
+          try {
+            audioUrl = await uploadIncomingChatMedia({
+              buffer: audioBuffer,
+              mimeType: audioMime,
+              organizationId: orgId,
+              contactId: leadPhone || 'mobile-outbound',
+            });
+          } catch {}
+          try {
+            transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime);
+          } catch {}
+        }
+        rawText = audioUrl
+          ? formatAudioMessageContent(audioUrl, transcription || undefined)
+          : transcription
+          ? `🎤 [Nota de voz]: "${transcription}"`
+          : '🎤 [Nota de voz enviada]';
+      } else if (msgObj.videoMessage) {
+        rawText = msgObj.videoMessage.caption ? `📹 [Video]: ${msgObj.videoMessage.caption}` : '📹 [Video enviado]';
+      } else if (msgObj.documentMessage) {
+        rawText = `📄 [Documento: ${msgObj.documentMessage.fileName || 'Archivo'}]`;
+      } else if (msgObj.stickerMessage) {
+        rawText = '🏷️ [Sticker enviado]';
+      } else if (msgObj.contactMessage || msgObj.contactsArrayMessage) {
+        rawText = '👤 [Tarjeta de contacto enviada]';
+      } else if (msgObj.locationMessage) {
+        rawText = '📍 [Ubicación compartida]';
+      } else {
+        rawText = '[Mensaje enviado desde WhatsApp móvil]';
       }
-
-      // Si NO fue enviado por Synqo, significa que el ASESOR HUMANO escribió directamente desde el celular físico
-      console.log(`[EVOLUTION HUMAN TAKEOVER] Asesor intervino desde el celular en el chat con ${leadPhone}.`);
-
-      // 1. Pausar la IA en este contacto para no competir con el humano
-      await (supabaseAdmin.from('contacts') as any)
-        .update({
-          is_ai_active: false,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', contact.id);
-
-      // 2. Extraer el texto o descripción del mensaje enviado por el humano
-      const msgObj = messageData.message || {};
-      let rawText =
-        msgObj.conversation ||
-        msgObj.extendedTextMessage?.text ||
-        msgObj.buttonsResponseMessage?.selectedDisplayText ||
-        '';
-
-      if (!rawText) {
-        if (msgObj.imageMessage) rawText = msgObj.imageMessage.caption ? `📷 [Foto]: ${msgObj.imageMessage.caption}` : '📷 [Foto enviada]';
-        else if (msgObj.videoMessage) rawText = msgObj.videoMessage.caption ? `📹 [Video]: ${msgObj.videoMessage.caption}` : '📹 [Video enviado]';
-        else if (msgObj.audioMessage) rawText = '🎤 [Nota de voz enviada]';
-        else if (msgObj.documentMessage) rawText = `📄 [Documento: ${msgObj.documentMessage.fileName || 'Archivo'}]`;
-        else if (msgObj.stickerMessage) rawText = '🏷️ [Sticker enviado]';
-        else if (msgObj.contactMessage || msgObj.contactsArrayMessage) rawText = '👤 [Tarjeta de contacto enviada]';
-        else if (msgObj.locationMessage) rawText = '📍 [Ubicación compartida]';
-        else rawText = '[Mensaje enviado desde WhatsApp móvil]';
-      }
-
-      // 3. Registrar el mensaje en el CRM para que el inbox quede perfectamente sincronizado en tiempo real
-      await (supabaseAdmin.from('messages') as any).insert({
-        contact_id: contact.id,
-        sender_type: 'agent_manual',
-        content: typeof rawText === 'string' ? rawText : JSON.stringify(rawText),
-        meta_message_id: messageId,
-        channel: 'whatsapp',
-        status: 'sent',
-      });
     }
 
-    return NextResponse.json({ status: 'human_intervention_recorded' }, { status: 200 });
+    const res = await HumanOutboundService.recordMobileHumanOutbound({
+      organization,
+      channel: 'whatsapp',
+      externalMessageId: messageId,
+      senderId: leadPhone,
+      remoteJid: targetRecipient,
+      leadName: messageData.pushName || undefined,
+      rawContent: typeof rawText === 'string' ? rawText : JSON.stringify(rawText),
+    });
+
+    return NextResponse.json({ status: res.status, contactId: res.contactId, messageId: res.messageId }, { status: 200 });
   }
 
   // 6. Rate Limiting por Remitente (Prevención de abusos o ataques DoS)

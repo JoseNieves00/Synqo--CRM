@@ -75,6 +75,8 @@ export interface FollowUpStep {
   text: string;
   imageUrls?: string[];
   metaTemplateName?: string;
+  metaTemplateParams?: string[];
+  metaTemplateLanguage?: string;
 }
 
 export interface FollowUpSequenceConfig {
@@ -169,6 +171,12 @@ export function normalizeFollowUpSettings(raw: any): FollowUpSettingsConfig {
                   ? s.imageUrls.filter((u: any) => typeof u === 'string' && /^https?:\/\//i.test(u))
                   : [],
                 metaTemplateName: s.metaTemplateName ? String(s.metaTemplateName).trim() : undefined,
+                metaTemplateParams: Array.isArray(s.metaTemplateParams)
+                  ? s.metaTemplateParams
+                      .filter((p: any) => typeof p === 'string' && p.trim().length > 0)
+                      .slice(0, 6)
+                  : undefined,
+                metaTemplateLanguage: s.metaTemplateLanguage ? String(s.metaTemplateLanguage).trim() : undefined,
               }))
           : [],
       };
@@ -356,4 +364,32 @@ export function interpolateFollowUpText(
     .replace(/Hola\s+,/gi, 'Hola,')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+}
+
+/**
+ * Construye los `components` del body para Meta Cloud API (`sendTemplateMessage`)
+ * interpolando {nombre}, {producto}, {empresa} con valores limpios (nunca vacíos ni teléfonos crudos).
+ */
+export function buildMetaTemplateBodyComponents(params: {
+  templateParams?: string[];
+  contactName?: string | null;
+  productName?: string | null;
+  companyName?: string | null;
+}): any[] {
+  const list = Array.isArray(params.templateParams) ? params.templateParams : [];
+  if (list.length === 0) return [];
+
+  const parameters = list.map((expr) => {
+    const val = interpolateFollowUpText(String(expr || '{nombre}'), {
+      contactName: params.contactName,
+      productName: params.productName,
+      companyName: params.companyName,
+    });
+    return {
+      type: 'text',
+      text: (val || 'cliente').slice(0, 120),
+    };
+  });
+
+  return [{ type: 'body', parameters }];
 }

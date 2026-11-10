@@ -47,7 +47,7 @@ export async function performDeltaSync(supabase: any) {
   try {
     // 1. Consultar contactos modificados desde lastSync
     const { data: updatedContacts } = await (supabase.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
+      .select('id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
       .eq('organization_id', orgId)
       .gt('updated_at', lastSync)
       .is('deleted_at', null);

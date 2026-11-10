@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Repeat,
   Sparkles,
@@ -28,9 +28,18 @@ import { saveFollowUpSequences, suggestFollowUpSequences } from '@/app/actions/s
 import { uploadChatMedia } from '@/app/actions/chat';
 import { compressImageClient } from '@/lib/media/client-compression';
 
+export type FollowUpSuggestionMap = Record<
+  FollowUpCategory,
+  Array<{ delayValue: number; delayUnit: 'hours' | 'days'; text: string }>
+>;
+
 interface FollowUpSequencesSettingsProps {
   initialConfig?: FollowUpSettingsConfig;
   whatsappTemplates?: Array<{ name: string; label: string }>;
+  externalSuggestions?: {
+    nonce: number;
+    suggestions: FollowUpSuggestionMap;
+  } | null;
 }
 
 const CATEGORIES: FollowUpCategory[] = [
@@ -41,9 +50,37 @@ const CATEGORIES: FollowUpCategory[] = [
   'post_order',
 ];
 
+function mergeSuggestedSequences(
+  prev: FollowUpSettingsConfig,
+  suggestions: FollowUpSuggestionMap
+): FollowUpSettingsConfig {
+  const nextSequences = { ...prev.sequences };
+  for (const cat of CATEGORIES) {
+    const suggestedSteps = suggestions[cat] || [];
+    if (suggestedSteps.length > 0) {
+      nextSequences[cat] = {
+        ...nextSequences[cat],
+        enabled: cat !== 'post_order' ? true : nextSequences[cat].enabled,
+        steps: suggestedSteps.map((s, idx) => ({
+          id: `${cat}-ai-${Date.now()}-${idx}`,
+          delayValue: Number(s.delayValue) || 1,
+          delayUnit: s.delayUnit === 'days' ? 'days' : 'hours',
+          text: s.text,
+          imageUrls: nextSequences[cat].steps[idx]?.imageUrls || [],
+          metaTemplateName: nextSequences[cat].steps[idx]?.metaTemplateName,
+          metaTemplateParams: nextSequences[cat].steps[idx]?.metaTemplateParams,
+          metaTemplateLanguage: nextSequences[cat].steps[idx]?.metaTemplateLanguage,
+        })),
+      };
+    }
+  }
+  return { ...prev, sequences: nextSequences };
+}
+
 export function FollowUpSequencesSettings({
   initialConfig,
   whatsappTemplates = [],
+  externalSuggestions = null,
 }: FollowUpSequencesSettingsProps) {
   const [config, setConfig] = useState<FollowUpSettingsConfig>(
     initialConfig || createEmptyFollowUpSettings()
@@ -53,11 +90,27 @@ export function FollowUpSequencesSettings({
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [uploadingStepId, setUploadingStepId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const lastExternalNonceRef = useRef<number>(0);
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setFeedback({ type, message });
     setTimeout(() => setFeedback(null), 5000);
   };
+
+  useEffect(() => {
+    if (
+      externalSuggestions &&
+      externalSuggestions.nonce > 0 &&
+      externalSuggestions.nonce !== lastExternalNonceRef.current
+    ) {
+      lastExternalNonceRef.current = externalSuggestions.nonce;
+      setConfig((prev) => mergeSuggestedSequences(prev, externalSuggestions.suggestions));
+      setFeedback({
+        type: 'success',
+        message: 'Borradores cargados desde el Asistente. Revísalos antes de guardar.',
+      });
+    }
+  }, [externalSuggestions]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -79,27 +132,7 @@ export function FollowUpSequencesSettings({
     try {
       const res = await suggestFollowUpSequences();
       if (res.success && res.suggestions) {
-        setConfig((prev) => {
-          const nextSequences = { ...prev.sequences };
-          for (const cat of CATEGORIES) {
-            const suggestedSteps = res.suggestions[cat] || [];
-            if (suggestedSteps.length > 0) {
-              nextSequences[cat] = {
-                ...nextSequences[cat],
-                enabled: cat !== 'post_order' ? true : nextSequences[cat].enabled,
-                steps: suggestedSteps.map((s, idx) => ({
-                  id: `${cat}-ai-${Date.now()}-${idx}`,
-                  delayValue: Number(s.delayValue) || 1,
-                  delayUnit: s.delayUnit === 'days' ? 'days' : 'hours',
-                  text: s.text,
-                  imageUrls: nextSequences[cat].steps[idx]?.imageUrls || [],
-                  metaTemplateName: nextSequences[cat].steps[idx]?.metaTemplateName,
-                })),
-              };
-            }
-          }
-          return { ...prev, sequences: nextSequences };
-        });
+        setConfig((prev) => mergeSuggestedSequences(prev, res.suggestions));
         showToast(
           'success',
           'Borradores generados desde tus instrucciones de negocio. Revísalos, adjunta fotos si deseas y guarda.'
@@ -422,7 +455,7 @@ export function FollowUpSequencesSettings({
                             </label>
                           </div>
 
-                          <div className="flex items-center gap-1.5 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                             <span className="text-slate-400 text-[10px]">Plantilla Meta (&gt;24h):</span>
                             {whatsappTemplates.length > 0 ? (
                               <select
@@ -449,6 +482,28 @@ export function FollowUpSequencesSettings({
                                 placeholder="nombre_plantilla_meta"
                                 className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-[11px] w-36 font-mono"
                               />
+                            )}
+                            {step.metaTemplateName && (
+                              <select
+                                value={String(step.metaTemplateParams?.length || 0)}
+                                onChange={(e) => {
+                                  const count = Number(e.target.value);
+                                  const presets: Record<number, string[] | undefined> = {
+                                    0: undefined,
+                                    1: ['{nombre}'],
+                                    2: ['{nombre}', '{producto}'],
+                                    3: ['{nombre}', '{producto}', '{empresa}'],
+                                  };
+                                  handleUpdateStep(cat, idx, { metaTemplateParams: presets[count] });
+                                }}
+                                className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] text-[11px]"
+                                title="Variables {{1}}, {{2}}... que espera esta plantilla aprobada en Meta"
+                              >
+                                <option value="0">Sin variables</option>
+                                <option value="1">1 var: {'{{1}}'} nombre</option>
+                                <option value="2">2 vars: {'{{1}}'} nom, {'{{2}}'} prod</option>
+                                <option value="3">3 vars: nom, prod, empresa</option>
+                              </select>
                             )}
                           </div>
                         </div>

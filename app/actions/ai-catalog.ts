@@ -49,9 +49,9 @@ export async function suggestProductCatalogAi(input: {
     const systemPrompt = `Eres un estratega experto en ventas por WhatsApp y comercio conversacional.
 Tu objetivo es analizar la foto y/o el nombre de un producto y generar su ficha de catálogo optimizada para WhatsApp.
 Genera un objeto JSON con:
-1. "name": Nombre comercial claro y atractivo (máximo 40 caracteres, ej: "Cocina Mediana con Nevera").
-2. "description": Descripción vendedora de 2 líneas adaptada a WhatsApp (destaca qué incluye, materiales o beneficio).
-3. "keywords": Lista de 6 a 10 sinónimos coloquiales, modismos, colores, medidas o frases cortas que los compradores reales escribirían en WhatsApp para preguntar por este producto (ej: ["mediana", "con nevera", "80cm", "rosada", "cocinita", "de madera", "de juguete"]).
+1. "name": Nombre comercial claro y atractivo (máximo 40 caracteres, ej: "Plan Profesional Mensual" o "Combo Ejecutivo").
+2. "description": Descripción vendedora de 2 líneas adaptada a WhatsApp (destaca qué incluye, características o beneficio).
+3. "keywords": Lista de 6 a 10 sinónimos coloquiales, atributos, variantes o frases cortas que los compradores reales escribirían en WhatsApp para preguntar por esta opción (ej: ["plan pro", "mensual", "estándar", "incluye", "promoción", "cotización"]).
 
 Responde ÚNICAMENTE un JSON válido con este formato:
 {

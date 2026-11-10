@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { GitHubService } from '@/services/github.service';
+import { PlatformAlertService } from '@/services/platform-alert.service';
 import { TicketCategory, TicketPriority, TicketStatus } from '@/lib/supabase/types';
 import { checkRateLimit } from '@/lib/security/rate-limiter';
 import { revalidatePath } from 'next/cache';
@@ -134,6 +135,15 @@ export async function createSupportTicket(input: CreateTicketInput) {
     }
 
     revalidatePath('/admin');
+    PlatformAlertService.notifySuperAdminEvent({
+      type: 'new_ticket',
+      orgId: org?.id || profile.organization_id,
+      companyName: orgName,
+      title: `Ticket de Soporte (${priority})`,
+      details: `${category}: ${title}${ghResult.issueUrl ? `\nIssue: ${ghResult.issueUrl}` : ''}`,
+      dedupeWindowMinutes: 1,
+    }).catch(() => {});
+
     return {
       success: true,
       ticket: newTicket,

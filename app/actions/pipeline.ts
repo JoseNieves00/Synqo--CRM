@@ -57,8 +57,13 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
     pipeline_stage: newStage,
     custom_fields: nextCustom,
     updated_at: nowIso,
-    ...((newStage === 'ganado' || newStage === 'perdido') && !prevContact?.closed_at
-      ? { closed_at: nowIso }
+    ...(newStage === 'ganado' || newStage === 'perdido'
+      ? {
+          conversation_status: 'closed',
+          waiting_since: null,
+          is_ai_active: false,
+          ...(!prevContact?.closed_at ? { closed_at: nowIso } : {}),
+        }
       : {}),
   };
 
@@ -67,6 +72,14 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
     .update(updatePayload)
     .eq('id', contactId)
     .eq('organization_id', orgId);
+
+  if (newStage === 'ganado' || newStage === 'perdido') {
+    await (supabaseAdmin.from('scheduled_reminders') as any)
+      .update({ status: 'cancelled', updated_at: nowIso })
+      .eq('contact_id', contactId)
+      .eq('reminder_type', 'reactivation')
+      .eq('status', 'pending');
+  }
 
   if (updateError) {
     throw new Error(`Error actualizando fase del lead: ${updateError.message}`);

@@ -315,16 +315,55 @@ export async function updateAppointmentStatusAdmin(
     updatePayload.notes = notes;
   }
 
-  const { error } = await (supabaseAdmin.from('appointments') as any)
+  const { data: updatedAppt, error } = await (supabaseAdmin.from('appointments') as any)
     .update(updatePayload)
     .eq('id', appointmentId)
-    .eq('organization_id', org.id);
+    .eq('organization_id', org.id)
+    .select('contact_id')
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Error al actualizar estado de la cita: ${error.message}`);
   }
 
+  if (updatedAppt?.contact_id) {
+    try {
+      const { data: cRow } = await (supabaseAdmin.from('contacts') as any)
+        .select('pipeline_stage, custom_fields')
+        .eq('id', updatedAppt.contact_id)
+        .maybeSingle();
+      if (cRow) {
+        const cf = { ...((cRow.custom_fields as Record<string, any>) || {}) };
+        if (status === 'completed') {
+          cf.lead_temperature = 'hot';
+          delete cf.temperature;
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              pipeline_stage: 'ganado',
+              conversation_status: 'closed',
+              waiting_since: null,
+              is_ai_active: false,
+              custom_fields: cf,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', updatedAppt.contact_id);
+        } else if ((status === 'no_show' || status === 'cancelled') && cRow.pipeline_stage === 'cita_agendada') {
+          cf.lead_temperature = 'qualified_doubt';
+          delete cf.temperature;
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              pipeline_stage: 'calificado',
+              custom_fields: cf,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', updatedAppt.contact_id);
+        }
+      }
+    } catch {}
+  }
+
   revalidatePath('/calendar');
+  revalidatePath('/inbox');
   return { success: true, status };
 }
 

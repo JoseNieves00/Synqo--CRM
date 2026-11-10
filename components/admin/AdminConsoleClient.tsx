@@ -894,6 +894,22 @@ export default function AdminConsoleClient({
                                   OpenAI: {formatTokenQuota(openaiUsed)}
                                 </span>
                               </div>
+
+                              {org.prompt_assistant_stats && (org.prompt_assistant_stats.tokensToday > 0 || org.prompt_assistant_stats.totalTokens > 0) && (
+                                <div className="flex items-center gap-1.5 text-[10px] pt-0.5">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded border ${
+                                      org.prompt_assistant_stats.capExceededToday
+                                        ? 'bg-rose-100 text-rose-700 border-rose-200 font-bold'
+                                        : 'bg-slate-50 text-slate-600 border-slate-200'
+                                    }`}
+                                    title={`Uso del Asistente de Prompt (cortesía Synqo): ${org.prompt_assistant_stats.tokensToday.toLocaleString()} / ${org.prompt_assistant_stats.dailyCap.toLocaleString()} tokens hoy (${org.prompt_assistant_stats.totalTokens.toLocaleString()} acumulados)`}
+                                  >
+                                    {org.prompt_assistant_stats.capExceededToday ? '⚠️ Tope Asistente:' : 'Asist:'}{' '}
+                                    {formatTokenQuota(org.prompt_assistant_stats.tokensToday)} / {formatTokenQuota(org.prompt_assistant_stats.dailyCap)} hoy
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}

@@ -70,6 +70,27 @@ export const AI_OPERATIONAL_CONFIG = {
   },
 };
 
+/**
+ * Límites y umbrales centralizados del Asistente de Prompt (cortesía Synqo sin cobro al cupo del cliente).
+ */
+export const PROMPT_ASSISTANT_CONFIG = {
+  get dailyTokenCap(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_DAILY_TOKEN_CAP, 25000);
+  },
+  get targetPromptTokens(): number {
+    return parsePositiveInt(process.env.PROMPT_TARGET_TOKENS, 1800);
+  },
+  get maxAudioSeconds(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_MAX_AUDIO_SEC, 120);
+  },
+  get pdfMaxPages(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_PDF_MAX_PAGES, 10);
+  },
+  get catalogInlineMax(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_CATALOG_INLINE_MAX, 15);
+  },
+};
+
 function normalizeProvider(raw: string): AiProviderType {
   const clean = raw.trim().toLowerCase();
   return clean === 'openai' ? 'openai' : 'google';

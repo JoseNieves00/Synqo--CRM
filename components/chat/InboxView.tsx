@@ -20,6 +20,7 @@ import {
   markContactAsRead,
   endContactConversation,
   snoozeContactAi,
+  toggleContactAi,
 } from '@/app/actions/chat';
 import { claimUnassignedLead } from '@/app/actions/assignment';
 import {
@@ -27,6 +28,7 @@ import {
   useInboxCounts,
   useViewContactIds,
 } from '@/lib/inbox/use-inbox-store';
+import { compareInboxContacts } from '@/lib/inbox/buckets';
 
 interface MessageItem {
   id: string;
@@ -57,6 +59,7 @@ interface InboxViewProps {
   teamMembers?: TeamMember[];
   pendingGapsCount?: number;
   initialCounts?: InboxCounts;
+  initialTotalCount?: number | null;
   paymentAccounts?: any[];
   catalogItems?: any[];
   initialView?: InboxViewType;
@@ -75,6 +78,7 @@ export function InboxView({
   teamMembers = [],
   pendingGapsCount = 0,
   initialCounts,
+  initialTotalCount = null,
   paymentAccounts = [],
   catalogItems = [],
   initialView = 'por_responder',
@@ -100,13 +104,27 @@ export function InboxView({
     }
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const latestLoadReqRef = useRef(0);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // 3. Estado local de carga y paginación
   const [isLoadingList, setIsLoadingList] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(
+    initialTotalCount !== undefined && initialTotalCount !== null
+      ? initialContacts.length < initialTotalCount
+      : initialContacts.length >= 30
+  );
+  const [totalCount, setTotalCount] = useState<number | null>(initialTotalCount);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      useInboxStore.getState().setSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   // 4. Inicializar Zustand Store con datos SSR (Zero Layout Shift)
   useEffect(() => {
@@ -123,11 +141,15 @@ export function InboxView({
         cerrados: 0,
       },
       initialView,
+      activeContact,
       activeContactId: activeContact?.id || (initialContacts.length > 0 ? initialContacts[0].id : null),
       initialMessages: messages || [],
       templates: customTemplates,
       teamMembers: teamMembers,
     });
+    if (initialFilters) {
+      useInboxStore.getState().setFilters(initialFilters);
+    }
 
     if (paymentAccounts.length > 0 || catalogItems.length > 0) {
       useInboxStore.getState().setBootstrap({
@@ -166,12 +188,14 @@ export function InboxView({
   const viewContactIds = useViewContactIds(activeView);
   const messagesByContact = useInboxStore((s) => s.messagesByContact);
 
-  // Lista de contactos de la vista actual
+  // Lista de contactos de la vista actual (orden WhatsApp Web garantizado)
   const contactList = useMemo(() => {
     const fromStore = viewContactIds.map((id) => contactsById[id]).filter(Boolean) as ContactRowData[];
-    if (fromStore.length > 0) return fromStore;
+    if (fromStore.length > 0) {
+      return [...fromStore].sort((a, b) => compareInboxContacts(a, b, activeView));
+    }
     if (initialContacts && initialContacts.length > 0 && activeView === initialView && !searchQuery.trim() && filters.channel === 'all' && filters.agentId === 'all' && filters.stage === 'all' && filters.temperature === 'all') {
-      return initialContacts as ContactRowData[];
+      return [...(initialContacts as ContactRowData[])].sort((a, b) => compareInboxContacts(a, b, activeView));
     }
     return fromStore;
   }, [viewContactIds, contactsById, initialContacts, activeView, initialView, searchQuery, filters]);
@@ -239,6 +263,7 @@ export function InboxView({
   const isFirstMountRef = useRef(true);
   const loadContacts = useCallback(
     async (offset = 0, isAppend = false) => {
+      const reqId = ++latestLoadReqRef.current;
       setIsLoadingList(true);
       try {
         const res = await listInbox({
@@ -248,10 +273,12 @@ export function InboxView({
           agentId: filters.agentId,
           stage: filters.stage,
           temperature: filters.temperature,
-          search: searchQuery,
+          search: debouncedSearchQuery,
           offset,
           limit: 30,
         });
+
+        if (reqId !== latestLoadReqRef.current) return;
 
         useInboxStore.getState().setViewContacts(activeView, res.contacts, isAppend);
         if (res.seguimientoSubCounts) {
@@ -259,27 +286,33 @@ export function InboxView({
         }
 
         if (!isAppend) {
-          // Solo auto-seleccionar el primer chat si el usuario no tiene ninguna conversación activa
           if (!selectedContactId && res.contacts.length > 0) {
             openChat(res.contacts[0].id);
           }
         }
 
-        setHasMore(res.contacts.length === 30);
+        setHasMore(
+          res.totalCount !== null
+            ? offset + res.contacts.length < res.totalCount
+            : res.contacts.length === 30
+        );
         if (res.totalCount !== null) {
           setTotalCount(res.totalCount);
         }
       } catch (err) {
         console.error('[InboxView] Error cargando lista de inbox:', err);
       } finally {
-        setIsLoadingList(false);
+        if (reqId === latestLoadReqRef.current) {
+          setIsLoadingList(false);
+        }
       }
     },
-    [activeView, seguimientoFilter, filters, searchQuery, selectedContactId]
+    [activeView, seguimientoFilter, filters, debouncedSearchQuery, selectedContactId]
   );
 
-  // Recargar contactos cuando cambian vista o filtros (evitar re-fetch redundante en el primer render con datos SSR)
+  // Recargar contactos cuando cambian vista, filtros o búsqueda debounced
   useEffect(() => {
+    useInboxStore.getState().setFilters(filters);
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
       if (
@@ -292,7 +325,7 @@ export function InboxView({
       return;
     }
     loadContacts(0, false);
-  }, [activeView, seguimientoFilter, filters, searchQuery]);
+  }, [activeView, seguimientoFilter, filters, debouncedSearchQuery]);
 
   // 9. Mapeo unificado para abrir chat (URL, clicks, popstate, notificaciones, J/K)
   const openChat = useCallback(
@@ -467,24 +500,39 @@ export function InboxView({
     async (contactId: string) => {
       try {
         await endContactConversation(contactId, 'completed');
-        if (activeView !== 'cerrados') {
-          useInboxStore.getState().removeContact(contactId);
-        } else {
-          useInboxStore.getState().upsertContact({ id: contactId, conversation_status: 'closed' });
-        }
+        useInboxStore.getState().upsertContact({
+          id: contactId,
+          conversation_status: 'closed',
+          is_ai_active: false,
+          waiting_since: null,
+        });
         refreshCounts();
       } catch (err) {
         console.error('[InboxView] Error al cerrar chat:', err);
       }
     },
-    [activeView, refreshCounts]
+    [refreshCounts]
   );
 
   const handleQuickSnooze = useCallback(
     async (contactId: string) => {
       try {
         await snoozeContactAi(contactId, 30);
-        useInboxStore.getState().upsertContact({ id: contactId, is_ai_active: false });
+        const resumeIso = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+        const existingCf = useInboxStore.getState().contactsById[contactId]?.custom_fields || {};
+        useInboxStore.getState().upsertContact({
+          id: contactId,
+          is_ai_active: false,
+          ai_snooze_until: resumeIso,
+          conversation_status: 'snoozed',
+          waiting_since: null,
+          custom_fields: {
+            ...existingCf,
+            ai_snooze_until: resumeIso,
+            manual_ai_paused: false,
+            unattended_handoff: false,
+          },
+        });
         refreshCounts();
       } catch (err) {
         console.error('[InboxView] Error pausando IA:', err);
@@ -743,7 +791,26 @@ export function InboxView({
         }}
         onToggleAi={(activate) => {
           if (selectedContactId) {
-            useInboxStore.getState().upsertContact({ id: selectedContactId, is_ai_active: activate });
+            const existingCf =
+              useInboxStore.getState().contactsById[selectedContactId]?.custom_fields || {};
+            const nextCf = { ...existingCf };
+            if (activate) {
+              nextCf.manual_ai_paused = false;
+              delete nextCf.ai_snooze_until;
+              delete nextCf.mobile_takeover_at;
+              delete nextCf.mobile_takeover_source;
+            } else {
+              nextCf.manual_ai_paused = true;
+            }
+            useInboxStore.getState().upsertContact({
+              id: selectedContactId,
+              is_ai_active: activate,
+              ...(activate ? { ai_snooze_until: null } : {}),
+              custom_fields: nextCf,
+            });
+            toggleContactAi(selectedContactId, activate)
+              .then(() => refreshCounts())
+              .catch((err) => console.error('[InboxView Cmd+K ToggleAI error]', err));
           }
         }}
         onOpenCloseChatModal={(resolution) => {

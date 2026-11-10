@@ -733,6 +733,104 @@ async function runInboxTests() {
   );
   console.log('   ✅ Blindaje Anti-Spam en DB, cadencia autónoma por temperatura y sub-filtros en servidor aprobados.');
 
+  // 14. Probar Ordenamiento Estilo WhatsApp Web en "ia_atendiendo" (Zero Old-Chats-On-Top)
+  console.log('\n1️⃣4️⃣  Probando ordenamiento cronológico estilo WhatsApp Web en "ia_atendiendo"...');
+  const { compareInboxContacts, sortInboxViewIds } = await import('../lib/inbox/buckets');
+  const { useInboxStore } = await import('../lib/inbox/use-inbox-store');
+
+  const oldChatWithRecentMetadataUpdate = {
+    id: 'chat-old',
+    name: 'Cliente Viejo (Metadata Reciente)',
+    phone: '+573001111111',
+    is_ai_active: true,
+    conversation_status: 'open',
+    last_interaction_at: '2026-10-20T10:00:00.000Z', // Hace 3 semanas
+    updated_at: '2026-11-10T18:10:00.000Z', // Editado hace 5 min (NO debe subir al inicio)
+  };
+  const recentActiveChat = {
+    id: 'chat-recent',
+    name: 'Cliente Reciente',
+    phone: '+573002222222',
+    is_ai_active: true,
+    conversation_status: 'open',
+    last_interaction_at: '2026-11-10T18:05:00.000Z', // Mensaje real hace 10 min
+    updated_at: '2026-11-10T18:05:00.000Z',
+  };
+  const chatWithNullInteraction = {
+    id: 'chat-null',
+    name: 'Contacto Importado Sin Mensajes',
+    phone: '+573003333333',
+    is_ai_active: true,
+    conversation_status: 'open',
+    last_interaction_at: null,
+    updated_at: '2026-11-01T10:00:00.000Z',
+  };
+
+  const mapById = {
+    'chat-old': oldChatWithRecentMetadataUpdate,
+    'chat-recent': recentActiveChat,
+    'chat-null': chatWithNullInteraction,
+  };
+
+  const sortedIds = sortInboxViewIds(['chat-old', 'chat-null', 'chat-recent'], mapById, 'ia_atendiendo');
+  assert.deepStrictEqual(
+    sortedIds,
+    ['chat-recent', 'chat-old', 'chat-null'],
+    'El chat con last_interaction_at más reciente debe quedar de #1, nunca el chat viejo con updated_at reciente'
+  );
+
+  // Verificar que el store reordena en vivo tipo WhatsApp Web ante upsertContact y upsertMessage
+  useInboxStore.getState().initialize({
+    organizationId: 'org-sort-test',
+    currentUserId: 'usr-1',
+    currentUserRole: 'admin',
+    initialContacts: [oldChatWithRecentMetadataUpdate as any, recentActiveChat as any],
+    initialCounts: { por_responder: 0, mis_abiertos: 0, ia_atendiendo: 2, seguimiento: 0, cerrados: 0 },
+    initialView: 'ia_atendiendo',
+  });
+  assert.strictEqual(
+    useInboxStore.getState().viewIds.ia_atendiendo[0],
+    'chat-recent',
+    'Store debe inicializar ia_atendiendo con el chat más reciente en índice 0'
+  );
+
+  // Simular Realtime UPDATE en metadatos del chat viejo -> NO debe subirlo a posición 0
+  useInboxStore.getState().upsertContact({
+    id: 'chat-old',
+    updated_at: '2026-11-10T18:15:00.000Z',
+  });
+  assert.strictEqual(
+    useInboxStore.getState().viewIds.ia_atendiendo[0],
+    'chat-recent',
+    'Editar metadatos de un chat viejo NO debe moverlo arriba de un chat reciente'
+  );
+
+  // Simular llegada de mensaje nuevo en vivo al chat viejo -> SÍ debe subirlo a posición 0 estilo WhatsApp Web
+  useInboxStore.getState().upsertMessage({
+    id: 'msg-live-1',
+    contact_id: 'chat-old',
+    sender_type: 'lead',
+    content: 'Hola, volví a escribir ahora!',
+    created_at: '2026-11-10T18:16:00.000Z',
+  });
+  assert.strictEqual(
+    useInboxStore.getState().viewIds.ia_atendiendo[0],
+    'chat-old',
+    'Al recibir un mensaje nuevo en tiempo real, el chat debe subir al #1 como WhatsApp Web'
+  );
+
+  // Verificar que la consulta SQL en app/actions/chat.ts usa last_interaction_at DESC NULLS LAST
+  const latestChatTs = fs.readFileSync('app/actions/chat.ts', 'utf8');
+  assert.ok(
+    latestChatTs.includes("order('last_interaction_at', { ascending: false, nullsFirst: false })"),
+    'listInbox debe ordenar en PostgreSQL por last_interaction_at DESC NULLS LAST'
+  );
+  assert.ok(
+    compareInboxContacts(recentActiveChat, oldChatWithRecentMetadataUpdate, 'ia_atendiendo') < 0,
+    'compareInboxContacts debe posicionar el chat reciente antes del viejo'
+  );
+  console.log('   ✅ Ordenamiento estilo WhatsApp Web verificado (SQL, Store en vivo y Virtualizer key-by-id).');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }
 

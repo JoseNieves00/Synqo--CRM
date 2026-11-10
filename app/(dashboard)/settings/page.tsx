@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { BASE_DEFAULT_SNIPPETS, generateSuggestedSnippetsFromPrompt } from '@/lib/chat/snippets';
 import { normalizeFollowUpSettings } from '@/lib/ai/follow-up-types';
 import { normalizeManagerSecurity, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
+import { resolveMobileCoexistenceConfig } from '@/services/human-outbound.service';
 import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
@@ -104,6 +105,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         aiTokensLimit: Number(org?.ai_tokens_limit || 0),
         tokenPolicyData: tokenPolicy,
         hasManagerPin: Boolean(managerSecurity.pinHash),
+        mobileCoexistence: resolveMobileCoexistenceConfig((org as any)?.appointment_settings),
         maxUsers: Number(org?.max_users || 2),
         industryPreset: (org as any)?.industry_preset || 'services',
         hasGoogleCalendarToken: Boolean(org?.google_calendar_token),

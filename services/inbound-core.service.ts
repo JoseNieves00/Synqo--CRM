@@ -7,6 +7,7 @@ import { InstagramService } from './instagram.service';
 import { OpenAIService } from './openai.service';
 import { HandoffService } from './handoff.service';
 import { ManagerWhatsAppService } from './manager-whatsapp.service';
+import { PlatformAlertService } from './platform-alert.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { decryptSecret } from '@/lib/security/encryption';
 import { AI_OPERATIONAL_CONFIG, AI_TEXT_TEMPLATES, getAiChatChain } from '@/lib/ai/config';
@@ -234,7 +235,12 @@ export class InboundCoreService {
     }
 
     const sanitizedContent = sanitizeLeadMessage(finalContent);
-    const isPaymentReceipt = Boolean(payload.isPaymentReceipt);
+    const isPdfPaymentReceipt =
+      /(?:📄\s*\[Documento|https?:\/\/[^\s\]]+\.pdf\b)/i.test(sanitizedContent) &&
+      /(comprobante|transferencia|soporte\s*de\s*pago|nequi|daviplata|bancolombia|pse|recibo|voucher|consignaci[oó]n)/i.test(
+        sanitizedContent
+      );
+    const isPaymentReceipt = Boolean(payload.isPaymentReceipt || isPdfPaymentReceipt);
     const isOptOut = isOptOutMessage(sanitizedContent);
 
     // 🛡️ INTERCEPTOR ANTI-BUCLE, COMANDOS GERENCIALES Y RELEVOS POR WHATSAPP
@@ -360,8 +366,10 @@ export class InboundCoreService {
       isAiActive = isPaymentReceipt ? false : Boolean(existingContact.is_ai_active);
 
       const existingCustom = (existingContact as any).custom_fields || {};
+      const nowInboundIso = new Date().toISOString();
       const updatedCustomFields: Record<string, any> = {
         ...existingCustom,
+        last_lead_message_at: nowInboundIso,
         ...(payload.remoteJid ? { remote_jid: payload.remoteJid, whatsapp_jid: payload.remoteJid } : {}),
       };
 
@@ -417,7 +425,10 @@ export class InboundCoreService {
         assigned_to: assignedAgentId || null,
         channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
         last_interaction_at: new Date().toISOString(),
-        custom_fields: payload.remoteJid ? { remote_jid: payload.remoteJid, whatsapp_jid: payload.remoteJid } : {},
+        custom_fields: {
+          last_lead_message_at: new Date().toISOString(),
+          ...(payload.remoteJid ? { remote_jid: payload.remoteJid, whatsapp_jid: payload.remoteJid } : {}),
+        },
       };
 
       if (channel === 'instagram') {
@@ -497,10 +508,19 @@ export class InboundCoreService {
     const aiSnoozeUntil = (existingContact as any)?.ai_snooze_until || currentCustom.ai_snooze_until;
     let effectiveAiActive = isAiActive;
     let clearSnooze = false;
+    const updatedSnoozeCustom: Record<string, any> = {
+      ...currentCustom,
+      last_lead_message_at: new Date().toISOString(),
+    };
     if (aiSnoozeUntil) {
       if (new Date(aiSnoozeUntil).getTime() <= Date.now()) {
-        effectiveAiActive = true;
+        if (currentCustom.manual_ai_paused !== true && !isPaymentReceipt && !isOptOut) {
+          effectiveAiActive = true;
+        }
         clearSnooze = true;
+        delete updatedSnoozeCustom.ai_snooze_until;
+        delete updatedSnoozeCustom.mobile_takeover_at;
+        delete updatedSnoozeCustom.mobile_takeover_source;
       } else {
         effectiveAiActive = false;
       }
@@ -511,6 +531,7 @@ export class InboundCoreService {
         last_message: lastMsgPayload,
         is_ai_active: effectiveAiActive,
         ai_snooze_until: clearSnooze ? null : ((existingContact as any)?.ai_snooze_until || null),
+        custom_fields: updatedSnoozeCustom,
         last_interaction_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -589,13 +610,44 @@ export class InboundCoreService {
     // 8. Evaluación Uniforme de Guardrails y Solicitud Humana
     if (isPaymentReceipt) {
       const receiptCf: Record<string, any> = {
-        ...currentCustom,
+        ...updatedSnoozeCustom,
         unattended_handoff: true,
         lead_temperature: 'hot',
       };
       delete receiptCf.temperature;
       const shouldPromoteReceipt = existingContact?.pipeline_stage === 'nuevo';
 
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contactId,
+        organization_id: orgId,
+        sender_type: 'system',
+        content: '[🚨 Comprobante de pago recibido: Asesor humano requerido para verificar pago. IA pausada.]',
+      });
+
+      if (organization.handoff_mode !== 'silent') {
+        try {
+          const ackText = AI_TEXT_TEMPLATES.paymentReceiptAck(organization.name);
+          await this.dispatchOutboundMessage({
+            organization,
+            channel,
+            recipientId: updatedSnoozeCustom.remote_jid || updatedSnoozeCustom.whatsapp_jid || senderId,
+            text: ackText,
+            contactId,
+          });
+          await (supabaseAdmin.from('messages') as any).insert({
+            contact_id: contactId,
+            organization_id: orgId,
+            sender_type: 'ai',
+            content: ackText,
+            status: 'sent',
+            channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
+          });
+        } catch (ackErr) {
+          console.warn('[PAYMENT RECEIPT ACK WARN]', ackErr);
+        }
+      }
+
+      // Mantener abierto en "Por responder" DESPUÉS de insertar acuse para contrarrestar trigger SQL
       await (supabaseAdmin.from('contacts') as any)
         .update({
           is_ai_active: false,
@@ -607,17 +659,11 @@ export class InboundCoreService {
         })
         .eq('id', contactId);
 
-      await (supabaseAdmin.from('messages') as any).insert({
-        contact_id: contactId,
-        sender_type: 'system',
-        content: '[🚨 Comprobante de pago recibido en imagen: Asesor humano requerido para verificar extracto bancario. IA pausada.]',
-      });
-
       // Despacho autónomo e inmediato de alerta al WhatsApp personal del asesor
       HandoffService.notifyHandoff({
         organizationId: orgId,
         contactId,
-        reason: 'Comprobante de pago recibido en imagen',
+        reason: isPdfPaymentReceipt ? 'Comprobante de pago recibido en PDF' : 'Comprobante de pago recibido en imagen',
         channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
       }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
 
@@ -761,11 +807,27 @@ export class InboundCoreService {
         }
       }
 
-      // 🛡️ LOCK ATÓMICO POR CONTACTO (Pilar 4.1.3): Evitar concurrencia y duplicación de respuestas
+      // 🛡️ LOCK ATÓMICO POR CONTACTO (Pilar 4.1.3): Evitar concurrencia y no descartar mensajes que llegan en paralelo
       workerId = crypto.randomUUID();
-      const hasLock = await this.acquireAiLock(contactId, workerId, 60);
+      let hasLock = await this.acquireAiLock(contactId, workerId, 60);
+      for (let retry = 0; !hasLock && retry < 2; retry++) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        if (latestMsg) {
+          const { data: respondedInMeantime } = await (supabaseAdmin.from('messages') as any)
+            .select('id')
+            .eq('contact_id', contactId)
+            .in('sender_type', ['ai', 'agent_manual'])
+            .gte('created_at', latestMsg.created_at)
+            .limit(1)
+            .maybeSingle();
+          if (respondedInMeantime) {
+            return;
+          }
+        }
+        hasLock = await this.acquireAiLock(contactId, workerId, 60);
+      }
       if (!hasLock) {
-        console.log(`[INBOUND CORE LOCK] Contacto ${contactId} ya está siendo procesado por otro worker activo.`);
+        console.log(`[INBOUND CORE LOCK] Contacto ${contactId} ocupado; se preserva espera abierta para el mensaje.`);
         return;
       }
 
@@ -883,7 +945,28 @@ export class InboundCoreService {
       }
 
       if (!aiResponseText) {
-        // Registro de run omitido o vacío
+        if (typeof aiResult === 'object' && aiResult?.pauseAfterSend) {
+          const { data: silentContact } = await (supabaseAdmin.from('contacts') as any)
+            .select('custom_fields')
+            .eq('id', contactId)
+            .maybeSingle();
+          const silentCf = {
+            ...((silentContact?.custom_fields as Record<string, any>) || {}),
+            unattended_handoff: true,
+            ...(aiResult?.handoffReason ? { handoff_reason: aiResult.handoffReason } : {}),
+          };
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              is_ai_active: false,
+              conversation_status: 'open',
+              waiting_since: new Date().toISOString(),
+              custom_fields: silentCf,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', contactId);
+        }
+
+        // Registro de run omitido o relevo silencioso
         await this.recordAiRun({
           organizationId: organization.id,
           contactId,
@@ -942,29 +1025,51 @@ export class InboundCoreService {
           }
         }
 
-        // Si se detectaron imágenes fugadas en el texto, despacharlas como mensajes multimedia nativos de WhatsApp
+        const { data: contactData } = await (supabaseAdmin.from('contacts') as any)
+          .select('custom_fields')
+          .eq('id', contactId)
+          .single();
+
+        const customFields = (contactData?.custom_fields as Record<string, any>) || {};
+        const targetRecipient = customFields.remote_jid || customFields.whatsapp_jid || senderId;
+
+        // Si se detectaron imágenes fugadas en el texto, despacharlas como mensajes multimedia nativos
         for (const media of leakedMedia) {
           try {
-            const mediaMsgId = await MessagingService.sendMediaMessage({
-              organization: {
-                id: organization.id,
-                name: organization.name,
-                whatsapp_provider: organization.whatsapp_provider,
-                whatsapp_phone_number_id: organization.whatsapp_phone_number_id,
-                whatsapp_access_token: organization.whatsapp_access_token,
-                evolution_api_url: organization.evolution_api_url,
-                evolution_api_key: organization.evolution_api_key,
-                evolution_instance_name: organization.evolution_instance_name,
-                evolution_anti_ban_mode: true,
-              },
-              to: senderId,
-              mediaUrl: media.url,
-              caption: media.caption || undefined,
-              mediaType: 'image',
-            });
+            let mediaMsgId: string | null = null;
+            if (channel === 'instagram') {
+              const igToken = organization.instagram_access_token
+                ? decryptSecret(organization.instagram_access_token)
+                : '';
+              mediaMsgId = await InstagramService.sendMediaMessage({
+                instagramAccountId: organization.instagram_account_id || '',
+                accessToken: igToken,
+                recipientId: senderId,
+                mediaUrl: media.url,
+              });
+            } else {
+              mediaMsgId = await MessagingService.sendMediaMessage({
+                organization: {
+                  id: organization.id,
+                  name: organization.name,
+                  whatsapp_provider: organization.whatsapp_provider,
+                  whatsapp_phone_number_id: organization.whatsapp_phone_number_id,
+                  whatsapp_access_token: organization.whatsapp_access_token,
+                  evolution_api_url: organization.evolution_api_url,
+                  evolution_api_key: organization.evolution_api_key,
+                  evolution_instance_name: organization.evolution_instance_name,
+                  evolution_anti_ban_mode: true,
+                },
+                to: targetRecipient,
+                mediaUrl: media.url,
+                caption: media.caption || undefined,
+                mediaType: 'image',
+              });
+            }
 
             await (supabaseAdmin.from('messages') as any).insert({
               contact_id: contactId,
+              organization_id: organization.id,
               sender_type: 'ai',
               content: formatImageMessageContent(media.url, media.caption || ''),
               meta_message_id: mediaMsgId || null,
@@ -987,14 +1092,6 @@ export class InboundCoreService {
           .filter((line) => line && line !== '•' && line !== '*' && line !== '-' && !/^[•\-\*]?\s*\*?[^:\n]+\*?:\s*$/.test(line))
           .join('\n')
           .trim();
-
-        const { data: contactData } = await (supabaseAdmin.from('contacts') as any)
-          .select('custom_fields')
-          .eq('id', contactId)
-          .single();
-
-        const customFields = (contactData?.custom_fields as Record<string, any>) || {};
-        const targetRecipient = customFields.remote_jid || customFields.whatsapp_jid || senderId;
 
         if (cleanedAiText) {
           const messageId = crypto.randomUUID();
@@ -1084,20 +1181,36 @@ export class InboundCoreService {
           delete updatedCustom.active_reminder;
         }
 
+        const hasPauseHandoff = Boolean(typeof aiResult === 'object' && aiResult?.pauseAfterSend);
+        // Verificar si llegó un mensaje nuevo del lead mientras la IA infería la respuesta
+        const { data: newerLeadWhileThinking } = await (supabaseAdmin.from('messages') as any)
+          .select('id, created_at')
+          .eq('contact_id', contactId)
+          .eq('sender_type', 'lead')
+          .gt('created_at', aiTurnStartIso)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
         const contactUpdatePayload: Record<string, any> = {
           last_message: aiLastMsg,
           last_interaction_at: nowIso,
           updated_at: nowIso,
-          waiting_since: null,
-          unread_count: 0,
-          conversation_status: 'waiting_customer',
+          waiting_since: hasPauseHandoff
+            ? nowIso
+            : newerLeadWhileThinking
+            ? newerLeadWhileThinking.created_at
+            : null,
+          unread_count: newerLeadWhileThinking ? 1 : 0,
+          conversation_status:
+            hasPauseHandoff || newerLeadWhileThinking ? 'open' : 'waiting_customer',
           last_message_sender: 'ai',
           last_message_preview: effectiveLastText.slice(0, 160),
           custom_fields: updatedCustom,
         };
 
         // Si la IA solicitó relevo o se agotó la cuota, pausar la IA DESPUÉS de que el mensaje de transición fue despachado al cliente
-        if (typeof aiResult === 'object' && aiResult?.pauseAfterSend) {
+        if (hasPauseHandoff) {
           contactUpdatePayload.is_ai_active = false;
         }
 
@@ -1181,6 +1294,15 @@ export class InboundCoreService {
                 reason: 'El token de acceso expiró o fue revocado por Meta.',
               }).catch((e) => console.warn('[CHANNEL DISCONNECTED ALERT WARN]', e));
             }
+
+            PlatformAlertService.notifySuperAdminEvent({
+              type: 'token_expired',
+              orgId: organization.id,
+              companyName: organization.name || 'Empresa Synqo',
+              title: channel === 'instagram' ? 'Token Instagram Expirado' : 'Token Meta WhatsApp Expirado',
+              details: `Falló envío al cliente (${errMessage.slice(0, 120)}).`,
+              dedupeWindowMinutes: 60,
+            }).catch(() => {});
           } catch (alertErr) {
             console.warn('[ADMIN NOTIFICATION ERROR]', alertErr);
           }

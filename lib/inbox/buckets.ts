@@ -191,3 +191,63 @@ export function contactMatchesInboxView(
       return false;
   }
 }
+
+/**
+ * Extrae el timestamp en ms de la última interacción real del chat (estilo WhatsApp Web).
+ * Si `last_interaction_at` es nulo (contacto sin mensajes reales), devuelve 0 para ubicarlo al final
+ * igual que PostgreSQL `ORDER BY last_interaction_at DESC NULLS LAST`.
+ */
+export function getContactInteractionTimestamp(c: any): number {
+  if (!c || !c.last_interaction_at) return 0;
+  const ms = new Date(c.last_interaction_at).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * Comparador canónico estilo WhatsApp Web para ordenar conversaciones de una bandeja:
+ * - `por_responder`: Prioridad SLA (el cliente que más tiempo lleva esperando arriba, ascendente).
+ * - `ia_atendiendo`, `mis_abiertos`, `seguimiento`, `cerrados`: Orden cronológico estricto por
+ *   última interacción real (`last_interaction_at` DESC), de más reciente a más antiguo.
+ */
+export function compareInboxContacts(a: any, b: any, view: CanonicalInboxView): number {
+  const aTime = getContactInteractionTimestamp(a);
+  const bTime = getContactInteractionTimestamp(b);
+
+  if (view === 'por_responder') {
+    const aWait = a?.waiting_since ? new Date(a.waiting_since).getTime() : aTime;
+    const bWait = b?.waiting_since ? new Date(b.waiting_since).getTime() : bTime;
+    const safeAW = Number.isFinite(aWait) ? aWait : aTime;
+    const safeBW = Number.isFinite(bWait) ? bWait : bTime;
+    if (safeAW !== safeBW) return safeAW - safeBW;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  }
+
+  // WhatsApp Web standard: mensaje/interacción más reciente arriba (DESC)
+  if (bTime !== aTime) return bTime - aTime;
+
+  const aUpd = a?.updated_at ? new Date(a.updated_at).getTime() : 0;
+  const bUpd = b?.updated_at ? new Date(b.updated_at).getTime() : 0;
+  if (bUpd !== aUpd) return bUpd - aUpd;
+
+  return String(a?.id || '').localeCompare(String(b?.id || ''));
+}
+
+/**
+ * Deduplica y ordena una lista de IDs usando el comparador canónico de la bandeja.
+ */
+export function sortInboxViewIds(
+  ids: string[],
+  contactsById: Record<string, any>,
+  view: CanonicalInboxView
+): string[] {
+  const seen = new Set<string>();
+  const uniqueIds: string[] = [];
+  for (const id of ids) {
+    if (id && !seen.has(id) && contactsById[id]) {
+      seen.add(id);
+      uniqueIds.push(id);
+    }
+  }
+  uniqueIds.sort((idA, idB) => compareInboxContacts(contactsById[idA], contactsById[idB], view));
+  return uniqueIds;
+}

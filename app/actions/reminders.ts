@@ -441,12 +441,16 @@ export async function toggleContactFollowUpPause(contactId: string, paused: bool
   if (!contact) throw new Error('Contacto no encontrado');
 
   const cf = (contact.custom_fields as Record<string, any>) || {};
+  const nextFollowUp: Record<string, any> = {
+    ...(cf.follow_up || { category: 'warm', currentStepIndex: 0 }),
+    paused,
+  };
+  if (paused) {
+    delete nextFollowUp.nextSendAt;
+  }
   const nextCustom = {
     ...cf,
-    follow_up: {
-      ...(cf.follow_up || { category: 'warm', currentStepIndex: 0 }),
-      paused,
-    },
+    follow_up: nextFollowUp,
   };
 
   await (supabaseAdmin.from('contacts') as any)

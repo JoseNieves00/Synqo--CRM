@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
 import { EvolutionService } from '@/services/evolution.service';
 import { normalizeContactInboxState as normalizeContactPure } from '@/lib/inbox/normalize';
-import { classifySeguimientoSubBucket } from '@/lib/inbox/buckets';
+import { classifySeguimientoSubBucket, compareInboxContacts } from '@/lib/inbox/buckets';
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
@@ -159,6 +159,18 @@ export async function sendAgentMessage(
       unattended_handoff: false,
     };
 
+    const currentTemp = updatedCustom.lead_temperature || updatedCustom.temperature;
+    if (
+      currentTemp !== 'cold' &&
+      currentTemp !== 'hot' &&
+      /(nequi|bancolombia|daviplata|pse|link de pago|cuenta|transferencia|confirmad[oa]|agendad[oa])/i.test(
+        cleanContent
+      )
+    ) {
+      updatedCustom.lead_temperature = 'hot';
+      delete updatedCustom.temperature;
+    }
+
     if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
       delete updatedCustom.active_reminder;
     }
@@ -188,10 +200,16 @@ export async function sendAgentMessage(
 
     return { success: true, messageId, metaMessageId };
   } catch (err: any) {
-    // Marcar como fallido en la base de datos para mostrar botón de reintentar
+    // Marcar como fallido y restaurar estado abierto si el trigger SQL lo movió por 'sending'
     await (supabaseAdmin.from('messages') as any)
       .update({ status: 'failed' })
       .eq('id', messageId);
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        conversation_status: 'open',
+        waiting_since: new Date().toISOString(),
+      })
+      .eq('id', contactId);
     throw err;
   }
 }
@@ -799,9 +817,13 @@ export async function snoozeContactAi(contactId: string, duration: 30 | 120 | 't
     .update({
       is_ai_active: false,
       ai_snooze_until: snoozeIso,
+      conversation_status: 'snoozed',
+      waiting_since: null,
       custom_fields: {
         ...currentCustom,
         ai_snooze_until: snoozeIso,
+        manual_ai_paused: false,
+        unattended_handoff: false,
       },
       updated_at: new Date().toISOString(),
     })
@@ -833,9 +855,27 @@ export async function toggleContactAi(contactId: string, newState: boolean) {
   const orgId = profile?.organization_id;
   if (!orgId) throw new Error('Perfil no encontrado');
 
+  const { data: currentContact } = await (supabaseAdmin.from('contacts') as any)
+    .select('custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .maybeSingle();
+
+  const nextCustom = { ...((currentContact?.custom_fields as Record<string, any>) || {}) };
+  if (newState) {
+    nextCustom.manual_ai_paused = false;
+    delete nextCustom.ai_snooze_until;
+    delete nextCustom.mobile_takeover_at;
+    delete nextCustom.mobile_takeover_source;
+  } else {
+    nextCustom.manual_ai_paused = true;
+  }
+
   await (supabaseAdmin.from('contacts') as any)
     .update({
       is_ai_active: newState,
+      ...(newState ? { ai_snooze_until: null } : {}),
+      custom_fields: nextCustom,
       updated_at: new Date().toISOString(),
     })
     .eq('id', contactId)
@@ -1369,7 +1409,13 @@ function buildPorResponderOrFilter(staleAiIso: string): string {
 }
 
 function buildSeguimientoOrFilter(d24h: string, d10d: string): string {
-  return `ai_snooze_until.not.is.null,custom_fields->>active_reminder.not.is.null,custom_fields->follow_up->>nextSendAt.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0,custom_fields->>reactivation_attempted.is.null,last_message_sender.neq.lead)`;
+  return [
+    'ai_snooze_until.not.is.null',
+    'custom_fields->>active_reminder.not.is.null',
+    'custom_fields->follow_up->>nextSendAt.not.is.null',
+    `and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0,custom_fields->>reactivation_attempted.is.null,last_message_sender.neq.lead)`,
+    `and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0,custom_fields->>reactivation_attempted.is.null,last_message_sender.is.null)`,
+  ].join(',');
 }
 
 const SEGUIMIENTO_EXCLUDE_COLD_OR =
@@ -1409,7 +1455,7 @@ export async function listInbox({
   // Consulta base
   let query = (supabaseAdmin.from('contacts') as any)
     .select(
-      'id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until',
+      'id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until',
       { count: 'exact' }
     )
     .eq('organization_id', orgId)
@@ -1423,19 +1469,22 @@ export async function listInbox({
     query = query
       .neq('conversation_status', 'closed')
       .or(buildPorResponderOrFilter(staleAiIso))
-      .order('last_interaction_at', { ascending: true });
+      .order('waiting_since', { ascending: true, nullsFirst: false })
+      .order('last_interaction_at', { ascending: true, nullsFirst: false });
   } else if (view === 'mis_abiertos') {
-    // Chats asignados a mí que no están cerrados
+    // Chats asignados a mí que no están cerrados (orden estilo WhatsApp Web: más reciente arriba)
     query = query
       .eq('assigned_to', user.id)
       .neq('conversation_status', 'closed')
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
       .order('updated_at', { ascending: false });
   } else if (view === 'ia_atendiendo') {
-    // Chats activos donde la IA tiene el control (excluyendo relevos humanos)
+    // Chats activos donde la IA tiene el control (excluyendo relevos humanos; orden WhatsApp Web: más reciente arriba)
     query = query
       .eq('is_ai_active', true)
       .neq('conversation_status', 'closed')
       .or('custom_fields->>unattended_handoff.is.null,custom_fields->>unattended_handoff.neq.true')
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
       .order('updated_at', { ascending: false });
   } else if (view === 'seguimiento') {
     // Chats con pausa de IA (snooze), recordatorio activo, o prospectos en silencio (>24h y <10d) para reactivar
@@ -1448,14 +1497,18 @@ export async function listInbox({
       .or(SEGUIMIENTO_EXCLUDE_COLD_OR)
       .or(SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR)
       .or(buildSeguimientoOrFilter(d24h, d10d))
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
       .order('updated_at', { ascending: false });
   } else if (view === 'cerrados') {
     // Historial archivado de chats finalizados
     query = query
       .eq('conversation_status', 'closed')
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
       .order('updated_at', { ascending: false });
   } else {
-    query = query.order('updated_at', { ascending: false });
+    query = query
+      .order('last_interaction_at', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false });
   }
 
   // 2. Filtro de Canal (WhatsApp vs Instagram)
@@ -1484,8 +1537,8 @@ export async function listInbox({
     query = query.or(`custom_fields->>lead_temperature.eq.${temperature},custom_fields->>temperature.eq.${temperature}`);
   }
 
-  // 6. Búsqueda por texto (nombre, teléfono, instagram)
-  const cleanSearch = (search || '').trim().replace(/[%_]/g, '');
+  // 6. Búsqueda por texto (nombre, teléfono, instagram) sanitizada para sintaxis PostgREST
+  const cleanSearch = (search || '').trim().replace(/[%_(),]/g, '');
   if (cleanSearch) {
     query = query.or(`name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%,instagram_username.ilike.%${cleanSearch}%`);
   }
@@ -1511,11 +1564,13 @@ export async function listInbox({
       const sb = classifySeguimientoSubBucket(c, nowMs);
       if (sb) {
         subCounts[sb]++;
-      }
-      if (seguimientoSubView === 'all' || sb === seguimientoSubView) {
-        filteredAll.push(c);
+        if (seguimientoSubView === 'all' || sb === seguimientoSubView) {
+          filteredAll.push(c);
+        }
       }
     }
+
+    filteredAll.sort((a, b) => compareInboxContacts(a, b, 'seguimiento'));
 
     return {
       contacts: filteredAll.slice(safeOffset, safeOffset + safeLimit),
@@ -1533,6 +1588,7 @@ export async function listInbox({
   }
 
   const normalized = (contacts || []).map(normalizeContactPure);
+  normalized.sort((a: any, b: any) => compareInboxContacts(a, b, view));
   return { contacts: normalized, totalCount: count ?? null, seguimientoSubCounts: null };
 }
 
@@ -1577,7 +1633,7 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .neq('conversation_status', 'closed')
       .or('custom_fields->>unattended_handoff.is.null,custom_fields->>unattended_handoff.neq.true'),
     (supabaseAdmin.from('contacts') as any)
-      .select('id', { count: 'exact', head: true })
+      .select('id, pipeline_stage, deal_value, is_ai_active, last_interaction_at, custom_fields, unread_count, waiting_since, last_message_sender, conversation_status, ai_snooze_until')
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .neq('conversation_status', 'closed')
@@ -1585,7 +1641,8 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
       .or(SEGUIMIENTO_EXCLUDE_COLD_OR)
       .or(SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR)
-      .or(buildSeguimientoOrFilter(d24h, d10d)),
+      .or(buildSeguimientoOrFilter(d24h, d10d))
+      .range(0, 999),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
@@ -1593,11 +1650,17 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .eq('conversation_status', 'closed'),
   ]);
 
+  const nowMs = Date.now();
+  const validSeguimientoCount = (resSeguimiento.data || []).reduce((acc: number, row: any) => {
+    const normalized = normalizeContactPure(row);
+    return classifySeguimientoSubBucket(normalized, nowMs) ? acc + 1 : acc;
+  }, 0);
+
   return {
     por_responder: resPorResponder.count || 0,
     mis_abiertos: resMisAbiertos.count || 0,
     ia_atendiendo: resIa.count || 0,
-    seguimiento: resSeguimiento.count || 0,
+    seguimiento: validSeguimientoCount,
     cerrados: resCerrados.count || 0,
   };
 }

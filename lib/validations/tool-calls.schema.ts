@@ -118,8 +118,8 @@ export const CreateOrderToolSchema = z.object({
   total: z.number().nonnegative(),
   nombre: z.string().min(2).max(120),
   telefono: z.string().min(6).max(40),
-  direccion: z.string().min(3).max(250),
-  ciudad: z.string().min(2).max(100),
+  direccion: z.string().max(250).optional().default(''),
+  ciudad: z.string().max(100).optional().default(''),
   metodo_pago: z.string().max(80).optional(),
   notas: z.string().max(400).optional(),
 });

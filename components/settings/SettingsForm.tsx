@@ -105,6 +105,14 @@ const FollowUpSequencesSettings = dynamic(() => import('./FollowUpSequencesSetti
   ssr: false,
 });
 
+const PromptAssistantPanel = dynamic(
+  () => import('./prompt-assistant/PromptAssistantPanel').then((m) => m.PromptAssistantPanel),
+  { ssr: false }
+);
+
+import { type FollowUpSuggestionMap } from './FollowUpSequencesSettings';
+import { markAssistantSandboxTestedAction } from '@/app/actions/prompt-assistant';
+
 import { CustomPaymentAccount } from '@/lib/types/payments';
 import { type QuickSnippet } from '@/lib/chat/snippets';
 import { type FollowUpSettingsConfig } from '@/lib/ai/follow-up-types';
@@ -132,6 +140,7 @@ interface SettingsFormProps {
     aiTokensLimit?: number;
     tokenPolicyData?: TokenPolicyConfig;
     hasManagerPin?: boolean;
+    mobileCoexistence?: { enabled: boolean; autoResumeHours: number };
     maxUsers?: number;
     industryPreset?: string | null;
     hasGoogleCalendarToken?: boolean;
@@ -202,6 +211,16 @@ export function SettingsForm({
   const [showToken, setShowToken] = useState(false);
   const [appSecret, setAppSecret] = useState('');
   const [isSandboxOpen, setIsSandboxOpen] = useState(false);
+  const [sandboxSuggestedQuestions, setSandboxSuggestedQuestions] = useState<string[]>([]);
+  const [assistantSyncState, setAssistantSyncState] = useState<{
+    nonce: number;
+    promptText: string;
+    highlightedSection?: string | null;
+  }>({ nonce: 0, promptText: '' });
+  const [externalFollowUpSuggestions, setExternalFollowUpSuggestions] = useState<{
+    nonce: number;
+    suggestions: FollowUpSuggestionMap;
+  } | null>(null);
   const [showAppSecret, setShowAppSecret] = useState(false);
   const [hasToken, setHasToken] = useState(Boolean(initialData.hasWhatsappToken));
   const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
@@ -221,6 +240,9 @@ export function SettingsForm({
   );
   const [structuredPromptData, setStructuredPromptData] = useState<any>(
     initialData.structuredPromptData || null
+  );
+  const [mobileCoexistence, setMobileCoexistence] = useState<{ enabled: boolean; autoResumeHours: number }>(
+    initialData.mobileCoexistence || { enabled: true, autoResumeHours: 2 }
   );
 
   // Google Calendar & Google Meet state
@@ -931,6 +953,7 @@ export function SettingsForm({
         whatsappAppSecret: appSecret || undefined,
         systemPrompt: systemPrompt || undefined,
         structuredPromptData: structuredPromptData || undefined,
+        mobileCoexistence,
       });
 
       setFeedback({
@@ -1074,6 +1097,7 @@ export function SettingsForm({
         <FollowUpSequencesSettings
           initialConfig={followUpSequencesData}
           whatsappTemplates={initialData.whatsappTemplates || []}
+          externalSuggestions={externalFollowUpSuggestions}
         />
       ) : activeTab === 'quick_replies' ? (
         <QuickRepliesSettings
@@ -2388,6 +2412,64 @@ export function SettingsForm({
             </div>
             )}
 
+        {/* Coexistencia Móvil (Asesor respondiendo desde WhatsApp / Instagram en celular) */}
+        <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-4 sm:p-5 space-y-3 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50 shrink-0">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Coexistencia cuando el asesor responde desde el teléfono móvil
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                  Al detectar una respuesta humana desde WhatsApp o Instagram móvil, Synqo limpia &quot;Por responder&quot; y pausa temporalmente la IA para no interrumpir al asesor.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={mobileCoexistence.enabled}
+                  onChange={(e) =>
+                    setMobileCoexistence((prev) => ({ ...prev, enabled: e.target.checked }))
+                  }
+                  className="w-4 h-4 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                />
+                <span>Auto-retomar IA</span>
+              </label>
+
+              {mobileCoexistence.enabled && (
+                <select
+                  value={mobileCoexistence.autoResumeHours}
+                  onChange={(e) =>
+                    setMobileCoexistence((prev) => ({
+                      ...prev,
+                      autoResumeHours: Number(e.target.value) || 2,
+                    }))
+                  }
+                  className="text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white font-semibold"
+                >
+                  <option value={1}>Después de 1 hora</option>
+                  <option value={2}>Después de 2 horas (Recomendado)</option>
+                  <option value={4}>Después de 4 horas</option>
+                  <option value={8}>Después de 8 horas</option>
+                  <option value={12}>Después de 12 horas</option>
+                </select>
+              )}
+            </div>
+          </div>
+
+          {!mobileCoexistence.enabled && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/40 rounded-xl px-3 py-2">
+              Con el auto-retorno desactivado, la IA permanecerá en pausa definitiva en ese chat hasta que alguien la reactive manualmente desde el Inbox.
+            </p>
+          )}
+        </div>
+
         {/* Asistente Visual de IA Multinicho & Vacíos de Conocimiento */}
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#232A3B] pb-3">
@@ -2416,18 +2498,23 @@ export function SettingsForm({
           </div>
 
           {/* Wizard Visual Guiado */}
-          <StructuredPromptWizard
-            initialPrompt={systemPrompt}
-            initialStructuredData={structuredPromptData}
-            companyName={initialData.orgName || 'Mi Empresa'}
-            onPromptCompiled={(compiledXml, newStructuredData) => {
-              setSystemPrompt(compiledXml);
-              setStructuredPromptData(newStructuredData);
-            }}
-          />
+          <div id="ai-prompt-section">
+            <StructuredPromptWizard
+              initialPrompt={systemPrompt}
+              initialStructuredData={structuredPromptData}
+              companyName={initialData.orgName || 'Mi Empresa'}
+              externalPromptText={assistantSyncState.promptText}
+              externalSyncNonce={assistantSyncState.nonce}
+              highlightedSection={assistantSyncState.highlightedSection}
+              onPromptCompiled={(compiledXml, newStructuredData) => {
+                setSystemPrompt(compiledXml);
+                setStructuredPromptData(newStructuredData);
+              }}
+            />
+          </div>
 
           {/* Bucle de Aprendizaje: Vacíos de Conocimiento */}
-          <div className="pt-2">
+          <div id="knowledge-gaps-section" className="pt-2">
             <KnowledgeGapsList
               initialGaps={initialData.initialKnowledgeGaps || []}
               onPromptUpdated={(newPrompt, newStructuredData) => {
@@ -2435,6 +2522,11 @@ export function SettingsForm({
                 if (newStructuredData) {
                   setStructuredPromptData(newStructuredData);
                 }
+                setAssistantSyncState((prev) => ({
+                  nonce: prev.nonce + 1,
+                  promptText: newPrompt,
+                  highlightedSection: 'Preguntas frecuentes',
+                }));
               }}
             />
           </div>
@@ -2445,6 +2537,10 @@ export function SettingsForm({
             onClose={() => setIsSandboxOpen(false)}
             temporaryPrompt={systemPrompt}
             botName={initialData.orgName || 'Synqo AI'}
+            suggestedQuestions={sandboxSuggestedQuestions}
+            onMessageSimulated={() => {
+              markAssistantSandboxTestedAction().catch(() => {});
+            }}
           />
         </div>
 
@@ -2675,6 +2771,57 @@ export function SettingsForm({
       )}
       </>
       )}
+
+      <PromptAssistantPanel
+        currentPrompt={systemPrompt}
+        onApplyPromptFromAssistant={(newPrompt, highlightedSection, newStructuredData) => {
+          setActiveTab('integrations');
+          if (newStructuredData) {
+            setStructuredPromptData(newStructuredData);
+          }
+          setAssistantSyncState((prev) => ({
+            nonce: prev.nonce + 1,
+            promptText: newPrompt,
+            highlightedSection: highlightedSection ?? null,
+          }));
+        }}
+        onOpenSandboxWithQuestions={(questions) => {
+          setSandboxSuggestedQuestions(questions);
+          setActiveTab('integrations');
+          setIsSandboxOpen(true);
+        }}
+        onPrefillFollowUps={(suggestions) => {
+          setExternalFollowUpSuggestions((prev) => ({
+            nonce: (prev?.nonce || 0) + 1,
+            suggestions,
+          }));
+          setActiveTab('follow_ups');
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+        onNavigateSettingTarget={(target) => {
+          if (target === 'follow_up') {
+            setActiveTab('follow_ups');
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else if (target === 'payments') {
+            setActiveTab('payments');
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else {
+            setActiveTab('integrations');
+            setTimeout(() => {
+              const targetId =
+                target === 'gaps'
+                  ? 'knowledge-gaps-section'
+                  : target === 'gallery'
+                  ? 'product-gallery-section'
+                  : 'ai-prompt-section';
+              const el = document.getElementById(targetId);
+              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 150);
+          }
+        }}
+      />
     </div>
   );
 }

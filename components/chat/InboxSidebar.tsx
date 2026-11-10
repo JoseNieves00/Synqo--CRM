@@ -115,17 +115,18 @@ export function InboxSidebar({
     count: displayedContacts.length,
     getScrollElement: () => listContainerRef.current,
     estimateSize: () => 74,
+    getItemKey: (index) => displayedContacts[index]?.id ?? index,
     overscan: 6,
   });
 
-  // Mantener el contacto seleccionado visible al navegar con J/K o hacer clic
+  // Mantener el contacto seleccionado visible al navegar con J/K o hacer clic (sin secuestrar el scroll en reordenamientos en vivo)
   useEffect(() => {
     if (!selectedContactId) return;
     const idx = displayedContacts.findIndex((c) => c.id === selectedContactId);
     if (idx >= 0) {
       rowVirtualizer.scrollToIndex(idx, { align: 'auto' });
     }
-  }, [selectedContactId, displayedContacts]);
+  }, [selectedContactId, activeView]);
 
   // Mapa de nombres de asesores
   const memberMap = useMemo(() => {
@@ -309,7 +310,9 @@ export function InboxSidebar({
               onClick={handleSelectAll}
               className="underline text-[11px] font-normal cursor-pointer"
             >
-              {selectedIds.size === contacts.length ? 'Deseleccionar' : 'Todos'}
+              {selectedIds.size === displayedContacts.length && displayedContacts.length > 0
+                ? 'Deseleccionar'
+                : 'Todos'}
             </button>
           </div>
 

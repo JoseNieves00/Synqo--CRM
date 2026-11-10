@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { verifyPassword } from '@/lib/security/encryption';
 import { MessagingService } from './messaging.service';
+import { PlatformAlertService } from './platform-alert.service';
 import {
   computeTokenStatus,
   formatManagerMenuMessage,
@@ -277,6 +278,18 @@ export class ManagerWhatsAppService {
     senderPhone: string;
     messageText: string;
   }): Promise<boolean> {
+    const trimmedCmd = (params.messageText || '').trim();
+    if (params.advisor.is_super_admin && /^#(plataforma|resumen)\b/i.test(trimmedCmd)) {
+      const digest = await PlatformAlertService.generateLivePlatformDigest();
+      await MessagingService.sendTextMessage({
+        organization: params.organization,
+        to: params.senderPhone,
+        body: digest,
+        simulateTyping: false,
+      });
+      return true;
+    }
+
     const { data: freshOrg } = await (supabaseAdmin.from('organizations') as any)
       .select(
         'id, name, ai_tokens_used, ai_tokens_limit, ai_tokens_google_used, ai_tokens_openai_used, appointment_settings'

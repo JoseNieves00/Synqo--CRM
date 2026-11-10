@@ -9,6 +9,8 @@ import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
 import { encryptSecret } from '@/lib/security/encryption';
 import { normalizeAlertThresholds, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
+import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
+import { getAssistantDailyUsage, normalizeAssistantState } from '@/lib/ai/prompt-assistant/state';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -170,6 +172,13 @@ export interface OrganizationRow {
   specialist_label?: string | null;
   room_label?: string | null;
   industry_preset?: string | null;
+  prompt_assistant_stats?: {
+    tokensToday: number;
+    callsToday: number;
+    dailyCap: number;
+    capExceededToday: boolean;
+    totalTokens: number;
+  };
 }
 
 /**
@@ -205,6 +214,9 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       Boolean(p.is_super_admin) || (p.email && p.email.toLowerCase() === superAdminEmail.toLowerCase())
     );
     const bStatus = calculateBillingStatus({ ...org, is_exempt: isSuperAdminOrg });
+
+    const assistantState = normalizeAssistantState(org?.structured_prompt_data?.assistant);
+    const assistantDaily = getAssistantDailyUsage(assistantState, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
 
     return {
       id: org.id,
@@ -248,6 +260,13 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       specialist_label: org.specialist_label || null,
       room_label: org.room_label || null,
       industry_preset: org.industry_preset || null,
+      prompt_assistant_stats: {
+        tokensToday: assistantDaily.tokensToday,
+        callsToday: assistantDaily.callsToday,
+        dailyCap: assistantDaily.cap,
+        capExceededToday: assistantDaily.limitReached,
+        totalTokens: assistantState.totalAssistantTokens,
+      },
       enabled_modules: (org.enabled_modules as EnabledModules) || {
         native_calendar: true,
         physical_rooms: false,

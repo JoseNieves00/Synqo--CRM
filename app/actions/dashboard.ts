@@ -194,8 +194,9 @@ export async function getDashboardMetrics(
       .eq('organization_id', orgId)
       .is('deleted_at', null),
     (supabaseAdmin.from('ai_runs') as any)
-      .select('id, contact_id, provider, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, created_at')
+      .select('id, contact_id, channel, provider, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, created_at')
       .eq('organization_id', orgId)
+      .neq('channel', 'prompt_assistant')
       .gte('created_at', sinceIso)
       .order('created_at', { ascending: false })
       .limit(5000),

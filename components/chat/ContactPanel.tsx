@@ -111,7 +111,30 @@ export function ContactPanel({
     setIsUpdatingStage(true);
     try {
       await updateLeadStage(contact.id, newStage as any);
-      onContactUpdate?.({ pipeline_stage: newStage });
+      const nextTemp =
+        newStage === 'ganado'
+          ? 'hot'
+          : newStage === 'perdido'
+          ? 'cold'
+          : undefined;
+      onContactUpdate?.({
+        pipeline_stage: newStage,
+        ...(newStage === 'ganado' || newStage === 'perdido'
+          ? {
+              conversation_status: 'closed',
+              is_ai_active: false,
+              waiting_since: null,
+            }
+          : {}),
+        ...(nextTemp
+          ? {
+              custom_fields: {
+                ...(contact.custom_fields || {}),
+                lead_temperature: nextTemp,
+              },
+            }
+          : {}),
+      });
     } catch (err) {
       console.error('[ContactPanel] Error actualizando etapa:', err);
     } finally {

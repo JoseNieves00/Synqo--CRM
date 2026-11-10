@@ -28,6 +28,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
+import { estimatePromptTokens } from '@/lib/ai/prompt-assistant/versions';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { saveProductGallery } from '@/app/actions/settings';
@@ -39,6 +40,9 @@ interface StructuredPromptWizardProps {
   initialStructuredData?: any;
   companyName?: string;
   onPromptCompiled: (compiledPrompt: string, structuredData?: any) => void;
+  externalPromptText?: string | null;
+  externalSyncNonce?: number;
+  highlightedSection?: string | null;
 }
 
 interface TemplatePreset {
@@ -56,11 +60,15 @@ export function StructuredPromptWizard({
   initialStructuredData,
   companyName = 'Mi Empresa',
   onPromptCompiled,
+  externalPromptText,
+  externalSyncNonce = 0,
+  highlightedSection,
 }: StructuredPromptWizardProps) {
   // Inicializar limpiando cualquier residuo previo de etiquetas XML y URLs técnicas
   const [textPrompt, setTextPrompt] = useState<string>(() => {
     return stripPhotoUrlsFromText(stripXmlToCleanText(initialPrompt)) || '';
   });
+  const lastAppliedSyncNonceRef = useRef<number>(0);
 
   // Inicializar la galería interna: si ya existe en structuredData se usa, de lo contrario se extraen del prompt inicial
   const [gallery, setGallery] = useState<GalleryPhotoItem[]>(() => {
@@ -135,6 +143,22 @@ export function StructuredPromptWizard({
     setTextPrompt(newText);
     compileAndPropagate(newText, gallery);
   };
+
+  useEffect(() => {
+    if (
+      externalSyncNonce > 0 &&
+      externalSyncNonce !== lastAppliedSyncNonceRef.current &&
+      typeof externalPromptText === 'string'
+    ) {
+      lastAppliedSyncNonceRef.current = externalSyncNonce;
+      const clean = stripPhotoUrlsFromText(stripXmlToCleanText(externalPromptText)) || '';
+      setTextPrompt(clean);
+      compileAndPropagate(clean, gallery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalSyncNonce, externalPromptText]);
+
+  const estimatedPromptTokens = estimatePromptTokens(textPrompt);
 
   const handleOpenAddModal = () => {
     setPhotoName('');
@@ -336,7 +360,7 @@ export function StructuredPromptWizard({
       return;
     }
     if (!photoName.trim()) {
-      setPhotoUploadError('Ingresa el nombre o modelo del producto (ej: Cocina Mediana, Casita de Madera).');
+      setPhotoUploadError('Ingresa el nombre del producto o servicio (ej: Plan Premium, Modelo Estándar).');
       return;
     }
 
@@ -610,7 +634,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
       </div>
 
       {/* SECCIÓN INTERNA: Galería & Catálogo Visual de Fotos de Productos */}
-      <div className="p-4 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-3.5 shadow-xs">
+      <div id="product-gallery-section" className="p-4 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl space-y-3.5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-[#1E2433] pb-3">
           <div>
             <div className="flex items-center gap-2">
@@ -819,19 +843,46 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
         </div>
       </div>
 
+      {highlightedSection && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span>Sección actualizada por el asistente: <strong>## {highlightedSection}</strong></span>
+        </div>
+      )}
+
       {/* Editor de Texto Libre Principal (100% Limpio, sin URLs técnicas) */}
       <textarea
         ref={textareaRef}
         rows={18}
         value={textPrompt}
         onChange={(e) => handleTextChange(e.target.value)}
-        placeholder={`Escribe aquí las instrucciones de tu negocio con total naturalidad...\n\nEjemplo:\n# MI EMPRESA: ${companyName}\nUbicación: Valledupar, Colombia.\n\n# PRODUCTOS Y PRECIOS:\n- Cocina mediana ($410.000): Incluye personalización con stickers.\n- Cocina pequeña ($360.000): Diseño compacto con accesorios.\n\n# MÉTODOS DE PAGO:\n- Transferencia Bancolombia, Nequi y Daviplata.\n- Envíos a todo el país.`}
-        className="w-full text-xs font-mono leading-relaxed p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50/70 dark:bg-[#090A0F] focus:bg-white dark:focus:bg-[#090A0F] text-slate-800 dark:text-slate-200 shadow-inner resize-y transition-colors"
+        placeholder={`Escribe aquí las instrucciones de tu negocio con total naturalidad...\n\nEjemplo:\n## Empresa\n${companyName} — Ciudad y cobertura.\n\n## Catálogo\n- Producto o servicio principal ($Precio): detalles clave.\n\n## Pagos\n- Transferencia, tarjeta o efectivo.\n- Envíos o modalidad de entrega.`}
+        className={`w-full text-xs font-mono leading-relaxed p-4 rounded-xl border ${
+          highlightedSection
+            ? 'border-emerald-400 dark:border-emerald-500/70 ring-2 ring-emerald-400/20'
+            : 'border-slate-200 dark:border-[#232A3B]'
+        } focus:outline-none focus:border-[#0052FF] dark:focus:border-[#00D2FF] bg-slate-50/70 dark:bg-[#090A0F] focus:bg-white dark:focus:bg-[#090A0F] text-slate-800 dark:text-slate-200 shadow-inner resize-y transition-colors`}
       />
 
-      {/* Pie del Editor con Conteo */}
-      <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-        <span>{textPrompt.length} caracteres redactados</span>
+      {/* Pie del Editor con Conteo y Tamaño del Prompt */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 font-mono">
+        <div className="flex items-center gap-3">
+          <span>{textPrompt.length} caracteres redactados</span>
+          {textPrompt.length > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-full font-sans font-semibold text-[10px] ${
+                estimatedPromptTokens <= 1800
+                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30'
+                  : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30'
+              }`}
+              title="Los prompts concisos hacen que el bot responda más rápido y con mayor precisión."
+            >
+              {estimatedPromptTokens <= 1800
+                ? `Prompt ágil (~${estimatedPromptTokens} tok/msg)`
+                : `Prompt extenso (~${estimatedPromptTokens} tok/msg · ideal ≤ 1.800)`}
+            </span>
+          )}
+        </div>
         <span className="text-emerald-600 dark:text-emerald-400 font-medium font-sans">
           ✓ Formato 100% limpio sin URLs técnicas ni etiquetas XML
         </span>

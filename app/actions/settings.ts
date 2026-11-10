@@ -13,7 +13,8 @@ import { revalidatePath } from 'next/cache';
 import { WhatsAppService } from '@/services/whatsapp.service';
 import { GalleryPhotoItem } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
-import { compileStructuredPrompt } from '@/lib/ai/prompt-compiler';
+import { pushPromptVersion, splitGalleryTail } from '@/lib/ai/prompt-assistant/versions';
+import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
 import {
   type FollowUpSettingsConfig,
   normalizeFollowUpSettings,
@@ -29,6 +30,10 @@ interface UpdateSettingsInput {
   handoffMode?: string;
   afterHoursMessage?: string;
   businessHours?: any;
+  mobileCoexistence?: {
+    enabled: boolean;
+    autoResumeHours: number;
+  };
 }
 
 type OrgUpdate = Database['public']['Tables']['organizations']['Update'];
@@ -75,12 +80,50 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
     }
   }
 
+  const { data: currentOrg } = await (supabaseAdmin.from('organizations') as any)
+    .select('system_prompt, structured_prompt_data, appointment_settings')
+    .eq('id', orgId)
+    .maybeSingle();
+
+  const existingStructured =
+    currentOrg?.structured_prompt_data && typeof currentOrg.structured_prompt_data === 'object'
+      ? currentOrg.structured_prompt_data
+      : {};
+
   if (input.systemPrompt !== undefined) {
     updatePayload.system_prompt = input.systemPrompt.trim();
   }
 
-  if (input.structuredPromptData !== undefined) {
-    updatePayload.structured_prompt_data = input.structuredPromptData;
+  if (input.structuredPromptData !== undefined || input.systemPrompt !== undefined) {
+    const incomingStructured =
+      input.structuredPromptData && typeof input.structuredPromptData === 'object'
+        ? input.structuredPromptData
+        : {};
+
+    let nextVersions = existingStructured.prompt_versions;
+    if (input.systemPrompt !== undefined && currentOrg?.system_prompt) {
+      const prevBody = splitGalleryTail(currentOrg.system_prompt).body.trim();
+      const nextBody = splitGalleryTail(input.systemPrompt).body.trim();
+      if (prevBody && prevBody !== nextBody) {
+        nextVersions = pushPromptVersion(
+          existingStructured.prompt_versions,
+          currentOrg.system_prompt,
+          'Guardado en Configuración'
+        );
+      }
+    }
+
+    // Merge atómico en servidor: nunca perder estado del asistente (solo lo escriben las acciones del Asistente), versiones ni galería
+    updatePayload.structured_prompt_data = {
+      ...existingStructured,
+      ...incomingStructured,
+      ...(existingStructured.assistant
+        ? { assistant: existingStructured.assistant }
+        : incomingStructured.assistant
+        ? { assistant: incomingStructured.assistant }
+        : {}),
+      ...(nextVersions ? { prompt_versions: nextVersions } : {}),
+    };
   }
 
   // Regla de Negocio Estricta: El cliente / inquilino no debe modificar su nicho de negocio.
@@ -99,6 +142,24 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
 
   if (input.businessHours !== undefined) {
     updatePayload.business_hours = input.businessHours;
+  }
+
+  if (input.mobileCoexistence !== undefined) {
+    const existingAppSettings =
+      currentOrg?.appointment_settings && typeof currentOrg.appointment_settings === 'object'
+        ? currentOrg.appointment_settings
+        : {};
+    const parsedHours = Number(input.mobileCoexistence.autoResumeHours ?? 2);
+    updatePayload.appointment_settings = {
+      ...existingAppSettings,
+      mobile_coexistence: {
+        enabled: Boolean(input.mobileCoexistence.enabled),
+        autoResumeHours:
+          Number.isFinite(parsedHours) && parsedHours >= 1 && parsedHours <= 24
+            ? Math.round(parsedHours)
+            : 2,
+      },
+    };
   }
 
   const { error: updateError } = await supabaseAdmin
@@ -830,9 +891,7 @@ export async function simulateBotMessage(params: {
 
   const activePrompt =
     params.temporaryPrompt ||
-    (org.structured_prompt_data
-      ? compileStructuredPrompt(org.structured_prompt_data)
-      : org.system_prompt || 'Eres el asesor comercial inteligente de Synqo CRM.');
+    resolveOrganizationSystemPrompt(org, 'Eres el asesor comercial inteligente de Synqo CRM.');
 
   const result = await OpenAIService.simulateSandboxMessage({
     systemPrompt: activePrompt,
@@ -915,7 +974,11 @@ export async function saveFollowUpSequences(
 /**
  * T2: Genera borradores sugeridos de seguimiento desde el prompt de la empresa (1 llamada utilitaria).
  */
-export async function suggestFollowUpSequences() {
+export async function suggestFollowUpSequences(hints?: {
+  argumentsHint?: string;
+  toneHint?: string;
+  frequencyHint?: string;
+}) {
   const supabase = createServerSupabaseClient();
   const {
     data: { user },
@@ -940,7 +1003,7 @@ export async function suggestFollowUpSequences() {
 
   if (!org) throw new Error('Organización no encontrada');
 
-  const suggestions = await OpenAIService.generateFollowUpSuggestions(org);
+  const suggestions = await OpenAIService.generateFollowUpSuggestions(org, hints);
   return { success: true, suggestions };
 }
 

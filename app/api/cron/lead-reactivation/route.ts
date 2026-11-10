@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { LeadReactivationService } from '@/services/reactivation.service';
 import { OpenAIService } from '@/services/openai.service';
+import { PlatformAlertService } from '@/services/platform-alert.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -57,6 +58,9 @@ async function handleCron(request: NextRequest) {
     const autoClassifyResult = await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 35);
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
+    const superAdminDigestSent = !orgId
+      ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
+      : false;
 
     return NextResponse.json({
       success: true,
@@ -64,6 +68,7 @@ async function handleCron(request: NextRequest) {
       ...reactivationResult,
       autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
+      superAdminDigestSent,
     });
   } catch (err: any) {
     console.error('[CRON LEAD REACTIVATION ERROR]', err);

@@ -207,6 +207,40 @@ export async function POST(request: NextRequest) {
     const refThumb = (referral?.image_url || referral?.thumbnail_url || referral?.media_url || '').trim();
     const refSourceUrl = (referral?.source_url || '').trim();
 
+    const resolveMetaAudio = async (audioId?: string): Promise<string> => {
+      if (!audioId || !organization.whatsapp_access_token) return '🎤 [Nota de voz inaudible]';
+      try {
+        const decryptedToken = decryptSecret(organization.whatsapp_access_token);
+        const media = await WhatsAppService.downloadMedia(audioId, decryptedToken);
+
+        let audioUrl: string | null = null;
+        try {
+          audioUrl = await uploadIncomingChatMedia({
+            buffer: media.buffer,
+            mimeType: media.mimeType || 'audio/ogg; codecs=opus',
+            organizationId: organization.id,
+            contactId: leadPhone || 'incoming',
+          });
+        } catch (uploadErr) {
+          console.warn('[WHATSAPP AUDIO UPLOAD WARN]', uploadErr);
+        }
+
+        let transcription = '';
+        try {
+          transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType);
+        } catch (transcribeErr) {
+          console.warn('[WHATSAPP AUDIO TRANSCRIBE WARN]', transcribeErr);
+        }
+
+        if (audioUrl) return formatAudioMessageContent(audioUrl, transcription || undefined);
+        if (transcription) return `🎤 [Nota de voz]: "${transcription}"`;
+        return '🎤 [Nota de voz inaudible]';
+      } catch (audioErr: any) {
+        console.error('[WHATSAPP AUDIO TRANSCRIPTION ERROR]', audioErr);
+        return '🎤 [Nota de voz no reproducible]';
+      }
+    };
+
     if (msgType === 'text') {
       const bodyText = (incomingMessage.text?.body || '').trim();
       if (referral || /https?:\/\//i.test(bodyText)) {
@@ -271,45 +305,7 @@ export async function POST(request: NextRequest) {
         ? `📍 [Ubicación compartida: lat ${loc.latitude}, lng ${loc.longitude}${loc.name ? ` (${loc.name})` : ''}]`
         : '📍 [Ubicación compartida]';
     } else if (msgType === 'audio') {
-      const audioId = incomingMessage.audio?.id;
-      if (audioId && organization.whatsapp_access_token) {
-        try {
-          const decryptedToken = decryptSecret(organization.whatsapp_access_token);
-          const media = await WhatsAppService.downloadMedia(audioId, decryptedToken);
-
-          let audioUrl: string | null = null;
-          try {
-            audioUrl = await uploadIncomingChatMedia({
-              buffer: media.buffer,
-              mimeType: media.mimeType || 'audio/ogg; codecs=opus',
-              organizationId: organization.id,
-              contactId: leadPhone || 'incoming',
-            });
-          } catch (uploadErr) {
-            console.warn('[WHATSAPP AUDIO UPLOAD WARN]', uploadErr);
-          }
-
-          let transcription = '';
-          try {
-            transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType);
-          } catch (transcribeErr) {
-            console.warn('[WHATSAPP AUDIO TRANSCRIBE WARN]', transcribeErr);
-          }
-
-          if (audioUrl) {
-            rawContent = formatAudioMessageContent(audioUrl, transcription || undefined);
-          } else if (transcription) {
-            rawContent = `🎤 [Nota de voz]: "${transcription}"`;
-          } else {
-            rawContent = '🎤 [Nota de voz inaudible]';
-          }
-        } catch (audioErr: any) {
-          console.error('[WHATSAPP AUDIO TRANSCRIPTION ERROR]', audioErr);
-          rawContent = '🎤 [Nota de voz no reproducible]';
-        }
-      } else {
-        rawContent = '🎤 [Nota de voz inaudible]';
-      }
+      rawContent = await resolveMetaAudio(incomingMessage.audio?.id);
     } else if (msgType === 'video') {
       const videoId = incomingMessage.video?.id;
       const caption = incomingMessage.video?.caption;
@@ -368,6 +364,7 @@ export async function POST(request: NextRequest) {
         if (extraMsg && extraMsg.id !== metaMessageId) {
           let extraContent = '';
           if (extraMsg.type === 'text') extraContent = extraMsg.text?.body || '';
+          else if (extraMsg.type === 'audio') extraContent = await resolveMetaAudio(extraMsg.audio?.id);
           else if (extraMsg.type === 'image') extraContent = extraMsg.image?.caption ? `📷 [Foto]: ${extraMsg.image.caption}` : '📷 [Foto recibida]';
           else if (extraMsg.type === 'document') extraContent = `📄 [Documento: ${extraMsg.document?.filename || 'Archivo'}]`;
           else if (extraMsg.type === 'video') extraContent = '📹 [Video recibido]';

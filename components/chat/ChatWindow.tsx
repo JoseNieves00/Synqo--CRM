@@ -69,6 +69,7 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
+  Smartphone,
 } from 'lucide-react';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { PipelineStage } from '@/lib/supabase/types';
@@ -111,6 +112,7 @@ interface ChatWindowProps {
     last_message?: any;
     last_message_sender?: string | null;
     last_message_preview?: string | null;
+    ai_snooze_until?: string | null;
   };
   messages: MessageItem[];
   isLoadingMessages?: boolean;
@@ -324,7 +326,27 @@ export function ChatWindow({
     setShowSnoozeMenu(false);
     try {
       await snoozeContactAi(contact.id, duration);
-      onContactUpdate?.({ is_ai_active: false });
+      let resumeIso: string;
+      if (duration === 30) resumeIso = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      else if (duration === 120) resumeIso = new Date(Date.now() + 120 * 60 * 1000).toISOString();
+      else {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(8, 0, 0, 0);
+        resumeIso = d.toISOString();
+      }
+      onContactUpdate?.({
+        is_ai_active: false,
+        ai_snooze_until: resumeIso,
+        conversation_status: 'snoozed',
+        waiting_since: null,
+        custom_fields: {
+          ...(contact.custom_fields || {}),
+          ai_snooze_until: resumeIso,
+          manual_ai_paused: false,
+          unattended_handoff: false,
+        },
+      });
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error al pausar la IA');
     }
@@ -684,7 +706,21 @@ export function ChatWindow({
   const handleStageChange = async (newStage: PipelineStage) => {
     setIsUpdatingStage(true);
     try {
-      onContactUpdate?.({ pipeline_stage: newStage });
+      const nextTemp =
+        newStage === 'ganado'
+          ? 'hot'
+          : newStage === 'perdido'
+          ? 'cold'
+          : undefined;
+      onContactUpdate?.({
+        pipeline_stage: newStage,
+        ...(newStage === 'ganado' || newStage === 'perdido'
+          ? { conversation_status: 'closed', is_ai_active: false, waiting_since: null }
+          : {}),
+        ...(nextTemp
+          ? { custom_fields: { ...(contact.custom_fields || {}), lead_temperature: nextTemp } }
+          : {}),
+      });
       await updateLeadStage(contact.id, newStage);
     } catch (err: any) {
       console.error('[UPDATE STAGE ERROR]', err);
@@ -701,7 +737,13 @@ export function ChatWindow({
     try {
       // 1. Actualizar fase en BD
       await updateLeadStage(contact.id, 'ganado');
-      onContactUpdate?.({ pipeline_stage: 'ganado' });
+      onContactUpdate?.({
+        pipeline_stage: 'ganado',
+        conversation_status: 'closed',
+        is_ai_active: false,
+        waiting_since: null,
+        custom_fields: { ...(contact.custom_fields || {}), lead_temperature: 'hot' },
+      });
 
       // 2. Enviar mensaje de confirmación amigable al cliente
       const confirmationText = '¡Excelente! Hemos verificado tu comprobante de pago exitosamente. 🎉 Tu orden ha sido confirmada y pasará a despacho. ¡Muchas gracias por tu compra!';
@@ -1058,7 +1100,20 @@ export function ChatWindow({
   };
 
   const handleToggleAi = async (newState: boolean) => {
-    onContactUpdate?.({ is_ai_active: newState });
+    const nextCf = { ...(contact.custom_fields || {}) };
+    if (newState) {
+      nextCf.manual_ai_paused = false;
+      delete nextCf.ai_snooze_until;
+      delete nextCf.mobile_takeover_at;
+      delete nextCf.mobile_takeover_source;
+    } else {
+      nextCf.manual_ai_paused = true;
+    }
+    onContactUpdate?.({
+      is_ai_active: newState,
+      ...(newState ? { ai_snooze_until: null } : {}),
+      custom_fields: nextCf,
+    });
     await toggleContactAi(contact.id, newState);
   };
 
@@ -1125,6 +1180,83 @@ export function ChatWindow({
           onDeleteChat={() => setShowDeleteModal(true)}
           onBack={onBack}
         />
+
+        {/* Banner de Coexistencia Móvil (Asesor escribió desde WhatsApp / Instagram en el celular) */}
+        {!contact.is_ai_active && contact.custom_fields?.mobile_takeover_at && !isReadOnly && (
+          <div className="px-3 sm:px-4 py-2 bg-sky-50/90 dark:bg-sky-950/30 border-b border-sky-200 dark:border-sky-800/50 flex flex-wrap items-center justify-between gap-2 text-[11px] text-sky-900 dark:text-sky-100 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <Smartphone className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
+              <span className="truncate">
+                Atendido desde{' '}
+                <strong>
+                  {contact.custom_fields?.mobile_takeover_source === 'mobile_instagram'
+                    ? 'Instagram móvil'
+                    : 'WhatsApp móvil'}
+                </strong>
+                {(() => {
+                  const resumeIso = contact.ai_snooze_until || contact.custom_fields?.ai_snooze_until;
+                  if (contact.custom_fields?.manual_ai_paused) return ' · IA en pausa manual';
+                  if (resumeIso && !Number.isNaN(new Date(resumeIso).getTime())) {
+                    return ` · IA retoma sola a las ${new Date(resumeIso).toLocaleTimeString('es-CO', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`;
+                  }
+                  return ' · IA en pausa temporal';
+                })()}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleAi(true)}
+              className="px-2.5 py-1 rounded-lg bg-[#0052FF] hover:bg-[#0043D4] text-white font-semibold text-[11px] flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs"
+            >
+              <Bot className="w-3 h-3" />
+              <span>Retomar IA</span>
+            </button>
+          </div>
+        )}
+
+        {/* Barra de acciones táctiles rápidas en navegador móvil (< md) */}
+        {!isReadOnly && (
+          <div className="flex md:hidden items-center gap-1.5 px-3 py-1.5 bg-slate-50/90 dark:bg-[#0E121B] border-b border-slate-200 dark:border-[#232A3B] overflow-x-auto text-[11px] shrink-0">
+            <button
+              type="button"
+              onClick={() => handleToggleAi(!contact.is_ai_active)}
+              className={`px-2.5 py-1 rounded-full font-semibold shrink-0 flex items-center gap-1 border cursor-pointer ${
+                contact.is_ai_active
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-700/40 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-white dark:bg-[#131722] border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <Bot className="w-3 h-3" />
+              <span>{contact.is_ai_active ? 'Pausar IA' : 'Activar IA'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSnoozeAi(120)}
+              className="px-2.5 py-1 rounded-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-200 font-medium shrink-0 flex items-center gap-1 cursor-pointer"
+            >
+              <Clock className="w-3 h-3" />
+              <span>Pausar 2h</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsReminderModalOpen(true)}
+              className="px-2.5 py-1 rounded-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-200 font-medium shrink-0 cursor-pointer"
+            >
+              ⏰ Recordar
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRightPanelOpen((prev) => !prev)}
+              className="px-2.5 py-1 rounded-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-200 font-medium shrink-0 flex items-center gap-1 cursor-pointer"
+            >
+              <User className="w-3 h-3" />
+              <span>Ficha</span>
+            </button>
+          </div>
+        )}
 
         {/* Barra de Búsqueda Dentro del Chat (WhatsApp Web Parity) */}
         {isSearchOpen && (

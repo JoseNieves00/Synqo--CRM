@@ -448,12 +448,28 @@ export class AppointmentService {
       throw new Error(`Error al registrar cita: ${error.message}`);
     }
 
-    // Si tiene contactId asociado, actualizar pipeline_stage a 'cita_agendada'
+    // Si tiene contactId asociado, actualizar pipeline_stage a 'cita_agendada' y temperatura a 'hot'
     if (contactId) {
-      await supabaseAdmin
-        .from('contacts')
-        .update({ pipeline_stage: 'cita_agendada' })
-        .eq('id', contactId);
+      try {
+        const { data: cRow } = await (supabaseAdmin.from('contacts') as any)
+          .select('custom_fields')
+          .eq('id', contactId)
+          .maybeSingle();
+        const nextCf: Record<string, any> = { ...((cRow?.custom_fields as Record<string, any>) || {}), lead_temperature: 'hot' };
+        delete nextCf.temperature;
+        await (supabaseAdmin.from('contacts') as any)
+          .update({
+            pipeline_stage: 'cita_agendada',
+            custom_fields: nextCf,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', contactId);
+      } catch {
+        await supabaseAdmin
+          .from('contacts')
+          .update({ pipeline_stage: 'cita_agendada' })
+          .eq('id', contactId);
+      }
     }
 
     // 🔔 NOTIFICACIÓN INTERNA AL COLABORADOR (Cero Teléfono Roto)
@@ -570,6 +586,26 @@ export class AppointmentService {
 
     if (updateErr) {
       throw new Error(`Error al cancelar cita: ${updateErr.message}`);
+    }
+
+    if (appt.contact_id) {
+      try {
+        const { data: cRow } = await (supabaseAdmin.from('contacts') as any)
+          .select('pipeline_stage, custom_fields')
+          .eq('id', appt.contact_id)
+          .maybeSingle();
+        if (cRow && cRow.pipeline_stage === 'cita_agendada') {
+          const cf: Record<string, any> = { ...((cRow.custom_fields as Record<string, any>) || {}), lead_temperature: 'qualified_doubt' };
+          delete cf.temperature;
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              pipeline_stage: 'calificado',
+              custom_fields: cf,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', appt.contact_id);
+        }
+      } catch {}
     }
 
     // Notificar al especialista de la liberación del cupo

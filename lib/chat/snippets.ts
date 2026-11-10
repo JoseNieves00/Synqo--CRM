@@ -17,7 +17,7 @@ export const BASE_DEFAULT_SNIPPETS: QuickSnippet[] = [
     id: 'default-cuenta',
     shortcut: '/cuenta',
     label: 'Cuentas Bancarias',
-    text: '¡Hola {primer_nombre}! Nuestros medios de pago oficiales son Nequi, Bancolombia y Daviplata. Por favor envíanos la captura de tu comprobante una vez realizada la transferencia para verificarla con tesorería.',
+    text: '¡Hola {primer_nombre}! Te comparto nuestros medios de pago oficiales. Por favor envíanos la captura de tu comprobante una vez realizada la transferencia para validarla de inmediato.',
   },
   {
     id: 'default-ubicacion',
@@ -41,7 +41,7 @@ export const BASE_DEFAULT_SNIPPETS: QuickSnippet[] = [
     id: 'default-reactivacion',
     shortcut: '/reactivar',
     label: 'Reactivar Lead Frío',
-    text: '¡Hola {primer_nombre}! ¿Cómo estás? Quería saber si alcanzaste a ver los modelos o si te quedó alguna inquietud con las medidas para ayudarte con mucho gusto 😊',
+    text: '¡Hola {primer_nombre}! ¿Cómo estás? Quería confirmar si alcanzaste a revisar la información o si te quedó alguna duda sobre las opciones para ayudarte con mucho gusto 😊',
   },
 ];
 

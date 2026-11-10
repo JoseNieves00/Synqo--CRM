@@ -15,6 +15,7 @@ import {
   type FollowUpSettingsConfig,
   type FollowUpStep,
   interpolateFollowUpText,
+  buildMetaTemplateBodyComponents,
   normalizeFollowUpSettings,
   resolveLeadTemperature,
   resolveProductInterest,
@@ -56,9 +57,19 @@ export class LeadReactivationService {
       const weekdayToIso: Record<string, number> = {
         Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7,
       };
+      const weekdayToKey: Record<string, string> = {
+        Sun: 'sunday', Mon: 'monday', Tue: 'tuesday', Wed: 'wednesday', Thu: 'thursday', Fri: 'friday', Sat: 'saturday',
+      };
       const isoDay = weekdayToIso[weekdayStr] || 1;
 
       if (businessHours?.enabled) {
+        if (businessHours.schedule && businessHours.schedule[weekdayToKey[weekdayStr]]) {
+          const dayCfg = businessHours.schedule[weekdayToKey[weekdayStr]];
+          if (dayCfg?.active === false) return { isAllowed: false };
+          const startStr = dayCfg?.start || businessHours.start || '08:00';
+          const endStr = dayCfg?.end || businessHours.end || '19:00';
+          return { isAllowed: currentHHMM >= startStr && currentHHMM <= endStr };
+        }
         const daysAllowed: number[] = Array.isArray(businessHours.days)
           ? businessHours.days
           : [1, 2, 3, 4, 5, 6];
@@ -134,10 +145,22 @@ export class LeadReactivationService {
    */
   private static async getTodayFollowUpsSentCount(orgId: string, timeZone: string): Promise<number> {
     try {
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      // Ampliar margen -5h para cubrir desfase horario respecto a UTC
-      const windowStart = new Date(startOfDay.getTime() - 6 * 3600 * 1000).toISOString();
+      const now = new Date();
+      const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'America/Bogota' }).format(now);
+      const tzParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timeZone || 'America/Bogota',
+        timeZoneName: 'shortOffset',
+      }).formatToParts(now);
+      const offsetStr = tzParts.find((p) => p.type === 'timeZoneName')?.value || 'GMT-5';
+      const match = offsetStr.match(/GMT([+-]\d{1,2})(?::(\d{2}))?/i);
+      let isoOffset = '-05:00';
+      if (match) {
+        const signH = match[1].startsWith('-') || match[1].startsWith('+') ? match[1][0] : '+';
+        const h = match[1].replace(/[+-]/, '').padStart(2, '0');
+        const m = (match[2] || '00').padStart(2, '0');
+        isoOffset = `${signH}${h}:${m}`;
+      }
+      const windowStart = new Date(`${localDate}T00:00:00${isoOffset}`).toISOString();
 
       const { count } = await (supabaseAdmin.from('messages') as any)
         .select('id', { count: 'exact', head: true })
@@ -200,14 +223,27 @@ export class LeadReactivationService {
     bodyMessage: string;
     imageUrls?: string[];
     metaTemplateName?: string;
+    metaTemplateParams?: string[];
+    metaTemplateLanguage?: string;
     stepLabel: string;
     category?: FollowUpCategory;
     stepIndex?: number;
   }): Promise<{ sent: boolean; skippedReason?: string; error?: string }> {
-    const { org, contact, bodyMessage, imageUrls = [], metaTemplateName, stepLabel, category, stepIndex } = params;
+    const {
+      org,
+      contact,
+      bodyMessage,
+      imageUrls = [],
+      metaTemplateName,
+      metaTemplateParams,
+      metaTemplateLanguage,
+      stepLabel,
+      category,
+      stepIndex,
+    } = params;
     const provider = org.whatsapp_provider || 'meta';
-    const is24hOpen = isWithin24HourWindow(contact.last_interaction_at);
     const custom = (contact.custom_fields as Record<string, any>) || {};
+    const is24hOpen = isWithin24HourWindow(custom.last_lead_message_at || contact.last_interaction_at);
     const targetRecipient = custom.remote_jid || custom.whatsapp_jid || contact.phone;
 
     let metaMessageId: string | null = null;
@@ -217,15 +253,59 @@ export class LeadReactivationService {
       if (!tplToUse) {
         return { sent: false, skippedReason: 'meta_outside_24h_no_template' };
       }
+      const productName = resolveProductInterest(custom, contact.deal_value);
+      const explicitComponents = buildMetaTemplateBodyComponents({
+        templateParams: metaTemplateParams,
+        contactName: contact.name,
+        productName,
+        companyName: org.name,
+      });
+
       try {
         metaMessageId = await MessagingService.sendTemplateMessage({
           organization: org,
           to: contact.phone,
           templateKey: tplToUse,
           templateName: tplToUse,
+          ...(metaTemplateLanguage ? { languageCode: metaTemplateLanguage } : {}),
+          ...(explicitComponents.length > 0 ? { components: explicitComponents } : {}),
         });
       } catch (tplErr: any) {
-        return { sent: false, error: `Fallo plantilla Meta (${tplToUse}) a ${contact.phone}: ${tplErr?.message}` };
+        const msg = String(tplErr?.message || '');
+        const isParamMismatch = /(132000|parameter|parameters|variable|variables)/i.test(msg);
+        if (isParamMismatch && explicitComponents.length === 0) {
+          const fallbackParamPresets: string[][] = [
+            ['{nombre}'],
+            ['{nombre}', '{producto}'],
+            ['{nombre}', '{producto}', '{empresa}'],
+          ];
+          let recovered = false;
+          for (const preset of fallbackParamPresets) {
+            try {
+              const comps = buildMetaTemplateBodyComponents({
+                templateParams: preset,
+                contactName: contact.name,
+                productName,
+                companyName: org.name,
+              });
+              metaMessageId = await MessagingService.sendTemplateMessage({
+                organization: org,
+                to: contact.phone,
+                templateKey: tplToUse,
+                templateName: tplToUse,
+                ...(metaTemplateLanguage ? { languageCode: metaTemplateLanguage } : {}),
+                components: comps,
+              });
+              recovered = true;
+              break;
+            } catch {}
+          }
+          if (!recovered) {
+            return { sent: false, error: `Fallo plantilla Meta (${tplToUse}) a ${contact.phone}: ${msg}` };
+          }
+        } else {
+          return { sent: false, error: `Fallo plantilla Meta (${tplToUse}) a ${contact.phone}: ${msg}` };
+        }
       }
     } else {
       try {
@@ -398,6 +478,36 @@ export class LeadReactivationService {
       const hasEvolution = Boolean(org.evolution_api_url && org.evolution_api_key && org.evolution_instance_name);
       if (!hasMeta && !hasEvolution) continue;
 
+      // Coexistencia móvil y Snooze (Opción A): reactivar IA automáticamente cuando expira ai_snooze_until sin pausa manual definitiva
+      try {
+        const { data: expiredSnoozes } = await (supabaseAdmin.from('contacts') as any)
+          .select('id, custom_fields')
+          .eq('organization_id', org.id)
+          .eq('is_ai_active', false)
+          .neq('conversation_status', 'closed')
+          .not('ai_snooze_until', 'is', null)
+          .lte('ai_snooze_until', nowIso)
+          .limit(50);
+
+        for (const snoozed of expiredSnoozes || []) {
+          const sCf = { ...((snoozed.custom_fields as Record<string, any>) || {}) };
+          if (sCf.manual_ai_paused === true) continue;
+          delete sCf.ai_snooze_until;
+          delete sCf.mobile_takeover_at;
+          delete sCf.mobile_takeover_source;
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              is_ai_active: true,
+              ai_snooze_until: null,
+              custom_fields: sCf,
+              updated_at: nowIso,
+            })
+            .eq('id', snoozed.id);
+        }
+      } catch (resumeErr) {
+        console.warn('[COEXISTENCE AUTO-RESUME WARN]', resumeErr);
+      }
+
       const seqConfig = normalizeFollowUpSettings(org.appointment_settings?.follow_up_sequences);
       const hasCustomSequences = Object.values(seqConfig.sequences).some((s) => s.enabled && s.steps.length > 0);
       const dailyCap = seqConfig.dailyCap || 40;
@@ -492,6 +602,8 @@ export class LeadReactivationService {
             bodyMessage,
             imageUrls: resolvedImageUrls,
             metaTemplateName: step?.metaTemplateName,
+            metaTemplateParams: step?.metaTemplateParams,
+            metaTemplateLanguage: step?.metaTemplateLanguage,
             stepLabel: hasAutonomousContext || !step ? 'Seguimiento Autónomo IA' : 'Seguimiento Agendado',
             category,
             stepIndex: currentStepIdx,
@@ -499,11 +611,24 @@ export class LeadReactivationService {
 
           if (dispatch.skippedReason === 'meta_outside_24h_no_template') {
             result.skippedNoTemplateCount++;
+            const pausedFu = {
+              ...(cf.follow_up || {}),
+              paused: true,
+              pausedReason: 'meta_outside_24h_no_template',
+            };
+            delete pausedFu.nextSendAt;
             await (supabaseAdmin.from('contacts') as any)
               .update({
-                custom_fields: { ...cf, follow_up_last_skipped: 'meta_outside_24h_no_template' },
+                custom_fields: {
+                  ...cf,
+                  follow_up: pausedFu,
+                  follow_up_last_skipped: 'meta_outside_24h_no_template',
+                },
               })
               .eq('id', contact.id);
+            await (supabaseAdmin.from('scheduled_reminders') as any)
+              .update({ status: 'cancelled' })
+              .eq('id', rem.id);
             continue;
           }
 
@@ -612,25 +737,35 @@ export class LeadReactivationService {
           const lastTime = new Date(contact.last_interaction_at).getTime();
           if (isNaN(lastTime)) continue;
 
-          // Modo Secuencias Configuradas
+          // Modo Secuencias Configuradas (con respaldo autónomo si una categoría no tiene pasos)
           if (seqConfig.enabled) {
             const category = this.resolveSequenceCategory(contact, seqConfig);
             if (resolveLeadTemperature(cf) === 'cold' && category !== 'post_order') continue;
             const catConfig = seqConfig.sequences[category];
-            if (!catConfig || !catConfig.enabled || catConfig.steps.length === 0) continue;
+            if (catConfig && catConfig.enabled && catConfig.steps.length > 0) {
+              if (contact.pipeline_stage === 'ganado' && category !== 'post_order') continue;
 
-            if (contact.pipeline_stage === 'ganado' && category !== 'post_order') continue;
+              const stepIndex = Number(cf.follow_up?.currentStepIndex || 0);
+              const step = catConfig.steps[stepIndex];
+              if (!step) continue;
 
-            const stepIndex = Number(cf.follow_up?.currentStepIndex || 0);
-            const step = catConfig.steps[stepIndex];
-            if (!step) continue;
+              const dueTime = cf.follow_up?.nextSendAt
+                ? new Date(cf.follow_up.nextSendAt).getTime()
+                : lastTime + this.stepDelayMs(step);
 
-            const dueTime = cf.follow_up?.nextSendAt
-              ? new Date(cf.follow_up.nextSendAt).getTime()
-              : lastTime + this.stepDelayMs(step);
-
-            if (nowTime >= dueTime) {
-              eligibleQueue.push({ contact, category, stepIndex, step });
+              if (nowTime >= dueTime) {
+                eligibleQueue.push({ contact, category, stepIndex, step });
+              }
+            } else {
+              const autonomousDecision = evaluateAutonomousCadenceSlot({ contact, nowTime });
+              if (autonomousDecision) {
+                eligibleQueue.push({
+                  contact,
+                  category: autonomousDecision.category,
+                  stepIndex: autonomousDecision.attemptIndex,
+                  autonomousDecision,
+                });
+              }
             }
           } else {
             // Modo Autónomo guiado por Prompt (cadencia inteligente por temperatura + ventana Meta 24h + máx 2 toques)
@@ -678,7 +813,8 @@ export class LeadReactivationService {
         result.processedCount++;
 
         const isMetaLocked =
-          (org.whatsapp_provider || 'meta') === 'meta' && !isWithin24HourWindow(contact.last_interaction_at);
+          (org.whatsapp_provider || 'meta') === 'meta' &&
+          !isWithin24HourWindow(cf.last_lead_message_at || contact.last_interaction_at);
 
         let bodyMessage: string;
         let resolvedImageUrls: string[] | undefined = step?.imageUrls;
@@ -707,6 +843,8 @@ export class LeadReactivationService {
           bodyMessage,
           imageUrls: resolvedImageUrls,
           metaTemplateName: step?.metaTemplateName,
+          metaTemplateParams: step?.metaTemplateParams,
+          metaTemplateLanguage: step?.metaTemplateLanguage,
           stepLabel: step ? 'Seguimiento Embudo' : 'Reactivación Autónoma IA',
           category,
           stepIndex,
@@ -714,9 +852,19 @@ export class LeadReactivationService {
 
         if (dispatch.skippedReason === 'meta_outside_24h_no_template') {
           result.skippedNoTemplateCount++;
+          const pausedFu = {
+            ...(cf.follow_up || {}),
+            paused: true,
+            pausedReason: 'meta_outside_24h_no_template',
+          };
+          delete pausedFu.nextSendAt;
           await (supabaseAdmin.from('contacts') as any)
             .update({
-              custom_fields: { ...cf, follow_up_last_skipped: 'meta_outside_24h_no_template' },
+              custom_fields: {
+                ...cf,
+                follow_up: pausedFu,
+                follow_up_last_skipped: 'meta_outside_24h_no_template',
+              },
             })
             .eq('id', contact.id);
           continue;

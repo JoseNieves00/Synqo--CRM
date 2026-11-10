@@ -186,6 +186,12 @@ export async function updateContactDetails(
       }
     }
 
+    if (resolvedTemp === 'cold' || payload.pipeline_stage === 'perdido' || payload.pipeline_stage === 'ganado') {
+      payload.conversation_status = 'closed';
+      payload.waiting_since = null;
+      payload.is_ai_active = false;
+    }
+
     payload.custom_fields = nextCustom;
   }
 

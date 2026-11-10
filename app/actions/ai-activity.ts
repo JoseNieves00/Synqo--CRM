@@ -45,6 +45,7 @@ export async function getRecentAiActivity(limit = 20): Promise<{
       latency_ms, error_message, created_at
     `)
     .eq('organization_id', orgId)
+    .neq('channel', 'prompt_assistant')
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -74,6 +75,7 @@ export async function getRecentAiActivity(limit = 20): Promise<{
   const { data: todayRuns } = await (supabaseAdmin.from('ai_runs') as any)
     .select('status, total_tokens, latency_ms')
     .eq('organization_id', orgId)
+    .neq('channel', 'prompt_assistant')
     .gte('created_at', startOfDay.toISOString());
 
   const stats: AiActivityStats = {

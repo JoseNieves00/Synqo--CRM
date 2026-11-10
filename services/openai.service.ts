@@ -19,7 +19,8 @@ import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { HandoffService } from './handoff.service';
 import { formatImageMessageContent } from '@/lib/media/format';
-import { compileStructuredPrompt } from '@/lib/ai/prompt-compiler';
+import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
+import { decryptSecret } from '@/lib/security/encryption';
 import { sanitizeTranscription } from '@/lib/media/whisper-sanitizer';
 import {
   AI_OPERATIONAL_CONFIG,
@@ -91,6 +92,7 @@ export async function createChatCompletionWithFallback(params: {
   aiProvider?: string | null;
   organizationId?: string;
   contactId?: string;
+  skipQuotaDeduction?: boolean;
   chainOverride?: AiChainEntry[];
   responseFormat?: { type: 'json_object' | 'text' };
 }): Promise<{
@@ -99,6 +101,11 @@ export async function createChatCompletionWithFallback(params: {
   provider: AiProviderType;
   isFallback: boolean;
   failedAttempts: FailedModelAttempt[];
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  latencyMs: number;
 }> {
   const isGeminiKeyValid = Boolean(geminiApiKey && geminiApiKey.trim().length > 20 && gemini);
   const rawChain = params.chainOverride || getAiChatChain(params.aiProvider);
@@ -186,7 +193,7 @@ export async function createChatCompletionWithFallback(params: {
         (response.usage as any)?.cached_tokens ||
         0;
 
-      if (response.usage && params.organizationId && params.contactId) {
+      if (!params.skipQuotaDeduction && response.usage && params.organizationId && params.contactId) {
         await recordTokenUsage({
           organizationId: params.organizationId,
           contactId: params.contactId,
@@ -200,7 +207,18 @@ export async function createChatCompletionWithFallback(params: {
       }
 
       const isFallback = idx > 0 && entry.provider !== primaryProvider;
-      return { response, modelUsed: entry.model, provider: entry.provider, isFallback, failedAttempts };
+      return {
+        response,
+        modelUsed: entry.model,
+        provider: entry.provider,
+        isFallback,
+        failedAttempts,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        cachedTokens,
+        latencyMs: Date.now() - attemptStart,
+      };
     } catch (attemptErr: any) {
       clearTimeout(timeoutId);
       const errMsg = attemptErr?.name === 'AbortError'
@@ -361,12 +379,12 @@ const createOrderTool: OpenAI.Chat.Completions.ChatCompletionTool = {
         total: { type: 'number', description: 'Valor total del pedido en moneda local.' },
         nombre: { type: 'string', description: 'Nombre completo del comprador o destinatario.' },
         telefono: { type: 'string', description: 'Teléfono de contacto para entrega.' },
-        direccion: { type: 'string', description: 'Dirección completa de entrega.' },
-        ciudad: { type: 'string', description: 'Ciudad o municipio de entrega.' },
+        direccion: { type: 'string', description: 'Dirección completa de entrega (si aplica envío físico).' },
+        ciudad: { type: 'string', description: 'Ciudad o municipio de entrega (si aplica).' },
         metodo_pago: { type: 'string', description: 'Método de pago acordado.' },
         notas: { type: 'string', description: 'Indicaciones adicionales del pedido.' },
       },
-      required: ['items', 'total', 'nombre', 'telefono', 'direccion', 'ciudad'],
+      required: ['items', 'total', 'nombre', 'telefono'],
     },
   },
 };
@@ -617,9 +635,21 @@ function buildDynamicContextBlock(params: {
   contactData: any;
   leadName?: string;
   galleryItems: EnrichedGalleryItem[];
+  extendedCatalog?: any[];
   delayedHours?: number;
+  isAfterHours?: boolean;
+  afterHoursMessage?: string | null;
 }): string {
-  const { orgTimezone, contactData, leadName, galleryItems, delayedHours } = params;
+  const {
+    orgTimezone,
+    contactData,
+    leadName,
+    galleryItems,
+    extendedCatalog = [],
+    delayedHours,
+    isAfterHours = false,
+    afterHoursMessage = null,
+  } = params;
   let currentLocalTime = '';
   try {
     currentLocalTime = new Date().toLocaleString('es-CO', {
@@ -657,6 +687,20 @@ function buildDynamicContextBlock(params: {
       ? `\n[Atención con demora de ${Math.round(delayedHours)}h]: Saluda con calidez y pide una disculpa breve y sincera por la tardanza sin inventar excusas técnicas ni hablar de congestión; luego responde directo a la consulta.`
       : '';
 
+  const afterHoursInstruction = isAfterHours
+    ? `\n[Fuera de horario comercial]: El equipo humano no está atendiendo en este instante. Responde dudas generales del catálogo con normalidad y si requiere confirmación humana o cita aclara el horario de atención.${
+        afterHoursMessage ? ` Mensaje de referencia de la empresa: "${afterHoursMessage}"` : ''
+      }`
+    : '';
+
+  const extendedCatalogBlock =
+    extendedCatalog.length > 0
+      ? `\nCatálogo extendido adicional (referencia de precios oficiales):\n${extendedCatalog
+          .slice(0, 85)
+          .map((c: any) => `- ${c.name}${c.price ? ` (${formatGalleryPrice(c.price)})` : ''}${c.description ? `: ${String(c.description).slice(0, 90)}` : ''}`)
+          .join('\n')}`
+      : '';
+
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <perfil_lead>
@@ -665,7 +709,7 @@ Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}
 Interés detectado: ${interest}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${gallerySummary}${delayInstruction}
+</perfil_lead>${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -952,10 +996,6 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               content:
                 '[NOTA DE VOZ NO COMPRENSIBLE - No se pudo transcribir con claridad. Nunca inventes lo que dijo ni envíes precios sin entender.]',
             });
-            conversationHistory.push({
-              role: 'assistant',
-              content: AI_TEXT_TEMPLATES.untranscribedAudio(orgData?.name, contactId),
-            });
             continue;
           }
 
@@ -1006,18 +1046,31 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         }
       }
 
-      // Regla estricta cuando el último mensaje del lead es nota de voz incomprensible
-      const lastLeadMsg = [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead');
-      if (lastLeadMsg) {
-        const lastContent = (lastLeadMsg.content || '').trim();
-        const isUntranscribedAudio =
-          lastContent.includes('[Nota de voz inaudible]') ||
-          lastContent.includes('[Nota de voz no reproducible]') ||
-          lastContent.includes('[Nota de voz recibida]') ||
-          (lastContent.startsWith('🎙️ [Audio:') && !lastContent.includes(']: "')) ||
-          (lastContent.startsWith('🎤 [Nota de voz]') && !lastContent.includes(']: "'));
+      // Regla estricta cuando el turno más reciente del lead solo contiene nota de voz incomprensible (si envió texto claro en la misma ráfaga, no abortar el texto)
+      const isUntranscribedContent = (txt: string) => {
+        const clean = (txt || '').trim();
+        return (
+          clean.includes('[Nota de voz inaudible]') ||
+          clean.includes('[Nota de voz no reproducible]') ||
+          clean.includes('[Nota de voz recibida]') ||
+          (clean.startsWith('🎙️ [Audio:') && !clean.includes(']: "')) ||
+          (clean.startsWith('🎤 [Nota de voz]') && !clean.includes(']: "'))
+        );
+      };
 
-        if (isUntranscribedAudio) {
+      const trailingLeadMsgs: any[] = [];
+      for (let idx = dbMessages.length - 1; idx >= 0; idx--) {
+        const m = dbMessages[idx];
+        if (m.sender_type === 'lead') trailingLeadMsgs.unshift(m);
+        else if (m.sender_type === 'ai' || m.sender_type === 'agent_manual') break;
+      }
+
+      const lastLeadMsg = [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead');
+      const hasOnlyUntranscribedAudioInTurn =
+        trailingLeadMsgs.length > 0 &&
+        trailingLeadMsgs.every((m) => isUntranscribedContent(m.content || ''));
+
+      if (lastLeadMsg && hasOnlyUntranscribedAudioInTurn) {
           const handoffReason = 'Nota de voz no comprensible por IA (requiere que un asesor escuche el audio)';
           pauseAfterSend = true;
           detectedHandoffReason = handoffReason;
@@ -1059,7 +1112,6 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             pauseAfterSend: true,
             handoffReason,
           };
-        }
       }
 
       // Calcular posible demora >= 6h
@@ -1069,6 +1121,10 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
       // Bloque dinámico al FINAL para mantener prefijo estático cacheable
       const orgTimezone = timezone || businessHours?.timezone || AI_OPERATIONAL_CONFIG.defaultTimezone;
+      const rawStoredCatalog = Array.isArray(orgData?.structured_prompt_data?.catalog)
+        ? orgData.structured_prompt_data.catalog
+        : [];
+      const overflowCatalog = rawStoredCatalog.length > 15 ? rawStoredCatalog.slice(15, 100) : [];
       conversationHistory.push({
         role: 'system',
         content: buildDynamicContextBlock({
@@ -1076,7 +1132,10 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           contactData,
           leadName,
           galleryItems,
+          extendedCatalog: overflowCatalog,
           delayedHours: hoursAgo >= 6 ? hoursAgo : undefined,
+          isAfterHours,
+          afterHoursMessage,
         }),
       });
 
@@ -1173,57 +1232,77 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   message: `La foto de "${matched.name}" ya fue enviada en este turno. No la reenvíes.`,
                 });
               } else {
-                const caption = buildProductCardCaption({
-                  name: matched.name,
-                  price: matched.price,
-                  details: validated.details,
-                });
-
-                const effectiveChannel = channel || 'whatsapp';
-                let outboundId: string | null = null;
-
-                if (effectiveChannel === 'instagram') {
-                  outboundId = await InstagramService.sendMediaMessage({
-                    instagramAccountId: orgData.instagram_account_id,
-                    accessToken: orgData.instagram_access_token,
-                    recipientId: leadPhone,
-                    mediaUrl: matched.url,
-                  });
-                  // Instagram no soporta caption nativo en attachments -> enviar caption como texto aparte
-                  await InstagramService.sendDirectMessage({
-                    instagramAccountId: orgData.instagram_account_id,
-                    accessToken: orgData.instagram_access_token,
-                    recipientId: leadPhone,
-                    text: caption,
+                const detailPrices = validated.details
+                  ? findHallucinatedPrices(validated.details, knownPrices)
+                  : [];
+                if (detailPrices.length > 0) {
+                  toolResult = JSON.stringify({
+                    status: 'rejected',
+                    message:
+                      'El campo details contiene un monto no verificado en la galería ni en el catálogo. Envía solo características o medidas reales sin inventar precios.',
                   });
                 } else {
-                  outboundId = await MessagingService.sendMediaMessage({
-                    organization: orgData,
-                    to: leadPhone,
-                    mediaUrl: matched.url,
+                  const caption = buildProductCardCaption({
+                    name: matched.name,
+                    price: matched.price,
+                    details: validated.details,
+                  });
+
+                  const effectiveChannel = channel || 'whatsapp';
+                  const targetWaRecipient =
+                    contactData?.custom_fields?.remote_jid ||
+                    contactData?.custom_fields?.whatsapp_jid ||
+                    leadPhone;
+                  let outboundId: string | null = null;
+
+                  if (effectiveChannel === 'instagram') {
+                    const decryptedIgToken = orgData?.instagram_access_token
+                      ? decryptSecret(orgData.instagram_access_token)
+                      : '';
+                    outboundId = await InstagramService.sendMediaMessage({
+                      instagramAccountId: orgData.instagram_account_id,
+                      accessToken: decryptedIgToken,
+                      recipientId: leadPhone,
+                      mediaUrl: matched.url,
+                    });
+                    // Instagram no soporta caption nativo en attachments -> enviar caption como texto aparte
+                    await InstagramService.sendDirectMessage({
+                      instagramAccountId: orgData.instagram_account_id,
+                      accessToken: decryptedIgToken,
+                      recipientId: leadPhone,
+                      text: caption,
+                    });
+                  } else {
+                    outboundId = await MessagingService.sendMediaMessage({
+                      organization: orgData,
+                      to: targetWaRecipient,
+                      mediaUrl: matched.url,
+                      caption,
+                      mediaType: 'image',
+                    });
+                  }
+
+                  dispatchedUrlsThisTurn.add(matched.url);
+
+                  await (supabaseAdmin.from('messages') as any).insert({
+                    contact_id: contactId,
+                    organization_id: organizationId,
+                    sender_type: 'ai',
+                    content: formatImageMessageContent(matched.url, caption),
+                    meta_message_id: outboundId || null,
+                    channel: effectiveChannel,
+                    status: 'sent',
+                  });
+
+                  toolResult = JSON.stringify({
+                    status: 'sent',
+                    product: matched.name,
+                    price: formatGalleryPrice(matched.price),
                     caption,
-                    mediaType: 'image',
+                    message:
+                      'Tarjeta visual enviada al cliente con foto oficial, precio y medidas. No escribas enlaces en tu texto.',
                   });
                 }
-
-                dispatchedUrlsThisTurn.add(matched.url);
-
-                await supabaseAdmin.from('messages').insert({
-                  contact_id: contactId,
-                  sender_type: 'ai',
-                  content: formatImageMessageContent(matched.url, caption),
-                  meta_message_id: outboundId || null,
-                  channel: effectiveChannel,
-                });
-
-                toolResult = JSON.stringify({
-                  status: 'sent',
-                  product: matched.name,
-                  price: formatGalleryPrice(matched.price),
-                  caption,
-                  message:
-                    'Tarjeta visual enviada al cliente con foto oficial, precio y medidas. No escribas enlaces en tu texto.',
-                });
               }
             } else if (functionName === 'send_whatsapp_image') {
               const validated = SendWhatsAppImageToolSchema.parse(functionArgs);
@@ -1239,19 +1318,26 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 toolResult = JSON.stringify({ status: 'already_sent' });
               } else {
                 const effectiveChannel = channel || 'whatsapp';
+                const targetWaRecipient =
+                  contactData?.custom_fields?.remote_jid ||
+                  contactData?.custom_fields?.whatsapp_jid ||
+                  leadPhone;
                 let outboundId: string | null = null;
 
                 if (effectiveChannel === 'instagram') {
+                  const decryptedIgToken = orgData?.instagram_access_token
+                    ? decryptSecret(orgData.instagram_access_token)
+                    : '';
                   outboundId = await InstagramService.sendMediaMessage({
                     instagramAccountId: orgData.instagram_account_id,
-                    accessToken: orgData.instagram_access_token,
+                    accessToken: decryptedIgToken,
                     recipientId: leadPhone,
                     mediaUrl: validated.image_url,
                   });
                   if (validated.caption) {
                     await InstagramService.sendDirectMessage({
                       instagramAccountId: orgData.instagram_account_id,
-                      accessToken: orgData.instagram_access_token,
+                      accessToken: decryptedIgToken,
                       recipientId: leadPhone,
                       text: validated.caption,
                     });
@@ -1259,7 +1345,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 } else {
                   outboundId = await MessagingService.sendMediaMessage({
                     organization: orgData,
-                    to: leadPhone,
+                    to: targetWaRecipient,
                     mediaUrl: validated.image_url,
                     caption: validated.caption,
                     mediaType: 'image',
@@ -1268,12 +1354,14 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
                 dispatchedUrlsThisTurn.add(validated.image_url.trim());
 
-                await supabaseAdmin.from('messages').insert({
+                await (supabaseAdmin.from('messages') as any).insert({
                   contact_id: contactId,
+                  organization_id: organizationId,
                   sender_type: 'ai',
                   content: formatImageMessageContent(validated.image_url, validated.caption || ''),
                   meta_message_id: outboundId || null,
                   channel: effectiveChannel,
+                  status: 'sent',
                 });
 
                 toolResult = JSON.stringify({
@@ -1291,10 +1379,18 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 .maybeSingle();
 
               const prevTemp = resolveLeadTemperature(latestC?.custom_fields);
+              const isNonColdDowngrade =
+                prevTemp === 'hot' &&
+                (validated.temperature === 'warm' || validated.temperature === 'qualified_doubt') &&
+                !validated.lost_reason?.trim();
+              const effectiveTemp: LeadTemperature = isNonColdDowngrade
+                ? 'hot'
+                : validated.temperature;
+
               const syncRes = buildSynchronizedClassification({
                 customFields: latestC?.custom_fields || {},
                 currentStage: latestC?.pipeline_stage,
-                temperature: validated.temperature,
+                temperature: effectiveTemp,
                 product: validated.product_of_interest,
                 objection: validated.objection,
                 lostReason: validated.lost_reason,
@@ -1325,8 +1421,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   .eq('status', 'pending');
               }
 
-              if (prevTemp !== validated.temperature) {
-                const label = LEAD_TEMPERATURE_META[validated.temperature]?.label || validated.temperature;
+              if (prevTemp !== effectiveTemp) {
+                const label = LEAD_TEMPERATURE_META[effectiveTemp]?.label || effectiveTemp;
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
                   sender_type: 'system',
@@ -1346,7 +1442,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
               toolResult = JSON.stringify({
                 status: 'updated',
-                temperature: validated.temperature,
+                temperature: effectiveTemp,
                 stage_updated: syncRes.nextStage,
               });
             } else if (functionName === 'schedule_follow_up') {
@@ -1470,18 +1566,19 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 })
                 .eq('id', contactId);
 
+              const deliveryLabel = [validated.ciudad, validated.direccion].filter(Boolean).join(' - ');
               const itemsStr = validated.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
                 sender_type: 'system',
-                content: `[🛒 Pedido registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')} · ${validated.ciudad} (${validated.direccion}) · Cliente: ${validated.nombre}]`,
+                content: `[🛒 Pedido registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')}${deliveryLabel ? ` · ${deliveryLabel}` : ''} · Cliente: ${validated.nombre}]`,
               });
 
               // Notificar al equipo para despacho sin pausar la IA
               HandoffService.notifyHandoff({
                 organizationId,
                 contactId,
-                reason: `Pedido confirmado por IA: ${itemsStr} ($${validated.total.toLocaleString('es-CO')}) - ${validated.ciudad}`,
+                reason: `Pedido confirmado por IA: ${itemsStr} ($${validated.total.toLocaleString('es-CO')})${validated.ciudad ? ` - ${validated.ciudad}` : ''}`,
                 channel: (channel as any) || 'whatsapp',
               }).catch(() => {});
 
@@ -1493,12 +1590,50 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               });
             } else if (functionName === 'update_pipeline_stage') {
               const validated = UpdateStageToolSchema.parse(functionArgs);
-              await supabaseAdmin
-                .from('contacts')
-                .update({
-                  pipeline_stage: validated.new_stage,
-                  updated_at: new Date().toISOString(),
-                })
+              const { data: stageContact } = await (supabaseAdmin.from('contacts') as any)
+                .select('pipeline_stage, custom_fields')
+                .eq('id', contactId)
+                .maybeSingle();
+
+              const targetTempForStage: LeadTemperature | null =
+                validated.new_stage === 'ganado' || validated.new_stage === 'cita_agendada'
+                  ? 'hot'
+                  : validated.new_stage === 'perdido'
+                  ? 'cold'
+                  : validated.new_stage === 'calificado' &&
+                    (!resolveLeadTemperature(stageContact?.custom_fields) ||
+                      resolveLeadTemperature(stageContact?.custom_fields) === 'warm')
+                  ? 'qualified_doubt'
+                  : null;
+
+              const stageUpdatePayload: Record<string, any> = {
+                pipeline_stage: validated.new_stage,
+                updated_at: new Date().toISOString(),
+              };
+
+              if (targetTempForStage) {
+                const syncStage = buildSynchronizedClassification({
+                  customFields: stageContact?.custom_fields || {},
+                  currentStage: validated.new_stage,
+                  temperature: targetTempForStage,
+                  lostReason: validated.new_stage === 'perdido' ? validated.reason || undefined : undefined,
+                  followUpSettings: orgData?.appointment_settings?.follow_up_sequences
+                    ? normalizeFollowUpSettings(orgData.appointment_settings.follow_up_sequences)
+                    : null,
+                });
+                stageUpdatePayload.custom_fields = syncStage.customFields;
+              }
+
+              if (validated.new_stage === 'ganado' || validated.new_stage === 'perdido') {
+                stageUpdatePayload.conversation_status = 'closed';
+                stageUpdatePayload.waiting_since = null;
+                stageUpdatePayload.is_ai_active = false;
+                stageUpdatePayload.closed_at = new Date().toISOString();
+                if (validated.reason) stageUpdatePayload.close_reason = validated.reason.slice(0, 120);
+              }
+
+              await (supabaseAdmin.from('contacts') as any)
+                .update(stageUpdatePayload)
                 .eq('id', contactId);
 
               await supabaseAdmin.from('messages').insert({
@@ -1683,30 +1818,36 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 channel: (channel as any) || 'whatsapp',
               }).catch(() => {});
 
-              try {
-                const cleanReason = handoffReason.slice(0, 80);
-                const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
-                  .select('id, occurrences')
-                  .eq('organization_id', organizationId)
-                  .ilike('question_text', `%${cleanReason}%`)
-                  .limit(1);
+              const isOperationalOnlyHandoff = /(asesor|humano|persona|agente|operador|comprobante|pago|transferencia|reclamo|queja|garant[ií]a|audio|nota de voz|descuento|cita)/i.test(
+                handoffReason
+              );
+              if (!isOperationalOnlyHandoff) {
+                try {
+                  const cleanReason = handoffReason.slice(0, 80);
+                  const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                    .select('id, occurrences')
+                    .eq('organization_id', organizationId)
+                    .eq('status', 'pending')
+                    .ilike('question_text', `%${cleanReason}%`)
+                    .limit(1);
 
-                if (existingGaps && existingGaps.length > 0) {
-                  await (supabaseAdmin.from('ai_knowledge_gaps') as any)
-                    .update({ occurrences: (existingGaps[0].occurrences || 1) + 1, updated_at: new Date().toISOString() })
-                    .eq('id', existingGaps[0].id);
-                } else {
-                  await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
-                    organization_id: organizationId,
-                    contact_id: contactId,
-                    question_text: handoffReason,
-                    ai_category: 'general',
-                    reason: handoffReason,
-                    status: 'pending',
-                    occurrences: 1,
-                  });
-                }
-              } catch {}
+                  if (existingGaps && existingGaps.length > 0) {
+                    await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                      .update({ occurrences: (existingGaps[0].occurrences || 1) + 1, updated_at: new Date().toISOString() })
+                      .eq('id', existingGaps[0].id);
+                  } else {
+                    await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
+                      organization_id: organizationId,
+                      contact_id: contactId,
+                      question_text: handoffReason,
+                      ai_category: 'general',
+                      reason: handoffReason,
+                      status: 'pending',
+                      occurrences: 1,
+                    });
+                  }
+                } catch {}
+              }
 
               const isSilent = handoffMode === 'silent';
               const isExplicitHuman = /(asesor|humano|persona|agente|operador|alguien real)/i.test(handoffReason);
@@ -1744,6 +1885,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
                   .select('id, occurrences')
                   .eq('organization_id', organizationId)
+                  .eq('status', 'pending')
                   .ilike('question_text', `%${qText.slice(0, 60)}%`)
                   .limit(1);
 
@@ -1825,6 +1967,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           totalTokens: totalPromptTokens + totalCompletionTokens,
           cachedTokens: totalCachedTokens,
           failedAttempts: allFailedAttempts,
+          pauseAfterSend: true,
+          handoffReason: detectedHandoffReason || 'Relevo silencioso hacia asesor humano',
         };
       }
 
@@ -2078,10 +2222,10 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
     organization: any;
   }): Promise<string> {
     const { organizationId, contactId, leadName, history, organization } = params;
-    const spData = organization?.structured_prompt_data || organization?.structured_prompt;
-    const basePrompt = spData
-      ? compileStructuredPrompt(spData)
-      : organization?.system_prompt || organization?.prompt_config || 'Eres un asesor comercial atento.';
+    const basePrompt = resolveOrganizationSystemPrompt(
+      organization,
+      'Eres un asesor comercial atento.'
+    );
 
     const conversationSnippet = history
       .map((m) => `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor/IA'}: ${m.content}`)
@@ -2144,10 +2288,7 @@ Reglas: responde directo y amable (1 a 3 líneas), usa precios/datos reales del 
     const firstName = cleanName && !isPhoneOnly ? cleanName.split(/\s+/)[0] : '';
     const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
 
-    const spData = organization?.structured_prompt_data || organization?.structured_prompt;
-    const rawBusinessPrompt = spData
-      ? compileStructuredPrompt(spData)
-      : organization?.system_prompt || organization?.prompt_config || 'Empresa comercial.';
+    const rawBusinessPrompt = resolveOrganizationSystemPrompt(organization, 'Empresa comercial.');
     const promptDigest = extractRecontactPromptDigest(rawBusinessPrompt, 2200);
 
     const conversationSnippet =
@@ -2252,10 +2393,7 @@ Devuelve ÚNICAMENTE JSON válido con esta estructura exacta:
     alternativeHook: string;
   }> {
     const { organizationId, contactId, leadName, history, organization, contactCustomFields } = params;
-    const spData = organization?.structured_prompt_data || organization?.structured_prompt;
-    const basePrompt = spData
-      ? compileStructuredPrompt(spData)
-      : organization?.system_prompt || organization?.prompt_config || 'Empresa comercial.';
+    const basePrompt = resolveOrganizationSystemPrompt(organization, 'Empresa comercial.');
 
     const conversationSnippet =
       history.length > 0
@@ -2319,17 +2457,29 @@ Devuelve ÚNICAMENTE un JSON válido:
    * Genera borradores editables de secuencias de seguimiento por categoría desde el prompt del cliente (T2).
    * Se ejecuta una sola vez bajo demanda en Configuración con el modelo utilitario.
    */
-  static async generateFollowUpSuggestions(organization: any): Promise<
+  static async generateFollowUpSuggestions(
+    organization: any,
+    hints?: {
+      argumentsHint?: string;
+      toneHint?: string;
+      frequencyHint?: string;
+    }
+  ): Promise<
     Record<
       FollowUpCategory,
       Array<{ delayValue: number; delayUnit: 'hours' | 'days'; text: string }>
     >
   > {
-    const spData = organization?.structured_prompt_data || organization?.structured_prompt;
-    const basePrompt = spData
-      ? compileStructuredPrompt(spData)
-      : organization?.system_prompt || 'Empresa comercial.';
+    const basePrompt = resolveOrganizationSystemPrompt(organization, 'Empresa comercial.');
     const hasCalendar = Boolean(organization?.enabled_modules?.native_calendar);
+
+    const hintsBlock = [
+      hints?.argumentsHint?.trim() ? `- Argumentos / beneficios clave a destacar: ${hints.argumentsHint.trim()}` : '',
+      hints?.toneHint?.trim() ? `- Tono deseado: ${hints.toneHint.trim()}` : '',
+      hints?.frequencyHint?.trim() ? `- Preferencia de tiempos/frecuencia: ${hints.frequencyHint.trim()}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     const prompt = `Lee las políticas de pago, entrega o agendamiento y catálogo de esta empresa y redacta secuencias cortas de seguimiento por WhatsApp para configurar en el CRM.
 Usa variables {nombre}, {producto} y {empresa} donde convenga. Incluye mención a las facilidades reales descritas en el prompt (ej. modalidades de pago, entregas, reservas o citas según el negocio) y termina cada mensaje con un llamado a la acción claro y cercano.
@@ -2343,6 +2493,7 @@ Categorías de seguimiento:
 
 Contexto de la empresa:
 ${basePrompt}
+${hintsBlock ? `\nPreferencias de seguimiento indicadas por la empresa:\n${hintsBlock}` : ''}
 
 Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por categoría activa, 1 para post_order):
 {

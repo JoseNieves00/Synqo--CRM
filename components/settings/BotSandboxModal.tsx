@@ -9,6 +9,8 @@ interface BotSandboxModalProps {
   onClose: () => void;
   temporaryPrompt?: string;
   botName?: string;
+  suggestedQuestions?: string[];
+  onMessageSimulated?: () => void;
 }
 
 interface SimulatedMessage {
@@ -25,6 +27,8 @@ export function BotSandboxModal({
   onClose,
   temporaryPrompt,
   botName = 'Synqo AI',
+  suggestedQuestions,
+  onMessageSimulated,
 }: BotSandboxModalProps) {
   const [messages, setMessages] = useState<SimulatedMessage[]>([
     {
@@ -83,6 +87,7 @@ export function BotSandboxModal({
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
+      onMessageSimulated?.();
     } catch (err: any) {
       const errorMsg: SimulatedMessage = {
         id: `err-${Date.now()}`,
@@ -107,12 +112,14 @@ export function BotSandboxModal({
     ]);
   };
 
-  const quickPrompts = [
+  const defaultQuickPrompts = [
     '¿Qué precios tienen?',
     '¿Tienen disponibilidad mañana a las 3pm?',
     'Quiero hablar con un asesor humano',
     '¿Dónde están ubicados?',
   ];
+  const quickPrompts =
+    suggestedQuestions && suggestedQuestions.length > 0 ? suggestedQuestions : defaultQuickPrompts;
 
   return (
     <div

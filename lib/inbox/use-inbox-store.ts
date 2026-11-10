@@ -3,6 +3,7 @@ import {
   contactIsAiAttending,
   contactMatchesInboxView,
   contactNeedsHumanResponse,
+  sortInboxViewIds,
 } from './buckets';
 
 export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
@@ -114,6 +115,7 @@ export interface InboxStoreState {
     initialContacts: ContactItem[];
     initialCounts: InboxCounts;
     initialView?: InboxViewType;
+    activeContact?: ContactItem | null;
     activeContactId?: string | null;
     initialMessages?: MessageItem[];
     templates?: Array<{ name: string; label: string }>;
@@ -192,6 +194,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     initialContacts,
     initialCounts,
     initialView,
+    activeContact,
     activeContactId,
     initialMessages,
     templates,
@@ -204,6 +207,9 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       contactsMap[c.id] = c;
       ids.push(c.id);
     });
+    if (activeContact && activeContact.id && !contactsMap[activeContact.id]) {
+      contactsMap[activeContact.id] = activeContact;
+    }
 
     const messagesMap: Record<string, MessagesState> = {};
     if (activeContactId && initialMessages && initialMessages.length > 0) {
@@ -217,15 +223,16 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
 
     set((state) => {
       const targetView = initialView || state.activeView || 'por_responder';
+      const mergedContactsById = { ...state.contactsById, ...contactsMap };
       return {
         organizationId,
         currentUserId,
         currentUserRole,
         activeView: targetView,
-        contactsById: { ...state.contactsById, ...contactsMap },
+        contactsById: mergedContactsById,
         viewIds: {
           ...state.viewIds,
-          [targetView]: ids,
+          [targetView]: sortInboxViewIds(ids, mergedContactsById, targetView),
         },
         messagesByContact: { ...state.messagesByContact, ...messagesMap },
         counts: initialCounts,
@@ -252,34 +259,63 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     set((state) => {
       const existing = state.contactsById[contact.id] || {};
       const updated = { ...existing, ...contact } as ContactItem;
+      const nextContactsById = {
+        ...state.contactsById,
+        [contact.id]: updated,
+      };
 
-      // Sincronizar pertenencia exacta de buzones en vivo usando las reglas canónicas
+      // Sincronizar pertenencia exacta y orden WhatsApp Web usando las reglas canónicas
       const currentView = state.activeView;
       const currentIds = state.viewIds[currentView] || [];
       const isAlreadyInView = currentIds.includes(contact.id);
       const nextViewIds = { ...state.viewIds };
 
-      const matchesCurrentView = contactMatchesInboxView(updated, currentView, state.currentUserId);
+      const matchesFilterAndSearch = (() => {
+        const f = state.filters;
+        if (f.channel === 'whatsapp' && updated.channel === 'instagram') return false;
+        if (f.channel === 'instagram' && updated.channel !== 'instagram') return false;
+        if (f.agentId === 'unassigned' && updated.assigned_to) return false;
+        if (f.agentId !== 'all' && f.agentId !== 'unassigned' && updated.assigned_to !== f.agentId) return false;
+        if (f.stage !== 'all' && updated.pipeline_stage !== f.stage) return false;
+        if (f.temperature !== 'all') {
+          const t = updated.custom_fields?.lead_temperature || updated.custom_fields?.temperature || null;
+          if (f.temperature === 'unclassified' && t) return false;
+          if (f.temperature !== 'unclassified' && t !== f.temperature) return false;
+        }
+        const q = (state.searchQuery || '').trim().toLowerCase();
+        if (q) {
+          const hay = `${updated.name || ''} ${updated.phone || ''} ${updated.instagram_username || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })();
+
+      const matchesCurrentView =
+        matchesFilterAndSearch && contactMatchesInboxView(updated, currentView, state.currentUserId);
       if (isAlreadyInView && !matchesCurrentView) {
         nextViewIds[currentView] = currentIds.filter((id) => id !== contact.id);
       } else if (!isAlreadyInView && matchesCurrentView) {
-        nextViewIds[currentView] = [contact.id, ...currentIds];
+        nextViewIds[currentView] = sortInboxViewIds([contact.id, ...currentIds], nextContactsById, currentView);
+      } else if (isAlreadyInView && matchesCurrentView) {
+        nextViewIds[currentView] = sortInboxViewIds(currentIds, nextContactsById, currentView);
       }
 
-      // También limpiar otras vistas en caché cuando el chat cambia de dueño/estado
+      // También sincronizar/ordenar otras vistas en caché cuando el chat cambia de dueño/estado o fecha
       (Object.keys(nextViewIds) as InboxViewType[]).forEach((v) => {
         if (v === currentView) return;
         const ids = nextViewIds[v];
-        if (ids?.includes(contact.id) && !contactMatchesInboxView(updated, v, state.currentUserId)) {
-          nextViewIds[v] = ids.filter((id) => id !== contact.id);
+        if (!ids || ids.length === 0) return;
+        if (ids.includes(contact.id)) {
+          if (!contactMatchesInboxView(updated, v, state.currentUserId)) {
+            nextViewIds[v] = ids.filter((id) => id !== contact.id);
+          } else {
+            nextViewIds[v] = sortInboxViewIds(ids, nextContactsById, v);
+          }
         }
       });
 
       return {
-        contactsById: {
-          ...state.contactsById,
-          [contact.id]: updated,
-        },
+        contactsById: nextContactsById,
         viewIds: nextViewIds,
       };
     });
@@ -309,13 +345,13 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       });
 
       const currentIds = isAppend ? (state.viewIds[view] || []) : [];
-      const mergedIds = Array.from(new Set([...currentIds, ...newIds]));
+      const sortedMergedIds = sortInboxViewIds([...currentIds, ...newIds], newContactsById, view);
 
       return {
         contactsById: newContactsById,
         viewIds: {
           ...state.viewIds,
-          [view]: mergedIds,
+          [view]: sortedMergedIds,
         },
       };
     });
@@ -386,13 +422,21 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
           ? (existingContact.conversation_status === 'closed' ? 'open' : existingContact.conversation_status)
           : (existingContact.conversation_status === 'closed' ? 'closed' : 'waiting_customer');
 
+        const existingMs = existingContact.last_interaction_at ? new Date(existingContact.last_interaction_at).getTime() : 0;
+        const msgMs = msg.created_at ? new Date(msg.created_at).getTime() : Date.now();
+        const isNewerMsg = msgMs >= existingMs;
+
         updatedContactsById = {
           ...state.contactsById,
           [contactId]: {
             ...existingContact,
-            last_message_preview: msg.content.slice(0, 160),
-            last_message_sender: msg.sender_type,
-            last_interaction_at: msg.created_at,
+            ...(isNewerMsg
+              ? {
+                  last_message_preview: msg.content.slice(0, 160),
+                  last_message_sender: msg.sender_type,
+                  last_interaction_at: msg.created_at,
+                }
+              : {}),
             unread_count: newUnread,
             waiting_since: isFromLead ? (existingContact.waiting_since || msg.created_at) : null,
             conversation_status: newConversationStatus,
@@ -408,26 +452,27 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
           const aiAttending = contactIsAiAttending(updatedContactItem);
 
           if (viewList.includes(contactId)) {
-            if (currentView !== 'por_responder') {
-              nextViewIds[currentView] = [contactId, ...viewList.filter((id) => id !== contactId)];
-            }
+            nextViewIds[currentView] = sortInboxViewIds(viewList, updatedContactsById, currentView);
           } else if (
             (currentView === 'por_responder' && needsHuman) ||
             (currentView === 'ia_atendiendo' && aiAttending) ||
             (currentView === 'mis_abiertos' && updatedContactItem.assigned_to === state.currentUserId)
           ) {
-            nextViewIds[currentView] = [contactId, ...viewList];
+            nextViewIds[currentView] = sortInboxViewIds([contactId, ...viewList], updatedContactsById, currentView);
           }
         } else {
           // Si el mensaje es de la IA o de un asesor, ya fue respondido
           if (nextViewIds['por_responder']?.includes(contactId) && updatedContactItem.custom_fields?.unattended_handoff !== true) {
             nextViewIds['por_responder'] = nextViewIds['por_responder'].filter((id) => id !== contactId);
           }
-          if (contactIsAiAttending(updatedContactItem) && nextViewIds['ia_atendiendo'] && !nextViewIds['ia_atendiendo'].includes(contactId)) {
-            nextViewIds['ia_atendiendo'] = [contactId, ...nextViewIds['ia_atendiendo']];
+          if (contactIsAiAttending(updatedContactItem) && nextViewIds['ia_atendiendo']) {
+            const list = nextViewIds['ia_atendiendo'].includes(contactId)
+              ? nextViewIds['ia_atendiendo']
+              : [contactId, ...nextViewIds['ia_atendiendo']];
+            nextViewIds['ia_atendiendo'] = sortInboxViewIds(list, updatedContactsById, 'ia_atendiendo');
           }
-          if (viewList.includes(contactId) && currentView !== 'por_responder') {
-            nextViewIds[currentView] = [contactId, ...viewList.filter((id) => id !== contactId)];
+          if (viewList.includes(contactId)) {
+            nextViewIds[currentView] = sortInboxViewIds(viewList, updatedContactsById, currentView);
           }
         }
       }

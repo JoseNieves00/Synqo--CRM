@@ -76,14 +76,13 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
   if (targetContactId && !activeContact) {
     const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
+      .select('id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
       .eq('id', targetContactId)
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
       .maybeSingle();
     if (singleContact) {
       activeContact = singleContact;
-      contactList.unshift(singleContact);
     }
   }
 
@@ -105,6 +104,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       activeContact={activeContact}
       messages={messages}
       initialCounts={initialCounts}
+      initialTotalCount={inboxRes.totalCount ?? null}
       paymentAccounts={paymentAccounts || []}
       catalogItems={catalogItems || []}
       initialView={activeView}
