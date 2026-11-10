@@ -626,6 +626,8 @@ export function PromptAssistantPanel({
             onAnalyzeExisting={handleAnalyzeExisting}
             onAcceptProposal={handleAcceptProposal}
             onRejectProposal={handleRejectProposal}
+            onPolishPrompt={handlePolishPrompt}
+            polishingPrompt={polishing}
             onSaveImportedCatalog={handleSaveImportedCatalog}
             onExtractPdfBlocks={handleExtractPdfBlocks}
             pendingImport={pendingImport}

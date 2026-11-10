@@ -567,6 +567,7 @@ async function runTests() {
       (supabaseAdmin.from('ai_runs') as any)
         .select('total_tokens')
         .eq('organization_id', synqoOrg.id)
+        .neq('channel', 'prompt_assistant')
         .gte('created_at', metrics!.sinceIso)
         .limit(5000),
     ]);

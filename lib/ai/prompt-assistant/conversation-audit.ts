@@ -13,7 +13,7 @@ import {
   type DailyConversationNeed,
   type PendingSectionProposal,
 } from './state';
-import { splitGalleryTail } from './versions';
+import { isMetaPromptCommentary, splitGalleryTail } from './versions';
 
 export type AuditOutcomeBucket = 'converted' | 'in_doubt' | 'stalled_warm' | 'lost';
 
@@ -326,7 +326,7 @@ REGLAS ESTRICTAS:
       "sectionId": "empresa|catalogo|pagos|envios|politicas|faq|tono|cierre|relevo|seguimiento|adicional",
       "sectionTitle": "Título exacto de sección",
       "currentText": "Texto actual o 'No especificado'",
-      "proposedText": "Texto puntual sugerido para mejorar conversión o resolver la necesidad real",
+      "proposedText": "Texto ejecutable listo para pegar en esa sección dirigido al bot (PROHIBIDO escribir consejos como 'Es recomendable...' o 'Deberías...'; esos van en dailyTips)",
       "reason": "Por qué mejora ventas según las conversaciones analizadas",
       "evidence": "Ejemplo breve de lo observado"
     }
@@ -399,21 +399,29 @@ REGLAS ESTRICTAS:
           }));
       }
       if (Array.isArray(parsed.proposals)) {
-        auditProposals = parsed.proposals
-          .filter((p: any) => p?.sectionId && p?.proposedText)
-          .slice(0, 3)
-          .map((p: any, idx: number) => ({
+        const cleanProps: PendingSectionProposal[] = [];
+        for (const [idx, p] of parsed.proposals.entries()) {
+          if (!p?.sectionId || !p?.proposedText) continue;
+          const propText = String(p.proposedText).trim();
+          if (isMetaPromptCommentary(propText)) {
+            if (dailyTips.length < 4) dailyTips.push(propText);
+            continue;
+          }
+          cleanProps.push({
             id: `audit-${Date.now()}-${idx}`,
             sectionId: String(p.sectionId),
             sectionTitle:
               PROMPT_SECTIONS.find((s) => s.id === p.sectionId)?.title ||
               String(p.sectionTitle || p.sectionId),
             currentText: String(p.currentText || 'No especificado').slice(0, 300),
-            proposedText: String(p.proposedText).trim(),
+            proposedText: propText,
             reason: String(p.reason || 'Mejora detectada en conversaciones reales').slice(0, 160),
             source: 'daily_audit' as const,
             evidence: p.evidence ? String(p.evidence).trim().slice(0, 160) : undefined,
-          }));
+          });
+          if (cleanProps.length >= 3) break;
+        }
+        auditProposals = cleanProps;
       }
     } catch {}
 

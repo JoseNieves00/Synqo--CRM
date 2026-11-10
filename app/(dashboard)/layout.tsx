@@ -188,6 +188,7 @@ export default async function DashboardLayout({
                 userFullName={userFullName}
                 userEmail={userEmail}
                 userRole={userRole}
+                isSuperAdmin={isSuperAdmin}
                 signOutAction={signOut}
               />
             </div>
@@ -212,7 +213,11 @@ export default async function DashboardLayout({
         </main>
 
         {/* Tab Bar inferior exclusivo para móvil / PWA */}
-        <MobileBottomNav isAdmin={isAdmin} enabledModules={current?.organization?.enabled_modules} />
+        <MobileBottomNav
+          isAdmin={isAdmin}
+          isSuperAdmin={isSuperAdmin}
+          enabledModules={current?.organization?.enabled_modules}
+        />
 
         {/* Modal y Botón Flotante de Ayuda & Reporte de Fallas */}
         <SupportModal />

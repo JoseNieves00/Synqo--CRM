@@ -21,6 +21,7 @@ import {
   type PromptAssistantState,
 } from '@/lib/ai/prompt-assistant/state';
 import {
+  isMetaPromptCommentary,
   patchSectionInPrompt,
   pushPromptVersion,
   renderPromptFromSlots,
@@ -454,14 +455,15 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
     };
   }
 
-  const hash = crypto.createHash('sha256').update(cleanBody).digest('hex').slice(0, 24);
+  const hash = crypto.createHash('sha256').update(`${cleanBody}::v2`).digest('hex').slice(0, 24);
   if (state.analyzedPromptHash === hash && state.pendingProposals.length > 0) {
+    const cleanCached = state.pendingProposals.filter((p) => !isMetaPromptCommentary(p.proposedText));
     return {
       mode: 'improve' as const,
       cached: true,
       limitReached: false,
-      proposals: state.pendingProposals,
-      conflicts: state.pendingProposals.filter((p) => p.isConflict).map((p) => p.reason),
+      proposals: cleanCached,
+      conflicts: cleanCached.filter((p) => p.isConflict).map((p) => p.reason),
       nextSlotId: getNextPendingSlot(state, preset)?.id || null,
       state: { ...state, usageByDay: {}, totalAssistantTokens: 0 },
     };
@@ -489,9 +491,10 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
 Slots del blueprint:
 ${slotList}
 
-Presta especial atención a detectar:
-- Vacíos de información (precios, envíos/cobertura, medios de pago, garantías, datos de cierre).
-- Contradicciones o ambigüedades operativas (por ejemplo: pedir no repetir medidas/datos tras enviar fotos, pero incluir otra regla que obliga a listar todo en texto; o instrucciones de cierre dispersas que conviene unificar claramente bajo ## Reglas adicionales).
+REGLA CRÍTICA DE SEPARACIÓN:
+1. "conflicts": coloca aquí TODA observación organizativa o contradicción dirigida al dueño del negocio (ej: "Las reglas de cierre están dispersas en dos secciones; usa 'Pulir redacción' para unificarlas", o "Hay dos precios distintos para el mismo ítem").
+2. "proposals": incluye ÚNICAMENTE mejoras reales que el dueño pueda pegar literalmente en su prompt (datos faltantes o una regla operativa redactada como orden directa al bot, ej: "- Cuando envíes fotos con precio y medidas, no repitas esos datos en el mensaje de texto.").
+   - PROHIBIDO poner meta-consejos en "proposedText" (nunca escribas "Es recomendable...", "Conviene...", "Deberías...", "Se sugiere...", "Por ejemplo, incluir..."). Si es una recomendación de orden/estructura y no texto ejecutable por el bot, ponla en "conflicts" y NO en "proposals".
 
 Responde ÚNICAMENTE JSON válido:
 {
@@ -502,7 +505,7 @@ Responde ÚNICAMENTE JSON válido:
       "sectionId": "empresa|catalogo|pagos|envios|politicas|faq|tono|cierre|relevo|seguimiento|adicional",
       "sectionTitle": "Título exacto de sección",
       "currentText": "Extracto actual o 'No especificado'",
-      "proposedText": "Texto limpio sugerido para agregar o aclarar sin borrar lo existente",
+      "proposedText": "Texto ejecutable listo para pegar literalmente en esa sección (NUNCA consejos ni explicaciones)",
       "reason": "Por qué mejora respuestas o cierra vacíos",
       "isConflict": boolean
     }
@@ -547,21 +550,33 @@ Responde ÚNICAMENTE JSON válido:
       conflicts = parsed.conflicts.map((c: any) => String(c)).filter(Boolean);
     }
     if (Array.isArray(parsed.proposals)) {
-      proposals = parsed.proposals
-        .filter((p: any) => p?.sectionId && p?.proposedText)
-        .slice(0, 6)
-        .map((p: any, i: number) => ({
+      const validList: PendingSectionProposal[] = [];
+      for (const [i, p] of parsed.proposals.entries()) {
+        if (!p?.sectionId || !p?.proposedText) continue;
+        const propText = String(p.proposedText).trim();
+        // Guardrail determinístico: si el modelo devolvió un consejo en lugar de texto ejecutable para el prompt, moverlo a observaciones
+        if (isMetaPromptCommentary(propText)) {
+          conflicts.push(propText);
+          continue;
+        }
+        validList.push({
           id: `prop-${Date.now()}-${i}`,
           sectionId: String(p.sectionId),
           sectionTitle:
             PROMPT_SECTIONS.find((s) => s.id === p.sectionId)?.title || String(p.sectionTitle || p.sectionId),
           currentText: String(p.currentText || 'No especificado'),
-          proposedText: String(p.proposedText),
+          proposedText: propText,
           reason: String(p.reason || 'Completar información faltante'),
           isConflict: Boolean(p.isConflict),
-        }));
+          source: 'improve',
+        });
+        if (validList.length >= 6) break;
+      }
+      proposals = validList;
     }
   } catch {}
+
+  conflicts = Array.from(new Set(conflicts));
 
   state.analyzedPromptHash = hash;
   state.pendingProposals = proposals;

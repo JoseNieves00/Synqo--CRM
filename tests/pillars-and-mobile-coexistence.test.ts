@@ -12,6 +12,7 @@ import {
   unwrapEvolutionOutboundMessage,
 } from '../services/human-outbound.service';
 import { buildSuperAdminDigestText } from '../services/platform-alert.service';
+import { composePlaybookAndBusinessPrompt } from '../lib/ai/sales-playbook';
 
 async function runPillarsAndMobileTests() {
   console.log('\n🛡️  Iniciando Suite: Estabilidad Pilares 1 & 2 + Coexistencia Móvil...\n');
@@ -155,7 +156,20 @@ async function runPillarsAndMobileTests() {
   assert.ok(managerSrc.includes('#(plataforma|resumen)'), 'SuperAdmin debe poder pedir #plataforma/#resumen por WhatsApp');
   assert.ok(settingsFormSrc.includes('mobileCoexistence'), 'SettingsForm debe exponer UI de coexistencia móvil');
 
-  console.log('   ✅ Invariantes de producción (handoff, 24h Meta, Instagram, Pipeline, Móvil, Plantillas y SuperAdmin Alerts) verificadas.\n');
+  const composedPrompt = composePlaybookAndBusinessPrompt({
+    businessPrompt: '## Regla de formato\nNo repitas medidas si ya fueron en la imagen; cierra con pregunta sutil.',
+    hasCalendar: false,
+  });
+  assert.ok(
+    composedPrompt.indexOf('=== GUARDRAILS DE PROTECCIÓN') < composedPrompt.indexOf('<instrucciones_del_negocio prioridad="MAXIMA">'),
+    'Instrucciones del negocio deben ir con prioridad máxima después del playbook base para que manden sobre estilo genérico'
+  );
+  assert.ok(
+    composedPrompt.includes('already_visible_in_card') === false && openaiSrc.includes('already_visible_in_card: true'),
+    'send_product_card debe informar already_visible_in_card respetando reglas de cada empresa'
+  );
+
+  console.log('   ✅ Invariantes de producción (handoff, 24h Meta, Instagram, Pipeline, Móvil, Plantillas, Jerarquía de Prompt y SuperAdmin Alerts) verificadas.\n');
 }
 
 runPillarsAndMobileTests().catch((err) => {

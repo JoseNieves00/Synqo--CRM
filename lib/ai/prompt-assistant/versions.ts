@@ -197,3 +197,19 @@ export function pushPromptVersion(
 
   return [nextEntry, ...list].slice(0, maxVersions);
 }
+
+const META_COMMENTARY_START_REGEX =
+  /^\s*(?:[-*]\s*)?(?:es recomendable|se recomienda|te recomiendo|conviene|ser[ií]a (?:ideal|bueno|útil|recomendable)|es aconsejable|deber[ií]as|sugiero|se sugiere|te sugerimos|falta especificar|podr[ií]as agregar)\b/i;
+
+const META_COMMENTARY_BODY_REGEX =
+  /(?:evitar dispersi[oó]n|unificar (?:las )?instrucciones|por ejemplo,\s*(?:incluir|agregar|crear) una secci[oó]n|en un solo apartado|reorganizar (?:el|este) prompt)/i;
+
+/**
+ * Detecta si un texto propuesto es un consejo/meta-comentario dirigido al administrador
+ * (en lugar de una instrucción directa lista para pegar en el prompt del bot).
+ */
+export function isMetaPromptCommentary(text: string): boolean {
+  const clean = String(text || '').trim();
+  if (!clean) return false;
+  return META_COMMENTARY_START_REGEX.test(clean) || META_COMMENTARY_BODY_REGEX.test(clean);
+}

@@ -9,16 +9,18 @@ import {
   Kanban,
   Calendar,
   Settings,
+  ShieldCheck,
 } from 'lucide-react';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
 import type { EnabledModules } from '@/lib/supabase/types';
 
 interface MobileBottomNavProps {
   isAdmin: boolean;
+  isSuperAdmin?: boolean;
   enabledModules?: EnabledModules;
 }
 
-export function MobileBottomNav({ isAdmin, enabledModules }: MobileBottomNavProps) {
+export function MobileBottomNav({ isAdmin, isSuperAdmin = false, enabledModules }: MobileBottomNavProps) {
   const pathname = usePathname();
   const [unattendedCount, setUnattendedCount] = useState(0);
 
@@ -43,6 +45,7 @@ export function MobileBottomNav({ isAdmin, enabledModules }: MobileBottomNavProp
     icon: React.ComponentType<{ className?: string }>;
     exact: boolean;
     isInbox?: boolean;
+    isSuperAdminOnly?: boolean;
   }> = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { href: '/pipeline', label: 'Pipeline', icon: Kanban, exact: true },
@@ -50,6 +53,9 @@ export function MobileBottomNav({ isAdmin, enabledModules }: MobileBottomNavProp
       ? [{ href: '/calendar', label: 'Agenda', icon: Calendar, exact: false }]
       : []),
     ...(isAdmin ? [{ href: '/settings', label: 'Ajustes', icon: Settings, exact: false }] : []),
+    ...(isSuperAdmin
+      ? [{ href: '/admin', label: 'SuperAdmin', icon: ShieldCheck, exact: false, isSuperAdminOnly: true }]
+      : []),
   ];
 
   return (

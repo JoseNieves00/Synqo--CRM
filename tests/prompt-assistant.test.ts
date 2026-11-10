@@ -8,6 +8,7 @@ import {
 } from '../lib/ai/prompt-assistant/blueprint';
 import {
   estimatePromptTokens,
+  isMetaPromptCommentary,
   patchSectionInPrompt,
   pushPromptVersion,
   renderPromptFromSlots,
@@ -25,8 +26,14 @@ import { evaluatePromptHealth } from '../lib/ai/prompt-assistant/health';
 import {
   createEmptyAssistantState,
   getAssistantDailyUsage,
+  normalizeAssistantState,
   recordAssistantUsageInState,
 } from '../lib/ai/prompt-assistant/state';
+import {
+  buildStratifiedAuditSample,
+  compactConversationForAudit,
+  computeAuditSampleFingerprint,
+} from '../lib/ai/prompt-assistant/conversation-audit';
 import { appendKnowledgeToPrompt } from '../lib/ai/prompt-compiler';
 
 function buildMinimalBlankPdf(): Buffer {
@@ -201,7 +208,70 @@ async function runPromptAssistantTests() {
   assert.ok(adminSrc.includes('prompt_assistant_stats'), 'SuperAdmin debe visualizar consumo del asistente por org');
   assert.ok(!panelSrc.includes('incluido por Synqo'), 'UI del cliente no debe mostrar etiquetas de incluido/cuota');
   assert.ok(!panelSrc.includes('totalAssistantTokens'), 'UI del cliente no debe exponer consumo acumulado de tokens');
-  console.log('   ✅ Invariantes de aislamiento de tokens (Synqo vs Cliente) y SuperAdmin verificados.\n');
+  console.log('   ✅ Invariantes de aislamiento de tokens (Synqo vs Cliente) y SuperAdmin verificados.');
+
+  // 9. Slot adicional.flujo + Muestreo estratificado y compresión de auditoría diaria pasiva (0 tokens)
+  const flujoSlot = PROMPT_BLUEPRINT_SLOTS.find((s) => s.id === 'adicional.flujo')!;
+  assert.ok(flujoSlot, 'Debe existir slot adicional.flujo para control por empresa');
+  const flowMd = renderPromptFromSlots({
+    'adicional.flujo': 'Si ya envió foto con precio/detalles, no repetir esa lista en texto; ir directo al cierre',
+    'adicional.notas': 'No prometer descuentos sin aprobación.',
+  });
+  assert.ok(flowMd.includes('Regla de flujo y cierre:'), 'Debe renderizar regla de flujo');
+  assert.ok(flowMd.includes('Reglas adicionales:'), 'Debe renderizar reglas adicionales');
+
+  const sampleContacts = [
+    { id: 'c1', pipeline_stage: 'ganado', deal_value: 200000, custom_fields: { lead_temperature: 'hot' } },
+    { id: 'c2', pipeline_stage: 'calificado', custom_fields: { lead_temperature: 'qualified_doubt', objection: 'Tiempo de entrega' } },
+    { id: 'c3', pipeline_stage: 'nuevo', custom_fields: { lead_temperature: 'warm' } },
+    { id: 'c4', pipeline_stage: 'perdido', custom_fields: { lead_temperature: 'cold', lost_reason: 'Precio' } },
+  ];
+  const sample = buildStratifiedAuditSample(sampleContacts);
+  assert.strictEqual(sample.categoryStats.converted, 1);
+  assert.strictEqual(sample.categoryStats.inDoubt, 1);
+  assert.strictEqual(sample.categoryStats.stalledWarm, 1);
+  assert.strictEqual(sample.categoryStats.lost, 1);
+  assert.strictEqual(sample.allSampled.length, 4);
+
+  const compacted = compactConversationForAudit('in_doubt', sampleContacts[1], [
+    { contact_id: 'c2', sender_type: 'lead', content: 'Hola, qué medidas tiene?' },
+    { contact_id: 'c2', sender_type: 'ai', content: '[IMAGEN: https://cdn.example.com/a.jpg]\nModelo A · $180.000' },
+  ]);
+  assert.ok(compacted.includes('[IN_DOUBT]'));
+  assert.ok(compacted.includes('[Imagen+caption:'));
+
+  const fp1 = computeAuditSampleFingerprint({ contacts: sampleContacts, gaps: [], promptBody: flowMd });
+  const fp2 = computeAuditSampleFingerprint({ contacts: sampleContacts, gaps: [], promptBody: flowMd });
+  assert.strictEqual(fp1, fp2, 'Huella de auditoría debe ser determinística para ahorrar tokens');
+
+  const stNorm = normalizeAssistantState({
+    dailyInsights: {
+      lastAuditDay: '2026-11-10',
+      lastAuditAt: '2026-11-10T10:00:00.000Z',
+      sampleFingerprint: fp1,
+      analyzedCount: 4,
+      categoryStats: sample.categoryStats,
+      summaryHeadline: 'Resumen',
+      dailyTips: ['Tip 1'],
+      detectedNeeds: [],
+    },
+  });
+  assert.strictEqual(stNorm.dailyInsights?.dailyTips[0], 'Tip 1');
+
+  const cronSrc = fs.readFileSync(path.join(root, 'app/api/cron/lead-reactivation/route.ts'), 'utf8');
+  assert.ok(cronSrc.includes('runPassiveDailyAuditsForActiveOrgs'), 'Cron debe ejecutar auditoría diaria pasiva y autónoma');
+
+  assert.strictEqual(
+    isMetaPromptCommentary('Es recomendable unificar las instrucciones de cierre y seguimiento en un solo apartado para evitar dispersión.'),
+    true,
+    'Meta-consejos deben detectarse para no pegarse literalmente al prompt'
+  );
+  assert.strictEqual(
+    isMetaPromptCommentary('- Si ya enviaste las medidas en la imagen, no las repitas en el texto final; cierra con una pregunta sutil hacia la venta.'),
+    false,
+    'Reglas ejecutables directas para el bot deben aceptarse como propuestas válidas'
+  );
+  console.log('   ✅ Slot de flujo por empresa, filtro anti meta-consejos y auditoría diaria pasiva/estratificada verificados.\n');
 }
 
 runPromptAssistantTests().catch((err) => {
