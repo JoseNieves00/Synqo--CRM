@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   description: 'Desarrollo web de alto rendimiento y CRM comercial con Inteligencia Artificial para WhatsApp y agendamiento sincronizado.',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'default',
     title: 'Synqo CRM',
   },
   icons: {
