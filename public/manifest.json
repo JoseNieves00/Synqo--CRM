@@ -2,13 +2,13 @@
   "id": "/",
   "name": "Synqo CRM",
   "short_name": "Synqo",
-  "description": "CRM comercial con IA vendedora autónoma y atención WhatsApp omnicanal",
-  "start_url": "/inbox",
+  "description": "CRM comercial con IA vendedora autónoma y agendamiento sincronizado",
+  "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "background_color": "#090A0F",
   "theme_color": "#0052FF",
-  "orientation": "any",
+  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/brand/favicon-192.png",
@@ -30,15 +30,15 @@
   ],
   "shortcuts": [
     {
-      "name": "Inbox",
-      "short_name": "Inbox",
-      "url": "/inbox",
-      "icons": [{ "src": "/brand/favicon-192.png", "sizes": "192x192" }]
-    },
-    {
       "name": "Dashboard",
       "short_name": "Dashboard",
       "url": "/dashboard",
+      "icons": [{ "src": "/brand/favicon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Pipeline",
+      "short_name": "Pipeline",
+      "url": "/pipeline",
       "icons": [{ "src": "/brand/favicon-192.png", "sizes": "192x192" }]
     },
     {

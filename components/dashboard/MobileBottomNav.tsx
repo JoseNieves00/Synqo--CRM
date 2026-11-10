@@ -37,8 +37,13 @@ export function MobileBottomNav({ isAdmin, enabledModules }: MobileBottomNavProp
     return () => window.removeEventListener('synqo-unattended-count', handleCountUpdate);
   }, []);
 
-  const items = [
-    { href: '/inbox', label: 'Inbox', icon: MessageSquare, exact: false, isInbox: true },
+  const items: Array<{
+    href: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    exact: boolean;
+    isInbox?: boolean;
+  }> = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { href: '/pipeline', label: 'Pipeline', icon: Kanban, exact: true },
     ...(enabledModules?.native_calendar !== false

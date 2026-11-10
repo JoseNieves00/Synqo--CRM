@@ -13,6 +13,31 @@ export interface PendingSectionProposal {
   proposedText: string;
   reason: string;
   isConflict?: boolean;
+  source?: 'improve' | 'daily_audit';
+  evidence?: string;
+}
+
+export interface DailyConversationNeed {
+  topic: string;
+  evidence: string;
+  impact: 'high' | 'medium';
+}
+
+export interface DailyConversationInsights {
+  lastAuditDay: string;
+  lastAuditAt: string;
+  sampleFingerprint: string;
+  analyzedCount: number;
+  categoryStats: {
+    converted: number;
+    inDoubt: number;
+    stalledWarm: number;
+    lost: number;
+    pendingHandoffs: number;
+  };
+  summaryHeadline: string;
+  dailyTips: string[];
+  detectedNeeds: DailyConversationNeed[];
 }
 
 export interface AssistantDailyUsageBucket {
@@ -32,6 +57,7 @@ export interface PromptAssistantState {
   totalAssistantTokens: number;
   lastActiveSlotId?: string | null;
   sandboxTestedAt?: string | null;
+  dailyInsights?: DailyConversationInsights | null;
 }
 
 export function createEmptyAssistantState(mode: AssistantMode = 'new'): PromptAssistantState {
@@ -45,6 +71,7 @@ export function createEmptyAssistantState(mode: AssistantMode = 'new'): PromptAs
     totalAssistantTokens: 0,
     lastActiveSlotId: null,
     sandboxTestedAt: null,
+    dailyInsights: null,
   };
 }
 
@@ -63,6 +90,8 @@ export function normalizeAssistantState(raw: any, fallbackMode: AssistantMode = 
     totalAssistantTokens: Number(raw.totalAssistantTokens || 0),
     lastActiveSlotId: typeof raw.lastActiveSlotId === 'string' ? raw.lastActiveSlotId : null,
     sandboxTestedAt: typeof raw.sandboxTestedAt === 'string' ? raw.sandboxTestedAt : null,
+    dailyInsights:
+      raw.dailyInsights && typeof raw.dailyInsights === 'object' ? raw.dailyInsights : null,
   };
 }
 

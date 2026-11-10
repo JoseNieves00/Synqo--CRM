@@ -6,11 +6,14 @@ import {
   FlaskConical,
   HelpCircle,
   History,
+  Lightbulb,
   Loader2,
   MessageSquarePlus,
+  RefreshCw,
   Repeat,
   Send,
   Sparkles,
+  TrendingUp,
   Wand2,
   X,
 } from 'lucide-react';
@@ -38,6 +41,7 @@ import {
   getPromptAssistantBootstrapAction,
   interpretAssistantAnswerAction,
   polishPromptDraftAction,
+  refreshDailyConversationAuditAction,
   rejectSectionProposalAction,
   restorePromptVersionAction,
   saveImportedCatalogToPromptAction,
@@ -45,9 +49,10 @@ import {
 import type { FollowUpSuggestionMap } from '@/components/settings/FollowUpSequencesSettings';
 import { AssistantChat, type AssistantChatFeedItem } from './AssistantChat';
 import { HealthChecklist } from './HealthChecklist';
+import { SectionProposalCard } from './SectionProposalCard';
 import type { PendingImportState } from './CatalogImportPreview';
 
-type AssistantTab = 'build' | 'follow_ups' | 'help';
+type AssistantTab = 'build' | 'insights' | 'follow_ups' | 'help';
 
 interface PromptAssistantPanelProps {
   currentPrompt: string;
@@ -93,6 +98,7 @@ export function PromptAssistantPanel({
   const [showVersionsMenu, setShowVersionsMenu] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [openingSandbox, setOpeningSandbox] = useState(false);
+  const [refreshingAudit, setRefreshingAudit] = useState(false);
 
   // Seguimientos tab
   const [fuArguments, setFuArguments] = useState('');
@@ -372,6 +378,26 @@ export function PromptAssistantPanel({
     }
   };
 
+  const handleRefreshAudit = async (force = false) => {
+    if (refreshingAudit) return;
+    setRefreshingAudit(true);
+    try {
+      const res = await refreshDailyConversationAuditAction({ force });
+      setState(res.state);
+      if (res.ranAi) {
+        pushNotice('Análisis actualizado con las conversaciones reales recientes.');
+      } else if (res.skippedReason === 'insufficient_conversations' || res.skippedReason === 'insufficient_sample') {
+        pushNotice('Se necesitan al menos 3 conversaciones recientes para generar estadísticas.');
+      } else if (res.skippedReason === 'no_new_activity' || res.skippedReason === 'already_audited_today') {
+        pushNotice('Ya tienes el análisis al día con tus últimas conversaciones.');
+      }
+    } catch (err: any) {
+      pushNotice(err?.message || 'No se pudo actualizar el análisis.');
+    } finally {
+      setRefreshingAudit(false);
+    }
+  };
+
   const handleGenerateFollowUps = async () => {
     setGeneratingFollowUps(true);
     try {
@@ -524,41 +550,56 @@ export function PromptAssistantPanel({
         </div>
 
         {/* Pestañas */}
-        <div className="grid grid-cols-3 gap-1 bg-slate-200/60 dark:bg-[#090A0F] p-1 rounded-xl">
+        <div className="grid grid-cols-4 gap-1 bg-slate-200/60 dark:bg-[#090A0F] p-1 rounded-xl">
           <button
             type="button"
             onClick={() => setActiveTab('build')}
-            className={`py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
+            className={`py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
               activeTab === 'build'
                 ? 'bg-white dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400'
             }`}
           >
-            <MessageSquarePlus className="w-3.5 h-3.5" />
+            <MessageSquarePlus className="w-3.5 h-3.5 shrink-0" />
             <span>Construir</span>
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('insights')}
+            className={`py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition relative ${
+              activeTab === 'insights'
+                ? 'bg-white dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+            <span>Insights</span>
+            {(state.dailyInsights?.dailyTips?.length || 0) > 0 && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            )}
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('follow_ups')}
-            className={`py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
+            className={`py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
               activeTab === 'follow_ups'
                 ? 'bg-white dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400'
             }`}
           >
-            <Repeat className="w-3.5 h-3.5" />
-            <span>Seguimientos</span>
+            <Repeat className="w-3.5 h-3.5 shrink-0" />
+            <span>Seguim.</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('help')}
-            className={`py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
+            className={`py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
               activeTab === 'help'
                 ? 'bg-white dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400'
             }`}
           >
-            <HelpCircle className="w-3.5 h-3.5" />
+            <HelpCircle className="w-3.5 h-3.5 shrink-0" />
             <span>Ayuda</span>
           </button>
         </div>
@@ -591,6 +632,157 @@ export function PromptAssistantPanel({
             setPendingImport={setPendingImport}
             onPushNotice={pushNotice}
           />
+        ) : activeTab === 'insights' ? (
+          <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 text-xs">
+            <div className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/80 dark:bg-[#090A0F] p-3">
+              <div className="space-y-0.5 min-w-0">
+                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>Diagnóstico diario autónomo</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {state.dailyInsights
+                    ? `${state.dailyInsights.summaryHeadline} (Muestra: ${state.dailyInsights.analyzedCount} chats)`
+                    : 'Analizamos automáticamente tus chats convertidos vs no convertidos para detectar qué mejorar.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRefreshAudit(true)}
+                disabled={refreshingAudit || dailyLimitReached}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:text-[#0052FF] flex items-center gap-1 cursor-pointer disabled:opacity-40 shrink-0"
+                title="Analizar conversaciones recientes"
+              >
+                <RefreshCw className={`w-3 h-3 ${refreshingAudit ? 'animate-spin' : ''}`} />
+                <span>{refreshingAudit ? 'Analizando...' : 'Actualizar'}</span>
+              </button>
+            </div>
+
+            {state.dailyInsights ? (
+              <>
+                <div className="grid grid-cols-4 gap-1.5 text-center">
+                  <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/70 dark:bg-emerald-950/20 p-2">
+                    <div className="text-sm font-black text-emerald-700 dark:text-emerald-300">
+                      {state.dailyInsights.categoryStats.converted}
+                    </div>
+                    <div className="text-[10px] text-emerald-700/80 dark:text-emerald-400 font-medium">
+                      Convertidos
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50/70 dark:bg-blue-950/20 p-2">
+                    <div className="text-sm font-black text-blue-700 dark:text-blue-300">
+                      {state.dailyInsights.categoryStats.inDoubt}
+                    </div>
+                    <div className="text-[10px] text-blue-700/80 dark:text-blue-400 font-medium">
+                      En duda
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-950/20 p-2">
+                    <div className="text-sm font-black text-amber-700 dark:text-amber-300">
+                      {state.dailyInsights.categoryStats.stalledWarm}
+                    </div>
+                    <div className="text-[10px] text-amber-700/80 dark:text-amber-400 font-medium">
+                      Tibios
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-rose-200 dark:border-rose-800/40 bg-rose-50/70 dark:bg-rose-950/20 p-2">
+                    <div className="text-sm font-black text-rose-700 dark:text-rose-300">
+                      {state.dailyInsights.categoryStats.lost}
+                    </div>
+                    <div className="text-[10px] text-rose-700/80 dark:text-rose-400 font-medium">
+                      Perdidos
+                    </div>
+                  </div>
+                </div>
+
+                {state.dailyInsights.dailyTips.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Tips de hoy basados en tus chats
+                    </div>
+                    <div className="space-y-1.5">
+                      {state.dailyInsights.dailyTips.map((tip, i) => (
+                        <div
+                          key={i}
+                          className="rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] p-2.5 text-[11px] text-slate-700 dark:text-slate-200 leading-relaxed flex gap-2"
+                        >
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold shrink-0">•</span>
+                          <span>{tip}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {state.dailyInsights.detectedNeeds.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Necesidades reales y faltantes detectados
+                    </div>
+                    <div className="space-y-1.5">
+                      {state.dailyInsights.detectedNeeds.map((need, i) => (
+                        <div
+                          key={i}
+                          className="rounded-xl border border-amber-200/80 dark:border-amber-700/40 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 space-y-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-[11px] text-slate-900 dark:text-white">
+                              {need.topic}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                need.impact === 'high'
+                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                              }`}
+                            >
+                              {need.impact === 'high' ? 'Prioritario' : 'Mejora'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                            {need.evidence}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {state.pendingProposals.filter((p) => p.source === 'daily_audit').length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Propuestas listas para aplicar a tu Prompt
+                    </div>
+                    {state.pendingProposals
+                      .filter((p) => p.source === 'daily_audit')
+                      .map((prop) => (
+                        <SectionProposalCard
+                          key={prop.id}
+                          proposal={prop}
+                          onAccept={handleAcceptProposal}
+                          onReject={handleRejectProposal}
+                        />
+                      ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 dark:border-[#232A3B] p-6 text-center space-y-2">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Aún no hay un análisis diario generado para esta empresa. El sistema lo ejecutará automáticamente cada día con tus conversaciones activas, o puedes correrlo ahora.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleRefreshAudit(true)}
+                  disabled={refreshingAudit}
+                  className="px-3 py-1.5 rounded-xl bg-[#0052FF] hover:bg-[#0043D4] text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {refreshingAudit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>Analizar conversaciones recientes</span>
+                </button>
+              </div>
+            )}
+          </div>
         ) : activeTab === 'follow_ups' ? (
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3 text-xs">
             <div className="rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F] p-3 space-y-1">

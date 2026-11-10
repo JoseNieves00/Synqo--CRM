@@ -993,33 +993,33 @@ export function SettingsForm({
         </p>
       </div>
 
-      {/* Navegación por Pestañas Segmentadas con Scroll Horizontal Móvil */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-full overflow-x-auto no-scrollbar">
+      {/* Navegación por Pestañas Segmentadas con Scroll Horizontal Móvil Touch */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-full overflow-x-auto no-scrollbar scroll-smooth touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"
           onClick={() => setActiveTab('integrations')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'integrations'
               ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
           }`}
         >
           <Sliders className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
-          Integraciones & IA
+          <span>Integraciones & IA</span>
         </button>
 
         {teamData && (
           <button
             type="button"
             onClick={() => setActiveTab('team')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
               activeTab === 'team'
                 ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
             }`}
           >
             <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-            Equipo & Usuarios ({teamData.members.length}/{teamData.organization.maxUsers})
+            <span>Equipo & Usuarios ({teamData.members.length}/{teamData.organization.maxUsers})</span>
           </button>
         )}
 
@@ -1027,14 +1027,14 @@ export function SettingsForm({
           <button
             type="button"
             onClick={() => setActiveTab('specialists')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
               activeTab === 'specialists'
                 ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
             }`}
           >
             <Smartphone className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
-            {initialData.specialistLabel ? `${initialData.specialistLabel}s` : 'Colaboradores'} ({specialistsData?.length || 0})
+            <span>{initialData.specialistLabel ? `${initialData.specialistLabel}s` : 'Colaboradores'} ({specialistsData?.length || 0})</span>
           </button>
         )}
 
@@ -1042,54 +1042,54 @@ export function SettingsForm({
           <button
             type="button"
             onClick={() => setActiveTab('rooms')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
               activeTab === 'rooms'
                 ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
             }`}
           >
             <DoorOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            {initialData.roomLabel ? `${initialData.roomLabel}s` : 'Espacios Físicos'} ({roomsData?.length || 0})
+            <span>{initialData.roomLabel ? `${initialData.roomLabel}s` : 'Espacios Físicos'} ({roomsData?.length || 0})</span>
           </button>
         )}
 
         <button
           type="button"
           onClick={() => setActiveTab('payments')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'payments'
               ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
           }`}
         >
           <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          Cuentas de Pago ({paymentAccountsData?.length || 0})
+          <span>Cuentas de Pago ({paymentAccountsData?.length || 0})</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('quick_replies')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 ${
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'quick_replies'
               ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
           }`}
         >
           <Zap className="w-4 h-4 text-amber-500" />
-          Atajos Rápidos (/) ({quickRepliesData?.length || 0})
+          <span>Atajos Rápidos (/) ({quickRepliesData?.length || 0})</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('follow_ups')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 ${
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'follow_ups'
               ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
           }`}
         >
           <Repeat className="w-4 h-4 text-purple-500" />
-          Seguimientos
+          <span>Seguimientos</span>
         </button>
       </div>
 

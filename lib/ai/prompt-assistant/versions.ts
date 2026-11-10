@@ -129,8 +129,16 @@ export function renderSectionBodyFromSlots(sectionId: string, slots: Record<stri
       return formatVal(slots['relevo.reglas']);
     case 'seguimiento':
       return formatVal(slots['seguimiento.estrategia']);
-    case 'adicional':
-      return formatVal(slots['adicional.notas']);
+    case 'adicional': {
+      const flowPart = formatVal(slots['adicional.flujo']);
+      const notesPart = formatVal(slots['adicional.notas']);
+      return [
+        flowPart ? `- Regla de flujo y cierre: ${flowPart}` : '',
+        notesPart ? `- Reglas adicionales: ${notesPart}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
     default:
       return '';
   }

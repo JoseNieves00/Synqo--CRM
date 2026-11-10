@@ -120,9 +120,12 @@ assert.ok(
 
 const evoWebhookPath = path.join(process.cwd(), 'app/api/webhooks/whatsapp/evolution/route.ts');
 const evoWebhookContent = fs.readFileSync(evoWebhookPath, 'utf8');
+const humanOutboundPath = path.join(process.cwd(), 'services/human-outbound.service.ts');
+const humanOutboundContent = fs.readFileSync(humanOutboundPath, 'utf8');
 assert.ok(
-  evoWebhookContent.includes(".in('sender_type', ['agent_manual', 'ai'])"),
-  'Webhook de Evolution debe reconciliar mensajes con status "sending" tanto de asesor como de IA'
+  evoWebhookContent.includes('HumanOutboundService.recordMobileHumanOutbound') &&
+    humanOutboundContent.includes(".in('sender_type', ['agent_manual', 'ai'])"),
+  'Webhook de Evolution y HumanOutboundService deben reconciliar mensajes con status "sending" tanto de asesor como de IA'
 );
 console.log('   ✅ Patrón Outbox y reconciliación de eco fromMe verificados.');
 

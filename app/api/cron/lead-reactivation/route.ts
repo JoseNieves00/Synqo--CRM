@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { LeadReactivationService } from '@/services/reactivation.service';
 import { OpenAIService } from '@/services/openai.service';
 import { PlatformAlertService } from '@/services/platform-alert.service';
+import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -58,6 +59,10 @@ async function handleCron(request: NextRequest) {
     const autoClassifyResult = await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 35);
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
+    const passiveAuditResult = await ConversationAuditService.runPassiveDailyAuditsForActiveOrgs(orgId, 6).catch(() => ({
+      auditedOrgs: 0,
+      skippedOrgs: 0,
+    }));
     const superAdminDigestSent = !orgId
       ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
       : false;
@@ -68,6 +73,7 @@ async function handleCron(request: NextRequest) {
       ...reactivationResult,
       autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
+      passiveConversationAudits: passiveAuditResult,
       superAdminDigestSent,
     });
   } catch (err: any) {

@@ -186,6 +186,22 @@ export const PROMPT_BLUEPRINT_SLOTS: BlueprintSlot[] = [
     ],
   },
   {
+    id: 'adicional.flujo',
+    sectionId: 'adicional',
+    sectionTitle: 'Reglas adicionales',
+    label: 'Formato tras fotos y estilo de cierre',
+    question: '¿Cómo prefieres que responda tu IA después de enviar fotos del catálogo y cómo debe cerrar cada mensaje?',
+    help: 'Esto manda sobre el estilo por defecto: evita redundancias o define tu ruta exacta hacia la compra o cita.',
+    required: false,
+    type: 'text',
+    chips: () => [
+      'Si ya envió foto con precio/detalles, no repetir esa lista en texto; ir directo al cierre',
+      'Enviar foto + resumen breve en texto y cerrar con una pregunta sutil hacia compra o cita',
+      'Responder puntual sin forzar pregunta al final',
+      'Omitir por ahora',
+    ],
+  },
+  {
     id: 'adicional.notas',
     sectionId: 'adicional',
     sectionTitle: 'Reglas adicionales',

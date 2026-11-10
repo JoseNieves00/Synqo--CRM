@@ -107,14 +107,14 @@ export default async function DashboardPage({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center p-1 rounded-xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="inline-flex items-center p-1 rounded-xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] overflow-x-auto max-w-full [scrollbar-width:none]">
             {PERIOD_OPTIONS.map((opt) => (
               <Link
                 key={opt.id}
                 href={`/dashboard?period=${opt.id}`}
                 prefetch={true}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
                   period === opt.id
                     ? 'bg-[#0052FF] text-white shadow-2xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'

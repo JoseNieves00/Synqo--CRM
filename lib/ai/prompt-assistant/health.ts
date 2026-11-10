@@ -75,8 +75,9 @@ export function evaluatePromptHealth(params: {
         return /(pregunta|frecuente|faq|##\s*preguntas frecuentes)/i.test(lowerPrompt);
       case 'seguimiento.estrategia':
         return /(seguimiento|recontacto|recordatorio|promoci[oó]n|descuento|##\s*seguimiento)/i.test(lowerPrompt);
+      case 'adicional.flujo':
       case 'adicional.notas':
-        return /(reglas adicionales|prohib|nunca|restricci|##\s*reglas adicionales)/i.test(lowerPrompt);
+        return /(reglas adicionales|regla de flujo|no repetir|ruta de cierre|prohib|nunca|restricci|##\s*reglas adicionales)/i.test(lowerPrompt);
       default:
         return false;
     }

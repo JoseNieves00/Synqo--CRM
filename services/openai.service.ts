@@ -31,7 +31,7 @@ import {
   getAiChatChain,
   getAiUtilityChain,
 } from '@/lib/ai/config';
-import { buildSalesPlaybook } from '@/lib/ai/sales-playbook';
+import { composePlaybookAndBusinessPrompt } from '@/lib/ai/sales-playbook';
 import {
   EnrichedGalleryItem,
   buildProductCardCaption,
@@ -959,14 +959,12 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         resolvedPromptConfig
       );
 
-      // 2. Prefijo estable para Prompt Caching: [Prompt del negocio][Playbook compacto]
+      // 2. Prefijo estable para Prompt Caching: [Guardrails + Playbook Base] -> [Instrucciones del negocio (prioridad máxima)]
       const hasCalendar = enabledModules ? Boolean(enabledModules.native_calendar) : true;
-      const staticSystemPrompt = [
-        resolvedPromptConfig || 'Eres el asesor comercial de la empresa.',
-        buildSalesPlaybook({ hasCalendar }),
-      ]
-        .filter(Boolean)
-        .join('\n\n');
+      const staticSystemPrompt = composePlaybookAndBusinessPrompt({
+        businessPrompt: resolvedPromptConfig,
+        hasCalendar,
+      });
 
       const conversationHistory: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         { role: 'system', content: staticSystemPrompt },
@@ -1299,8 +1297,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     product: matched.name,
                     price: formatGalleryPrice(matched.price),
                     caption,
+                    already_visible_in_card: true,
                     message:
-                      'Tarjeta visual enviada al cliente con foto oficial, precio y medidas. No escribas enlaces en tu texto.',
+                      'Tarjeta visual enviada al cliente con foto oficial, precio y caption. No escribas enlaces en tu texto. Para tu mensaje final, sigue exactamente las reglas de <instrucciones_del_negocio>: si indican evitar redundancias o no repetir datos ya visibles en la imagen/caption, no vuelvas a listar esos mismos ítems y pasa directo a dudas pendientes o al cierre.',
                   });
                 }
               }
@@ -2923,7 +2922,10 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
     const { items: galleryItems, knownPrices } = resolveOrganizationGallery(params.organization, params.systemPrompt);
 
     const staticSystem = params.enableDryRunTools
-      ? `${params.systemPrompt}\n\n${buildSalesPlaybook({ hasCalendar: Boolean(params.enabledModules?.native_calendar) })}`
+      ? composePlaybookAndBusinessPrompt({
+          businessPrompt: params.systemPrompt,
+          hasCalendar: Boolean(params.enabledModules?.native_calendar),
+        })
       : params.systemPrompt;
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -3043,7 +3045,15 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
                 details: parsed.data.details,
               });
               trace.productCardsSent.push({ name: matched.name, price: matched.price, caption, url: matched.url });
-              resultPayload = { status: 'sent', product: matched.name, price: formatGalleryPrice(matched.price), caption };
+              resultPayload = {
+                status: 'sent',
+                product: matched.name,
+                price: formatGalleryPrice(matched.price),
+                caption,
+                already_visible_in_card: true,
+                message:
+                  'Tarjeta visual enviada con foto, precio y caption. No repitas en texto los datos ya visibles si <instrucciones_del_negocio> pide evitar redundancias; sigue exactamente su ruta de cierre.',
+              };
             }
           }
         } else if (fn === 'update_lead_profile') {

@@ -6,6 +6,7 @@ import { listInbox, getInboxCounts, InboxViewType } from '@/app/actions/chat';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { redirect } from 'next/navigation';
 import { InboxView } from '@/components/chat/InboxView';
+import { InboxMobileDisabledCard } from '@/components/chat/InboxMobileDisabledCard';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
 import { MessageSquare } from 'lucide-react';
 
@@ -98,28 +99,33 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   }
 
   return (
-    <InboxView
-      organizationId={current.organization.id}
-      contacts={contactList}
-      activeContact={activeContact}
-      messages={messages}
-      initialCounts={initialCounts}
-      initialTotalCount={inboxRes.totalCount ?? null}
-      paymentAccounts={paymentAccounts || []}
-      catalogItems={catalogItems || []}
-      initialView={activeView}
-      initialFilters={{
-        channel: channelFilter,
-        agentId: agentFilter,
-        stage: stageFilter,
-        temperature: tempFilter,
-      }}
-      customTemplates={(current.organization as any)?.whatsapp_templates || []}
-      whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.evolution_instance_name ? 'evolution' : 'meta')}
-      currentUserId={current.user.id}
-      currentUserRole={current.profile?.role || 'agent'}
-      teamMembers={teamMembers || []}
-      pendingGapsCount={gapsCount || 0}
-    />
+    <>
+      <InboxMobileDisabledCard />
+      <div className="hidden md:block h-full">
+        <InboxView
+          organizationId={current.organization.id}
+          contacts={contactList}
+          activeContact={activeContact}
+          messages={messages}
+          initialCounts={initialCounts}
+          initialTotalCount={inboxRes.totalCount ?? null}
+          paymentAccounts={paymentAccounts || []}
+          catalogItems={catalogItems || []}
+          initialView={activeView}
+          initialFilters={{
+            channel: channelFilter,
+            agentId: agentFilter,
+            stage: stageFilter,
+            temperature: tempFilter,
+          }}
+          customTemplates={(current.organization as any)?.whatsapp_templates || []}
+          whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.evolution_instance_name ? 'evolution' : 'meta')}
+          currentUserId={current.user.id}
+          currentUserRole={current.profile?.role || 'agent'}
+          teamMembers={teamMembers || []}
+          pendingGapsCount={gapsCount || 0}
+        />
+      </div>
+    </>
   );
 }

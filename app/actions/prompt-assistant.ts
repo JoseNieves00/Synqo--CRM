@@ -30,6 +30,7 @@ import {
 } from '@/lib/ai/prompt-assistant/versions';
 import { evaluatePromptHealth, type PromptHealthReport } from '@/lib/ai/prompt-assistant/health';
 import { searchAssistantGuide } from '@/lib/ai/prompt-assistant/guide';
+import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import {
   matchImportedItemsWithGallery,
   sanitizeImportedText,
@@ -484,9 +485,13 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
     messages: [
       {
         role: 'system',
-        content: `Audita el prompt comercial actual del cliente sin modificarlo.
+        content: `Audita el prompt comercial actual del cliente sin modificarlo ni destruir sus reglas propias.
 Slots del blueprint:
 ${slotList}
+
+Presta especial atención a detectar:
+- Vacíos de información (precios, envíos/cobertura, medios de pago, garantías, datos de cierre).
+- Contradicciones o ambigüedades operativas (por ejemplo: pedir no repetir medidas/datos tras enviar fotos, pero incluir otra regla que obliga a listar todo en texto; o instrucciones de cierre dispersas que conviene unificar claramente bajo ## Reglas adicionales).
 
 Responde ÚNICAMENTE JSON válido:
 {
@@ -690,8 +695,8 @@ export async function polishPromptDraftAction(input: { currentPrompt: string }) 
     messages: [
       {
         role: 'system',
-        content: `Mejora la claridad y brevedad de este prompt empresarial en Markdown limpio (## Sección).
-REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, ciudad, número de cuenta, tiempo de envío, garantía o instrucción específica del cliente. Devuelve únicamente el texto final mejorado sin comentarios.`,
+        content: `Mejora la claridad, estructura y brevedad de este prompt empresarial en Markdown limpio (## Sección).
+REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, ciudad, número de cuenta, tiempo de envío, garantía ni ninguna regla operativa/de cierre específica del cliente (como no repetir datos tras enviar fotos o pasos de cierre). Devuelve únicamente el texto final mejorado sin comentarios.`,
       },
       { role: 'user', content: body.slice(0, 7500) },
     ],
@@ -980,4 +985,30 @@ export async function buildDeterministicSandboxQuestionsAction(input: { currentP
   const q3 = '¿Qué medios de pago aceptan y qué datos necesitan para confirmar hoy?';
 
   return { questions: [q1, q2, q3] };
+}
+
+/**
+ * Ejecuta o actualiza el diagnóstico diario de conversaciones (comparando conversiones vs no conversiones)
+ * respetando caché por huella digital y límite diario interno.
+ */
+export async function refreshDailyConversationAuditAction(params?: { force?: boolean }) {
+  const { org } = await getAuthorizedOrgForAssistant();
+  const auditRes = await ConversationAuditService.runAuditForOrganization({
+    org,
+    force: Boolean(params?.force),
+  });
+
+  const { data: freshOrg } = await (supabaseAdmin.from('organizations') as any)
+    .select('structured_prompt_data')
+    .eq('id', org.id)
+    .maybeSingle();
+
+  const state = normalizeAssistantState(freshOrg?.structured_prompt_data?.assistant, 'improve');
+  return {
+    ranAi: auditRes.ranAi,
+    skippedReason: auditRes.skippedReason,
+    dailyInsights: state.dailyInsights || null,
+    pendingProposals: state.pendingProposals || [],
+    state: { ...state, usageByDay: {}, totalAssistantTokens: 0 },
+  };
 }

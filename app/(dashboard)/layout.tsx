@@ -13,6 +13,7 @@ import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNot
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
 import { SupportHeaderButton } from '@/components/support/SupportHeaderButton';
 import { WhatsAppConnectionIndicator } from '@/components/dashboard/WhatsAppConnectionIndicator';
+import { MobileHeaderControls } from '@/components/dashboard/MobileHeaderControls';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
 import { InboxSyncProvider } from '@/components/inbox/InboxSyncProvider';
 
@@ -161,13 +162,20 @@ export default async function DashboardLayout({
       {/* Área de Contenido Principal con Scroll Independiente */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-slate-50 dark:bg-[#090A0F] transition-colors">
         {/* Header Superior Fijo Delgado (48px) y Unificado */}
-        <header className="h-12 bg-white dark:bg-[#090A0F] border-b border-slate-200 dark:border-[#1E2433] px-5 sm:px-6 flex items-center justify-between flex-shrink-0 z-10 transition-colors">
-          <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
-            <Building2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-xs">{orgName}</span>
+        <header className="h-12 bg-white dark:bg-[#090A0F] border-b border-slate-200 dark:border-[#1E2433] px-3 sm:px-6 flex items-center justify-between flex-shrink-0 z-10 transition-colors">
+          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 min-w-0">
+            <Image
+              src="/brand/isotipo-128w.png"
+              alt="Synqo"
+              width={22}
+              height={22}
+              className="w-5.5 h-5.5 object-contain shrink-0 md:hidden"
+            />
+            <Building2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 hidden md:block" />
+            <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[140px] sm:max-w-xs">{orgName}</span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <WhatsAppConnectionIndicator
               initialProvider={current?.organization?.whatsapp_provider || 'meta'}
               initialStatus={current?.organization?.evolution_status || 'disconnected'}
@@ -175,6 +183,12 @@ export default async function DashboardLayout({
               isAdmin={isAdmin}
             />
             <SupportHeaderButton />
+            <MobileHeaderControls
+              userFullName={userFullName}
+              userEmail={userEmail}
+              userRole={userRole}
+              signOutAction={signOut}
+            />
           </div>
         </header>
 

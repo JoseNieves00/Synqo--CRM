@@ -1,11 +1,17 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
+import { PwaRegister } from '@/components/pwa/PwaRegister';
 
 export const viewport: Viewport = {
-  themeColor: '#0052FF',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#090A0F' },
+  ],
   width: 'device-width',
   initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: 'cover',
 };
 
@@ -44,6 +50,7 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className="min-h-screen bg-canvas text-foreground antialiased selection:bg-[#0052FF]/20">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem={true}>
+          <PwaRegister />
           {children}
         </ThemeProvider>
       </body>
