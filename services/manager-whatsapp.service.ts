@@ -279,15 +279,50 @@ export class ManagerWhatsAppService {
     messageText: string;
   }): Promise<boolean> {
     const trimmedCmd = (params.messageText || '').trim();
-    if (params.advisor.is_super_admin && /^#(plataforma|resumen)\b/i.test(trimmedCmd)) {
-      const digest = await PlatformAlertService.generateLivePlatformDigest();
-      await MessagingService.sendTextMessage({
-        organization: params.organization,
-        to: params.senderPhone,
-        body: digest,
-        simulateTyping: false,
-      });
-      return true;
+    if (params.advisor.is_super_admin) {
+      if (/^#(plataforma|resumen)\b/i.test(trimmedCmd)) {
+        const digest = await PlatformAlertService.generateLivePlatformDigest();
+        await MessagingService.sendTextMessage({
+          organization: params.organization,
+          to: params.senderPhone,
+          body: digest,
+          simulateTyping: false,
+        });
+        return true;
+      }
+
+      if (/^#desconectados\b/i.test(trimmedCmd)) {
+        const report = await PlatformAlertService.getDisconnectedChannelsReport();
+        await MessagingService.sendTextMessage({
+          organization: params.organization,
+          to: params.senderPhone,
+          body: report,
+          simulateTyping: false,
+        });
+        return true;
+      }
+
+      if (/^#tickets\b/i.test(trimmedCmd)) {
+        const report = await PlatformAlertService.getOpenTicketsReport();
+        await MessagingService.sendTextMessage({
+          organization: params.organization,
+          to: params.senderPhone,
+          body: report,
+          simulateTyping: false,
+        });
+        return true;
+      }
+
+      if (/^#(consumo|tokens_global)\b/i.test(trimmedCmd)) {
+        const report = await PlatformAlertService.getPlatformTokensReport();
+        await MessagingService.sendTextMessage({
+          organization: params.organization,
+          to: params.senderPhone,
+          body: report,
+          simulateTyping: false,
+        });
+        return true;
+      }
     }
 
     const { data: freshOrg } = await (supabaseAdmin.from('organizations') as any)

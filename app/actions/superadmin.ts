@@ -11,6 +11,13 @@ import { encryptSecret } from '@/lib/security/encryption';
 import { normalizeAlertThresholds, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
 import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
 import { getAssistantDailyUsage, normalizeAssistantState } from '@/lib/ai/prompt-assistant/state';
+import {
+  PlatformAlertsConfig,
+  PlatformAnnouncement,
+  PlatformEventLogItem,
+  normalizePlatformAlertsConfig,
+} from '@/lib/monitoring/platform-alerts';
+import { PlatformAlertService } from '@/services/platform-alert.service';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -758,6 +765,26 @@ export async function toggleCompanyStatus(organizationId: string, isActive: bool
     throw new Error(`Error cambiando estado de la empresa: ${error.message}`);
   }
 
+  // Si la empresa fue suspendida preventivamente por mora, emitir alerta operativa inmediata al SuperAdmin
+  if (!isActive) {
+    try {
+      const { data: orgData } = await (supabaseAdmin.from('organizations') as any)
+        .select('name')
+        .eq('id', organizationId)
+        .maybeSingle();
+
+      await PlatformAlertService.notifySuperAdminEvent({
+        type: 'billing_delinquency',
+        severity: 'critical',
+        orgId: organizationId,
+        companyName: orgData?.name || 'Empresa',
+        title: 'Suspensión por Mora Aplicada',
+        details: 'La empresa ha sido suspendida preventivamente. El acceso a los agentes se ha pausado.',
+        dedupeWindowMinutes: 10,
+      });
+    } catch {}
+  }
+
   safeRevalidate('/admin');
   safeRevalidate('/', 'layout');
   return { success: true };
@@ -933,4 +960,213 @@ export async function regenerateCompanyAdminPassword(organizationId: string) {
     tempPassword,
   };
 }
+
+/**
+ * Obtener configuración de alertas del SuperAdmin, log de eventos operativos y anuncios activos
+ */
+export async function getSuperAdminAlertsAndAnnouncementsAction() {
+  await requireSuperAdmin();
+
+  const { platformOrg, phones, emails, config } = await PlatformAlertService.resolveSuperAdminChannel();
+  const appSettings =
+    platformOrg?.appointment_settings && typeof platformOrg.appointment_settings === 'object'
+      ? platformOrg.appointment_settings
+      : {};
+
+  const eventsLog: PlatformEventLogItem[] = Array.isArray(appSettings.platform_events_log)
+    ? appSettings.platform_events_log
+    : [];
+
+  const announcements: PlatformAnnouncement[] = Array.isArray(appSettings.platform_announcements)
+    ? appSettings.platform_announcements
+    : [];
+
+  return {
+    success: true,
+    config,
+    phones,
+    emails,
+    platformOrgName: platformOrg?.name || 'Synqo Global',
+    platformProvider: platformOrg?.whatsapp_provider || 'meta',
+    eventsLog,
+    announcements,
+  };
+}
+
+/**
+ * Guardar configuración de alertas de SuperAdmin en appointment_settings de la plataforma
+ */
+export async function saveSuperAdminAlertsConfigAction(newConfig: Partial<PlatformAlertsConfig>) {
+  await requireSuperAdmin();
+
+  const { platformOrg } = await PlatformAlertService.resolveSuperAdminChannel();
+  if (!platformOrg?.id) {
+    throw new Error('No se encontró la organización plataforma para almacenar la configuración.');
+  }
+
+  const appSettings =
+    platformOrg.appointment_settings && typeof platformOrg.appointment_settings === 'object'
+      ? { ...platformOrg.appointment_settings }
+      : {};
+
+  const normalized = normalizePlatformAlertsConfig({
+    ...(appSettings.platform_alerts_config || {}),
+    ...newConfig,
+  });
+
+  appSettings.platform_alerts_config = normalized;
+
+  const { error } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: appSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', platformOrg.id);
+
+  if (error) {
+    throw new Error(`Error guardando configuración de alertas: ${error.message}`);
+  }
+
+  safeRevalidate('/admin');
+  return { success: true, config: normalized };
+}
+
+/**
+ * Enviar mensaje de prueba de alertas SuperAdmin
+ */
+export async function sendTestSuperAdminAlertAction() {
+  const { profile } = await requireSuperAdmin();
+
+  const res = await PlatformAlertService.notifySuperAdminEvent({
+    type: 'daily_digest',
+    severity: 'info',
+    companyName: 'Prueba Synqo Ops',
+    title: 'Alerta de Verificación',
+    details: `Prueba manual ejecutada por ${profile.email || 'SuperAdmin'} el ${new Date().toLocaleString('es-CO')}. El canal de alertas está operativo.`,
+    dedupeWindowMinutes: 0,
+  });
+
+  return {
+    success: res.sentWhatsApp || res.sentEmailFallback,
+    sentWhatsApp: res.sentWhatsApp,
+    sentEmailFallback: res.sentEmailFallback,
+    skippedReason: res.skippedReason,
+  };
+}
+
+/**
+ * Marcar un evento operativo como resuelto
+ */
+export async function resolvePlatformEventAction(eventId: string) {
+  const { profile } = await requireSuperAdmin();
+  const ok = await PlatformAlertService.markEventResolved(eventId, profile.email || 'superadmin');
+  safeRevalidate('/admin');
+  return { success: ok };
+}
+
+/**
+ * Publicar un nuevo comunicado oficial para clientes
+ */
+export async function publishPlatformAnnouncementAction(input: {
+  title: string;
+  message: string;
+  severity: 'info' | 'warning' | 'urgent';
+  targetAudience: 'all' | 'paying' | 'evolution';
+  expiresInDays?: number;
+  sendWhatsAppBroadcast?: boolean;
+}) {
+  const { profile } = await requireSuperAdmin();
+
+  const title = (input.title || '').trim();
+  const message = (input.message || '').trim();
+  if (!title || !message) {
+    throw new Error('El título y mensaje del comunicado son obligatorios.');
+  }
+
+  const { platformOrg } = await PlatformAlertService.resolveSuperAdminChannel();
+  if (!platformOrg?.id) {
+    throw new Error('Organización plataforma no configurada.');
+  }
+
+  const appSettings =
+    platformOrg.appointment_settings && typeof platformOrg.appointment_settings === 'object'
+      ? { ...platformOrg.appointment_settings }
+      : {};
+
+  const currentList: PlatformAnnouncement[] = Array.isArray(appSettings.platform_announcements)
+    ? appSettings.platform_announcements
+    : [];
+
+  const days = input.expiresInDays && input.expiresInDays > 0 ? input.expiresInDays : 7;
+  const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+  const newAnnouncement: PlatformAnnouncement = {
+    id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    title,
+    message,
+    severity: input.severity || 'info',
+    targetAudience: input.targetAudience || 'all',
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    createdByEmail: profile.email || 'superadmin',
+    sendWhatsAppBroadcast: Boolean(input.sendWhatsAppBroadcast),
+  };
+
+  const updated = [newAnnouncement, ...currentList].slice(0, 30);
+  appSettings.platform_announcements = updated;
+
+  await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: appSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', platformOrg.id);
+
+  let broadcastResult = { sentCount: 0, failedCount: 0 };
+  if (input.sendWhatsAppBroadcast) {
+    broadcastResult = await PlatformAlertService.broadcastAnnouncementViaWhatsApp(newAnnouncement);
+  }
+
+  safeRevalidate('/admin');
+  safeRevalidate('/', 'layout');
+
+  return {
+    success: true,
+    announcement: newAnnouncement,
+    broadcastResult,
+  };
+}
+
+/**
+ * Eliminar un comunicado oficial
+ */
+export async function deletePlatformAnnouncementAction(announcementId: string) {
+  await requireSuperAdmin();
+
+  const { platformOrg } = await PlatformAlertService.resolveSuperAdminChannel();
+  if (!platformOrg?.id) return { success: false };
+
+  const appSettings =
+    platformOrg.appointment_settings && typeof platformOrg.appointment_settings === 'object'
+      ? { ...platformOrg.appointment_settings }
+      : {};
+
+  const currentList: PlatformAnnouncement[] = Array.isArray(appSettings.platform_announcements)
+    ? appSettings.platform_announcements
+    : [];
+
+  appSettings.platform_announcements = currentList.filter((a) => a.id !== announcementId);
+
+  await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: appSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', platformOrg.id);
+
+  safeRevalidate('/admin');
+  safeRevalidate('/', 'layout');
+  return { success: true };
+}
+
 

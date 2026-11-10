@@ -72,6 +72,16 @@ async function handleCron(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('[CRON LEAD REACTIVATION ERROR]', err);
+    try {
+      await PlatformAlertService.notifySuperAdminEvent({
+        type: 'ai_error_burst',
+        severity: 'critical',
+        companyName: 'Cron Lead Reactivation',
+        title: 'Falla Crítica en Tarea Programada',
+        details: `El cron global de reactivación/clasificación falló: ${err?.message || 'Error desconocido'}.`,
+        dedupeWindowMinutes: 30,
+      });
+    } catch {}
     return NextResponse.json(
       {
         success: false,

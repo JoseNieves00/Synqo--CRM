@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { AdminTicketsTab } from './AdminTicketsTab';
 import { AdminCopilotTab } from './AdminCopilotTab';
+import { AdminAlertsTab } from './AdminAlertsTab';
 import { ProvisionWizard } from './ProvisionWizard';
 import {
   OrganizationRow,
@@ -80,7 +81,7 @@ export default function AdminConsoleClient({
   initialOrganizations,
   initialTickets = [],
 }: AdminConsoleClientProps) {
-  const [mainTab, setMainTab] = useState<'companies' | 'tickets' | 'copilot'>('companies');
+  const [mainTab, setMainTab] = useState<'companies' | 'tickets' | 'alerts' | 'copilot'>('companies');
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [organizations, setOrganizations] = useState<OrganizationRow[]>(initialOrganizations);
   const [searchQuery, setSearchQuery] = useState('');
@@ -483,6 +484,22 @@ export default function AdminConsoleClient({
           <span>
             <span className="hidden sm:inline">Soporte & GitHub Issues</span>
             <span className="sm:hidden">Tickets Soporte</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainTab('alerts')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+            mainTab === 'alerts'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <Zap className="w-4 h-4 text-amber-500" />
+          <span>
+            <span className="hidden sm:inline">Alertas & Comunicados</span>
+            <span className="sm:hidden">Alertas Ops</span>
           </span>
         </button>
 
@@ -1050,6 +1067,10 @@ export default function AdminConsoleClient({
 
   {mainTab === 'tickets' && (
     <AdminTicketsTab initialTickets={initialTickets} />
+  )}
+
+  {mainTab === 'alerts' && (
+    <AdminAlertsTab />
   )}
 
   {mainTab === 'copilot' && (

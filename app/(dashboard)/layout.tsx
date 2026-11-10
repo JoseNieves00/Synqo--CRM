@@ -15,6 +15,8 @@ import { SupportHeaderButton } from '@/components/support/SupportHeaderButton';
 import { WhatsAppConnectionIndicator } from '@/components/dashboard/WhatsAppConnectionIndicator';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
 import { InboxSyncProvider } from '@/components/inbox/InboxSyncProvider';
+import { PlatformAnnouncementBanner } from '@/components/announcements/PlatformAnnouncementBanner';
+import { PlatformAlertService } from '@/services/platform-alert.service';
 
 const MustChangePasswordModal = nextDynamic(
   () => import('@/components/profile/MustChangePasswordModal').then((m) => m.MustChangePasswordModal),
@@ -66,6 +68,14 @@ export default async function DashboardLayout({
   const rawUsagePct = Math.round((usedTokens / limitTokens) * 100);
   const isUsageWarning = rawUsagePct >= minWarnPct && usedTokens < limitTokens;
   const isUsageExceeded = usedTokens >= limitTokens;
+
+  // Anuncios operativos oficiales del SuperAdmin para empresas clientes
+  const activeAnnouncements = await PlatformAlertService.getActiveAnnouncements().catch(() => []);
+  const relevantAnnouncements = activeAnnouncements.filter((a) => {
+    if (a.targetAudience === 'paying') return subStatus === 'active';
+    if (a.targetAudience === 'evolution') return current?.organization?.whatsapp_provider === 'evolution';
+    return true;
+  });
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-slate-100 transition-colors">
@@ -177,6 +187,11 @@ export default async function DashboardLayout({
             <SupportHeaderButton />
           </div>
         </header>
+
+        {/* Banner de Comunicados Oficiales de Plataforma */}
+        {relevantAnnouncements.length > 0 && (
+          <PlatformAnnouncementBanner announcements={relevantAnnouncements} />
+        )}
 
         {/* Banner Inteligente de Alerta de Consumo para la Empresa Cliente */}
         {!isSuperAdmin && (isUsageWarning || isUsageExceeded) && (
