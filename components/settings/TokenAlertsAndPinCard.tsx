@@ -16,7 +16,6 @@ const PRESET_THRESHOLDS = [50, 70, 80, 90, 95, 100];
 
 export function TokenAlertsAndPinCard({
   initialThresholds = [...DEFAULT_TOKEN_ALERT_THRESHOLDS],
-  initialOveragePricePer500kCop = null,
   initialHasPin = false,
   alertsSentInCycle = {},
 }: TokenAlertsAndPinCardProps) {
@@ -24,9 +23,6 @@ export function TokenAlertsAndPinCard({
     initialThresholds.length > 0 ? initialThresholds : [...DEFAULT_TOKEN_ALERT_THRESHOLDS]
   );
   const [customInput, setCustomInput] = useState('');
-  const [overagePrice, setOveragePrice] = useState<string>(
-    initialOveragePricePer500kCop ? String(initialOveragePricePer500kCop) : ''
-  );
   const [newPin, setNewPin] = useState('');
   const [hasPin, setHasPin] = useState(initialHasPin);
   const [isSaving, setIsSaving] = useState(false);
@@ -69,10 +65,8 @@ export function TokenAlertsAndPinCard({
     setIsSaving(true);
     setFeedback(null);
     try {
-      const priceNum = Number(overagePrice.replace(/[^0-9]/g, ''));
       const res = await saveTokenAndManagerSettings({
         alertThresholds: thresholds,
-        overagePricePer500kCop: priceNum > 0 ? priceNum : null,
         newPin: newPin.trim() || undefined,
       });
 
@@ -188,13 +182,13 @@ export function TokenAlertsAndPinCard({
 
           <div className="flex items-center gap-2 pt-1">
             <input
-              type="number"
-              min={10}
-              max={100}
+              type="text"
+              inputMode="numeric"
+              maxLength={3}
               value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-              placeholder="Otro x% (ej. 65)"
-              className="w-36 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-xs font-mono"
+              onChange={(e) => setCustomInput(e.target.value.replace(/\D/g, '').slice(0, 3))}
+              placeholder="Ej. 65%"
+              className="w-28 px-3 py-1.5 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-xs font-mono"
             />
             <button
               type="button"
@@ -206,18 +200,9 @@ export function TokenAlertsAndPinCard({
             </button>
           </div>
 
-          <div className="pt-2 border-t border-slate-200 dark:border-[#1E2433]">
-            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-              Tarifa informativa por 500k tokens excedentes (COP, opcional):
-            </label>
-            <input
-              type="text"
-              value={overagePrice}
-              onChange={(e) => setOveragePrice(e.target.value.replace(/[^0-9]/g, ''))}
-              placeholder="Ej. 35000 (opcional)"
-              className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-xs font-mono"
-            />
-          </div>
+          <p className="pt-2 border-t border-slate-200 dark:border-[#1E2433] text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            Al alcanzar el 100% de tu plan mensual, el bot continúa operando sin interrupciones en <strong>Modo Excedente</strong>.
+          </p>
         </div>
 
         {/* Bloque Derecho: PIN Gerencial WhatsApp (Modo Bancolombia) */}
@@ -252,7 +237,7 @@ export function TokenAlertsAndPinCard({
           <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-200 dark:border-[#1E2433]">
             <span className="text-[10px] text-slate-400 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-              PIN cifrado PBKDF2
+              PIN cifrado y protegido
             </span>
             <button
               type="button"

@@ -996,12 +996,13 @@ export async function saveTokenAndManagerSettings(input: {
     ...prevPolicy,
     alertThresholds: nextThresholds,
     alertsSentInCycle: keptAlertsSent,
+    // Solo Super Admin puede ajustar tarifas comerciales de excedente; el cliente solo configura alertas y PIN
     overagePricePer500kCop:
-      input.overagePricePer500kCop === undefined
-        ? prevPolicy.overagePricePer500kCop
-        : Number.isFinite(priceNum) && priceNum > 0
-        ? Math.round(priceNum)
-        : null,
+      profile.is_super_admin && input.overagePricePer500kCop !== undefined
+        ? Number.isFinite(priceNum) && priceNum > 0
+          ? Math.round(priceNum)
+          : null
+        : prevPolicy.overagePricePer500kCop,
     overageAllowed: true,
   };
 
