@@ -192,6 +192,129 @@ export function resolveLeadTemperature(customFields?: any): LeadTemperature | nu
 }
 
 /**
+ * Mapea una calificación de 4 niveles y etapa del pipeline a su categoría de secuencia de seguimiento.
+ */
+export function temperatureToFollowUpCategory(
+  temp: LeadTemperature,
+  pipelineStage?: string | null
+): FollowUpCategory {
+  if (pipelineStage === 'ganado') return 'post_order';
+  if (temp === 'hot') return 'hot_unclosed';
+  if (temp === 'qualified_doubt') return 'qualified_doubt';
+  if (temp === 'warm') return 'warm';
+  return 'unresponsive';
+}
+
+/**
+ * Sincroniza de manera uniforme `lead_temperature`, `follow_up` y `pipeline_stage`
+ * para mantener coherencia entre IA, edición humana y clasificador automático.
+ */
+export function buildSynchronizedClassification(params: {
+  customFields?: any;
+  currentStage?: string | null;
+  temperature: LeadTemperature;
+  product?: string | null;
+  objection?: string | null;
+  lostReason?: string | null;
+  daysInactive?: number;
+  followUpSettings?: FollowUpSettingsConfig | null;
+}): {
+  customFields: Record<string, any>;
+  nextStage: string | null;
+  followUpCategory: FollowUpCategory;
+  shouldCancelPendingReactivations: boolean;
+} {
+  const cf: Record<string, any> = {
+    ...(params.customFields && typeof params.customFields === 'object' ? params.customFields : {}),
+  };
+  cf.lead_temperature = params.temperature;
+  delete cf.temperature;
+
+  if (params.product?.trim()) {
+    const cleanProd = params.product.trim().slice(0, 140);
+    cf.product_interest = cleanProd;
+    cf.last_quoted_product = cleanProd;
+    cf.ai_summary = {
+      ...(cf.ai_summary || {}),
+      product_of_interest: cleanProd,
+      product_interest: cleanProd,
+    };
+  }
+  if (params.objection?.trim()) {
+    const cleanObj = params.objection.trim().slice(0, 200);
+    cf.last_objection = cleanObj;
+    cf.ai_summary = {
+      ...(cf.ai_summary || {}),
+      objections_doubts: cleanObj,
+    };
+  }
+  if (params.lostReason?.trim()) {
+    cf.lost_reason = params.lostReason.trim().slice(0, 140);
+  }
+
+  let nextStage: string | null = null;
+  const currentStage = params.currentStage || 'nuevo';
+  if ((params.temperature === 'hot' || params.temperature === 'qualified_doubt') && currentStage === 'nuevo') {
+    nextStage = 'calificado';
+  } else if (
+    params.temperature === 'cold' &&
+    (Boolean(params.lostReason?.trim()) || cf.opted_out === true || (params.daysInactive ?? 0) >= 14) &&
+    currentStage !== 'ganado' &&
+    currentStage !== 'perdido' &&
+    currentStage !== 'cita_agendada'
+  ) {
+    nextStage = 'perdido';
+  }
+
+  const effectiveStage = nextStage || currentStage;
+  const followUpCategory = temperatureToFollowUpCategory(params.temperature, effectiveStage);
+
+  const prevFu = cf.follow_up && typeof cf.follow_up === 'object' ? { ...cf.follow_up } : {};
+  const isPostOrderLocked = prevFu.category === 'post_order' && effectiveStage === 'ganado';
+
+  if (params.temperature === 'cold') {
+    cf.follow_up = {
+      ...prevFu,
+      category: isPostOrderLocked ? 'post_order' : followUpCategory,
+      currentStepIndex: prevFu.currentStepIndex ?? 0,
+      paused: true,
+    };
+    delete cf.follow_up.nextSendAt;
+    if (cf.active_reminder?.reminderType === 'reactivation') {
+      delete cf.active_reminder;
+    }
+  } else if (!isPostOrderLocked) {
+    const categoryChanged = Boolean(prevFu.category && prevFu.category !== followUpCategory);
+    const nextStepIndex = categoryChanged ? 0 : Number(prevFu.currentStepIndex || 0);
+    const nextFu: Record<string, any> = {
+      ...prevFu,
+      category: followUpCategory,
+      currentStepIndex: nextStepIndex,
+      paused: false,
+      ...(categoryChanged ? { completed: false } : {}),
+    };
+
+    // Si hay secuencia activa configurada y aún no tiene nextSendAt, calcular próximo envío visible
+    if (params.followUpSettings?.enabled && !nextFu.completed) {
+      const catSeq = params.followUpSettings.sequences[followUpCategory];
+      const step = catSeq?.enabled ? catSeq.steps[nextStepIndex] : undefined;
+      if (step && !nextFu.nextSendAt) {
+        const unitMs = step.delayUnit === 'days' ? 24 * 3600 * 1000 : 3600 * 1000;
+        nextFu.nextSendAt = new Date(Date.now() + Math.max(1, step.delayValue) * unitMs).toISOString();
+      }
+    }
+    cf.follow_up = nextFu;
+  }
+
+  return {
+    customFields: cf,
+    nextStage,
+    followUpCategory,
+    shouldCancelPendingReactivations: params.temperature === 'cold',
+  };
+}
+
+/**
  * Unifica la lectura del producto/servicio de interés en todas las vistas y servicios.
  */
 export function resolveProductInterest(customFields?: any, dealValue?: number | null): string | null {

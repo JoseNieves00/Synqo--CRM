@@ -1363,6 +1363,11 @@ function buildSeguimientoOrFilter(d24h: string, d10d: string): string {
   return `ai_snooze_until.not.is.null,custom_fields->>active_reminder.not.is.null,custom_fields->follow_up->>nextSendAt.not.is.null,and(last_interaction_at.lte.${d24h},last_interaction_at.gte.${d10d},unread_count.eq.0,custom_fields->>reactivation_attempted.is.null,last_message_sender.neq.lead)`;
 }
 
+const SEGUIMIENTO_EXCLUDE_COLD_OR =
+  'custom_fields->>lead_temperature.is.null,custom_fields->>lead_temperature.neq.cold';
+const SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR =
+  'custom_fields->>temperature.is.null,custom_fields->>temperature.neq.cold';
+
 /**
  * Consulta de Inbox escalable en servidor con filtros por bandeja, canal, asesor y búsqueda global.
  */
@@ -1430,6 +1435,8 @@ export async function listInbox({
       .neq('conversation_status', 'closed')
       .is('waiting_since', null)
       .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
+      .or(SEGUIMIENTO_EXCLUDE_COLD_OR)
+      .or(SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR)
       .or(buildSeguimientoOrFilter(d24h, d10d))
       .order('updated_at', { ascending: false });
   } else if (view === 'cerrados') {
@@ -1532,6 +1539,8 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .neq('conversation_status', 'closed')
       .is('waiting_since', null)
       .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
+      .or(SEGUIMIENTO_EXCLUDE_COLD_OR)
+      .or(SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR)
       .or(buildSeguimientoOrFilter(d24h, d10d)),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })

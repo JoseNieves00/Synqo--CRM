@@ -4,7 +4,12 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PipelineStage } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
-import { LEAD_TEMPERATURE_META, type LeadTemperature } from '@/lib/ai/follow-up-types';
+import {
+  LEAD_TEMPERATURE_META,
+  type LeadTemperature,
+  buildSynchronizedClassification,
+  normalizeFollowUpSettings,
+} from '@/lib/ai/follow-up-types';
 
 interface CreateLeadInput {
   name: string;
@@ -144,13 +149,15 @@ export async function updateContactDetails(
     updates.customFields?.lead_temperature ??
     updates.customFields?.temperature;
 
+  let shouldCancelPendingReactivations = false;
+
   if (
     updates.notes !== undefined ||
     resolvedDealValue !== undefined ||
     resolvedTemp !== undefined ||
     updates.customFields !== undefined
   ) {
-    const nextCustom: Record<string, any> = {
+    let nextCustom: Record<string, any> = {
       ...existingFields,
       ...(updates.customFields || {}),
       ...(updates.notes !== undefined ? { notes: updates.notes } : {}),
@@ -158,8 +165,25 @@ export async function updateContactDetails(
     };
 
     if (resolvedTemp !== undefined) {
-      nextCustom.lead_temperature = resolvedTemp;
-      delete nextCustom.temperature; // Clave única canónica: custom_fields.lead_temperature
+      const { data: orgRow } = await (supabaseAdmin.from('organizations') as any)
+        .select('appointment_settings')
+        .eq('id', profile.organization_id)
+        .maybeSingle();
+
+      const syncRes = buildSynchronizedClassification({
+        customFields: nextCustom,
+        currentStage: payload.pipeline_stage ?? currentContact.pipeline_stage,
+        temperature: resolvedTemp as LeadTemperature,
+        lostReason: nextCustom.lost_reason ?? null,
+        followUpSettings: orgRow?.appointment_settings?.follow_up_sequences
+          ? normalizeFollowUpSettings(orgRow.appointment_settings.follow_up_sequences)
+          : null,
+      });
+      nextCustom = syncRes.customFields;
+      shouldCancelPendingReactivations = syncRes.shouldCancelPendingReactivations;
+      if (updates.pipelineStage === undefined && syncRes.nextStage) {
+        payload.pipeline_stage = syncRes.nextStage;
+      }
     }
 
     payload.custom_fields = nextCustom;
@@ -172,6 +196,18 @@ export async function updateContactDetails(
 
   if (error) {
     throw new Error(`Error actualizando prospecto: ${error.message}`);
+  }
+
+  if (shouldCancelPendingReactivations) {
+    await (supabaseAdmin.from('scheduled_reminders') as any)
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('contact_id', contactId)
+      .eq('organization_id', profile.organization_id)
+      .eq('reminder_type', 'reactivation')
+      .eq('status', 'pending');
   }
 
   // Auditoría de cambios de etapa o categoría hechos por asesor humano

@@ -7,7 +7,7 @@ import { InboxViewType, InboxCounts } from '@/app/actions/chat';
 import { InboxViewsTabs } from './InboxViewsTabs';
 import { InboxFiltersPopover, InboxActiveFilterChips, FilterState } from './InboxFiltersPopover';
 import { ConversationRow, ContactRowData } from './ConversationRow';
-import { resolveProductInterest } from '@/lib/ai/follow-up-types';
+import { classifySeguimientoSubBucket } from '@/lib/inbox/buckets';
 
 interface TeamMember {
   id: string;
@@ -75,35 +75,26 @@ export function InboxSidebar({
   const [seguimientoFilter, setSeguimientoFilter] = useState<'all' | 'ventas_a_medias' | 'compromisos' | 'por_reactivar'>('all');
   const listContainerRef = useRef<HTMLDivElement>(null);
 
-  // Filtrado de contactos según la sub-bandeja activa de Seguimiento
-  const displayedContacts = useMemo(() => {
-    if (activeView !== 'seguimiento' || seguimientoFilter === 'all') {
-      return contacts;
+  // Contadores y filtrado mutuamente excluyente por sub-bandeja de Seguimiento
+  const { displayedContacts, seguimientoSubCounts } = useMemo(() => {
+    const counts = { ventas_a_medias: 0, compromisos: 0, por_reactivar: 0 };
+    if (activeView !== 'seguimiento') {
+      return { displayedContacts: contacts, seguimientoSubCounts: counts };
     }
     const nowTime = Date.now();
-    return contacts.filter((c) => {
-      const isCold =
-        !c.custom_fields?.reactivation_attempted &&
-        c.conversation_status !== 'closed' &&
-        nowTime - new Date(c.last_interaction_at).getTime() >= 24 * 3600 * 1000;
-      const hasReminder = Boolean(
-        c.custom_fields?.active_reminder ||
-        c.ai_snooze_until ||
-        (c.custom_fields?.follow_up?.nextSendAt && !c.custom_fields?.follow_up?.completed)
-      );
-      const hasQuotedProduct = Boolean(resolveProductInterest(c.custom_fields, c.deal_value));
+    const matched: ContactRowData[] = [];
 
-      if (seguimientoFilter === 'ventas_a_medias') {
-        return hasQuotedProduct || isCold;
+    for (const c of contacts) {
+      const subBucket = classifySeguimientoSubBucket(c, nowTime);
+      if (subBucket) {
+        counts[subBucket]++;
       }
-      if (seguimientoFilter === 'compromisos') {
-        return hasReminder;
+      if (seguimientoFilter === 'all' || subBucket === seguimientoFilter) {
+        matched.push(c);
       }
-      if (seguimientoFilter === 'por_reactivar') {
-        return isCold;
-      }
-      return true;
-    });
+    }
+
+    return { displayedContacts: matched, seguimientoSubCounts: counts };
   }, [contacts, activeView, seguimientoFilter]);
 
   const rowVirtualizer = useVirtualizer({
@@ -262,6 +253,7 @@ export function InboxSidebar({
             >
               <span>🛒</span>
               <span>Ventas a Medias</span>
+              <span className="opacity-80 font-mono">({seguimientoSubCounts.ventas_a_medias})</span>
             </button>
             <button
               type="button"
@@ -274,6 +266,7 @@ export function InboxSidebar({
             >
               <span>⏰</span>
               <span>Seguimientos programados</span>
+              <span className="opacity-80 font-mono">({seguimientoSubCounts.compromisos})</span>
             </button>
             <button
               type="button"
@@ -286,6 +279,7 @@ export function InboxSidebar({
             >
               <span>❄️</span>
               <span>Por Reactivar</span>
+              <span className="opacity-80 font-mono">({seguimientoSubCounts.por_reactivar})</span>
             </button>
           </div>
         )}

@@ -4,6 +4,8 @@ import { isWithin24HourWindow } from '@/services/contact.service';
 import { sleep } from '@/lib/anti-ban/cadence';
 import { formatImageMessageContent } from '@/lib/media/format';
 import { AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
+import { findGalleryProductMatch, resolveOrganizationGallery } from '@/lib/ai/product-gallery';
+import { OpenAIService } from '@/services/openai.service';
 import {
   type FollowUpCategory,
   type FollowUpSettingsConfig,
@@ -233,6 +235,48 @@ export class LeadReactivationService {
   }
 
   /**
+   * Resuelve el mensaje autónomo y la imagen del catálogo guiándose por las reglas del prompt de la empresa.
+   */
+  private static async resolveAutonomousFollowUpPayload(params: {
+    org: any;
+    contact: any;
+    cf: Record<string, any>;
+    existingImageUrls?: string[];
+  }): Promise<{ bodyMessage: string; imageUrls: string[] }> {
+    const { org, contact, cf, existingImageUrls = [] } = params;
+    const { data: recentMsgs } = await (supabaseAdmin.from('messages') as any)
+      .select('sender_type, content')
+      .eq('contact_id', contact.id)
+      .in('sender_type', ['lead', 'ai', 'agent_manual'])
+      .order('created_at', { ascending: false })
+      .limit(6);
+
+    const productInterest = resolveProductInterest(cf, contact.deal_value);
+    const aiDraft = await OpenAIService.generateAutonomousReminderMessage({
+      organization: org,
+      contactId: contact.id,
+      leadName: contact.name,
+      history: (recentMsgs || []).slice().reverse(),
+      reminderNote: cf.active_reminder?.note,
+      suggestedMessage: cf.active_reminder?.suggestedMessage,
+      productInterest,
+      lastObjection: cf.last_objection || cf.ai_summary?.objections_doubts || null,
+    });
+
+    let imageUrls = [...existingImageUrls];
+    if (imageUrls.length === 0 && aiDraft.includeProductPhoto) {
+      const { items } = resolveOrganizationGallery(org, org.system_prompt);
+      const query = aiDraft.productQuery || productInterest || '';
+      const matched = query ? findGalleryProductMatch(items, query) : null;
+      if (matched?.url) {
+        imageUrls = [matched.url];
+      }
+    }
+
+    return { bodyMessage: aiDraft.message, imageUrls };
+  }
+
+  /**
    * Escanea todas las organizaciones activas y procesa:
    * 1) Recordatorios programados vencidos (`scheduled_reminders` tipo `reactivation`).
    * 2) Secuencias automáticas por embudo según categoría e historial.
@@ -267,7 +311,10 @@ export class LeadReactivationService {
         evolution_anti_ban_mode,
         evolution_max_outbound_per_hour,
         appointment_settings,
-        business_hours
+        business_hours,
+        system_prompt,
+        structured_prompt_data,
+        ai_provider
       `);
 
     if (specificOrgId) {
@@ -362,20 +409,38 @@ export class LeadReactivationService {
           const currentStepIdx = Math.min(Number(cf.follow_up?.currentStepIndex || 0), Math.max(0, steps.length - 1));
           const step: FollowUpStep | undefined = steps[currentStepIdx];
 
-          const rawText = step?.text || this.buildReactivationMessage(contact.name, cf);
-          const bodyMessage = interpolateFollowUpText(rawText, {
-            contactName: contact.name,
-            productName: resolveProductInterest(cf, contact.deal_value),
-            companyName: org.name,
-          });
+          const isMetaLocked =
+            (org.whatsapp_provider || 'meta') === 'meta' && !isWithin24HourWindow(contact.last_interaction_at);
+          const hasAutonomousContext = Boolean(cf.active_reminder?.note || cf.active_reminder?.suggestedMessage);
+
+          let bodyMessage: string;
+          let resolvedImageUrls: string[] | undefined = step?.imageUrls;
+
+          if (!isMetaLocked && (hasAutonomousContext || !step)) {
+            const payload = await this.resolveAutonomousFollowUpPayload({
+              org,
+              contact,
+              cf,
+              existingImageUrls: step?.imageUrls,
+            });
+            bodyMessage = payload.bodyMessage;
+            resolvedImageUrls = payload.imageUrls;
+          } else {
+            const rawText = step?.text || this.buildReactivationMessage(contact.name, cf);
+            bodyMessage = interpolateFollowUpText(rawText, {
+              contactName: contact.name,
+              productName: resolveProductInterest(cf, contact.deal_value),
+              companyName: org.name,
+            });
+          }
 
           const dispatch = await this.dispatchFollowUpStep({
             org,
             contact,
             bodyMessage,
-            imageUrls: step?.imageUrls,
+            imageUrls: resolvedImageUrls,
             metaTemplateName: step?.metaTemplateName,
-            stepLabel: 'Seguimiento Agendado',
+            stepLabel: hasAutonomousContext || !step ? 'Seguimiento Autónomo IA' : 'Seguimiento Agendado',
             category,
             stepIndex: currentStepIdx,
           });
@@ -496,6 +561,7 @@ export class LeadReactivationService {
           // Modo Secuencias Configuradas
           if (seqConfig.enabled) {
             const category = this.resolveSequenceCategory(contact, seqConfig);
+            if (resolveLeadTemperature(cf) === 'cold' && category !== 'post_order') continue;
             const catConfig = seqConfig.sequences[category];
             if (!catConfig || !catConfig.enabled || catConfig.steps.length === 0) continue;
 
@@ -528,9 +594,18 @@ export class LeadReactivationService {
         if (candidates.length < PAGE_SIZE) break;
       }
 
-      // Priorizar leads calientes primero, respetar tope por corrida/día
+      // Priorizar leads calientes primero, luego calificado con dudas, luego tibios y post-pedido
       eligibleQueue.sort((a, b) => {
-        const rank = (cat: FollowUpCategory) => (cat === 'hot_unclosed' ? 0 : cat === 'warm' ? 1 : cat === 'post_order' ? 2 : 3);
+        const rank = (cat: FollowUpCategory) =>
+          cat === 'hot_unclosed'
+            ? 0
+            : cat === 'qualified_doubt'
+            ? 1
+            : cat === 'warm'
+            ? 2
+            : cat === 'post_order'
+            ? 3
+            : 4;
         return rank(a.category) - rank(b.category);
       });
 
@@ -543,21 +618,37 @@ export class LeadReactivationService {
         const cf = (contact.custom_fields as Record<string, any>) || {};
         result.processedCount++;
 
-        const bodyMessage = step
-          ? interpolateFollowUpText(step.text, {
-              contactName: contact.name,
-              productName: resolveProductInterest(cf, contact.deal_value),
-              companyName: org.name,
-            })
-          : this.buildReactivationMessage(contact.name, cf);
+        const isMetaLocked =
+          (org.whatsapp_provider || 'meta') === 'meta' && !isWithin24HourWindow(contact.last_interaction_at);
+
+        let bodyMessage: string;
+        let resolvedImageUrls: string[] | undefined = step?.imageUrls;
+
+        if (step) {
+          bodyMessage = interpolateFollowUpText(step.text, {
+            contactName: contact.name,
+            productName: resolveProductInterest(cf, contact.deal_value),
+            companyName: org.name,
+          });
+        } else if (!isMetaLocked) {
+          const payload = await this.resolveAutonomousFollowUpPayload({
+            org,
+            contact,
+            cf,
+          });
+          bodyMessage = payload.bodyMessage;
+          resolvedImageUrls = payload.imageUrls;
+        } else {
+          bodyMessage = this.buildReactivationMessage(contact.name, cf);
+        }
 
         const dispatch = await this.dispatchFollowUpStep({
           org,
           contact,
           bodyMessage,
-          imageUrls: step?.imageUrls,
+          imageUrls: resolvedImageUrls,
           metaTemplateName: step?.metaTemplateName,
-          stepLabel: step ? 'Seguimiento Embudo' : 'Reactivación Autónoma 1-Toque',
+          stepLabel: step ? 'Seguimiento Embudo' : 'Reactivación Autónoma IA',
           category,
           stepIndex,
         });
@@ -595,7 +686,9 @@ export class LeadReactivationService {
                     category,
                     currentStepIndex: nextIdx,
                     lastSentAt: nowIso,
-                    nextSendAt: nextStep ? new Date(nowTime + this.stepDelayMs(nextStep)).toISOString() : null,
+                    ...(nextStep
+                      ? { nextSendAt: new Date(nowTime + this.stepDelayMs(nextStep)).toISOString() }
+                      : {}),
                     completed: isSequenceDone,
                     completedAt: isSequenceDone ? nowIso : undefined,
                   },

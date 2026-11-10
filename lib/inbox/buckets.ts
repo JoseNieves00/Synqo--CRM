@@ -6,7 +6,11 @@
  * pruebas automatizadas y alineada 1:1 con las consultas de `app/actions/chat.ts`.
  */
 
+import { resolveLeadTemperature, resolveProductInterest } from '@/lib/ai/follow-up-types';
+
 export const INBOX_STALE_AI_MS = 3 * 60 * 1000;
+
+export type SeguimientoSubBucket = 'ventas_a_medias' | 'compromisos' | 'por_reactivar';
 
 export type CanonicalInboxView =
   | 'por_responder'
@@ -92,6 +96,9 @@ export function contactNeedsFollowUp(c: any, nowMs: number = Date.now()): boolea
   if (c.waiting_since) return false;
   if (['ganado', 'perdido', 'cita_agendada'].includes(c.pipeline_stage)) return false;
 
+  const temp = c.custom_fields?.lead_temperature || c.custom_fields?.temperature;
+  if (temp === 'cold') return false;
+
   if (c.ai_snooze_until || contactHasActiveReminder(c) || contactHasPendingFollowUp(c)) {
     return true;
   }
@@ -104,6 +111,57 @@ export function contactNeedsFollowUp(c: any, nowMs: number = Date.now()): boolea
   const elapsedMs = nowMs - new Date(c.last_interaction_at).getTime();
   const hours = elapsedMs / (1000 * 3600);
   return Number.isFinite(hours) && hours >= 24 && hours <= 240;
+}
+
+/**
+ * Clasifica un contacto de la bandeja `seguimiento` en una sub-bandeja **mutuamente excluyente**:
+ * 1) `compromisos`: tiene recordatorio explícito o snooze activo (`active_reminder` o `ai_snooze_until`).
+ * 2) `ventas_a_medias`: intención comercial/cotización sin cerrar (`hot`, `qualified_doubt`, `calificado` o producto/monto cotizado).
+ * 3) `compromisos` (secundario): secuencia programada `follow_up.nextSendAt` pendiente en leads sin cotización abierta.
+ * 4) `por_reactivar`: chat en silencio >= 24h sin intento previo de reactivación.
+ */
+export function classifySeguimientoSubBucket(
+  c: any,
+  nowMs: number = Date.now()
+): SeguimientoSubBucket | null {
+  if (!c) return null;
+  const temp = resolveLeadTemperature(c.custom_fields);
+  if (temp === 'cold') return null;
+
+  // 1. Recordatorios explícitos (IA o humano) y chats pospuestos (snooze)
+  if (Boolean(c.ai_snooze_until) || contactHasActiveReminder(c)) {
+    return 'compromisos';
+  }
+
+  // 2. Ventas a medias reales (calientes, calificados con dudas, etapa calificado o producto cotizado)
+  const hasQuotedProduct = Boolean(resolveProductInterest(c.custom_fields, c.deal_value));
+  if (
+    temp === 'hot' ||
+    temp === 'qualified_doubt' ||
+    c.pipeline_stage === 'calificado' ||
+    hasQuotedProduct
+  ) {
+    return 'ventas_a_medias';
+  }
+
+  // 3. Secuencia automática pendiente en prospectos sin venta a medias activa
+  if (contactHasPendingFollowUp(c)) {
+    return 'compromisos';
+  }
+
+  // 4. Chats generales en silencio >= 24h listos para reactivar
+  const status = c.conversation_status || c.custom_fields?.conversation_status || 'open';
+  const lastMs = c.last_interaction_at ? new Date(c.last_interaction_at).getTime() : NaN;
+  if (
+    !c.custom_fields?.reactivation_attempted &&
+    status !== 'closed' &&
+    Number.isFinite(lastMs) &&
+    nowMs - lastMs >= 24 * 3600 * 1000
+  ) {
+    return 'por_reactivar';
+  }
+
+  return null;
 }
 
 export function contactIsClosed(c: any): boolean {

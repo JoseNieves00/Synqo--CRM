@@ -54,7 +54,7 @@ async function handleCron(request: NextRequest) {
 
   try {
     const orgId = searchParams.get('orgId') || undefined;
-    const autoClassifyResult = await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 12);
+    const autoClassifyResult = await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 35);
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 

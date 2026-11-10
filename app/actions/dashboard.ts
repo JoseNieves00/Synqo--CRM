@@ -83,12 +83,14 @@ export interface DashboardMetrics {
     handoffReasons: Array<{ reason: string; count: number }>;
   };
 
-  // Consumo y Costos
+  // Consumo de Tokens IA (y trazabilidad interna)
   costs: {
     totalCostUsd: number;
     costPerConversationUsd: number;
     costPerSaleUsd: number;
     totalTokensPeriod: number;
+    tokensPerConversation: number;
+    tokensPerSale: number;
     totalRunsPeriod: number;
     byModel: ModelCostBreakdown[];
   };
@@ -520,6 +522,8 @@ export async function getDashboardMetrics(
       costPerConversationUsd: totalConversationsPeriod > 0 ? totalCostUsd / totalConversationsPeriod : 0,
       costPerSaleUsd: wonInPeriod > 0 ? totalCostUsd / wonInPeriod : 0,
       totalTokensPeriod,
+      tokensPerConversation: totalConversationsPeriod > 0 ? Math.round(totalTokensPeriod / totalConversationsPeriod) : 0,
+      tokensPerSale: wonInPeriod > 0 ? Math.round(totalTokensPeriod / wonInPeriod) : 0,
       totalRunsPeriod: runs.length,
       byModel: Array.from(modelMap.values()).sort((a, b) => b.totalTokens - a.totalTokens),
     },

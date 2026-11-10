@@ -429,16 +429,222 @@ async function runInboxTests() {
   assert.strictEqual(contactMatchesInboxView(closedChat, 'cerrados'), true);
   assert.strictEqual(contactNeedsHumanResponse(closedChat, nowEpoch), false);
 
+  // Un contacto clasificado como 'cold' NUNCA debe entrar en Seguimiento aunque tenga >24h o snooze/recordatorio previo
+  const coldWithHistory = {
+    id: 'b-cold-1',
+    is_ai_active: true,
+    conversation_status: 'waiting_customer',
+    last_message_sender: 'ai',
+    waiting_since: null,
+    unread_count: 0,
+    last_interaction_at: new Date(nowEpoch - 48 * 3600 * 1000).toISOString(),
+    pipeline_stage: 'nuevo',
+    custom_fields: {
+      lead_temperature: 'cold',
+      active_reminder: { reminderType: 'reactivation' },
+      follow_up: { category: 'unresponsive', nextSendAt: new Date(nowEpoch + 3600 * 1000).toISOString() },
+    },
+  };
+  assert.strictEqual(
+    contactNeedsFollowUp(coldWithHistory, nowEpoch),
+    false,
+    'Contactos cold no deben entrar en la bandeja de Seguimiento'
+  );
+
+  // Verificar sincronización unificada de clasificación (buildSynchronizedClassification)
+  const { buildSynchronizedClassification, normalizeFollowUpSettings } = await import(
+    '../lib/ai/follow-up-types'
+  );
+  const enabledFollowUp = normalizeFollowUpSettings({
+    enabled: true,
+    sequences: {
+      qualified_doubt: {
+        enabled: true,
+        steps: [{ delayValue: 2, delayUnit: 'hours', text: 'Hola, ¿pudiste revisar tu duda?' }],
+      },
+    },
+  });
+
+  const qdSync = buildSynchronizedClassification({
+    customFields: { temperature: 'warm', product_interest: 'Combo' },
+    currentStage: 'nuevo',
+    temperature: 'qualified_doubt',
+    product: 'Producto Estrella',
+    objection: '¿Tienen disponible entrega mañana?',
+    followUpSettings: enabledFollowUp,
+  });
+  assert.strictEqual(qdSync.customFields.lead_temperature, 'qualified_doubt');
+  assert.strictEqual('temperature' in qdSync.customFields, false, 'Debe eliminar clave legacy temperature');
+  assert.strictEqual(qdSync.nextStage, 'calificado', 'qualified_doubt desde nuevo debe promover a calificado');
+  assert.strictEqual(qdSync.followUpCategory, 'qualified_doubt');
+  assert.strictEqual(qdSync.customFields.follow_up.category, 'qualified_doubt');
+  assert.strictEqual(qdSync.customFields.follow_up.paused, false);
+  assert.ok(qdSync.customFields.follow_up.nextSendAt, 'Debe programar nextSendAt si secuencias están activas');
+
+  const coldSync = buildSynchronizedClassification({
+    customFields: {
+      lead_temperature: 'qualified_doubt',
+      active_reminder: { reminderType: 'reactivation', scheduledFor: new Date().toISOString() },
+      follow_up: { category: 'qualified_doubt', currentStepIndex: 1, nextSendAt: new Date().toISOString() },
+    },
+    currentStage: 'calificado',
+    temperature: 'cold',
+    lostReason: 'No le interesa por el momento',
+  });
+  assert.strictEqual(coldSync.customFields.lead_temperature, 'cold');
+  assert.strictEqual(coldSync.customFields.follow_up.paused, true, 'cold debe pausar seguimiento automático');
+  assert.strictEqual('nextSendAt' in coldSync.customFields.follow_up, false, 'cold debe limpiar nextSendAt');
+  assert.strictEqual('active_reminder' in coldSync.customFields, false, 'cold debe limpiar active_reminder de reactivación');
+  assert.strictEqual(coldSync.shouldCancelPendingReactivations, true);
+  assert.strictEqual(coldSync.nextStage, 'perdido', 'cold con motivo debe mover etapa activa a perdido');
+
+  const contactsTsContent = fs.readFileSync('app/actions/contacts.ts', 'utf8');
+  const reactivationTsContent = fs.readFileSync('services/reactivation.service.ts', 'utf8');
   assert.ok(
     chatTsContent.includes('custom_fields->>active_reminder.not.is.null') &&
-      chatTsContent.includes('custom_fields->follow_up->>nextSendAt.not.is.null'),
-    'buildSeguimientoOrFilter debe usar ->> para ignorar valores JSON null'
+      chatTsContent.includes('custom_fields->follow_up->>nextSendAt.not.is.null') &&
+      chatTsContent.includes('SEGUIMIENTO_EXCLUDE_COLD_OR'),
+    'chat.ts debe usar ->> y excluir contactos cold de Seguimiento'
   );
   assert.ok(
-    openaiServiceContent.includes('classifyUnclassifiedContactsForActiveOrgs'),
-    'OpenAIService debe exponer classifyUnclassifiedContactsForActiveOrgs para cron automático'
+    openaiServiceContent.includes('classifyUnclassifiedContactsForActiveOrgs') &&
+      openaiServiceContent.includes('buildSynchronizedClassification'),
+    'OpenAIService debe sincronizar clasificación con buildSynchronizedClassification'
   );
-  console.log('   ✅ Reglas de buzones y clasificación automática verificadas.');
+  assert.ok(
+    contactsTsContent.includes('buildSynchronizedClassification'),
+    'contacts.ts debe sincronizar clasificación manual con buildSynchronizedClassification'
+  );
+  assert.ok(
+    reactivationTsContent.includes("cat === 'qualified_doubt'") &&
+      reactivationTsContent.includes("resolveLeadTemperature(cf) === 'cold'"),
+    'reactivation.service.ts debe priorizar qualified_doubt y saltar cold'
+  );
+  console.log('   ✅ Reglas de buzones, sincronización de clasificación y clasificación automática verificadas.');
+
+  // 12. Sub-bandejas mutuamente excluyentes de Seguimiento, recordatorios autónomos IA y Dashboard en tokens
+  console.log('\n1️⃣2️⃣ Probando sub-bandejas excluyentes de Seguimiento, recordatorios autónomos y Dashboard de tokens...');
+  const { classifySeguimientoSubBucket } = await import('../lib/inbox/buckets');
+  const {
+    extractRecontactPromptDigest,
+    inferAutonomousReminderFromLeadMessage,
+    parseFollowUpScheduleDate,
+  } = await import('../lib/ai/autonomous-reminder');
+  const { ScheduleFollowUpToolSchema } = await import('../lib/validations/tool-calls.schema');
+
+  const leadConCompromiso = {
+    id: 'seg-1',
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 48 * 3600 * 1000).toISOString(),
+    custom_fields: {
+      lead_temperature: 'hot',
+      product_interest: 'Combo VIP',
+      active_reminder: { reminderType: 'reactivation', scheduledFor: new Date().toISOString(), note: 'Paga el viernes' },
+    },
+  };
+  const leadVentaAMedias = {
+    id: 'seg-2',
+    pipeline_stage: 'calificado',
+    last_interaction_at: new Date(nowEpoch - 36 * 3600 * 1000).toISOString(),
+    custom_fields: {
+      lead_temperature: 'qualified_doubt',
+      product_interest: 'Plan Anual',
+      follow_up: { category: 'qualified_doubt', nextSendAt: new Date(nowEpoch + 7200 * 1000).toISOString() },
+    },
+  };
+  const leadPorReactivar = {
+    id: 'seg-3',
+    pipeline_stage: 'nuevo',
+    conversation_status: 'waiting_customer',
+    last_interaction_at: new Date(nowEpoch - 40 * 3600 * 1000).toISOString(),
+    custom_fields: { lead_temperature: 'warm' },
+  };
+  const leadCold = {
+    id: 'seg-4',
+    pipeline_stage: 'nuevo',
+    last_interaction_at: new Date(nowEpoch - 40 * 3600 * 1000).toISOString(),
+    custom_fields: { lead_temperature: 'cold' },
+  };
+
+  assert.strictEqual(classifySeguimientoSubBucket(leadConCompromiso, nowEpoch), 'compromisos');
+  assert.strictEqual(classifySeguimientoSubBucket(leadVentaAMedias, nowEpoch), 'ventas_a_medias');
+  assert.strictEqual(classifySeguimientoSubBucket(leadPorReactivar, nowEpoch), 'por_reactivar');
+  assert.strictEqual(classifySeguimientoSubBucket(leadCold, nowEpoch), null);
+
+  // Recordatorios autónomos de IA + horario humano (08:00-20:30)
+  const parsedDelaySchema = ScheduleFollowUpToolSchema.safeParse({
+    delay_hours: 4,
+    reason: 'Retomar pago pendiente',
+    suggested_message: 'Hola, como quedamos paso para confirmar tu pedido',
+  });
+  assert.strictEqual(parsedDelaySchema.success, true, 'ScheduleFollowUpToolSchema debe aceptar delay_hours sin date');
+
+  const lateRef = new Date('2026-11-10T23:00:00-05:00');
+  const humanAdjusted = parseFollowUpScheduleDate({
+    delayHours: 2,
+    orgTimezone: 'America/Bogota',
+    now: lateRef,
+  });
+  assert.ok(humanAdjusted, 'Debe calcular fecha válida');
+  const adjustedHourBogota = Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Bogota', hour: 'numeric', hour12: false }).format(
+      humanAdjusted!
+    )
+  );
+  assert.ok(
+    adjustedHourBogota >= 8 && adjustedHourBogota <= 20,
+    `No debe programar en madrugada (${adjustedHourBogota}h)`
+  );
+
+  const inferredFriday = inferAutonomousReminderFromLeadMessage({
+    leadText: 'Escríbeme el viernes que recibo el pago',
+    orgTimezone: 'America/Bogota',
+    productInterest: 'Kit Escolar',
+    temperature: 'qualified_doubt',
+    now: new Date('2026-11-10T10:00:00-05:00'),
+  });
+  assert.ok(inferredFriday && inferredFriday.scheduledFor.getTime() > Date.parse('2026-11-11T00:00:00Z'));
+  assert.ok(inferredFriday.reason.includes('Kit Escolar'));
+
+  const ignoredQuestion = inferAutonomousReminderFromLeadMessage({
+    leadText: '¿Abren mañana y en qué horario atienden?',
+    orgTimezone: 'America/Bogota',
+  });
+  assert.strictEqual(ignoredQuestion, null, 'Preguntas de horario de atención no deben crear recordatorio falso');
+
+  // Extractor selectivo de reglas de recontacto del prompt sin inflar tokens
+  const giantPrompt = [
+    'EMPRESA DE PRUEBA: Comercio Multinicho SAS. Atención personalizada en todo el país.',
+    ...Array.from({ length: 80 }, (_, idx) => `Item relleno catálogo #${idx + 1}: referencia estándar disponible.`),
+    'REGLAS DE RECONTACTO: Siempre ofrece Plan Separe desde el 30% y adjunta foto del producto consultado.',
+  ].join('\n');
+  const digest = extractRecontactPromptDigest(giantPrompt, 1200);
+  assert.ok(digest.length <= 1200, 'Digest debe respetar el tope de caracteres para cuidar tokens');
+  assert.ok(
+    digest.includes('Plan Separe') && digest.includes('foto del producto'),
+    'Debe rescatar directrices de recontacto aunque estén al final de un prompt largo'
+  );
+  assert.ok(
+    reactivationTsContent.includes('resolveAutonomousFollowUpPayload') &&
+      reactivationTsContent.includes('findGalleryProductMatch'),
+    'LeadReactivationService debe generar mensaje autónomo por prompt y adjuntar foto de galería'
+  );
+
+  // Dashboard UI debe mostrar tokens y NO costos en dinero
+  const dashboardPageContent = fs.readFileSync('app/(dashboard)/dashboard/page.tsx', 'utf8');
+  assert.ok(
+    dashboardPageContent.includes('Tokens IA') && dashboardPageContent.includes('Consumo de Tokens'),
+    'Dashboard debe mostrar KPIs de Tokens IA y Consumo de Tokens'
+  );
+  assert.strictEqual(
+    dashboardPageContent.includes('Costo IA') ||
+      dashboardPageContent.includes('Desglose de Costos') ||
+      dashboardPageContent.includes('costUsd') ||
+      dashboardPageContent.includes('totalCostUsd'),
+    false,
+    'Dashboard NO debe exponer métricas de costo en USD'
+  );
+  console.log('   ✅ Sub-bandejas excluyentes, recordatorios autónomos y Dashboard de Tokens verificados.');
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }

@@ -75,10 +75,35 @@ export const UpdateLeadProfileToolSchema = z.object({
   lost_reason: z.string().max(200).optional(),
 });
 
-export const ScheduleFollowUpToolSchema = z.object({
-  date: z.string().min(4).max(60).describe('Fecha solicitada por el cliente en formato YYYY-MM-DD o ISO 8601'),
-  reason: z.string().max(240).optional().describe('Motivo o producto para retomar ese día'),
-});
+export const ScheduleFollowUpToolSchema = z
+  .object({
+    date: z
+      .string()
+      .min(4)
+      .max(60)
+      .optional()
+      .describe('Fecha solicitada o estimada en formato YYYY-MM-DD o ISO 8601'),
+    time_local: z
+      .string()
+      .regex(/^\d{1,2}:\d{2}$/)
+      .optional()
+      .describe('Hora local aproximada en formato 24h HH:mm (ej. 15:30)'),
+    delay_hours: z
+      .number()
+      .min(0.5)
+      .max(720)
+      .optional()
+      .describe('Horas a esperar cuando el contacto aplica hoy o en un lapso relativo (ej. 3 para más tarde hoy, 24 para mañana)'),
+    reason: z.string().max(240).optional().describe('Motivo, duda o producto para retomar en ese contacto'),
+    suggested_message: z
+      .string()
+      .max(500)
+      .optional()
+      .describe('Borrador corto y natural del mensaje que la IA enviará autónomamente al cumplirse el recordatorio'),
+  })
+  .refine((data) => Boolean(data.date || data.delay_hours), {
+    message: 'Debes indicar al menos date o delay_hours',
+  });
 
 export const CreateOrderToolSchema = z.object({
   items: z

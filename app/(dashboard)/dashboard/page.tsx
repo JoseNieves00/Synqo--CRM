@@ -243,14 +243,14 @@ export default async function DashboardPage({
 
         <div className="bg-white dark:bg-[#131722] p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-xs">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Costo IA ({metrics?.periodLabel})</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider">Tokens IA ({metrics?.periodLabel})</span>
             <Cpu className="w-3.5 h-3.5 text-emerald-500" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white font-tabular">
-            ${(metrics?.costs.totalCostUsd || 0).toFixed(3)}
+            {(metrics?.costs.totalTokensPeriod || 0).toLocaleString('es-CO')}
           </div>
           <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-            ${(metrics?.costs.costPerConversationUsd || 0).toFixed(4)}/chat · {(metrics?.aiPerformance.p50LatencyMs || 0) / 1000}s p50
+            {(metrics?.costs.tokensPerConversation || 0).toLocaleString('es-CO')} tok/chat · cuota {tokenUsage?.rawPercentage ?? tokenUsage?.percentage ?? 0}%
           </span>
         </div>
 
@@ -440,7 +440,7 @@ export default async function DashboardPage({
 
           <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-5 space-y-2.5">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Motivos de No Compra &amp; Desglose de Costos
+              Motivos de No Compra &amp; Consumo de Tokens
             </h3>
             {metrics?.lostReasons && metrics.lostReasons.length > 0 ? (
               <div className="space-y-1">
@@ -458,16 +458,19 @@ export default async function DashboardPage({
             {metrics?.costs.byModel && metrics.costs.byModel.length > 0 && (
               <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Consumo por modelo (Latencia p90: {(metrics.aiPerformance.p90LatencyMs / 1000).toFixed(1)}s | Costo/venta: ${metrics.costs.costPerSaleUsd.toFixed(4)})
+                  Tokens por modelo (p50: {(metrics.aiPerformance.p50LatencyMs / 1000).toFixed(1)}s · p90: {(metrics.aiPerformance.p90LatencyMs / 1000).toFixed(1)}s{metrics.costs.tokensPerSale > 0 ? ` · ${metrics.costs.tokensPerSale.toLocaleString('es-CO')} tok/cierre` : ''})
                 </div>
-                {metrics.costs.byModel.slice(0, 4).map((m) => (
-                  <div key={`${m.provider}-${m.model}`} className="flex items-center justify-between text-[11px] font-mono">
-                    <span className="text-slate-600 dark:text-slate-300 truncate">{m.provider}:{m.model}</span>
-                    <span className="text-slate-900 dark:text-white shrink-0">
-                      {m.totalTokens.toLocaleString()} tok · ${m.costUsd.toFixed(4)}
-                    </span>
-                  </div>
-                ))}
+                {metrics.costs.byModel.slice(0, 4).map((m) => {
+                  const pct = Math.round((m.totalTokens / Math.max(1, metrics.costs.totalTokensPeriod)) * 100);
+                  return (
+                    <div key={`${m.provider}-${m.model}`} className="flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-slate-600 dark:text-slate-300 truncate">{m.provider}:{m.model}</span>
+                      <span className="text-slate-900 dark:text-white shrink-0">
+                        {m.totalTokens.toLocaleString('es-CO')} tok ({pct}%)
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

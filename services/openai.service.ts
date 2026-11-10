@@ -43,9 +43,16 @@ import {
   LEAD_TEMPERATURE_META,
   type FollowUpCategory,
   type LeadTemperature,
+  buildSynchronizedClassification,
+  normalizeFollowUpSettings,
   resolveLeadTemperature,
   resolveProductInterest,
 } from '@/lib/ai/follow-up-types';
+import {
+  extractRecontactPromptDigest,
+  inferAutonomousReminderFromLeadMessage,
+  parseFollowUpScheduleDate,
+} from '@/lib/ai/autonomous-reminder';
 
 const openaiApiKey = process.env.OPENAI_API_KEY || 'placeholder-key';
 const openai = new OpenAI({
@@ -300,20 +307,31 @@ const scheduleFollowUpTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'schedule_follow_up',
     description:
-      'Agenda un recordatorio automático para volver a escribirle al cliente en una fecha futura (YYYY-MM-DD). Úsalo tanto cuando el cliente pide otro día ("escríbeme el viernes") como cuando duda/pospone ("lo pienso", "luego te aviso") y tú propones o eliges autónomamente el mejor día para retomarlo.',
+      'Programa un recordatorio autónomo para que tú (la IA) vuelvas a contactar al cliente automáticamente por WhatsApp/Instagram. Úsalo siempre que el cliente indique un momento futuro ("más tarde", "en la tarde", "mañana", "el viernes", "quincena") o posponga ("lo pienso", "te confirmo"). Puedes indicar delay_hours (ej. 4 horas) o date (YYYY-MM-DD) + time_local opcional (HH:mm), junto con reason y suggested_message.',
     parameters: {
       type: 'object',
       properties: {
         date: {
           type: 'string',
-          description: 'Fecha en formato YYYY-MM-DD o ISO 8601.',
+          description: 'Fecha futura en formato YYYY-MM-DD o ISO 8601.',
+        },
+        time_local: {
+          type: 'string',
+          description: 'Hora local aproximada en formato 24h HH:mm (ej. "15:30").',
+        },
+        delay_hours: {
+          type: 'number',
+          description: 'Horas a esperar si el recontacto es hoy mismo o relativo (ej. 3 o 24).',
         },
         reason: {
           type: 'string',
-          description: 'Motivo o producto acordado para retomar ese día.',
+          description: 'Motivo, duda o producto específico para retomar en ese mensaje.',
+        },
+        suggested_message: {
+          type: 'string',
+          description: 'Mensaje corto y cercano que se enviará autónomamente al cumplirse el horario.',
         },
       },
-      required: ['date'],
     },
   },
 };
@@ -510,6 +528,7 @@ export interface FollowUpScheduledInfo {
     reminderType: 'reactivation';
     scheduledFor: string;
     note: string;
+    suggestedMessage?: string;
     createdByName: string;
     createdAt: string;
   };
@@ -587,44 +606,6 @@ export function calculateNextOpeningWindow(businessHours: any, timezone?: string
   } catch {
     return 'mañana a primera hora (tipo 8:30 AM)';
   }
-}
-
-/**
- * Normaliza una fecha YYYY-MM-DD o ISO recibida de schedule_follow_up a ISO UTC a las 09:30 hora local del tenant.
- */
-function parseFollowUpDateToIso(rawDate: string, orgTimezone: string): Date | null {
-  const trimmed = (rawDate || '').trim();
-  if (!trimmed) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    // Interpretar fecha pura como 09:30 hora local del tenant (aprox +5h para America/Bogota si Intl falla)
-    try {
-      const refUtc = new Date(`${trimmed}T14:30:00Z`);
-      const formattedHour = Number(
-        new Intl.DateTimeFormat('en-US', {
-          timeZone: orgTimezone,
-          hour: 'numeric',
-          hour12: false,
-        }).format(refUtc)
-      );
-      const offsetHours = 14 - (Number.isFinite(formattedHour) ? formattedHour : 9);
-      const targetHourUtc = 9 + offsetHours;
-      const iso = `${trimmed}T${String(Math.max(0, Math.min(23, targetHourUtc))).padStart(2, '0')}:30:00Z`;
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return refUtc;
-      // Si la fecha solicitada es hoy mismo y ya pasaron las 09:30 AM locales, programar +2 horas futuras en lugar del pasado
-      const todayLocal = new Intl.DateTimeFormat('en-CA', { timeZone: orgTimezone }).format(new Date());
-      if (trimmed === todayLocal && d.getTime() <= Date.now()) {
-        return new Date(Date.now() + 2 * 3600 * 1000);
-      }
-      return d;
-    } catch {
-      return new Date(`${trimmed}T14:30:00Z`);
-    }
-  }
-
-  const d = new Date(trimmed);
-  return isNaN(d.getTime()) ? null : d;
 }
 
 /**
@@ -837,6 +818,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
     let totalCachedTokens = 0;
     let pauseAfterSend = false;
     let leadProfileUpdatedThisTurn = false;
+    let orderOrBookingCompletedThisTurn = false;
     let detectedHandoffReason: string | undefined;
     let followUpScheduledInfo: FollowUpScheduledInfo | null = null;
     const allFailedAttempts: FailedModelAttempt[] = [];
@@ -865,7 +847,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           .in('sender_type', ['lead', 'ai', 'agent_manual']),
         needsOrgFetch
           ? (supabaseAdmin.from('organizations') as any)
-              .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, instagram_account_id, instagram_access_token, structured_prompt_data, system_prompt, enabled_modules, business_hours')
+              .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, instagram_account_id, instagram_access_token, structured_prompt_data, system_prompt, enabled_modules, business_hours, appointment_settings')
               .eq('id', organizationId)
               .maybeSingle()
           : Promise.resolve({ data: organization }),
@@ -1245,75 +1227,40 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 .eq('id', contactId)
                 .maybeSingle();
 
-              const cf = { ...(latestC?.custom_fields || {}) };
-              const prevTemp = resolveLeadTemperature(cf);
-              cf.lead_temperature = validated.temperature;
-              delete cf.temperature; // Clave única canónica
-
-              const cleanProduct = validated.product_of_interest?.trim();
-              if (cleanProduct) {
-                cf.product_interest = cleanProduct;
-                cf.last_quoted_product = cleanProduct;
-                cf.ai_summary = {
-                  ...(cf.ai_summary || {}),
-                  product_of_interest: cleanProduct,
-                  product_interest: cleanProduct,
-                };
-              }
-              if (validated.objection?.trim()) {
-                cf.last_objection = validated.objection.trim();
-                cf.ai_summary = {
-                  ...(cf.ai_summary || {}),
-                  objections_doubts: validated.objection.trim(),
-                };
-              }
-              if (validated.lost_reason?.trim()) {
-                cf.lost_reason = validated.lost_reason.trim();
-              }
-
-              // Sincronizar categoría de seguimiento automático si no está completado
-              const mappedFollowUpCat =
-                validated.temperature === 'hot'
-                  ? 'hot_unclosed'
-                  : validated.temperature === 'qualified_doubt'
-                  ? 'qualified_doubt'
-                  : validated.temperature === 'warm'
-                  ? 'warm'
-                  : 'unresponsive';
-              if (!cf.follow_up || cf.follow_up.category !== 'post_order') {
-                cf.follow_up = {
-                  ...(cf.follow_up || { currentStepIndex: 0 }),
-                  category: mappedFollowUpCat,
-                };
-              }
+              const prevTemp = resolveLeadTemperature(latestC?.custom_fields);
+              const syncRes = buildSynchronizedClassification({
+                customFields: latestC?.custom_fields || {},
+                currentStage: latestC?.pipeline_stage,
+                temperature: validated.temperature,
+                product: validated.product_of_interest,
+                objection: validated.objection,
+                lostReason: validated.lost_reason,
+                followUpSettings: orgData?.appointment_settings?.follow_up_sequences
+                  ? normalizeFollowUpSettings(orgData.appointment_settings.follow_up_sequences)
+                  : null,
+              });
 
               const updatePayload: Record<string, any> = {
-                custom_fields: cf,
+                custom_fields: syncRes.customFields,
                 updated_at: new Date().toISOString(),
               };
 
               if (validated.lost_reason?.trim()) {
                 updatePayload.close_reason = validated.lost_reason.trim().slice(0, 120);
               }
-
-              let stageChangedTo: string | null = null;
-              if (
-                (validated.temperature === 'hot' || validated.temperature === 'qualified_doubt') &&
-                latestC?.pipeline_stage === 'nuevo'
-              ) {
-                updatePayload.pipeline_stage = 'calificado';
-                stageChangedTo = 'calificado';
-              } else if (
-                validated.temperature === 'cold' &&
-                validated.lost_reason &&
-                latestC?.pipeline_stage !== 'ganado' &&
-                latestC?.pipeline_stage !== 'perdido'
-              ) {
-                updatePayload.pipeline_stage = 'perdido';
-                stageChangedTo = 'perdido';
+              if (syncRes.nextStage) {
+                updatePayload.pipeline_stage = syncRes.nextStage;
               }
 
               await (supabaseAdmin.from('contacts') as any).update(updatePayload).eq('id', contactId);
+
+              if (syncRes.shouldCancelPendingReactivations) {
+                await (supabaseAdmin.from('scheduled_reminders') as any)
+                  .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                  .eq('contact_id', contactId)
+                  .eq('reminder_type', 'reactivation')
+                  .eq('status', 'pending');
+              }
 
               if (prevTemp !== validated.temperature) {
                 const label = LEAD_TEMPERATURE_META[validated.temperature]?.label || validated.temperature;
@@ -1326,24 +1273,29 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
               }
 
-              if (stageChangedTo) {
+              if (syncRes.nextStage) {
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
                   sender_type: 'system',
-                  content: `[📊 Etapa actualizada por IA: ${stageChangedTo}]`,
+                  content: `[📊 Etapa actualizada por IA: ${syncRes.nextStage}]`,
                 });
               }
 
               toolResult = JSON.stringify({
                 status: 'updated',
                 temperature: validated.temperature,
-                stage_updated: stageChangedTo,
+                stage_updated: syncRes.nextStage,
               });
             } else if (functionName === 'schedule_follow_up') {
               const validated = ScheduleFollowUpToolSchema.parse(functionArgs);
-              const parsedDate = parseFollowUpDateToIso(validated.date, orgTimezone);
+              const parsedDate = parseFollowUpScheduleDate({
+                date: validated.date,
+                timeLocal: validated.time_local,
+                delayHours: validated.delay_hours,
+                orgTimezone,
+              });
               if (!parsedDate) {
-                toolResult = JSON.stringify({ error: 'Fecha inválida. Usa formato YYYY-MM-DD.' });
+                toolResult = JSON.stringify({ error: 'Fecha u hora inválida. Usa YYYY-MM-DD o delay_hours.' });
               } else {
                 const { data: remRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
                   .insert({
@@ -1359,7 +1311,10 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   id: remRow?.id || `rem-${Date.now()}`,
                   reminderType: 'reactivation' as const,
                   scheduledFor: parsedDate.toISOString(),
-                  note: validated.reason?.trim() || 'Seguimiento acordado con el cliente',
+                  note: validated.reason?.trim() || 'Seguimiento autónomo acordado con el cliente',
+                  ...(validated.suggested_message?.trim()
+                    ? { suggestedMessage: validated.suggested_message.trim() }
+                    : {}),
                   createdByName: 'Synqo IA',
                   createdAt: new Date().toISOString(),
                 };
@@ -1389,16 +1344,18 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   .update({ custom_fields: cf, updated_at: new Date().toISOString() })
                   .eq('id', contactId);
 
-                const niceDate = parsedDate.toLocaleDateString('es-CO', {
+                const niceDate = parsedDate.toLocaleString('es-CO', {
                   timeZone: orgTimezone,
                   weekday: 'long',
                   day: '2-digit',
                   month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
                 });
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
                   sender_type: 'system',
-                  content: `[⏰ Seguimiento Agendado por IA para el ${niceDate}${
+                  content: `[⏰ Seguimiento Agendado por IA para ${niceDate}${
                     validated.reason ? ` - "${validated.reason}"` : ''
                   }]`,
                 });
@@ -1410,6 +1367,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
               }
             } else if (functionName === 'create_order') {
+              orderOrBookingCompletedThisTurn = true;
               const validated = CreateOrderToolSchema.parse(functionArgs);
               const nowIso = new Date().toISOString();
 
@@ -1819,7 +1777,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             const latestLeadText =
               [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead')?.content || '';
             const lowerLeadMsg = String(latestLeadText).toLowerCase();
-            const inferredTemp: LeadTemperature =
+            let inferredTemp: LeadTemperature =
               /(cuenta|nequi|daviplata|bancolombia|contraentrega|link de pago|quiero comprar|quiero pedir|apartar|reservar|agendar)/i.test(
                 lowerLeadMsg
               )
@@ -1827,34 +1785,120 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 : /(no me interesa|no gracias|muy caro|fuera de presupuesto)/i.test(lowerLeadMsg)
                 ? 'cold'
                 : 'warm';
-
-            const nextCf = { ...(latestC.custom_fields || {}) };
-            nextCf.lead_temperature = inferredTemp;
-            delete nextCf.temperature;
-            if (!nextCf.follow_up || nextCf.follow_up.category !== 'post_order') {
-              nextCf.follow_up = {
-                ...(nextCf.follow_up || { currentStepIndex: 0 }),
-                category:
-                  inferredTemp === 'hot'
-                    ? 'hot_unclosed'
-                    : inferredTemp === 'cold'
-                    ? 'unresponsive'
-                    : 'warm',
-              };
+            if (inferredTemp === 'warm' && latestC.pipeline_stage === 'calificado') {
+              inferredTemp = 'qualified_doubt';
             }
+
+            const syncRes = buildSynchronizedClassification({
+              customFields: latestC.custom_fields || {},
+              currentStage: latestC.pipeline_stage,
+              temperature: inferredTemp,
+              followUpSettings: orgData?.appointment_settings?.follow_up_sequences
+                ? normalizeFollowUpSettings(orgData.appointment_settings.follow_up_sequences)
+                : null,
+            });
 
             await (supabaseAdmin.from('contacts') as any)
               .update({
-                custom_fields: nextCf,
-                ...(inferredTemp === 'hot' && latestC.pipeline_stage === 'nuevo'
-                  ? { pipeline_stage: 'calificado' }
-                  : {}),
+                custom_fields: syncRes.customFields,
+                ...(syncRes.nextStage ? { pipeline_stage: syncRes.nextStage } : {}),
                 updated_at: new Date().toISOString(),
               })
               .eq('id', contactId);
+
+            if (syncRes.shouldCancelPendingReactivations) {
+              await (supabaseAdmin.from('scheduled_reminders') as any)
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                .eq('contact_id', contactId)
+                .eq('reminder_type', 'reactivation')
+                .eq('status', 'pending');
+            }
           }
         } catch (autoClassErr) {
           console.warn('[AUTO CLASSIFY FALLBACK WARN]', autoClassErr);
+        }
+      }
+
+      // Respaldo autónomo de recordatorios: si el cliente dio señal temporal o de aplazamiento y la IA no llamó schedule_follow_up
+      if (!followUpScheduledInfo && !pauseAfterSend && !orderOrBookingCompletedThisTurn) {
+        try {
+          const { data: latestC } = await (supabaseAdmin.from('contacts') as any)
+            .select('pipeline_stage, custom_fields')
+            .eq('id', contactId)
+            .maybeSingle();
+
+          const latestCf = latestC?.custom_fields || {};
+          const latestTemp = resolveLeadTemperature(latestCf);
+          const isTerminalStage = ['ganado', 'perdido', 'cita_agendada'].includes(latestC?.pipeline_stage);
+
+          if (latestC && !isTerminalStage && latestTemp !== 'cold' && latestCf.opted_out !== true) {
+            const latestLeadText =
+              [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead')?.content || '';
+            const inferred = inferAutonomousReminderFromLeadMessage({
+              leadText: String(latestLeadText),
+              orgTimezone,
+              productInterest: resolveProductInterest(latestCf, contactData?.deal_value),
+              temperature: latestTemp,
+            });
+
+            if (inferred) {
+              const { data: remRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
+                .insert({
+                  contact_id: contactId,
+                  scheduled_for: inferred.scheduledFor.toISOString(),
+                  reminder_type: 'reactivation',
+                  status: 'pending',
+                })
+                .select('id, scheduled_for, created_at')
+                .single();
+
+              const activeReminderPayload = {
+                id: remRow?.id || `rem-${Date.now()}`,
+                reminderType: 'reactivation' as const,
+                scheduledFor: inferred.scheduledFor.toISOString(),
+                note: inferred.reason,
+                suggestedMessage: inferred.suggestedMessage,
+                createdByName: 'Synqo IA',
+                createdAt: new Date().toISOString(),
+              };
+
+              followUpScheduledInfo = {
+                reminderId: remRow?.id || null,
+                scheduledForIso: inferred.scheduledFor.toISOString(),
+                reason: inferred.reason,
+                activeReminder: activeReminderPayload,
+              };
+
+              const nextCf = { ...latestCf, active_reminder: activeReminderPayload };
+              nextCf.follow_up = {
+                ...(nextCf.follow_up || { category: 'warm', currentStepIndex: 0 }),
+                nextSendAt: inferred.scheduledFor.toISOString(),
+                scheduledReminderId: remRow?.id || null,
+                completed: false,
+                paused: false,
+              };
+
+              await (supabaseAdmin.from('contacts') as any)
+                .update({ custom_fields: nextCf, updated_at: new Date().toISOString() })
+                .eq('id', contactId);
+
+              const niceDate = inferred.scheduledFor.toLocaleString('es-CO', {
+                timeZone: orgTimezone,
+                weekday: 'long',
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              await supabaseAdmin.from('messages').insert({
+                contact_id: contactId,
+                sender_type: 'system',
+                content: `[🤖 Recordatorio autónomo programado por IA para ${niceDate} — "${inferred.reason}"]`,
+              });
+            }
+          }
+        } catch (autoRemErr) {
+          console.warn('[AUTONOMOUS REMINDER FALLBACK WARN]', autoRemErr);
         }
       }
 
@@ -1979,6 +2023,130 @@ Reglas: responde directo y amable (1 a 3 líneas), usa precios/datos reales del 
 
     const draft = response.choices[0]?.message?.content?.trim() || '';
     return draft.replace(/^["“”]|["“”]$/g, '').trim();
+  }
+
+  /**
+   * Genera el mensaje autónomo de seguimiento/recontacto que la IA enviará por WhatsApp,
+   * siguiendo las directrices específicas del prompt de cada empresa (ej. facilidades de pago, promos, envío de foto)
+   * y el historial real del prospecto.
+   */
+  static async generateAutonomousReminderMessage(params: {
+    organization: any;
+    contactId: string;
+    leadName?: string | null;
+    history: Array<{ sender_type: string; content: string }>;
+    reminderNote?: string | null;
+    suggestedMessage?: string | null;
+    productInterest?: string | null;
+    lastObjection?: string | null;
+  }): Promise<{ message: string; includeProductPhoto: boolean; productQuery: string | null }> {
+    const {
+      organization,
+      contactId,
+      leadName,
+      history,
+      reminderNote,
+      suggestedMessage,
+      productInterest,
+      lastObjection,
+    } = params;
+
+    const cleanName = (leadName || '').trim();
+    const isPhoneOnly =
+      /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+') || /^(lead|usuario)\b/i.test(cleanName);
+    const firstName = cleanName && !isPhoneOnly ? cleanName.split(/\s+/)[0] : '';
+    const greeting = firstName ? `¡Hola ${firstName}!` : '¡Hola!';
+
+    const spData = organization?.structured_prompt_data || organization?.structured_prompt;
+    const rawBusinessPrompt = spData
+      ? compileStructuredPrompt(spData)
+      : organization?.system_prompt || organization?.prompt_config || 'Empresa comercial.';
+    const promptDigest = extractRecontactPromptDigest(rawBusinessPrompt, 2200);
+
+    const conversationSnippet =
+      history.length > 0
+        ? history
+            .slice(-6)
+            .map(
+              (m) =>
+                `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor/IA'}: ${String(m.content || '').slice(0, 220)}`
+            )
+            .join('\n')
+        : 'Sin historial previo detallado.';
+
+    const wantsPhotoHeuristic = Boolean(
+      productInterest && /(foto|imagen|im[aá]genes|cat[aá]logo|mostrar)/i.test(promptDigest)
+    );
+
+    const fallbackMsg =
+      suggestedMessage?.trim() ||
+      (reminderNote?.trim()
+        ? `${greeting} Retomo nuestro contacto pendiente (${reminderNote.trim()})${
+            productInterest ? ` sobre ${productInterest.trim()}` : ''
+          }. ¿Cómo te quedó mejor para avanzar? 😊`
+        : `${greeting} ¿Cómo estás? Paso por aquí para saber si pudiste revisar ${
+            productInterest?.trim() || 'la información que te compartimos'
+          } o si te ayudo a confirmarlo hoy 😊`);
+
+    try {
+      const prompt = `Genera UN mensaje corto y natural por WhatsApp (máximo 2-3 líneas, tuteando, tono humano) para recontactar automáticamente a este cliente.
+Aplica OBLIGATORIAMENTE lo que esta empresa indique sobre recontacto, cierres o facilidades (ej. abonos, reservas, cuotas, envíos, promos o envío de fotos si aplica).
+
+Empresa: ${organization?.name || 'Nuestro equipo'}
+Directrices del negocio (extracto relevante):
+${promptDigest}
+
+Cliente: ${firstName || 'No especificado'}
+Motivo / contexto del recontacto: ${reminderNote || 'Seguimiento comercial autónomo'}
+${productInterest ? `Producto/servicio de interés: ${productInterest}` : ''}
+${lastObjection ? `Duda u objeción previa: ${lastObjection}` : ''}
+${suggestedMessage ? `Referencia inicial: ${suggestedMessage}` : ''}
+Últimos mensajes:
+${conversationSnippet}
+
+Devuelve ÚNICAMENTE JSON válido con esta estructura exacta:
+{
+  "message": "Texto final listo para enviar al cliente",
+  "include_product_photo": true o false (true si la empresa indica recontactar con imagen/foto o conviene reforzar visualmente el producto consultado),
+  "product_query": "Nombre del producto para buscar su foto en galería, o null"
+}`;
+
+      const { response } = await createChatCompletionWithFallback({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Eres un asesor comercial autónomo que ejecuta exactamente la estrategia de recontacto configurada en el prompt de cada empresa en JSON válido.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.35,
+        chainOverride: getAiUtilityChain(),
+        aiProvider: organization?.ai_provider,
+        organizationId: organization?.id,
+        contactId,
+        responseFormat: { type: 'json_object' },
+      });
+
+      const raw = response.choices[0]?.message?.content?.trim() || '';
+      const parsed = JSON.parse(raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+      const cleanMessage = String(parsed?.message || '').replace(/^["'«“”]+|["'»“”]+$/g, '').trim();
+
+      return {
+        message: cleanMessage.length >= 12 ? cleanMessage : fallbackMsg,
+        includeProductPhoto: Boolean(parsed?.include_product_photo),
+        productQuery:
+          typeof parsed?.product_query === 'string' && parsed.product_query.trim()
+            ? parsed.product_query.trim()
+            : productInterest || null,
+      };
+    } catch {
+      return {
+        message: fallbackMsg,
+        includeProductPhoto: wantsPhotoHeuristic,
+        productQuery: productInterest || null,
+      };
+    }
   }
 
   /**
@@ -2218,7 +2386,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
   }> {
     const safeLimit = Math.min(Math.max(1, batchSize), 35);
 
-    const [{ count: totalUnclassified }, { data: candidates }] = await Promise.all([
+    const [{ count: totalUnclassified }, { data: candidates }, { data: orgRow }] = await Promise.all([
       (supabaseAdmin.from('contacts') as any)
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', organizationId)
@@ -2233,7 +2401,15 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
         .is('custom_fields->>temperature', null)
         .order('last_interaction_at', { ascending: false, nullsFirst: false })
         .limit(safeLimit),
+      (supabaseAdmin.from('organizations') as any)
+        .select('appointment_settings')
+        .eq('id', organizationId)
+        .maybeSingle(),
     ]);
+
+    const normalizedFollowUpSettings = orgRow?.appointment_settings?.follow_up_sequences
+      ? normalizeFollowUpSettings(orgRow.appointment_settings.follow_up_sequences)
+      : null;
 
     const list: any[] = candidates || [];
     if (list.length === 0) {
@@ -2271,72 +2447,44 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       temp: LeadTemperature,
       extras?: { product?: string | null; objection?: string | null; lostReason?: string | null }
     ) => {
-      const cf = { ...((contact.custom_fields as Record<string, any>) || {}) };
-      cf.lead_temperature = temp;
-      delete cf.temperature;
-
-      if (extras?.product?.trim()) {
-        const cleanProd = extras.product.trim().slice(0, 140);
-        cf.product_interest = cleanProd;
-        cf.last_quoted_product = cleanProd;
-        cf.ai_summary = {
-          ...(cf.ai_summary || {}),
-          product_of_interest: cleanProd,
-          product_interest: cleanProd,
-        };
-      }
-      if (extras?.objection?.trim()) {
-        cf.last_objection = extras.objection.trim().slice(0, 200);
-      }
-      if (extras?.lostReason?.trim()) {
-        cf.lost_reason = extras.lostReason.trim().slice(0, 140);
-      }
-
-      const mappedFollowUpCat: FollowUpCategory =
-        contact.pipeline_stage === 'ganado'
-          ? 'post_order'
-          : temp === 'hot'
-          ? 'hot_unclosed'
-          : temp === 'qualified_doubt'
-          ? 'qualified_doubt'
-          : temp === 'warm'
-          ? 'warm'
-          : 'unresponsive';
-
-      if (!cf.follow_up || cf.follow_up.category !== 'post_order') {
-        cf.follow_up = {
-          ...(cf.follow_up || { currentStepIndex: 0 }),
-          category: mappedFollowUpCat,
-        };
-      }
-
-      const updatePayload: Record<string, any> = {
-        custom_fields: cf,
-        updated_at: new Date().toISOString(),
-      };
-
       const daysInactive = contact.last_interaction_at
         ? (Date.now() - new Date(contact.last_interaction_at).getTime()) / (1000 * 3600 * 24)
         : 0;
 
-      if ((temp === 'hot' || temp === 'qualified_doubt') && contact.pipeline_stage === 'nuevo') {
-        updatePayload.pipeline_stage = 'calificado';
-        stagesUpdated++;
-      } else if (
-        temp === 'cold' &&
-        (extras?.lostReason || cf.opted_out === true || daysInactive >= 14) &&
-        contact.pipeline_stage !== 'ganado' &&
-        contact.pipeline_stage !== 'perdido' &&
-        contact.pipeline_stage !== 'cita_agendada'
-      ) {
-        updatePayload.pipeline_stage = 'perdido';
-        if (extras?.lostReason) {
+      const syncRes = buildSynchronizedClassification({
+        customFields: contact.custom_fields || {},
+        currentStage: contact.pipeline_stage,
+        temperature: temp,
+        product: extras?.product,
+        objection: extras?.objection,
+        lostReason: extras?.lostReason,
+        daysInactive,
+        followUpSettings: normalizedFollowUpSettings,
+      });
+
+      const updatePayload: Record<string, any> = {
+        custom_fields: syncRes.customFields,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (syncRes.nextStage) {
+        updatePayload.pipeline_stage = syncRes.nextStage;
+        if (syncRes.nextStage === 'perdido' && extras?.lostReason?.trim()) {
           updatePayload.close_reason = extras.lostReason.trim().slice(0, 120);
         }
         stagesUpdated++;
       }
 
       await (supabaseAdmin.from('contacts') as any).update(updatePayload).eq('id', contact.id);
+
+      if (syncRes.shouldCancelPendingReactivations) {
+        await (supabaseAdmin.from('scheduled_reminders') as any)
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .eq('contact_id', contact.id)
+          .eq('reminder_type', 'reactivation')
+          .eq('status', 'pending');
+      }
+
       if (temp === 'hot') hot++;
       else if (temp === 'qualified_doubt') qualified_doubt++;
       else if (temp === 'warm') warm++;
@@ -2400,12 +2548,15 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
 
         for (let i = 0; i < toInfer.length; i++) {
           const r = resultMap.get(i);
-          const temp: LeadTemperature =
+          let temp: LeadTemperature =
             r?.temperature === 'hot' ||
             r?.temperature === 'qualified_doubt' ||
             r?.temperature === 'cold'
               ? r.temperature
               : 'warm';
+          if (temp === 'warm' && toInfer[i].contact.pipeline_stage === 'calificado') {
+            temp = 'qualified_doubt';
+          }
           await applyClassification(toInfer[i].contact, temp, {
             product: r?.product || null,
             objection: r?.objection || null,
@@ -2432,7 +2583,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
   static async classifyUnclassifiedContactsForActiveOrgs(
     specificOrgId?: string,
     maxOrgs = 5,
-    batchPerOrg = 12
+    batchPerOrg = 35
   ): Promise<{ orgsProcessed: number; contactsClassified: number }> {
     let orgQuery = (supabaseAdmin.from('organizations') as any)
       .select('id')
@@ -2630,7 +2781,10 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
         } else if (fn === 'schedule_follow_up') {
           const parsed = ScheduleFollowUpToolSchema.safeParse(args);
           if (parsed.success) {
-            trace.followUpScheduled = { date: parsed.data.date, reason: parsed.data.reason };
+            trace.followUpScheduled = {
+              date: parsed.data.date || `+${parsed.data.delay_hours || 24}h`,
+              reason: parsed.data.reason,
+            };
             resultPayload = { status: 'scheduled', ...parsed.data };
           }
         } else if (fn === 'create_order') {
