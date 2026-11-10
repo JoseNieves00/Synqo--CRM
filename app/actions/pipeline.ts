@@ -20,7 +20,7 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
   }
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id')
+    .select('organization_id, full_name')
     .eq('id', user.id)
     .single();
 
@@ -29,9 +29,37 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
   }
 
   const orgId = profile.organization_id as string;
+  const { data: prevContact } = await (supabaseAdmin.from('contacts') as any)
+    .select('pipeline_stage, closed_at, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .maybeSingle();
+
+  const nowIso = new Date().toISOString();
+  const prevCustom = (prevContact?.custom_fields as Record<string, any>) || {};
+  const nextCustom: Record<string, any> = { ...prevCustom };
+
+  if (newStage === 'ganado') {
+    nextCustom.lead_temperature = 'hot';
+    delete nextCustom.temperature;
+    if (nextCustom.follow_up && nextCustom.follow_up.category !== 'post_order') {
+      nextCustom.follow_up = { ...nextCustom.follow_up, category: 'post_order' };
+    }
+  } else if (newStage === 'perdido') {
+    nextCustom.lead_temperature = 'cold';
+    delete nextCustom.temperature;
+    if (nextCustom.follow_up) {
+      nextCustom.follow_up = { ...nextCustom.follow_up, nextSendAt: null, completed: true };
+    }
+  }
+
   const updatePayload: Database['public']['Tables']['contacts']['Update'] = {
     pipeline_stage: newStage,
-    updated_at: new Date().toISOString(),
+    custom_fields: nextCustom,
+    updated_at: nowIso,
+    ...((newStage === 'ganado' || newStage === 'perdido') && !prevContact?.closed_at
+      ? { closed_at: nowIso }
+      : {}),
   };
 
   const { error: updateError } = await (supabaseAdmin
@@ -44,8 +72,17 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
     throw new Error(`Error actualizando fase del lead: ${updateError.message}`);
   }
 
+  if (prevContact && prevContact.pipeline_stage !== newStage) {
+    await (supabaseAdmin.from('messages') as any).insert({
+      contact_id: contactId,
+      sender_type: 'system',
+      content: `[📊 Etapa actualizada por Humano (${profile.full_name || 'Asesor'}): ${newStage}]`,
+    });
+  }
+
   revalidatePath('/pipeline');
   revalidatePath('/inbox');
+  revalidatePath('/dashboard');
 }
 
 /**

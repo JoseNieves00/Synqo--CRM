@@ -12,7 +12,10 @@ import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { formatImageMessageContent, formatVideoMessageContent, formatAudioMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
+import { resolveInboundThumbnailMessage } from '@/lib/media/inbound-thumbnail';
 import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
+
+export const maxDuration = 60;
 
 /**
  * 1. GET: Health-check y prueba de conectividad de webhook para Evolution API.
@@ -57,7 +60,7 @@ export async function POST(request: NextRequest) {
   // 2. Localizar la organización en Supabase
   const { data: organization } = await (supabaseAdmin.from('organizations') as any)
     .select(
-      'id, name, subscription_status, is_active, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings'
+      'id, name, subscription_status, is_active, whatsapp_provider, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_status, evolution_anti_ban_mode, evolution_max_outbound_per_hour, system_prompt, structured_prompt_data, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings'
     )
     .eq('evolution_instance_name', cleanInstance)
     .maybeSingle();
@@ -355,20 +358,47 @@ export async function POST(request: NextRequest) {
   let rawContent = '';
 
   if (typeof msgObj.conversation === 'string' && msgObj.conversation.trim()) {
-    rawContent = msgObj.conversation.trim();
+    const convText = msgObj.conversation.trim();
+    if (/https?:\/\//i.test(convText)) {
+      rawContent = await resolveInboundThumbnailMessage({
+        organizationId: orgId,
+        contactKey: leadPhone || 'incoming',
+        text: convText,
+        labelPrefix: 'Enlace compartido',
+      });
+    } else {
+      rawContent = convText;
+    }
   } else if (msgObj.extendedTextMessage) {
     const text = (msgObj.extendedTextMessage.text || '').trim();
     const adReply = msgObj.extendedTextMessage.contextInfo?.externalAdReply;
     const adTitle = (adReply?.title || msgObj.extendedTextMessage.title || '').trim();
     const adBody = (adReply?.body || msgObj.extendedTextMessage.description || '').trim();
-    const adThumbnail = adReply?.thumbnailUrl || '';
+    const adThumbnail = (adReply?.thumbnailUrl || adReply?.mediaUrl || '').trim();
+    const rawThumbB64 =
+      adReply?.jpegThumbnail ||
+      msgObj.extendedTextMessage.jpegThumbnail ||
+      '';
+    const adThumbnailB64 =
+      typeof rawThumbB64 === 'string'
+        ? rawThumbB64
+        : Buffer.isBuffer(rawThumbB64)
+        ? rawThumbB64.toString('base64')
+        : '';
+    const sourceUrl = (adReply?.sourceUrl || msgObj.extendedTextMessage.matchedText || '').trim();
 
-    if (adTitle || adBody || adThumbnail) {
-      const adParts: string[] = [];
-      if (adTitle) adParts.push(`"${adTitle}"`);
-      if (adBody) adParts.push(`"${adBody}"`);
-      if (adThumbnail) adParts.push(`[Foto: ${adThumbnail}]`);
-      rawContent = `[Publicación/Anuncio compartido de Instagram: ${adParts.join(' - ')}] ${text}`.trim();
+    if (adTitle || adBody || adThumbnail || adThumbnailB64 || sourceUrl || /https?:\/\//i.test(text)) {
+      rawContent = await resolveInboundThumbnailMessage({
+        organizationId: orgId,
+        contactKey: leadPhone || 'incoming',
+        text,
+        labelPrefix: 'Publicación/Anuncio compartido',
+        title: adTitle,
+        body: adBody,
+        thumbnailUrl: adThumbnail,
+        thumbnailBase64: adThumbnailB64,
+        sourceUrl,
+      });
     } else {
       rawContent = text;
     }

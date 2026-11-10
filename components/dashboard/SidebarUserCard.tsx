@@ -22,10 +22,10 @@ export function SidebarUserCard({
 
   return (
     <>
-      <div className="p-3.5 border-t border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#090A0F] flex items-center justify-between transition-colors">
+      <div className="p-2 lg:p-3.5 border-t border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#090A0F] flex flex-col lg:flex-row items-center justify-between gap-2 transition-colors">
         <div
           onClick={() => setIsProfileModalOpen(true)}
-          className="overflow-hidden mr-2 cursor-pointer group flex-1"
+          className="hidden lg:block overflow-hidden mr-2 cursor-pointer group flex-1"
           title="Editar mi perfil"
         >
           <div className="flex items-center gap-1.5">
@@ -42,7 +42,7 @@ export function SidebarUserCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex flex-col lg:flex-row items-center gap-0.5">
           <ThemeToggle />
           <form action={signOutAction}>
             <button

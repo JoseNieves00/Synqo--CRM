@@ -2,13 +2,22 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
+import { encryptSecret, decryptSecret, hashPassword } from '@/lib/security/encryption';
+import {
+  normalizeAlertThresholds,
+  normalizeManagerSecurity,
+  normalizeTokenPolicy,
+} from '@/lib/monitoring/token-policy';
 import { Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { WhatsAppService } from '@/services/whatsapp.service';
 import { GalleryPhotoItem } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
 import { compileStructuredPrompt } from '@/lib/ai/prompt-compiler';
+import {
+  type FollowUpSettingsConfig,
+  normalizeFollowUpSettings,
+} from '@/lib/ai/follow-up-types';
 
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
@@ -813,15 +822,17 @@ export async function simulateBotMessage(params: {
   const startTime = Date.now();
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, prompt_config, structured_prompt, system_prompt, custom_instructions, ai_provider, appointment_settings, enabled_modules')
+    .select('id, name, structured_prompt_data, system_prompt, ai_provider, appointment_settings, enabled_modules')
     .eq('id', orgId)
     .single();
 
   if (!org) throw new Error('Organización no encontrada');
 
-  const activePrompt = params.temporaryPrompt || (org.structured_prompt
-    ? compileStructuredPrompt(org.structured_prompt)
-    : org.prompt_config || org.system_prompt || 'Eres el asesor comercial inteligente de Synqo CRM.');
+  const activePrompt =
+    params.temporaryPrompt ||
+    (org.structured_prompt_data
+      ? compileStructuredPrompt(org.structured_prompt_data)
+      : org.system_prompt || 'Eres el asesor comercial inteligente de Synqo CRM.');
 
   const result = await OpenAIService.simulateSandboxMessage({
     systemPrompt: activePrompt,
@@ -829,6 +840,9 @@ export async function simulateBotMessage(params: {
     history: params.history,
     aiProvider: org.ai_provider,
     organizationId: orgId,
+    organization: org,
+    enableDryRunTools: true,
+    enabledModules: org.enabled_modules,
   });
 
   return {
@@ -838,6 +852,194 @@ export async function simulateBotMessage(params: {
     provider: result.provider,
   };
 }
+
+/**
+ * T2: Guarda las secuencias automáticas de seguimiento por embudo dentro de `appointment_settings.follow_up_sequences`.
+ */
+export async function saveFollowUpSequences(
+  config: FollowUpSettingsConfig
+): Promise<{ success: boolean; config: FollowUpSettingsConfig }> {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Perfil no encontrado');
+  if (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin) {
+    throw new Error('Solo administradores o supervisores pueden configurar secuencias de seguimiento.');
+  }
+
+  const orgId = profile.organization_id;
+  const cleanConfig = normalizeFollowUpSettings(config);
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', orgId)
+    .single();
+
+  const updatedSettings = {
+    ...((org?.appointment_settings as Record<string, any>) || {}),
+    follow_up_sequences: cleanConfig,
+  };
+
+  const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: updatedSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateErr) {
+    throw new Error(`Error guardando secuencias de seguimiento: ${updateErr.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true, config: cleanConfig };
+}
+
+/**
+ * T2: Genera borradores sugeridos de seguimiento desde el prompt de la empresa (1 llamada utilitaria).
+ */
+export async function suggestFollowUpSequences() {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+  if (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin) {
+    throw new Error('Permisos insuficientes.');
+  }
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, name, system_prompt, structured_prompt_data, ai_provider, enabled_modules')
+    .eq('id', profile.organization_id)
+    .single();
+
+  if (!org) throw new Error('Organización no encontrada');
+
+  const suggestions = await OpenAIService.generateFollowUpSuggestions(org);
+  return { success: true, suggestions };
+}
+
+/**
+ * Guarda la política de alertas Push de tokens (x% configurables) y el PIN gerencial de 4 dígitos
+ * para consultas seguras por WhatsApp (`#tokens`, `#admin`).
+ */
+export async function saveTokenAndManagerSettings(input: {
+  alertThresholds: number[] | string;
+  overagePricePer500kCop?: number | null;
+  newPin?: string | null;
+}) {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+  if (profile.role !== 'admin' && !profile.is_super_admin) {
+    throw new Error('Solo el administrador de la cuenta puede configurar alertas de tokens y PIN gerencial.');
+  }
+
+  const trimmedPin = (input.newPin || '').trim();
+  if (trimmedPin && !/^\d{4}$/.test(trimmedPin)) {
+    throw new Error('El PIN gerencial debe tener exactamente 4 dígitos numéricos.');
+  }
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, appointment_settings')
+    .eq('id', profile.organization_id)
+    .single();
+
+  if (!org) throw new Error('Organización no encontrada');
+
+  const currentSettings =
+    org.appointment_settings && typeof org.appointment_settings === 'object'
+      ? { ...org.appointment_settings }
+      : {};
+
+  const prevPolicy = normalizeTokenPolicy(currentSettings.token_policy);
+  const nextThresholds = normalizeAlertThresholds(input.alertThresholds);
+
+  // Conservar marcas ya enviadas solo para los umbrales que sigan vigentes
+  const keptAlertsSent: Record<string, string> = {};
+  for (const t of nextThresholds) {
+    if (prevPolicy.alertsSentInCycle[String(t)]) {
+      keptAlertsSent[String(t)] = prevPolicy.alertsSentInCycle[String(t)];
+    }
+  }
+
+  const priceNum = Number(input.overagePricePer500kCop);
+  const nextPolicy = {
+    ...prevPolicy,
+    alertThresholds: nextThresholds,
+    alertsSentInCycle: keptAlertsSent,
+    overagePricePer500kCop:
+      input.overagePricePer500kCop === undefined
+        ? prevPolicy.overagePricePer500kCop
+        : Number.isFinite(priceNum) && priceNum > 0
+        ? Math.round(priceNum)
+        : null,
+    overageAllowed: true,
+  };
+
+  const prevSec = normalizeManagerSecurity(currentSettings.manager_security);
+  const nextSec = trimmedPin
+    ? {
+        ...prevSec,
+        pinHash: hashPassword(trimmedPin),
+        sessions: {}, // Limpiar bloqueos/sesiones previas al rotar el PIN
+      }
+    : prevSec;
+
+  const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: {
+        ...currentSettings,
+        token_policy: nextPolicy,
+        manager_security: nextSec,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', org.id);
+
+  if (updateErr) {
+    throw new Error(`Error guardando configuración de tokens: ${updateErr.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/dashboard');
+  revalidatePath('/', 'layout');
+
+  return {
+    success: true,
+    alertThresholds: nextThresholds,
+    hasManagerPin: Boolean(nextSec.pinHash),
+  };
+}
+
 
 
 

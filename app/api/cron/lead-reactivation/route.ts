@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { LeadReactivationService } from '@/services/reactivation.service';
+import { OpenAIService } from '@/services/openai.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -53,6 +54,7 @@ async function handleCron(request: NextRequest) {
 
   try {
     const orgId = searchParams.get('orgId') || undefined;
+    const autoClassifyResult = await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 12);
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
@@ -60,6 +62,7 @@ async function handleCron(request: NextRequest) {
       success: true,
       timestamp: new Date().toISOString(),
       ...reactivationResult,
+      autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
     });
   } catch (err: any) {

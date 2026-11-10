@@ -1,0 +1,236 @@
+/**
+ * Tipos compartidos y utilidades de formato para Categorización de Leads,
+ * Secuencias de Seguimiento por Embudo y Recordatorios Agendados.
+ */
+
+export type LeadTemperature = 'hot' | 'qualified_doubt' | 'warm' | 'cold';
+
+export type FollowUpCategory =
+  | 'hot_unclosed'
+  | 'qualified_doubt'
+  | 'warm'
+  | 'unresponsive'
+  | 'post_order';
+
+export const LEAD_TEMPERATURE_ORDER: LeadTemperature[] = [
+  'hot',
+  'qualified_doubt',
+  'warm',
+  'cold',
+];
+
+export const LEAD_TEMPERATURE_META: Record<
+  LeadTemperature,
+  {
+    label: string;
+    shortLabel: string;
+    badge: string;
+    description: string;
+    dotClass: string;
+    pillClass: string;
+  }
+> = {
+  hot: {
+    label: 'Calificado · Listo',
+    shortLabel: 'Listo',
+    badge: '🔥 Listo para cerrar',
+    description: 'Quiere comprar, pagar o agendar ya.',
+    dotClass: 'bg-rose-500 shadow-xs',
+    pillClass:
+      'bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30',
+  },
+  qualified_doubt: {
+    label: 'Calificado · Con dudas',
+    shortLabel: 'Con dudas',
+    badge: '🟠 Por confirmar',
+    description: 'Calificado con intención clara, pero aún tiene dudas puntuales.',
+    dotClass: 'bg-orange-500',
+    pillClass:
+      'bg-orange-50 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-500/30',
+  },
+  warm: {
+    label: 'Tibio',
+    shortLabel: 'Tibio',
+    badge: '⚡ Evaluando',
+    description: 'Consulta precios o info general y sigue comparando.',
+    dotClass: 'bg-amber-500',
+    pillClass:
+      'bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  },
+  cold: {
+    label: 'Frío',
+    shortLabel: 'Frío',
+    badge: '❄️ Sin interés',
+    description: 'No interesado, fuera de alcance o descartado.',
+    dotClass: 'bg-sky-400',
+    pillClass:
+      'bg-sky-50 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-500/30',
+  },
+};
+
+export interface FollowUpStep {
+  id: string;
+  delayValue: number;
+  delayUnit: 'hours' | 'days';
+  text: string;
+  imageUrls?: string[];
+  metaTemplateName?: string;
+}
+
+export interface FollowUpSequenceConfig {
+  category: FollowUpCategory;
+  enabled: boolean;
+  steps: FollowUpStep[];
+}
+
+export interface FollowUpSettingsConfig {
+  enabled: boolean;
+  dailyCap?: number;
+  sequences: Record<FollowUpCategory, FollowUpSequenceConfig>;
+}
+
+export interface ContactFollowUpState {
+  category: FollowUpCategory;
+  currentStepIndex: number;
+  nextSendAt?: string | null;
+  lastSentAt?: string | null;
+  completed?: boolean;
+  paused?: boolean;
+  scheduledReminderId?: string | null;
+}
+
+export const FOLLOW_UP_CATEGORY_META: Record<
+  FollowUpCategory,
+  { label: string; badge: string; description: string }
+> = {
+  hot_unclosed: {
+    label: 'Calificado · Listo para cerrar',
+    badge: '🔥 Quiere cerrar',
+    description: 'Prospectos listos para comprar, pagar o agendar que aún no confirman el cierre.',
+  },
+  qualified_doubt: {
+    label: 'Calificado · Con dudas',
+    badge: '🟠 Con dudas',
+    description: 'Prospectos con intención clara que tienen preguntas puntuales antes de confirmar.',
+  },
+  warm: {
+    label: 'Tibio',
+    badge: '⚡ Evaluando',
+    description: 'Prospectos que consultaron precios o información general y siguen comparando.',
+  },
+  unresponsive: {
+    label: 'Sin respuesta',
+    badge: '💬 En silencio',
+    description: 'Contactos que dejaron de responder después de recibir información inicial.',
+  },
+  post_order: {
+    label: 'Post-cierre (opcional)',
+    badge: '✅ Cliente cerrado',
+    description: 'Seguimiento opcional posterior a la compra, cita o servicio para confirmar atención o pedir reseña.',
+  },
+};
+
+export function createEmptyFollowUpSettings(): FollowUpSettingsConfig {
+  return {
+    enabled: false,
+    dailyCap: 40,
+    sequences: {
+      hot_unclosed: { category: 'hot_unclosed', enabled: true, steps: [] },
+      qualified_doubt: { category: 'qualified_doubt', enabled: true, steps: [] },
+      warm: { category: 'warm', enabled: true, steps: [] },
+      unresponsive: { category: 'unresponsive', enabled: true, steps: [] },
+      post_order: { category: 'post_order', enabled: false, steps: [] },
+    },
+  };
+}
+
+export function normalizeFollowUpSettings(raw: any): FollowUpSettingsConfig {
+  const base = createEmptyFollowUpSettings();
+  if (!raw || typeof raw !== 'object') return base;
+
+  const categories: FollowUpCategory[] = ['hot_unclosed', 'qualified_doubt', 'warm', 'unresponsive', 'post_order'];
+  const sequences = { ...base.sequences };
+
+  for (const cat of categories) {
+    const src = raw.sequences?.[cat];
+    if (src && typeof src === 'object') {
+      sequences[cat] = {
+        category: cat,
+        enabled: src.enabled !== false,
+        steps: Array.isArray(src.steps)
+          ? src.steps
+              .filter((s: any) => s && typeof s.text === 'string' && s.text.trim().length > 0)
+              .map((s: any, idx: number) => ({
+                id: String(s.id || `${cat}-step-${idx + 1}`),
+                delayValue: Math.max(1, Number(s.delayValue) || 1),
+                delayUnit: s.delayUnit === 'days' ? 'days' : 'hours',
+                text: String(s.text).trim().slice(0, 1500),
+                imageUrls: Array.isArray(s.imageUrls)
+                  ? s.imageUrls.filter((u: any) => typeof u === 'string' && /^https?:\/\//i.test(u))
+                  : [],
+                metaTemplateName: s.metaTemplateName ? String(s.metaTemplateName).trim() : undefined,
+              }))
+          : [],
+      };
+    }
+  }
+
+  return {
+    enabled: Boolean(raw.enabled),
+    dailyCap: Number(raw.dailyCap) > 0 ? Math.min(500, Math.floor(Number(raw.dailyCap))) : 40,
+    sequences,
+  };
+}
+
+/**
+ * Unifica la lectura de temperatura entre la clave canónica `lead_temperature` y la legacy `temperature`.
+ */
+export function resolveLeadTemperature(customFields?: any): LeadTemperature | null {
+  const raw = customFields?.lead_temperature || customFields?.temperature;
+  if (raw === 'hot' || raw === 'qualified_doubt' || raw === 'warm' || raw === 'cold') return raw;
+  return null;
+}
+
+/**
+ * Unifica la lectura del producto/servicio de interés en todas las vistas y servicios.
+ */
+export function resolveProductInterest(customFields?: any, dealValue?: number | null): string | null {
+  return (
+    customFields?.ai_summary?.product_of_interest ||
+    customFields?.ai_summary?.product_interest ||
+    customFields?.product_of_interest ||
+    customFields?.product_interest ||
+    customFields?.last_quoted_product ||
+    (dealValue ? `Cierre ($${Number(dealValue).toLocaleString('es-CO')})` : null)
+  );
+}
+
+/**
+ * Interpola variables {nombre}, {primer_nombre}, {producto}, {empresa} sanitizando teléfonos como nombre.
+ */
+export function interpolateFollowUpText(
+  template: string,
+  params: {
+    contactName?: string | null;
+    productName?: string | null;
+    companyName?: string | null;
+  }
+): string {
+  const rawName = (params.contactName || '').trim();
+  const isPhoneOrGeneric =
+    !rawName ||
+    /^[+0-9\s()-]+$/.test(rawName) ||
+    /^(lead whatsapp|lead instagram|usuario instagram|sin nombre)/i.test(rawName);
+  const firstName = !isPhoneOrGeneric ? rawName.split(/\s+/)[0] : '';
+  const fullName = !isPhoneOrGeneric ? rawName : '';
+
+  return (template || '')
+    .replace(/\{\{?\s*primer_nombre\s*\}?\}/gi, firstName)
+    .replace(/\{\{?\s*nombre\s*\}?\}/gi, firstName || fullName)
+    .replace(/\{\{?\s*producto\s*\}?\}/gi, params.productName?.trim() || 'tu consulta')
+    .replace(/\{\{?\s*empresa\s*\}?\}/gi, params.companyName?.trim() || 'nuestro equipo')
+    .replace(/¡Hola\s+([!¡?,.:])/gi, '¡Hola$1')
+    .replace(/Hola\s+,/gi, 'Hola,')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}

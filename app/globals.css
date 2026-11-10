@@ -63,6 +63,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Scrollbar refinado estilo macOS / Linear adaptativo */
 ::-webkit-scrollbar {
   width: 6px;

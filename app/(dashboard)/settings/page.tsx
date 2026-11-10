@@ -5,6 +5,8 @@ import { getOrganizationKnowledgeGaps } from '@/app/actions/knowledge-gaps';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { BASE_DEFAULT_SNIPPETS, generateSuggestedSnippetsFromPrompt } from '@/lib/chat/snippets';
+import { normalizeFollowUpSettings } from '@/lib/ai/follow-up-types';
+import { normalizeManagerSecurity, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
 import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +32,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const org = current.organization;
   const paymentAccounts = (org?.appointment_settings as any)?.payment_accounts || [];
+  const followUpSequences = normalizeFollowUpSettings((org?.appointment_settings as any)?.follow_up_sequences);
+  const tokenPolicy = normalizeTokenPolicy((org?.appointment_settings as any)?.token_policy);
+  const managerSecurity = normalizeManagerSecurity((org?.appointment_settings as any)?.manager_security);
   const quickReplies = Array.isArray((org?.appointment_settings as any)?.quick_replies) && (org?.appointment_settings as any).quick_replies.length > 0
     ? (org?.appointment_settings as any).quick_replies
     : BASE_DEFAULT_SNIPPETS;
@@ -97,6 +102,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         initialOauthError: searchParams?.error || searchParams?.error_description,
         aiTokensUsed: Number(org?.ai_tokens_used || 0),
         aiTokensLimit: Number(org?.ai_tokens_limit || 0),
+        tokenPolicyData: tokenPolicy,
+        hasManagerPin: Boolean(managerSecurity.pinHash),
         maxUsers: Number(org?.max_users || 2),
         industryPreset: (org as any)?.industry_preset || 'services',
         hasGoogleCalendarToken: Boolean(org?.google_calendar_token),
@@ -129,6 +136,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       paymentAccountsData={paymentAccounts}
       quickRepliesData={quickReplies}
       aiSuggestionsData={aiSuggestions}
+      followUpSequencesData={followUpSequences}
       isSuperAdmin={Boolean(current.profile.is_super_admin)}
     />
   );

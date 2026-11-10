@@ -8,6 +8,7 @@ import {
 import nextDynamic from 'next/dynamic';
 import { SidebarNav } from '@/components/dashboard/SidebarNav';
 import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
+import { MobileBottomNav } from '@/components/dashboard/MobileBottomNav';
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
 import { SupportHeaderButton } from '@/components/support/SupportHeaderButton';
@@ -53,27 +54,33 @@ export default async function DashboardLayout({
       subStatus === 'past_due' ||
       subStatus === 'canceled');
 
-  // Cálculo de alerta de consumo de IA para la empresa cliente (80% y 100%)
+  // Cálculo de alerta de consumo de IA para la empresa cliente (umbrales configurables x% y Modo Excedente)
   const usedTokens = Number(current?.organization?.ai_tokens_used || 0);
   const limitTokens = Number(current?.organization?.ai_tokens_limit || 500000);
+  const tokenPolicyRaw = (current?.organization?.appointment_settings as any)?.token_policy;
+  const thresholds: number[] = Array.isArray(tokenPolicyRaw?.alertThresholds) && tokenPolicyRaw.alertThresholds.length > 0
+    ? tokenPolicyRaw.alertThresholds
+    : [80, 90, 100];
+  const minWarnPct = thresholds.find((t) => t < 100) ?? 80;
   const usagePercentage = Math.min(100, Math.round((usedTokens / limitTokens) * 100));
-  const isUsageWarning = usagePercentage >= 80 && usagePercentage < 100;
-  const isUsageExceeded = usagePercentage >= 100;
+  const rawUsagePct = Math.round((usedTokens / limitTokens) * 100);
+  const isUsageWarning = rawUsagePct >= minWarnPct && usedTokens < limitTokens;
+  const isUsageExceeded = usedTokens >= limitTokens;
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-slate-100 transition-colors">
-      {/* Sidebar de Navegación Fija */}
-      <aside className="w-64 bg-white dark:bg-[#090A0F] text-slate-800 dark:text-slate-100 flex flex-col border-r border-slate-200 dark:border-[#1E2433] flex-shrink-0 h-full select-none transition-colors">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-slate-100 transition-colors">
+      {/* Sidebar Responsivo: Oculto en móvil (usa bottom bar), colapsado en tablet (md), expandido en desktop (lg) */}
+      <aside className="hidden md:flex md:w-20 lg:w-64 bg-white dark:bg-[#090A0F] text-slate-800 dark:text-slate-100 flex-col border-r border-slate-200 dark:border-[#1E2433] flex-shrink-0 h-full select-none transition-all">
         {/* Brand Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-[#1E2433] flex items-center gap-3">
+        <div className="p-4 border-b border-slate-200 dark:border-[#1E2433] flex items-center justify-center lg:justify-start gap-3">
           <Image
             src="/brand/isotipo-128w.png"
             alt="Synqo"
             width={32}
             height={32}
-            className="w-8 h-8 object-contain"
+            className="w-8 h-8 object-contain shrink-0"
           />
-          <div>
+          <div className="hidden lg:block">
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-tight">synqo</span>
               <span className="text-[10px] px-1.5 py-0.2 bg-[#0052FF]/10 text-[#0052FF] dark:bg-[#00D2FF]/10 dark:text-[#00D2FF] font-mono rounded border border-[#0052FF]/20 dark:border-[#00D2FF]/20 font-bold">.dev</span>
@@ -90,7 +97,7 @@ export default async function DashboardLayout({
         />
 
         {/* Estado del Servicio & Suscripción */}
-        <div className="p-3 mx-3 mb-2 rounded-xl bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+        <div className="hidden lg:block p-3 mx-3 mb-2 rounded-xl bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Suscripción</span>
             <span
@@ -184,9 +191,12 @@ export default async function DashboardLayout({
         )}
 
         {/* Panel de Contenido Principal */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50 dark:bg-[#090A0F] transition-colors">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-6 pb-20 md:pb-6 bg-slate-50 dark:bg-[#090A0F] transition-colors">
           {children}
         </main>
+
+        {/* Tab Bar inferior exclusivo para móvil / PWA */}
+        <MobileBottomNav isAdmin={isAdmin} enabledModules={current?.organization?.enabled_modules} />
 
         {/* Modal y Botón Flotante de Ayuda & Reporte de Fallas */}
         <SupportModal />

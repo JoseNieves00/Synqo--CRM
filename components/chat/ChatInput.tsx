@@ -1054,11 +1054,6 @@ export function ChatInput({
                         <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title={item.name}>
                           {item.name}
                         </span>
-                        {item.isHero && (
-                          <span className="text-[9px] bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 px-1 rounded font-bold shrink-0">
-                            ⭐
-                          </span>
-                        )}
                       </div>
                       {item.price && (
                         <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 block">
@@ -1567,7 +1562,7 @@ export function ChatInput({
         onSnippetsUpdated={(updated) => {
           setActiveSnippets(updated);
           useInboxStore.getState().setBootstrap({
-            quickReplies: updated,
+            quickReplies: { activeSnippets: updated, aiSuggestions },
           });
         }}
         initialEditShortcut={manageModalInitialShortcut}

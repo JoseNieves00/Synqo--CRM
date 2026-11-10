@@ -13,7 +13,11 @@ const NewLeadModal = nextDynamic(
 
 export const dynamic = 'force-dynamic';
 
-export default async function PipelinePage() {
+export default async function PipelinePage({
+  searchParams,
+}: {
+  searchParams?: { temp?: string };
+}) {
   const current = await getCurrentUserAndOrg();
   if (!current) {
     redirect('/login');
@@ -21,15 +25,24 @@ export default async function PipelinePage() {
 
   // Consultar contactos de la organización activa con límite de rendimiento
   const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields')
+    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, deal_value, custom_fields')
     .eq('organization_id', current.organization.id)
     .is('deleted_at', null)
     .order('last_interaction_at', { ascending: false })
-    .limit(150);
+    .limit(300);
 
   const leadList = contacts || [];
   const stageLabels = (current.organization.appointment_settings as any)?.stage_labels || {};
   const userRole = current.profile.role;
+  const rawTemp = searchParams?.temp;
+  const initialTempFilter =
+    rawTemp === 'hot' ||
+    rawTemp === 'qualified_doubt' ||
+    rawTemp === 'warm' ||
+    rawTemp === 'cold' ||
+    rawTemp === 'unclassified'
+      ? rawTemp
+      : 'all';
 
   return (
     <div className="space-y-6">
@@ -62,6 +75,8 @@ export default async function PipelinePage() {
           initialContacts={leadList}
           customStageLabels={stageLabels}
           userRole={userRole}
+          organizationId={current.organization.id}
+          initialTempFilter={initialTempFilter}
         />
       )}
     </div>

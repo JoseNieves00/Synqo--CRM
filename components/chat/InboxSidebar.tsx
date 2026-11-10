@@ -7,6 +7,7 @@ import { InboxViewType, InboxCounts } from '@/app/actions/chat';
 import { InboxViewsTabs } from './InboxViewsTabs';
 import { InboxFiltersPopover, InboxActiveFilterChips, FilterState } from './InboxFiltersPopover';
 import { ConversationRow, ContactRowData } from './ConversationRow';
+import { resolveProductInterest } from '@/lib/ai/follow-up-types';
 
 interface TeamMember {
   id: string;
@@ -85,10 +86,12 @@ export function InboxSidebar({
         !c.custom_fields?.reactivation_attempted &&
         c.conversation_status !== 'closed' &&
         nowTime - new Date(c.last_interaction_at).getTime() >= 24 * 3600 * 1000;
-      const hasReminder = Boolean(c.custom_fields?.active_reminder || c.ai_snooze_until);
-      const hasQuotedProduct = Boolean(
-        c.custom_fields?.ai_summary?.product_of_interest || c.deal_value || c.custom_fields?.last_quoted_product
+      const hasReminder = Boolean(
+        c.custom_fields?.active_reminder ||
+        c.ai_snooze_until ||
+        (c.custom_fields?.follow_up?.nextSendAt && !c.custom_fields?.follow_up?.completed)
       );
+      const hasQuotedProduct = Boolean(resolveProductInterest(c.custom_fields, c.deal_value));
 
       if (seguimientoFilter === 'ventas_a_medias') {
         return hasQuotedProduct || isCold;
@@ -137,10 +140,10 @@ export function InboxSidebar({
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.size === contacts.length) {
+    if (selectedIds.size === displayedContacts.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(contacts.map((c) => c.id)));
+      setSelectedIds(new Set(displayedContacts.map((c) => c.id)));
     }
   };
 
@@ -270,7 +273,7 @@ export function InboxSidebar({
               }`}
             >
               <span>⏰</span>
-              <span>Compromisos</span>
+              <span>Seguimientos programados</span>
             </button>
             <button
               type="button"
@@ -342,7 +345,14 @@ export function InboxSidebar({
         ref={listContainerRef}
         className="flex-1 overflow-y-auto"
       >
-        {displayedContacts.length === 0 ? (
+        {isLoading && displayedContacts.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 space-y-2">
+            <Loader2 className="w-6 h-6 mx-auto animate-spin text-[#0052FF]" />
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Cargando conversaciones...
+            </p>
+          </div>
+        ) : displayedContacts.length === 0 ? (
           <div className="p-8 text-center text-slate-400 space-y-2">
             <CheckCircle2 className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
             <h4 className="font-semibold text-xs text-slate-700 dark:text-slate-300">

@@ -1,11 +1,23 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
+
+export const viewport: Viewport = {
+  themeColor: '#0052FF',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://synqo.dev'),
   title: 'Synqo CRM | Tu mejor vendedor opera en la web 24/7',
   description: 'Desarrollo web de alto rendimiento y CRM comercial con Inteligencia Artificial para WhatsApp y agendamiento sincronizado.',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Synqo CRM',
+  },
   icons: {
     icon: [
       { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },

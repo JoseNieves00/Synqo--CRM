@@ -52,6 +52,7 @@ import {
   Video,
   Shield,
   Loader2,
+  Repeat,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -99,8 +100,16 @@ const QuickRepliesSettings = dynamic(() => import('./QuickRepliesSettings').then
   ssr: false,
 });
 
+const FollowUpSequencesSettings = dynamic(() => import('./FollowUpSequencesSettings').then((m) => m.FollowUpSequencesSettings), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando seguimientos...</div>,
+  ssr: false,
+});
+
 import { CustomPaymentAccount } from '@/lib/types/payments';
 import { type QuickSnippet } from '@/lib/chat/snippets';
+import { type FollowUpSettingsConfig } from '@/lib/ai/follow-up-types';
+import { type TokenPolicyConfig } from '@/lib/monitoring/token-policy';
+import { TokenAlertsAndPinCard } from './TokenAlertsAndPinCard';
 
 interface SettingsFormProps {
   initialData: {
@@ -121,6 +130,8 @@ interface SettingsFormProps {
     initialOauthError?: string;
     aiTokensUsed?: number;
     aiTokensLimit?: number;
+    tokenPolicyData?: TokenPolicyConfig;
+    hasManagerPin?: boolean;
     maxUsers?: number;
     industryPreset?: string | null;
     hasGoogleCalendarToken?: boolean;
@@ -157,6 +168,7 @@ interface SettingsFormProps {
   paymentAccountsData?: CustomPaymentAccount[];
   quickRepliesData?: QuickSnippet[];
   aiSuggestionsData?: QuickSnippet[];
+  followUpSequencesData?: FollowUpSettingsConfig;
   isSuperAdmin?: boolean;
 }
 
@@ -176,10 +188,11 @@ export function SettingsForm({
   paymentAccountsData = [],
   quickRepliesData = [],
   aiSuggestionsData = [],
+  followUpSequencesData,
   isSuperAdmin = false,
 }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments' | 'quick_replies'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments' | 'quick_replies' | 'follow_ups'>('integrations');
   const activeWaEngine: 'meta' | 'evolution' =
     initialData.whatsappProvider === 'evolution' || initialData.evolutionInstanceName
       ? 'evolution'
@@ -957,8 +970,8 @@ export function SettingsForm({
         </p>
       </div>
 
-      {/* Navegación por Pestañas Segmentadas */}
-      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-fit">
+      {/* Navegación por Pestañas Segmentadas con Scroll Horizontal Móvil */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-full overflow-x-auto no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveTab('integrations')}
@@ -1033,7 +1046,7 @@ export function SettingsForm({
         <button
           type="button"
           onClick={() => setActiveTab('quick_replies')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 ${
             activeTab === 'quick_replies'
               ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
@@ -1042,9 +1055,27 @@ export function SettingsForm({
           <Zap className="w-4 h-4 text-amber-500" />
           Atajos Rápidos (/) ({quickRepliesData?.length || 0})
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('follow_ups')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 ${
+            activeTab === 'follow_ups'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <Repeat className="w-4 h-4 text-purple-500" />
+          Seguimientos
+        </button>
       </div>
 
-      {activeTab === 'quick_replies' ? (
+      {activeTab === 'follow_ups' ? (
+        <FollowUpSequencesSettings
+          initialConfig={followUpSequencesData}
+          whatsappTemplates={initialData.whatsappTemplates || []}
+        />
+      ) : activeTab === 'quick_replies' ? (
         <QuickRepliesSettings
           initialSnippets={quickRepliesData || []}
           initialAiSuggestions={aiSuggestionsData || []}
@@ -1326,6 +1357,14 @@ export function SettingsForm({
               </div>
             );
           })()}
+
+          {/* Alertas Push de Tokens (x%) y Acceso Gerencial WhatsApp (#tokens + PIN) */}
+          <TokenAlertsAndPinCard
+            initialThresholds={initialData.tokenPolicyData?.alertThresholds}
+            initialOveragePricePer500kCop={initialData.tokenPolicyData?.overagePricePer500kCop}
+            initialHasPin={initialData.hasManagerPin}
+            alertsSentInCycle={initialData.tokenPolicyData?.alertsSentInCycle}
+          />
 
           {/* Formulario de Integraciones */}
           <form onSubmit={handleSave} className="space-y-6">

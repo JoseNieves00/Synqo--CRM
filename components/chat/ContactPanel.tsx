@@ -26,8 +26,15 @@ import {
 } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { updateLeadStage } from '@/app/actions/pipeline';
+import {
+  LEAD_TEMPERATURE_META,
+  LEAD_TEMPERATURE_ORDER,
+  type LeadTemperature,
+  resolveLeadTemperature,
+} from '@/lib/ai/follow-up-types';
 import { updateContactDetails } from '@/app/actions/contacts';
 import { generateContactAiSummary, endContactConversation, reopenContactConversation } from '@/app/actions/chat';
+import { toggleContactFollowUpPause } from '@/app/actions/reminders';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
 
 interface ContactPanelProps {
@@ -74,12 +81,15 @@ export function ContactPanel({
   const [dealValue, setDealValue] = useState(initialDealValue ? String(initialDealValue) : '');
   const [isSavingDealValue, setIsSavingDealValue] = useState(false);
 
-  // Temperatura
-  const [temperature, setTemperature] = useState(contact.custom_fields?.temperature || 'warm');
+  // Temperatura (clave única lead_temperature con lectura compatible de temperature)
+  const [temperature, setTemperature] = useState<LeadTemperature>(
+    resolveLeadTemperature(contact.custom_fields) || 'warm'
+  );
 
   // Resumen IA
   const [aiSummary, setAiSummary] = useState(contact.custom_fields?.ai_summary || null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [isTogglingFollowUp, setIsTogglingFollowUp] = useState(false);
 
   // Cierre rápido modal state
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
@@ -91,7 +101,7 @@ export function ContactPanel({
     setStage(contact.pipeline_stage || 'nuevo');
     setNotes(contact.custom_fields?.notes || '');
     setDealValue(contact.deal_value ? String(contact.deal_value) : contact.custom_fields?.deal_value ? String(contact.custom_fields?.deal_value) : '');
-    setTemperature(contact.custom_fields?.temperature || 'warm');
+    setTemperature(resolveLeadTemperature(contact.custom_fields) || 'warm');
     setAiSummary(contact.custom_fields?.ai_summary || null);
   }, [contact]);
 
@@ -149,15 +159,15 @@ export function ContactPanel({
     }
   };
 
-  // Cambiar temperatura
-  const handleTemperatureChange = async (temp: 'cold' | 'warm' | 'hot') => {
+  // Cambiar temperatura (override humano guardado en lead_temperature con auditoría)
+  const handleTemperatureChange = async (temp: LeadTemperature) => {
     setTemperature(temp);
     try {
-      await updateContactDetails(contact.id, { temperature } as any);
+      await updateContactDetails(contact.id, { lead_temperature: temp });
       onContactUpdate?.({
         custom_fields: {
           ...(contact.custom_fields || {}),
-          temperature: temp,
+          lead_temperature: temp,
         },
       });
     } catch (err) {
@@ -311,13 +321,13 @@ export function ContactPanel({
                   ))}
                 </ul>
               ) : (
-                <p>{aiSummary.summary || 'Resumen de conversación disponible.'}</p>
+                <p className="whitespace-pre-line">{aiSummary.summary_text || aiSummary.summary || 'Resumen de conversación disponible.'}</p>
               )}
 
-              {aiSummary.recommended_action && (
+              {(aiSummary.next_step || aiSummary.recommended_action) && (
                 <div className="mt-2 pt-2 border-t border-blue-200/50 dark:border-[#232A3B] flex items-start gap-1.5 text-blue-900 dark:text-blue-200 font-medium">
                   <ChevronRight className="w-3.5 h-3.5 text-[#0052FF] shrink-0 mt-0.5" />
-                  <span>Siguiente paso: {aiSummary.recommended_action}</span>
+                  <span>Siguiente paso: {aiSummary.next_step || aiSummary.recommended_action}</span>
                 </div>
               )}
             </div>
@@ -353,7 +363,7 @@ export function ContactPanel({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2.5">
             {/* Valor del Negocio */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
@@ -371,48 +381,32 @@ export function ContactPanel({
               </div>
             </div>
 
-            {/* Temperatura */}
+            {/* Nivel de Calificación / Temperatura */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Temperatura
+                Nivel de calificación
               </label>
-              <div className="grid grid-cols-3 gap-0.5 bg-slate-100 dark:bg-[#090A0F] p-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B]">
-                <button
-                  type="button"
-                  onClick={() => handleTemperatureChange('cold')}
-                  className={`py-1 text-[10px] rounded text-center transition cursor-pointer ${
-                    temperature === 'cold'
-                      ? 'bg-white dark:bg-[#1A1F2C] text-sky-600 dark:text-sky-400 font-bold shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                  title="Frío"
-                >
-                  ❄️ Frío
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTemperatureChange('warm')}
-                  className={`py-1 text-[10px] rounded text-center transition cursor-pointer ${
-                    temperature === 'warm'
-                      ? 'bg-white dark:bg-[#1A1F2C] text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                  title="Tibio"
-                >
-                  ⚡ Tibio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTemperatureChange('hot')}
-                  className={`py-1 text-[10px] rounded text-center transition cursor-pointer ${
-                    temperature === 'hot'
-                      ? 'bg-white dark:bg-[#1A1F2C] text-rose-600 dark:text-rose-400 font-bold shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                  title="Caliente"
-                >
-                  🔥 Hot
-                </button>
+              <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-[#090A0F] p-1 rounded-lg border border-slate-200 dark:border-[#232A3B]">
+                {LEAD_TEMPERATURE_ORDER.map((t) => {
+                  const meta = LEAD_TEMPERATURE_META[t];
+                  const emoji = meta.badge.split(' ')[0];
+                  const active = temperature === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => handleTemperatureChange(t)}
+                      className={`py-1 px-1.5 text-[10px] rounded text-center transition cursor-pointer truncate ${
+                        active
+                          ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white font-bold shadow-2xs ring-1 ring-slate-200 dark:ring-[#2C354B]'
+                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                      title={`${meta.label}: ${meta.description}`}
+                    >
+                      {emoji} {meta.shortLabel}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -460,6 +454,47 @@ export function ContactPanel({
             </div>
           ) : (
             <p className="text-[11px] text-slate-400 italic">No hay recordatorios pendientes programados.</p>
+          )}
+
+          {contact.custom_fields?.follow_up && (
+            <div className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]/60 flex items-center justify-between gap-2 mt-1.5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">
+                  Embudo: {contact.custom_fields.follow_up.category} (Paso #{Number(contact.custom_fields.follow_up.currentStepIndex || 0) + 1})
+                </p>
+                {contact.custom_fields.follow_up.nextSendAt && !contact.custom_fields.follow_up.paused && (
+                  <p className="text-[10px] text-slate-500">
+                    Próximo envío: {new Date(contact.custom_fields.follow_up.nextSendAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={isTogglingFollowUp}
+                onClick={async () => {
+                  const nextPaused = !contact.custom_fields?.follow_up?.paused;
+                  setIsTogglingFollowUp(true);
+                  try {
+                    await toggleContactFollowUpPause(contact.id, nextPaused);
+                    onContactUpdate?.({
+                      custom_fields: {
+                        ...(contact.custom_fields || {}),
+                        follow_up: { ...(contact.custom_fields?.follow_up || {}), paused: nextPaused },
+                      },
+                    });
+                  } finally {
+                    setIsTogglingFollowUp(false);
+                  }
+                }}
+                className={`px-2 py-1 rounded-md text-[10px] font-semibold border cursor-pointer transition shrink-0 ${
+                  contact.custom_fields.follow_up.paused
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300'
+                }`}
+              >
+                {contact.custom_fields.follow_up.paused ? 'Reanudar' : 'Pausar'}
+              </button>
+            </div>
           )}
         </div>
 

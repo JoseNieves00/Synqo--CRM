@@ -26,7 +26,6 @@ import {
   Pencil,
   Tag,
   DollarSign,
-  Star,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
@@ -86,7 +85,6 @@ export function StructuredPromptWizard({
   const [photoPrice, setPhotoPrice] = useState('');
   const [photoKeywords, setPhotoKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
-  const [isHero, setIsHero] = useState(false);
   const [isGeneratingAiTags, setIsGeneratingAiTags] = useState(false);
   const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
@@ -103,7 +101,6 @@ export function StructuredPromptWizard({
   const [editPhotoPrice, setEditPhotoPrice] = useState('');
   const [editPhotoKeywords, setEditPhotoKeywords] = useState<string[]>([]);
   const [editKeywordInput, setEditKeywordInput] = useState('');
-  const [editIsHero, setEditIsHero] = useState(false);
   const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -119,8 +116,7 @@ export function StructuredPromptWizard({
           .map((g) => {
             const tags = g.keywords && g.keywords.length > 0 ? ` (Búsqueda/Sinónimos: ${g.keywords.join(', ')})` : '';
             const priceStr = g.price ? ` - Precio: ${g.price}` : '';
-            const heroStr = g.isHero ? ' [Modelo Principal/Estrella]' : '';
-            return `- ${g.name}${priceStr}${heroStr}${tags}: [foto: ${g.url}] (Despachar proactivamente con send_whatsapp_image cuando se consulte o mencione este modelo o sus precios, sin esperar a que pidan fotos; PROHIBIDO colocar la URL en el texto)`;
+            return `- ${g.name}${priceStr}${tags}: [foto: ${g.url}] (Despachar proactivamente con send_product_card cuando se consulte o mencione este modelo o sus precios; PROHIBIDO colocar la URL en el texto)`;
           })
           .join('\n');
       compiled += galleryBlock;
@@ -145,7 +141,6 @@ export function StructuredPromptWizard({
     setPhotoPrice('');
     setPhotoKeywords([]);
     setKeywordInput('');
-    setIsHero(false);
     setSelectedPhotoFile(null);
     setPhotoPreviewUrl(null);
     setPhotoUploadError(null);
@@ -163,7 +158,6 @@ export function StructuredPromptWizard({
     setPhotoPrice('');
     setPhotoKeywords([]);
     setKeywordInput('');
-    setIsHero(false);
     setPhotoUploadError(null);
   };
 
@@ -182,7 +176,6 @@ export function StructuredPromptWizard({
     setEditPhotoPrice(item.price || '');
     setEditPhotoKeywords(item.keywords || []);
     setEditKeywordInput('');
-    setEditIsHero(Boolean(item.isHero));
     setEditError(null);
   };
 
@@ -192,7 +185,6 @@ export function StructuredPromptWizard({
     setEditPhotoPrice('');
     setEditPhotoKeywords([]);
     setEditKeywordInput('');
-    setEditIsHero(false);
     setEditError(null);
     setIsSavingEdit(false);
   };
@@ -216,7 +208,6 @@ export function StructuredPromptWizard({
               name: editPhotoName.trim(),
               price: editPhotoPrice.trim() || undefined,
               keywords: editPhotoKeywords.length > 0 ? editPhotoKeywords : undefined,
-              isHero: editIsHero || undefined,
             }
           : item
       );
@@ -367,7 +358,6 @@ export function StructuredPromptWizard({
         url: result.url,
         price: photoPrice.trim() || undefined,
         keywords: photoKeywords.length > 0 ? photoKeywords : undefined,
-        isHero: isHero || undefined,
       };
 
       const updatedGallery = [...gallery, newPhotoItem];
@@ -706,11 +696,6 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                   />
-                  {item.isHero && (
-                    <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-xs flex items-center gap-0.5">
-                      <Star className="w-2.5 h-2.5 fill-white" /> Principal
-                    </span>
-                  )}
                   {item.price && (
                     <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-slate-900/80 text-emerald-300 text-[10px] font-bold backdrop-blur-xs">
                       {item.price}
@@ -911,36 +896,19 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </p>
               </div>
 
-              {/* Precio y Modelo Principal */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Precio (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: $250.000 COP"
-                    value={photoPrice}
-                    onChange={(e) => setPhotoPrice(e.target.value)}
-                    disabled={isUploadingPhoto}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                </div>
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 select-none">
-                    <input
-                      type="checkbox"
-                      checked={isHero}
-                      onChange={(e) => setIsHero(e.target.checked)}
-                      disabled={isUploadingPhoto}
-                      className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
-                    />
-                    <span className="flex items-center gap-1">
-                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                      Modelo principal (estrella)
-                    </span>
-                  </label>
-                </div>
+              {/* Precio */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Precio (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: $250.000 COP"
+                  value={photoPrice}
+                  onChange={(e) => setPhotoPrice(e.target.value)}
+                  disabled={isUploadingPhoto}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
               </div>
 
               {/* Palabras clave / Sinónimos para WhatsApp */}
@@ -1169,36 +1137,19 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </p>
               </div>
 
-              {/* Precio y Modelo Principal */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Precio (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: $250.000 COP"
-                    value={editPhotoPrice}
-                    onChange={(e) => setEditPhotoPrice(e.target.value)}
-                    disabled={isSavingEdit}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                </div>
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editIsHero}
-                      onChange={(e) => setEditIsHero(e.target.checked)}
-                      disabled={isSavingEdit}
-                      className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF] w-4 h-4 cursor-pointer"
-                    />
-                    <span className="flex items-center gap-1">
-                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                      Modelo o foto principal
-                    </span>
-                  </label>
-                </div>
+              {/* Precio */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Precio (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: $250.000 COP"
+                  value={editPhotoPrice}
+                  onChange={(e) => setEditPhotoPrice(e.target.value)}
+                  disabled={isSavingEdit}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
               </div>
 
               {/* Palabras clave / Sinónimos para WhatsApp */}

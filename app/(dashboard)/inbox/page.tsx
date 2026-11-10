@@ -14,6 +14,9 @@ interface InboxPageProps {
     view?: string;
     c?: string;
     ch?: string;
+    stage?: string;
+    temp?: string;
+    agent?: string;
   };
 }
 
@@ -25,14 +28,26 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     redirect('/login');
   }
 
-  const activeView: InboxViewType = (searchParams?.view as InboxViewType) || 'por_responder';
-  const channelFilter = (searchParams?.ch as any) || 'all';
+  const validViews: InboxViewType[] = ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'];
+  const activeView: InboxViewType =
+    searchParams?.view && validViews.includes(searchParams.view as InboxViewType)
+      ? (searchParams.view as InboxViewType)
+      : 'por_responder';
+
+  const channelFilter: 'all' | 'whatsapp' | 'instagram' =
+    searchParams?.ch === 'whatsapp' || searchParams?.ch === 'instagram' ? searchParams.ch : 'all';
+  const stageFilter = searchParams?.stage || 'all';
+  const tempFilter = searchParams?.temp || 'all';
+  const agentFilter = searchParams?.agent || 'all';
 
   // Consultar contactos, contadores, miembros, catálogo y cuentas de pago en paralelo (cero saltos visuales)
   const [inboxRes, initialCounts, { data: teamMembers }, gapsCount, paymentAccounts, catalogItems] = await Promise.all([
     listInbox({
       view: activeView,
       channel: channelFilter,
+      agentId: agentFilter,
+      stage: stageFilter,
+      temperature: tempFilter,
       search: '',
       offset: 0,
       limit: 30,
@@ -93,6 +108,12 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       paymentAccounts={paymentAccounts || []}
       catalogItems={catalogItems || []}
       initialView={activeView}
+      initialFilters={{
+        channel: channelFilter,
+        agentId: agentFilter,
+        stage: stageFilter,
+        temperature: tempFilter,
+      }}
       customTemplates={(current.organization as any)?.whatsapp_templates || []}
       whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.evolution_instance_name ? 'evolution' : 'meta')}
       currentUserId={current.user.id}

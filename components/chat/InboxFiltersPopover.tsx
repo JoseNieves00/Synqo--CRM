@@ -3,6 +3,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SlidersHorizontal, X, Check, RotateCcw } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
+import {
+  LEAD_TEMPERATURE_META,
+  LEAD_TEMPERATURE_ORDER,
+  type LeadTemperature,
+} from '@/lib/ai/follow-up-types';
 
 export interface FilterState {
   channel: 'all' | 'whatsapp' | 'instagram';
@@ -159,23 +164,25 @@ export function InboxFiltersPopover({
               </select>
             </div>
 
-            {/* Temperatura */}
+            {/* Temperatura / Calificación IA */}
             <div>
               <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
-                Temperatura
+                Calificación
               </label>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-2 gap-1">
                 {[
                   { id: 'all', label: 'Todos' },
-                  { id: 'hot', label: '🔥 Caliente' },
-                  { id: 'warm', label: '⚡ Tibio' },
-                  { id: 'cold', label: '❄️ Frío' },
+                  ...LEAD_TEMPERATURE_ORDER.map((t) => ({
+                    id: t,
+                    label: `${LEAD_TEMPERATURE_META[t].badge.split(' ')[0]} ${LEAD_TEMPERATURE_META[t].label}`,
+                  })),
+                  { id: 'unclassified', label: '❔ Sin clasif.' },
                 ].map((t) => (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => onChangeFilter('temperature', t.id)}
-                    className={`py-1 rounded-md text-center text-[10px] font-medium transition cursor-pointer border ${
+                    className={`py-1 px-1.5 rounded-md text-center text-[10px] font-medium transition cursor-pointer border truncate ${
                       filters.temperature === t.id
                         ? 'bg-[#0052FF] text-white border-[#0052FF]'
                         : 'bg-slate-50 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-100'
@@ -226,12 +233,12 @@ export function InboxActiveFilterChips({
   }
 
   if (filters.temperature !== 'all') {
-    const tempLabel =
-      filters.temperature === 'hot'
-        ? '🔥 Caliente'
-        : filters.temperature === 'warm'
-        ? '⚡ Tibio'
-        : '❄️ Frío';
+    const meta = LEAD_TEMPERATURE_META[filters.temperature as LeadTemperature];
+    const tempLabel = meta
+      ? `${meta.badge.split(' ')[0]} ${meta.label}`
+      : filters.temperature === 'unclassified'
+      ? '❔ Sin clasificar'
+      : filters.temperature;
     chips.push({ key: 'temperature', label: tempLabel });
   }
 

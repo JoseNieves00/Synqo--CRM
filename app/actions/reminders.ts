@@ -162,9 +162,8 @@ export async function completeContactReminder(contactId: string, reminderId?: st
   // 2. Si no se encontró, contactId podría ser en realidad el reminderId (tolerancia bidireccional)
   if (!contact) {
     const { data: reminderRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
-      .select('id, contact_id, organization_id')
+      .select('id, contact_id')
       .eq('id', contactId)
-      .eq('organization_id', profile.organization_id)
       .maybeSingle();
 
     if (reminderRow) {
@@ -174,7 +173,7 @@ export async function completeContactReminder(contactId: string, reminderId?: st
         .select('id, name, organization_id, custom_fields')
         .eq('id', resolvedContactId)
         .eq('organization_id', profile.organization_id)
-        .single();
+        .maybeSingle();
       contact = c;
     }
   }
@@ -251,9 +250,8 @@ export async function cancelContactReminder(contactId: string, reminderId?: stri
   // 2. Si no se encontró, contactId podría ser en realidad el reminderId (tolerancia bidireccional)
   if (!contact) {
     const { data: reminderRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
-      .select('id, contact_id, organization_id')
+      .select('id, contact_id')
       .eq('id', contactId)
-      .eq('organization_id', profile.organization_id)
       .maybeSingle();
 
     if (reminderRow) {
@@ -263,7 +261,7 @@ export async function cancelContactReminder(contactId: string, reminderId?: stri
         .select('id, name, organization_id, custom_fields')
         .eq('id', resolvedContactId)
         .eq('organization_id', profile.organization_id)
-        .single();
+        .maybeSingle();
       contact = c;
     }
   }
@@ -416,4 +414,53 @@ export async function getOrganizationPendingReminders(options?: {
     console.warn('[getOrganizationPendingReminders error]:', err);
     return { overdue: [], today: [], upcoming: [], totalPending: 0 };
   }
+}
+
+/**
+ * Pausa o reanuda la secuencia de seguimiento automático para un contacto desde el Inbox.
+ */
+export async function toggleContactFollowUpPause(contactId: string, paused: boolean) {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const cf = (contact.custom_fields as Record<string, any>) || {};
+  const nextCustom = {
+    ...cf,
+    follow_up: {
+      ...(cf.follow_up || { category: 'warm', currentStepIndex: 0 }),
+      paused,
+    },
+  };
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update({ custom_fields: nextCustom, updated_at: new Date().toISOString() })
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id);
+
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    sender_type: 'system',
+    content: `[${paused ? '⏸️ Seguimiento automático pausado' : '▶️ Seguimiento automático reanudado'} por ${profile.full_name || 'Asesor'}]`,
+  });
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+  return { success: true, paused };
 }

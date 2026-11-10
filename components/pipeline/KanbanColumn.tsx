@@ -11,6 +11,7 @@ interface ContactItem {
   pipeline_stage: PipelineStage;
   is_ai_active: boolean;
   last_interaction_at: string;
+  deal_value?: number | null;
   custom_fields?: any;
 }
 
@@ -35,7 +36,7 @@ export function KanbanColumn({
   // Sumatoria monetaria de los tratos en esta columna
   const totalAmount = React.useMemo(() => {
     return contacts.reduce((sum, c) => {
-      const val = Number(c.custom_fields?.deal_value || 0);
+      const val = Number(c.deal_value ?? c.custom_fields?.deal_value ?? c.custom_fields?.order?.total ?? 0);
       return sum + (isNaN(val) ? 0 : val);
     }, 0);
   }, [contacts]);
@@ -115,6 +116,7 @@ export function KanbanColumn({
                 currentStage={contact.pipeline_stage}
                 isAiActive={contact.is_ai_active}
                 lastInteractionAt={contact.last_interaction_at}
+                dealValue={contact.deal_value}
                 custom_fields={contact.custom_fields}
                 onMoveStage={onMoveStage}
               />

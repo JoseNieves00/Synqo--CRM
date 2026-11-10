@@ -4,6 +4,11 @@ import React, { useMemo } from 'react';
 import { MessageSquare, Instagram, Clock, CheckCircle2, UserCheck, Bot, User, Check, Pause } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
+import {
+  LEAD_TEMPERATURE_META,
+  resolveLeadTemperature,
+  resolveProductInterest,
+} from '@/lib/ai/follow-up-types';
 
 export interface ContactRowData {
   id: string;
@@ -110,16 +115,15 @@ export const ConversationRow = React.memo(function ConversationRow({
     return { previewText: rawPreview, senderPrefix: prefix };
   }, [c.last_message_preview, c.last_message, c.last_message_sender, c.custom_fields, isMine, assignedUserName]);
 
-  // 4. Etiqueta de temperatura (hot, warm, cold)
-  const temperature = c.custom_fields?.temperature;
-  const tempDot =
-    temperature === 'hot' ? (
-      <span title="Lead Caliente (Alta intención de compra)" className="w-2 h-2 rounded-full bg-rose-500 shrink-0 shadow-xs" />
-    ) : temperature === 'warm' ? (
-      <span title="Lead Tibio" className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-    ) : temperature === 'cold' ? (
-      <span title="Lead Frío" className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
-    ) : null;
+  // 4. Etiqueta de calificación (4 niveles canónicos)
+  const temperature = resolveLeadTemperature(c.custom_fields);
+  const tempMeta = temperature ? LEAD_TEMPERATURE_META[temperature] : null;
+  const tempDot = tempMeta ? (
+    <span
+      title={`${tempMeta.label} (${tempMeta.description})`}
+      className={`w-2 h-2 rounded-full ${tempMeta.dotClass} shrink-0`}
+    />
+  ) : null;
 
   // 5. Etiqueta del Pipeline
   const stageObj = useMemo(() => {
@@ -130,7 +134,7 @@ export const ConversationRow = React.memo(function ConversationRow({
   const isClosed = c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed';
 
   // 6. Indicador de Reactivación Comercial (>24h de silencio y último mensaje fue nuestro)
-  const productOfInterest = c.custom_fields?.ai_summary?.product_of_interest;
+  const productOfInterest = resolveProductInterest(c.custom_fields, c.deal_value);
   const hasActiveReminder = Boolean(c.custom_fields?.active_reminder || c.ai_snooze_until);
 
   const isColdForReactivation = useMemo(() => {

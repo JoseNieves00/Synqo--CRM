@@ -27,15 +27,18 @@ export function UsageQuotaBanner({
     return null;
   }
 
+  const overageTokens = Math.max(0, used - limit);
+  const rawPct = limit > 0 ? Math.round((used / limit) * 100) : percentage;
+
   const supportWhatsappText = encodeURIComponent(
-    `Hola, soy de la empresa "${orgName}". Hemos alcanzado el ${percentage}% de nuestra capacidad de IA en Synqo CRM y deseamos solicitar un paquete de expansión de conversaciones.`
+    `Hola, soy de la empresa "${orgName}". Alcanzamos el ${rawPct}% de nuestro cupo base de tokens en Synqo CRM y deseamos ampliar nuestra capacidad.`
   );
 
   return (
     <div
       className={`px-4 sm:px-6 py-2.5 border-b flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs transition-all animate-in fade-in slide-in-from-top-1 ${
         isExceeded
-          ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-900 dark:text-rose-200'
+          ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800/60 text-amber-950 dark:text-amber-200'
           : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200'
       }`}
     >
@@ -43,7 +46,7 @@ export function UsageQuotaBanner({
         <div
           className={`p-1.5 rounded-lg shrink-0 ${
             isExceeded
-              ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300'
+              ? 'bg-amber-200/70 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200'
               : 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300'
           }`}
         >
@@ -57,19 +60,21 @@ export function UsageQuotaBanner({
         <div className="min-w-0">
           <p className="font-bold tracking-tight">
             {isExceeded ? (
-              <span>Capacidad mensual de IA completada ({percentage}%)</span>
+              <span>
+                🔔 Cupo base 100% ({rawPct}%) — Modo Excedente Activo (+{overageTokens.toLocaleString('es-CO')} tokens)
+              </span>
             ) : (
-              <span>⚡ ¡Tu negocio está en alta demanda! Has aprovechado el {percentage}% de tu IA</span>
+              <span>⚡ ¡Tu negocio está en alta demanda! Has utilizado el {rawPct}% de tu cupo base</span>
             )}
           </p>
           <p className="text-[11px] opacity-90 truncate">
             {isExceeded ? (
               <span>
-                La IA se ha pausado preventivamente. Tu equipo humano puede seguir respondiendo normalmente. Solicita una recarga para reactivar.
+                Tu agente IA sigue atendiendo a tus clientes sin interrupciones. Consulta el consumo escribiendo #tokens por WhatsApp.
               </span>
             ) : (
               <span>
-                Tu atención automatizada sigue activa normalmente. Solicita una ampliación para asegurar disponibilidad continua.
+                Tu atención automatizada sigue activa normalmente. Al superar el 100% pasará automáticamente a Modo Excedente.
               </span>
             )}
           </p>
@@ -81,14 +86,10 @@ export function UsageQuotaBanner({
           href={`https://wa.me/?text=${supportWhatsappText}`}
           target="_blank"
           rel="noopener noreferrer"
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold shadow-xs transition cursor-pointer text-[11px] ${
-            isExceeded
-              ? 'bg-rose-600 hover:bg-rose-700 text-white'
-              : 'bg-amber-600 hover:bg-amber-700 text-white'
-          }`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold shadow-xs transition cursor-pointer text-[11px] bg-amber-600 hover:bg-amber-700 text-white"
         >
           <MessageCircle className="w-3.5 h-3.5" />
-          <span>{isExceeded ? 'Reactivar IA Ahora' : 'Ampliar Capacidad'}</span>
+          <span>{isExceeded ? 'Ampliar Cupo' : 'Ampliar Capacidad'}</span>
         </a>
 
         <Link

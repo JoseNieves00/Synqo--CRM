@@ -6,8 +6,11 @@ import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { OpenAIService } from './openai.service';
 import { HandoffService } from './handoff.service';
+import { ManagerWhatsAppService } from './manager-whatsapp.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { decryptSecret } from '@/lib/security/encryption';
+import { AI_OPERATIONAL_CONFIG, AI_TEXT_TEMPLATES, getAiChatChain } from '@/lib/ai/config';
+import { resolveLeadTemperature, resolveProductInterest } from '@/lib/ai/follow-up-types';
 
 export type InboundChannel = 'whatsapp_meta' | 'whatsapp_evolution' | 'instagram';
 
@@ -35,6 +38,7 @@ export interface InboundPayload {
     instagram_account_id?: string | null;
     instagram_access_token?: string | null;
     system_prompt?: string | null;
+    structured_prompt_data?: any;
     handoff_mode?: string | null;
     after_hours_message?: string | null;
     business_hours?: any;
@@ -75,18 +79,27 @@ export interface InboundResult {
   error?: string;
 }
 
-// Patrones determinísticos para detectar solicitud de atención humana
-const HUMAN_HANDOFF_PATTERNS = [
-  /\b(asesor|humano|persona\s+real|agente\s+humano|operador)\b/i,
-  /hablar\s+con\s+(un|una|alguien)/i,
-  /atenci[oó]n\s+human[ao]/i,
-  /soporte\s+human[ao]/i,
-  /quiero\s+(un|una)\s+asesor/i,
-  /comunicar(me)?\s+con\s+(un|una)/i,
-  /p[aá]same\s+(con|a)\s+(un|alguien)/i,
-  /necesito\s+(un|una)\s+asesor/i,
-  /necesito\s+hablar\s+con\s+/i,
+// Patrones determinísticos: exigir intención explícita de hablar con humano/asesor (nunca "persona" suelta)
+export const HUMAN_HANDOFF_PATTERNS = [
+  /\b(asesor|agente\s+humano|persona\s+real|operador\s+humano|alguien\s+real)\b/i,
+  /(?:hablar|comunicar(?:me)?|pasar(?:me)?|atender(?:me)?|que\s+me\s+atienda)\s+(?:con|a)\s+(?:un|una|alguien|persona|humano|asesor)/i,
+  /(?:quiero|necesito|prefiero)\s+(?:hablar\s+con\s+(?:alguien|una?\s+persona)|(?:un|una)\s+(?:asesor|persona|humano))/i,
+  /(?:atenci[oó]n|soporte)\s+human[ao]/i,
 ];
+
+const OPT_OUT_PATTERNS = [
+  /\b(no me escriba(?:s|n)?(?:\s+m[aá]s)?|no me vuelva(?:s|n)? a escribir|dej(?:a|en|ar) de escribir(?:me|nos)?|no me contacte(?:s|n)?|no quiero\s+(?:recibir\s+)?m[aá]s mensajes|cancelar mensajes|dejar de recibir)\b/i,
+];
+
+export function isOptOutMessage(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return OPT_OUT_PATTERNS.some((p) => p.test(text.trim()));
+}
+
+export function isExplicitHumanHandoffRequest(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return HUMAN_HANDOFF_PATTERNS.some((pattern) => pattern.test(text));
+}
 
 /**
  * Detecta mensajes de despedida o agradecimiento de cortesía pura (ej: "ok gracias", "muchas gracias").
@@ -217,16 +230,21 @@ export class InboundCoreService {
 
     const sanitizedContent = sanitizeLeadMessage(finalContent);
     const isPaymentReceipt = Boolean(payload.isPaymentReceipt);
+    const isOptOut = isOptOutMessage(sanitizedContent);
 
-    // 🛡️ INTERCEPTOR ANTI-BUCLE Y COMANDOS DE ASESOR POR WHATSAPP
+    // 🛡️ INTERCEPTOR ANTI-BUCLE, COMANDOS GERENCIALES Y RELEVOS POR WHATSAPP
     // Si el remitente es un asesor o administrador de la empresa, no crearlo como lead.
     if (channel !== 'instagram') {
       const cleanSender = HandoffService.cleanE164Phone(senderId);
-      const { data: matchedAdvisor } = await (supabaseAdmin.from('profiles') as any)
-        .select('id, full_name, role, organization_id')
+      const { data: orgAdvisors } = await (supabaseAdmin.from('profiles') as any)
+        .select('id, full_name, role, is_super_admin, organization_id, whatsapp_phone')
         .eq('organization_id', orgId)
-        .or(`whatsapp_phone.eq.${cleanSender},whatsapp_phone.eq.${senderId}`)
-        .maybeSingle();
+        .not('whatsapp_phone', 'is', null);
+
+      const matchedAdvisor = (orgAdvisors || []).find((p: any) => {
+        const cleanProfilePhone = HandoffService.cleanE164Phone(String(p.whatsapp_phone || ''));
+        return Boolean(cleanSender && cleanProfilePhone && cleanProfilePhone === cleanSender);
+      });
 
       if (matchedAdvisor) {
         console.log(`[INBOUND CORE] 👨‍💼 Mensaje de asesor interceptado: ${matchedAdvisor.full_name} (${senderId})`);
@@ -298,7 +316,18 @@ export class InboundCoreService {
           }
         }
 
-        // Si fue un mensaje general sin citar alerta, no crear lead para el asesor
+        // Modo Gerencial WhatsApp Pull (#tokens, #admin, PIN 4 dígitos) — 0 tokens IA, 0 leads falsos
+        try {
+          await ManagerWhatsAppService.handleAdvisorMessage({
+            organization: payload.organization,
+            advisor: matchedAdvisor,
+            senderPhone: cleanSender || senderId,
+            messageText: payload.rawContent,
+          });
+        } catch (mgrErr) {
+          console.warn('[MANAGER WHATSAPP WARN]', mgrErr);
+        }
+
         return { status: 'advisor_message_acknowledged' };
       }
     }
@@ -309,7 +338,7 @@ export class InboundCoreService {
     let assignedAgentId: string | null = null;
 
     let contactQuery = (supabaseAdmin.from('contacts') as any)
-      .select('id, is_ai_active, custom_fields, unread_count, ai_snooze_until, assigned_to')
+      .select('id, is_ai_active, pipeline_stage, deal_value, custom_fields, unread_count, ai_snooze_until, assigned_to')
       .eq('organization_id', orgId);
 
     if (channel === 'instagram') {
@@ -326,10 +355,31 @@ export class InboundCoreService {
       isAiActive = isPaymentReceipt ? false : Boolean(existingContact.is_ai_active);
 
       const existingCustom = (existingContact as any).custom_fields || {};
-      const updatedCustomFields = {
+      const updatedCustomFields: Record<string, any> = {
         ...existingCustom,
         ...(payload.remoteJid ? { remote_jid: payload.remoteJid, whatsapp_jid: payload.remoteJid } : {}),
       };
+
+      if (isOptOut) {
+        updatedCustomFields.opted_out = true;
+        updatedCustomFields.opted_out_at = new Date().toISOString();
+        updatedCustomFields.lead_temperature = 'cold';
+        delete updatedCustomFields.temperature;
+      }
+
+      // T2: Si el cliente responde, detener cualquier secuencia de seguimiento en curso y reactivar control normal
+      if (updatedCustomFields.follow_up) {
+        const nextFu = {
+          ...updatedCustomFields.follow_up,
+          paused: isOptOut ? true : false,
+          lastInboundAt: new Date().toISOString(),
+        };
+        delete nextFu.nextSendAt;
+        updatedCustomFields.follow_up = nextFu;
+      }
+      if (updatedCustomFields.active_reminder?.reminderType === 'reactivation') {
+        delete updatedCustomFields.active_reminder;
+      }
 
       await (supabaseAdmin.from('contacts') as any)
         .update({
@@ -337,9 +387,19 @@ export class InboundCoreService {
           name: senderName || undefined,
           channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
           custom_fields: updatedCustomFields,
-          ...(isPaymentReceipt ? { is_ai_active: false } : {}),
+          ...(isPaymentReceipt || isOptOut ? { is_ai_active: false } : {}),
+          ...(isOptOut ? { pipeline_stage: 'perdido', close_reason: 'opt_out_cliente' } : {}),
         })
         .eq('id', contactId);
+
+      // Cancelar recordatorios de reactivación pendientes ya que el cliente respondió
+      try {
+        await (supabaseAdmin.from('scheduled_reminders') as any)
+          .update({ status: 'cancelled' })
+          .eq('contact_id', contactId)
+          .eq('reminder_type', 'reactivation')
+          .eq('status', 'pending');
+      } catch {}
     } else {
       // Asignación automática por disponibilidad (Load Balancing)
       assignedAgentId = await AssignmentService.findBestAvailableAgent(orgId);
@@ -412,6 +472,15 @@ export class InboundCoreService {
 
     const messageId = insertedMsg?.id;
 
+    if (isOptOut) {
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contactId,
+        sender_type: 'system',
+        content: '[🚫 Opt-Out registrado: El cliente pidió no recibir más mensajes. Secuencias e IA detenidas.]',
+      });
+      return { status: 'ai_disabled', contactId, messageId };
+    }
+
     // 6. Verificación de Snooze y Actualización del Contacto (unread_count lo maneja exclusivamente el trigger de messages)
     const currentCustom = ((existingContact as any)?.custom_fields as Record<string, any>) || {};
     const lastMsgPayload = {
@@ -451,8 +520,16 @@ export class InboundCoreService {
       console.warn('[INBOUND CORE CONFIRMATION CHECK WARN]', confErr);
     }
 
-    // 7.5. Manejo Elegante de Cortesía y Cierre ("Ok gracias") -> Reacción Nativa con Emoji 👍
-    if (channel !== 'instagram' && isCourtesyClosingMessage(sanitizedContent)) {
+    // 7.5. Manejo Elegante de Cortesía ("Ok gracias") -> Reacción 👍 solo si NO hay venta abierta ni producto de interés
+    const hasOpenSaleOrInterest = Boolean(
+      existingContact &&
+        (existingContact.pipeline_stage === 'calificado' ||
+          existingContact.deal_value ||
+          resolveProductInterest(existingContact.custom_fields, existingContact.deal_value) ||
+          existingContact.custom_fields?.order)
+    );
+
+    if (channel !== 'instagram' && !hasOpenSaleOrInterest && isCourtesyClosingMessage(sanitizedContent)) {
       try {
         await MessagingService.sendReactionMessage({
           organization,
@@ -473,6 +550,31 @@ export class InboundCoreService {
             .eq('id', messageId);
         }
 
+        // Despejar espera/unread y asegurar clasificación inicial para no dejar el chat atascado en "Por responder"
+        const { data: latestCourtesyContact } = await (supabaseAdmin.from('contacts') as any)
+          .select('custom_fields')
+          .eq('id', contactId)
+          .maybeSingle();
+        const courtesyCf = { ...(latestCourtesyContact?.custom_fields || {}) };
+        if (!resolveLeadTemperature(courtesyCf)) {
+          courtesyCf.lead_temperature = 'warm';
+          delete courtesyCf.temperature;
+          if (!courtesyCf.follow_up) {
+            courtesyCf.follow_up = { category: 'warm', currentStepIndex: 0 };
+          }
+        }
+        await (supabaseAdmin.from('contacts') as any)
+          .update({
+            waiting_since: null,
+            unread_count: 0,
+            conversation_status: 'waiting_customer',
+            last_message_sender: 'ai',
+            last_message_preview: '👍',
+            custom_fields: courtesyCf,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', contactId);
+
         return { status: 'courtesy_reaction_sent', contactId, messageId };
       } catch (reactErr) {
         console.warn('[COURTESY REACTION WARN]', reactErr);
@@ -481,6 +583,25 @@ export class InboundCoreService {
 
     // 8. Evaluación Uniforme de Guardrails y Solicitud Humana
     if (isPaymentReceipt) {
+      const receiptCf: Record<string, any> = {
+        ...currentCustom,
+        unattended_handoff: true,
+        lead_temperature: 'hot',
+      };
+      delete receiptCf.temperature;
+      const shouldPromoteReceipt = existingContact?.pipeline_stage === 'nuevo';
+
+      await (supabaseAdmin.from('contacts') as any)
+        .update({
+          is_ai_active: false,
+          conversation_status: 'open',
+          waiting_since: (existingContact as any)?.waiting_since || new Date().toISOString(),
+          ...(shouldPromoteReceipt ? { pipeline_stage: 'calificado' } : {}),
+          custom_fields: receiptCf,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', contactId);
+
       await (supabaseAdmin.from('messages') as any).insert({
         contact_id: contactId,
         sender_type: 'system',
@@ -498,12 +619,8 @@ export class InboundCoreService {
       return { status: 'payment_receipt_held', contactId, messageId };
     }
 
-    const isHumanRequest = HUMAN_HANDOFF_PATTERNS.some((pattern) => pattern.test(sanitizedContent));
+    const isHumanRequest = isExplicitHumanHandoffRequest(sanitizedContent);
     if (isHumanRequest) {
-      await (supabaseAdmin.from('contacts') as any)
-        .update({ is_ai_active: false })
-        .eq('id', contactId);
-
       await (supabaseAdmin.from('messages') as any).insert({
         contact_id: contactId,
         sender_type: 'system',
@@ -519,8 +636,7 @@ export class InboundCoreService {
       }).catch((err) => console.warn('[HANDOFF NOTIFY WARN]', err));
 
       if (organization.handoff_mode !== 'silent') {
-        const handoffNotice =
-          '¡Claro que sí! Con gusto te comunico con uno de nuestros asesores para que te atienda personalmente. Ya mismo le paso tu conversación.';
+        const handoffNotice = AI_TEXT_TEMPLATES.explicitHandoff(organization.name, contactId);
         await this.dispatchOutboundMessage({
           organization,
           channel,
@@ -536,6 +652,20 @@ export class InboundCoreService {
           status: 'sent',
         });
       }
+
+      // Mantener el chat abierto y marcado como relevo pendiente DESPUÉS de insertar notice (evita que trigger SQL lo marque waiting_customer)
+      await (supabaseAdmin.from('contacts') as any)
+        .update({
+          is_ai_active: false,
+          conversation_status: 'open',
+          waiting_since: new Date().toISOString(),
+          custom_fields: {
+            ...currentCustom,
+            unattended_handoff: true,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', contactId);
 
       return { status: 'human_requested', contactId, messageId };
     }
@@ -570,11 +700,13 @@ export class InboundCoreService {
     let workerId: string | null = null;
 
     try {
-      // Anti-Burst Buffer (Debounce de 4.0 segundos para mensajes consecutivos)
-      await new Promise((resolve) => setTimeout(resolve, 4000));
+      // Anti-Burst Debounce Adaptativo (espera base AI_DEBOUNCE_MS, se extiende si siguen llegando ráfagas con tope AI_DEBOUNCE_MAX_MS)
+      const baseDebounce = AI_OPERATIONAL_CONFIG.debounceMs;
+      const maxDebounce = AI_OPERATIONAL_CONFIG.debounceMaxMs;
+      const debounceStart = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, baseDebounce));
 
-      // Verificar si llegó un mensaje del lead más reciente
-      const { data: latestMsg } = await (supabaseAdmin.from('messages') as any)
+      let { data: latestMsg } = await (supabaseAdmin.from('messages') as any)
         .select('id, created_at')
         .eq('contact_id', contactId)
         .eq('sender_type', 'lead')
@@ -585,6 +717,27 @@ export class InboundCoreService {
       if (latestMsg && latestMsg.id !== insertedMessageId) {
         console.log(`[INBOUND CORE ANTI-BURST] Mensaje ${insertedMessageId} descartado; se responderá con el más reciente (${latestMsg.id}).`);
         return;
+      }
+
+      // Si el cliente escribió muy rápido hace <1.5s, esperar un micro-pulso adicional (respetando tope AI_DEBOUNCE_MAX_MS)
+      while (latestMsg?.created_at && Date.now() - debounceStart < maxDebounce) {
+        const msSinceLastLead = Date.now() - new Date(latestMsg.created_at).getTime();
+        if (msSinceLastLead >= 1500) break;
+        const waitSlice = Math.min(1500, maxDebounce - (Date.now() - debounceStart));
+        if (waitSlice <= 0) break;
+        await new Promise((resolve) => setTimeout(resolve, waitSlice));
+
+        const { data: recheckMsg } = await (supabaseAdmin.from('messages') as any)
+          .select('id, created_at')
+          .eq('contact_id', contactId)
+          .eq('sender_type', 'lead')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (recheckMsg && recheckMsg.id !== insertedMessageId) {
+          return;
+        }
+        latestMsg = recheckMsg;
       }
 
       // 🛡️ ANTI-DUPLICADOS: Si ya existe un mensaje saliente (IA o asesor) posterior a este mensaje del lead, abortar
@@ -622,29 +775,52 @@ export class InboundCoreService {
         return;
       }
 
-      // Verificación de horario de atención
+      // Verificación de horario de atención (soporta { start, end, days } y formato legado schedule)
       let isAfterHours = false;
       const bHours = organization.business_hours as any;
       if (bHours?.enabled) {
         try {
-          const tz = organization.appointment_settings?.timezone || bHours?.timezone || 'America/Bogota';
-          const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
-          const currentHourMin = `${String(nowInTz.getHours()).padStart(2, '0')}:${String(nowInTz.getMinutes()).padStart(2, '0')}`;
-          const currentDayIndex = nowInTz.getDay();
-          const dayMap: Record<number, string> = {
-            0: 'sunday',
-            1: 'monday',
-            2: 'tuesday',
-            3: 'wednesday',
-            4: 'thursday',
-            5: 'friday',
-            6: 'saturday',
+          const tz =
+            organization.appointment_settings?.timezone ||
+            bHours?.timezone ||
+            AI_OPERATIONAL_CONFIG.defaultTimezone;
+
+          const now = new Date();
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }).formatToParts(now);
+
+          const weekdayStr = parts.find((p) => p.type === 'weekday')?.value || 'Mon';
+          const hh = parts.find((p) => p.type === 'hour')?.value || '09';
+          const mm = parts.find((p) => p.type === 'minute')?.value || '00';
+          const currentHourMin = `${hh === '24' ? '00' : hh}:${mm}`;
+
+          const weekdayToIsoNum: Record<string, number> = {
+            Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7,
           };
-          const dayConfig = bHours?.schedule?.[dayMap[currentDayIndex]];
-          if (dayConfig?.active === false) {
-            isAfterHours = true;
-          } else if (dayConfig?.start && dayConfig?.end) {
-            if (currentHourMin < dayConfig.start || currentHourMin > dayConfig.end) {
+          const weekdayToKey: Record<string, string> = {
+            Sun: 'sunday', Mon: 'monday', Tue: 'tuesday', Wed: 'wednesday', Thu: 'thursday', Fri: 'friday', Sat: 'saturday',
+          };
+
+          if (bHours.schedule && bHours.schedule[weekdayToKey[weekdayStr]]) {
+            const dayConfig = bHours.schedule[weekdayToKey[weekdayStr]];
+            if (dayConfig?.active === false) {
+              isAfterHours = true;
+            } else if (dayConfig?.start && dayConfig?.end) {
+              if (currentHourMin < dayConfig.start || currentHourMin > dayConfig.end) {
+                isAfterHours = true;
+              }
+            }
+          } else {
+            const isoDay = weekdayToIsoNum[weekdayStr] || 1;
+            const daysAllowed: number[] = Array.isArray(bHours.days) ? bHours.days : [1, 2, 3, 4, 5, 6];
+            const startStr = bHours.start || '08:00';
+            const endStr = bHours.end || '19:00';
+            if (!daysAllowed.includes(isoDay) || currentHourMin < startStr || currentHourMin > endStr) {
               isAfterHours = true;
             }
           }
@@ -653,7 +829,10 @@ export class InboundCoreService {
         }
       }
 
-      // Generación de Respuesta con OpenAIService (Soporta Google Gemini primario con failover)
+      const defaultEntry = getAiChatChain(organization.ai_provider)[0];
+      const aiTurnStartIso = new Date().toISOString();
+
+      // Generación de Respuesta con Router Dual configurable
       const aiResult = await OpenAIService.processLeadMessage({
         organizationId: organization.id,
         contactId,
@@ -666,18 +845,37 @@ export class InboundCoreService {
         businessHours: organization.business_hours || null,
         aiProvider: organization.ai_provider || null,
         enabledModules: organization.enabled_modules || null,
-        timezone: organization.appointment_settings?.timezone || organization.business_hours?.timezone || 'America/Bogota',
+        timezone:
+          organization.appointment_settings?.timezone ||
+          organization.business_hours?.timezone ||
+          AI_OPERATIONAL_CONFIG.defaultTimezone,
         channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
         organization,
       });
 
       const aiResponseText = (typeof aiResult === 'string' ? aiResult : aiResult.text || '').trim();
-      const metaModel = typeof aiResult === 'object' ? aiResult.modelUsed : (process.env.GEMINI_MODEL || 'gemini-flash-latest');
-      const metaProvider = typeof aiResult === 'object' ? aiResult.provider : (organization.ai_provider || 'google');
+      const metaModel = typeof aiResult === 'object' ? aiResult.modelUsed : defaultEntry?.model || 'default';
+      const metaProvider = typeof aiResult === 'object' ? aiResult.provider : defaultEntry?.provider || 'google';
       const isFallback = typeof aiResult === 'object' ? aiResult.isFallback : false;
       const promptTokens = typeof aiResult === 'object' ? aiResult.promptTokens : 0;
       const completionTokens = typeof aiResult === 'object' ? aiResult.completionTokens : 0;
       const latencyMs = Date.now() - startTime;
+
+      // M1: Registrar intentos de modelos fallidos en ai_runs para trazabilidad exacta de failovers
+      if (typeof aiResult === 'object' && Array.isArray(aiResult.failedAttempts) && aiResult.failedAttempts.length > 0) {
+        for (const failed of aiResult.failedAttempts) {
+          await this.recordAiRun({
+            organizationId: organization.id,
+            contactId,
+            channel,
+            provider: failed.provider,
+            model: failed.model,
+            latencyMs: failed.latencyMs,
+            status: 'failed',
+            errorMessage: failed.error,
+          });
+        }
+      }
 
       if (!aiResponseText) {
         // Registro de run omitido o vacío
@@ -853,11 +1051,32 @@ export class InboundCoreService {
         const updatedCustom: Record<string, any> = {
           ...customFields,
           last_message: aiLastMsg,
+          unattended_handoff:
+            typeof aiResult === 'object' && aiResult?.pauseAfterSend
+              ? Boolean(customFields.unattended_handoff || aiResult?.handoffReason)
+              : false,
         };
 
-        // Si tenía un recordatorio de reactivación pendiente, limpiarlo porque la IA ya respondió al lead
-        if (updatedCustom.active_reminder?.reminderType === 'reactivation') {
-          updatedCustom.active_reminder = null;
+        // Si tenía un recordatorio de reactivación pendiente PREVIO a este turno, limpiarlo porque la IA ya respondió al lead
+        // (No borrar un recordatorio recién agendado por schedule_follow_up dentro de este mismo turno)
+        const scheduledThisTurn =
+          typeof aiResult === 'object' ? aiResult?.followUpScheduled : null;
+        const reminderCreatedThisTurn =
+          Boolean(scheduledThisTurn) ||
+          (Boolean(updatedCustom.active_reminder?.createdAt) &&
+            String(updatedCustom.active_reminder.createdAt) >= aiTurnStartIso);
+
+        if (scheduledThisTurn) {
+          updatedCustom.active_reminder = scheduledThisTurn.activeReminder;
+          updatedCustom.follow_up = {
+            ...(updatedCustom.follow_up || { category: 'warm', currentStepIndex: 0 }),
+            nextSendAt: scheduledThisTurn.scheduledForIso,
+            scheduledReminderId: scheduledThisTurn.reminderId || null,
+            completed: false,
+            paused: false,
+          };
+        } else if (updatedCustom.active_reminder?.reminderType === 'reactivation' && !reminderCreatedThisTurn) {
+          delete updatedCustom.active_reminder;
         }
 
         const contactUpdatePayload: Record<string, any> = {
@@ -881,13 +1100,29 @@ export class InboundCoreService {
           .update(contactUpdatePayload)
           .eq('id', contactId);
 
-        // Desactivar recordatorios de reactivación pendientes en tabla scheduled_reminders
+        // Desactivar solo recordatorios de reactivación anteriores al turno actual y blindar el recién creado
+        // frente al trigger SQL trg_sync_contact_inbox_state sobre messages INSERT
         try {
           await (supabaseAdmin.from('scheduled_reminders') as any)
             .update({ status: 'cancelled' })
             .eq('contact_id', contactId)
             .eq('reminder_type', 'reactivation')
-            .eq('status', 'pending');
+            .eq('status', 'pending')
+            .lt('created_at', aiTurnStartIso);
+
+          if (scheduledThisTurn?.reminderId) {
+            await (supabaseAdmin.from('scheduled_reminders') as any)
+              .update({ status: 'pending', scheduled_for: scheduledThisTurn.scheduledForIso })
+              .eq('id', scheduledThisTurn.reminderId);
+          } else if (scheduledThisTurn?.scheduledForIso) {
+            await (supabaseAdmin.from('scheduled_reminders') as any)
+              .insert({
+                contact_id: contactId,
+                scheduled_for: scheduledThisTurn.scheduledForIso,
+                reminder_type: 'reactivation',
+                status: 'pending',
+              });
+          }
         } catch {}
 
         // Registro de Auditoría de Observabilidad en ai_runs con métricas reales
@@ -948,12 +1183,13 @@ export class InboundCoreService {
       }
     } catch (workerError: any) {
       console.error('[INBOUND CORE WORKER FATAL ERROR]', workerError);
+      const fallbackEntry = getAiChatChain(organization.ai_provider)[0];
       await this.recordAiRun({
         organizationId: organization.id,
         contactId,
         channel,
-        provider: organization.ai_provider || 'google',
-        model: 'gemini-1.5-flash',
+        provider: fallbackEntry?.provider || 'google',
+        model: fallbackEntry?.model || 'default',
         latencyMs: Date.now() - startTime,
         status: 'failed',
         errorMessage: workerError?.message || 'Excepción no controlada en el worker de IA',

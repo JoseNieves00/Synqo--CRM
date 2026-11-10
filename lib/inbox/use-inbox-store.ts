@@ -1,4 +1,9 @@
 import { create } from 'zustand';
+import {
+  contactIsAiAttending,
+  contactMatchesInboxView,
+  contactNeedsHumanResponse,
+} from './buckets';
 
 export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
 
@@ -55,7 +60,7 @@ export interface InboxFilters {
 export interface BootstrapData {
   paymentAccounts: any[];
   catalog: any[];
-  quickReplies: any[];
+  quickReplies: any[] | { activeSnippets?: any[]; aiSuggestions?: any[] };
   templates: Array<{ name: string; label: string }>;
   teamMembers: Array<{ id: string; full_name: string; email: string; role: string }>;
   loadedAt: number;
@@ -248,39 +253,27 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       const existing = state.contactsById[contact.id] || {};
       const updated = { ...existing, ...contact } as ContactItem;
 
-      // Actualizar viewIds para que nuevos contactos o cambios de estado se reflejen en vivo
+      // Sincronizar pertenencia exacta de buzones en vivo usando las reglas canónicas
       const currentView = state.activeView;
       const currentIds = state.viewIds[currentView] || [];
       const isAlreadyInView = currentIds.includes(contact.id);
       const nextViewIds = { ...state.viewIds };
 
-      if (updated.conversation_status === 'closed' && currentView !== 'cerrados') {
-        if (isAlreadyInView) {
-          nextViewIds[currentView] = currentIds.filter((id) => id !== contact.id);
-        }
-      } else if (
-        currentView === 'por_responder' &&
-        isAlreadyInView &&
-        (updated.conversation_status === 'waiting_customer' ||
-          (updated.is_ai_active && (updated.unread_count || 0) === 0 && !updated.waiting_since))
-      ) {
-        nextViewIds['por_responder'] = currentIds.filter((id) => id !== contact.id);
-      } else if (!isAlreadyInView) {
-        let matches = false;
-        if (currentView === 'por_responder') {
-          matches = updated.conversation_status === 'open' && (!updated.is_ai_active || (updated.unread_count || 0) > 0);
-        } else if (currentView === 'mis_abiertos') {
-          matches = updated.assigned_to === state.currentUserId && updated.conversation_status !== 'closed';
-        } else if (currentView === 'ia_atendiendo') {
-          matches = updated.is_ai_active === true && updated.conversation_status !== 'closed';
-        } else if (currentView === 'cerrados') {
-          matches = updated.conversation_status === 'closed';
-        }
-
-        if (matches) {
-          nextViewIds[currentView] = [contact.id, ...currentIds];
-        }
+      const matchesCurrentView = contactMatchesInboxView(updated, currentView, state.currentUserId);
+      if (isAlreadyInView && !matchesCurrentView) {
+        nextViewIds[currentView] = currentIds.filter((id) => id !== contact.id);
+      } else if (!isAlreadyInView && matchesCurrentView) {
+        nextViewIds[currentView] = [contact.id, ...currentIds];
       }
+
+      // También limpiar otras vistas en caché cuando el chat cambia de dueño/estado
+      (Object.keys(nextViewIds) as InboxViewType[]).forEach((v) => {
+        if (v === currentView) return;
+        const ids = nextViewIds[v];
+        if (ids?.includes(contact.id) && !contactMatchesInboxView(updated, v, state.currentUserId)) {
+          nextViewIds[v] = ids.filter((id) => id !== contact.id);
+        }
+      });
 
       return {
         contactsById: {
@@ -409,20 +402,28 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         const currentView = state.activeView;
         const viewList = nextViewIds[currentView] || [];
 
+        const updatedContactItem = updatedContactsById[contactId];
         if (isFromLead) {
+          const needsHuman = contactNeedsHumanResponse(updatedContactItem);
+          const aiAttending = contactIsAiAttending(updatedContactItem);
+
           if (viewList.includes(contactId)) {
             if (currentView !== 'por_responder') {
               nextViewIds[currentView] = [contactId, ...viewList.filter((id) => id !== contactId)];
             }
-          } else if (currentView === 'por_responder' || currentView === 'mis_abiertos') {
+          } else if (
+            (currentView === 'por_responder' && needsHuman) ||
+            (currentView === 'ia_atendiendo' && aiAttending) ||
+            (currentView === 'mis_abiertos' && updatedContactItem.assigned_to === state.currentUserId)
+          ) {
             nextViewIds[currentView] = [contactId, ...viewList];
           }
         } else {
           // Si el mensaje es de la IA o de un asesor, ya fue respondido
-          if (nextViewIds['por_responder']?.includes(contactId)) {
+          if (nextViewIds['por_responder']?.includes(contactId) && updatedContactItem.custom_fields?.unattended_handoff !== true) {
             nextViewIds['por_responder'] = nextViewIds['por_responder'].filter((id) => id !== contactId);
           }
-          if (existingContact.is_ai_active && nextViewIds['ia_atendiendo'] && !nextViewIds['ia_atendiendo'].includes(contactId)) {
+          if (contactIsAiAttending(updatedContactItem) && nextViewIds['ia_atendiendo'] && !nextViewIds['ia_atendiendo'].includes(contactId)) {
             nextViewIds['ia_atendiendo'] = [contactId, ...nextViewIds['ia_atendiendo']];
           }
           if (viewList.includes(contactId) && currentView !== 'por_responder') {

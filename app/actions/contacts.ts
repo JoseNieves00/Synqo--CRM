@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PipelineStage } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
+import { LEAD_TEMPERATURE_META, type LeadTemperature } from '@/lib/ai/follow-up-types';
 
 interface CreateLeadInput {
   name: string;
@@ -93,6 +94,8 @@ export async function updateContactDetails(
     notes?: string;
     dealValue?: number | null;
     deal_value?: number | null;
+    temperature?: LeadTemperature;
+    lead_temperature?: LeadTemperature;
     customFields?: Record<string, any>;
   }
 ) {
@@ -104,12 +107,21 @@ export async function updateContactDetails(
   if (!user) throw new Error('No autorizado');
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id, role, is_super_admin')
+    .select('organization_id, role, is_super_admin, full_name')
     .eq('id', user.id)
     .single();
 
   if (!profile?.organization_id) throw new Error('Organización no encontrada');
 
+  const { data: currentContact } = await (supabaseAdmin.from('contacts') as any)
+    .select('pipeline_stage, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!currentContact) throw new Error('Contacto no encontrado');
+
+  const existingFields = currentContact?.custom_fields || {};
   const payload: any = {
     updated_at: new Date().toISOString(),
   };
@@ -125,21 +137,32 @@ export async function updateContactDetails(
   if (updates.pipelineStage !== undefined) {
     payload.pipeline_stage = updates.pipelineStage;
   }
-  if (updates.notes !== undefined || resolvedDealValue !== undefined || updates.customFields !== undefined) {
-    // Obtener campos existentes
-    const { data: currentContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('custom_fields')
-      .eq('id', contactId)
-      .eq('organization_id', profile.organization_id)
-      .single();
 
-    const existingFields = currentContact?.custom_fields || {};
-    payload.custom_fields = {
+  const resolvedTemp =
+    updates.lead_temperature ??
+    updates.temperature ??
+    updates.customFields?.lead_temperature ??
+    updates.customFields?.temperature;
+
+  if (
+    updates.notes !== undefined ||
+    resolvedDealValue !== undefined ||
+    resolvedTemp !== undefined ||
+    updates.customFields !== undefined
+  ) {
+    const nextCustom: Record<string, any> = {
       ...existingFields,
       ...(updates.customFields || {}),
       ...(updates.notes !== undefined ? { notes: updates.notes } : {}),
       ...(resolvedDealValue !== undefined ? { deal_value: resolvedDealValue } : {}),
     };
+
+    if (resolvedTemp !== undefined) {
+      nextCustom.lead_temperature = resolvedTemp;
+      delete nextCustom.temperature; // Clave única canónica: custom_fields.lead_temperature
+    }
+
+    payload.custom_fields = nextCustom;
   }
 
   const { error } = await (supabaseAdmin.from('contacts') as any)
@@ -151,8 +174,29 @@ export async function updateContactDetails(
     throw new Error(`Error actualizando prospecto: ${error.message}`);
   }
 
+  // Auditoría de cambios de etapa o categoría hechos por asesor humano
+  const actorName = profile.full_name || 'Asesor';
+  const prevTemp = existingFields.lead_temperature || existingFields.temperature;
+  if (resolvedTemp && resolvedTemp !== prevTemp) {
+    const label = LEAD_TEMPERATURE_META[resolvedTemp as LeadTemperature]?.label || resolvedTemp;
+    await (supabaseAdmin.from('messages') as any).insert({
+      contact_id: contactId,
+      sender_type: 'system',
+      content: `[🏷️ Categoría actualizada por Humano (${actorName}): ${label}]`,
+    });
+  }
+
+  if (updates.pipelineStage && updates.pipelineStage !== currentContact.pipeline_stage) {
+    await (supabaseAdmin.from('messages') as any).insert({
+      contact_id: contactId,
+      sender_type: 'system',
+      content: `[📊 Etapa actualizada por Humano (${actorName}): ${updates.pipelineStage}]`,
+    });
+  }
+
   revalidatePath('/inbox');
   revalidatePath('/pipeline');
+  revalidatePath('/dashboard');
   return { success: true };
 }
 
@@ -253,4 +297,31 @@ export async function deleteContactWithPassword(contactId: string, password: str
   revalidatePath('/dashboard');
 
   return { success: true, message: 'Prospecto eliminado exitosamente.' };
+}
+
+/**
+ * Clasifica un lote de prospectos históricos del CRM que aún no tienen temperatura asignada (`hot` / `warm` / `cold`)
+ * sincronizando también su etapa en el Pipeline.
+ */
+export async function classifyUnclassifiedLeadsAction(batchSize = 20) {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { OpenAIService } = await import('@/services/openai.service');
+  const res = await OpenAIService.classifyUnclassifiedContactsBatch(profile.organization_id, batchSize);
+
+  revalidatePath('/dashboard');
+  revalidatePath('/inbox');
+  revalidatePath('/pipeline');
+  return res;
 }

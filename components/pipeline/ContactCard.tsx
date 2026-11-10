@@ -1,9 +1,14 @@
 'use client';
 
 import React from 'react';
-import { Bot, User, Clock, ArrowRight } from 'lucide-react';
+import { Bot, User, Clock, ArrowRight, Flame, Zap, Snowflake, BellRing, HelpCircle } from 'lucide-react';
 import { PipelineStage } from '@/lib/supabase/types';
 import { PIPELINE_STAGES } from '@/services/contact.service';
+import {
+  LEAD_TEMPERATURE_META,
+  resolveLeadTemperature,
+  resolveProductInterest,
+} from '@/lib/ai/follow-up-types';
 import Link from 'next/link';
 
 interface ContactCardProps {
@@ -13,6 +18,7 @@ interface ContactCardProps {
   currentStage: PipelineStage;
   isAiActive: boolean;
   lastInteractionAt: string;
+  dealValue?: number | null;
   custom_fields?: any;
   onMoveStage?: (contactId: string, newStage: PipelineStage) => void;
 }
@@ -24,6 +30,7 @@ function ContactCardComponent({
   currentStage,
   isAiActive,
   lastInteractionAt,
+  dealValue: rawDealValue,
   custom_fields,
   onMoveStage,
 }: ContactCardProps) {
@@ -34,7 +41,10 @@ function ContactCardComponent({
     minute: '2-digit',
   });
 
-  const dealValue = Number(custom_fields?.deal_value || 0);
+  const dealValue = Number(rawDealValue ?? custom_fields?.deal_value ?? custom_fields?.order?.total ?? 0);
+  const temp = resolveLeadTemperature(custom_fields);
+  const interest = resolveProductInterest(custom_fields, dealValue > 0 ? dealValue : null);
+  const nextFollowUp = custom_fields?.active_reminder?.scheduledFor || custom_fields?.follow_up?.nextSendAt;
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', id);
@@ -79,7 +89,35 @@ function ContactCardComponent({
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mb-2.5">{phone}</p>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mb-2">{phone}</p>
+
+      {(temp || interest || nextFollowUp) && (
+        <div className="flex flex-wrap items-center gap-1 mb-2">
+          {temp && LEAD_TEMPERATURE_META[temp] && (
+            <span
+              className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border ${LEAD_TEMPERATURE_META[temp].pillClass}`}
+              title={LEAD_TEMPERATURE_META[temp].description}
+            >
+              {temp === 'hot' && <Flame className="w-2.5 h-2.5" />}
+              {temp === 'qualified_doubt' && <HelpCircle className="w-2.5 h-2.5" />}
+              {temp === 'warm' && <Zap className="w-2.5 h-2.5" />}
+              {temp === 'cold' && <Snowflake className="w-2.5 h-2.5" />}
+              {LEAD_TEMPERATURE_META[temp].label}
+            </span>
+          )}
+          {interest && (
+            <span className="text-[9px] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] px-1.5 py-0.5 rounded truncate max-w-[140px]">
+              {interest}
+            </span>
+          )}
+          {nextFollowUp && (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-mono text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20 px-1.5 py-0.5 rounded">
+              <BellRing className="w-2.5 h-2.5" />
+              {new Date(nextFollowUp).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-[#1E2433]">
         <span suppressHydrationWarning className="flex items-center gap-1 font-mono text-[10px] text-slate-400 dark:text-slate-500">
@@ -88,7 +126,7 @@ function ContactCardComponent({
         </span>
 
         <Link
-          href={`/inbox/${id}`}
+          href={`/inbox?view=ia_atendiendo&c=${id}`}
           prefetch={false}
           className="text-[11px] text-[#0052FF] dark:text-[#00D2FF] hover:underline font-medium flex items-center gap-0.5"
         >
@@ -125,6 +163,8 @@ function areCardsEqual(prev: ContactCardProps, next: ContactCardProps) {
     prev.isAiActive === next.isAiActive &&
     prev.lastInteractionAt === next.lastInteractionAt &&
     prev.custom_fields?.deal_value === next.custom_fields?.deal_value &&
+    prev.custom_fields?.lead_temperature === next.custom_fields?.lead_temperature &&
+    prev.custom_fields?.active_reminder?.scheduledFor === next.custom_fields?.active_reminder?.scheduledFor &&
     prev.onMoveStage === next.onMoveStage
   );
 }

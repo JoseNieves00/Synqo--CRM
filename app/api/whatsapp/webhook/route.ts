@@ -11,7 +11,10 @@ import { AssignmentService } from '@/services/assignment.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { formatImageMessageContent, formatVideoMessageContent, formatAudioMessageContent, isPaymentReceiptHint } from '@/lib/media/format';
 import { uploadIncomingChatMedia } from '@/lib/media/storage';
+import { resolveInboundThumbnailMessage } from '@/lib/media/inbound-thumbnail';
 import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
+
+export const maxDuration = 60;
 
 /**
  * 1. GET: Handshake de verificación inicial de Meta WhatsApp Webhook.
@@ -74,7 +77,7 @@ export async function POST(request: NextRequest) {
 
   // B. Identificar la Organización dueña del WABA Phone Number ID
   const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, subscription_status, is_active, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
+    .select('id, name, subscription_status, is_active, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, structured_prompt_data, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
     .eq('whatsapp_phone_number_id', phoneNumberId)
     .single();
 
@@ -199,11 +202,27 @@ export async function POST(request: NextRequest) {
     // F2. Procesar contenido del mensaje: Texto, Botones, Interactivo, Multimedia o Notas de Voz
     let rawContent = '';
     const referral = incomingMessage.referral;
-    const refTitle = (referral?.headline || referral?.body || '').trim();
-    const referralPrefix = refTitle ? `[Anuncio/Publicación de Instagram: "${refTitle}"] ` : '';
+    const refTitle = (referral?.headline || '').trim();
+    const refBody = (referral?.body || '').trim();
+    const refThumb = (referral?.image_url || referral?.thumbnail_url || referral?.media_url || '').trim();
+    const refSourceUrl = (referral?.source_url || '').trim();
 
     if (msgType === 'text') {
-      rawContent = `${referralPrefix}${incomingMessage.text?.body || ''}`.trim();
+      const bodyText = (incomingMessage.text?.body || '').trim();
+      if (referral || /https?:\/\//i.test(bodyText)) {
+        rawContent = await resolveInboundThumbnailMessage({
+          organizationId: orgId,
+          contactKey: leadPhone || 'incoming',
+          text: bodyText,
+          labelPrefix: referral ? 'Anuncio/Publicación compartida' : 'Enlace compartido',
+          title: refTitle,
+          body: refBody,
+          thumbnailUrl: refThumb,
+          sourceUrl: refSourceUrl,
+        });
+      } else {
+        rawContent = bodyText;
+      }
     } else if (msgType === 'button') {
       // Clic en botón de plantilla rápida de Meta
       rawContent = incomingMessage.button?.text || incomingMessage.button?.payload || '[Botón presionado]';

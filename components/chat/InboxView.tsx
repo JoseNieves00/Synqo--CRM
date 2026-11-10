@@ -58,6 +58,7 @@ interface InboxViewProps {
   paymentAccounts?: any[];
   catalogItems?: any[];
   initialView?: InboxViewType;
+  initialFilters?: FilterState;
 }
 
 export function InboxView({
@@ -75,6 +76,7 @@ export function InboxView({
   paymentAccounts = [],
   catalogItems = [],
   initialView = 'por_responder',
+  initialFilters,
 }: InboxViewProps) {
   const router = useRouter();
 
@@ -84,13 +86,15 @@ export function InboxView({
     activeContact?.id || (initialContacts.length > 0 ? initialContacts[0].id : null)
   );
 
-  // 2. Filtros secundarios
-  const [filters, setFilters] = useState<FilterState>({
-    channel: 'all',
-    agentId: 'all',
-    stage: 'all',
-    temperature: 'all',
-  });
+  // 2. Filtros secundarios sincronizados con SSR / URL
+  const [filters, setFilters] = useState<FilterState>(
+    initialFilters || {
+      channel: 'all',
+      agentId: 'all',
+      stage: 'all',
+      temperature: 'all',
+    }
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -127,7 +131,22 @@ export function InboxView({
         catalog: catalogItems,
       });
     }
-  }, [organizationId]);
+  }, [organizationId, initialView]);
+
+  // Mantener vista y filtros sincronizados cuando Next.js navega con nuevos searchParams (ej: clic desde Dashboard)
+  useEffect(() => {
+    setActiveView(initialView);
+    useInboxStore.getState().setActiveView(initialView);
+    if (initialFilters) {
+      setFilters(initialFilters);
+    }
+  }, [
+    initialView,
+    initialFilters?.channel,
+    initialFilters?.agentId,
+    initialFilters?.stage,
+    initialFilters?.temperature,
+  ]);
 
   // Sembrar mensajes iniciales de SSR en el store inmediatamente si aún no existen
   if (activeContact?.id && messages && messages.length > 0) {
@@ -175,13 +194,16 @@ export function InboxView({
     return null;
   }, [contactsById, selectedContactId, activeContact]);
 
-  // 6. Sincronización inicial desde URL (query params)
+  // 6. Sincronización inicial desde URL (query params completos: view, c, ch, stage, temp, agent)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const viewParam = params.get('view') as InboxViewType | null;
     const contactParam = params.get('c');
     const channelParam = params.get('ch') as any;
+    const stageParam = params.get('stage');
+    const tempParam = params.get('temp');
+    const agentParam = params.get('agent');
 
     if (viewParam && ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'].includes(viewParam)) {
       setActiveView(viewParam);
@@ -191,9 +213,12 @@ export function InboxView({
       setSelectedContactId(contactParam);
       useInboxStore.getState().setActiveContactId(contactParam);
     }
-    if (channelParam && ['all', 'whatsapp', 'instagram'].includes(channelParam)) {
-      setFilters((prev) => ({ ...prev, channel: channelParam }));
-    }
+    setFilters((prev) => ({
+      channel: channelParam && ['all', 'whatsapp', 'instagram'].includes(channelParam) ? channelParam : prev.channel,
+      stage: stageParam || prev.stage,
+      temperature: tempParam || prev.temperature,
+      agentId: agentParam || prev.agentId,
+    }));
   }, []);
 
   // 7. Refrescar contadores desde servidor
@@ -523,7 +548,7 @@ export function InboxView({
   }, [contactList, selectedContactId, handleSelectContact]);
 
   return (
-    <div className="flex h-[calc(100vh-80px)] overflow-hidden rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] shadow-xs">
+    <div className="flex h-[calc(100dvh-132px)] md:h-[calc(100dvh-80px)] overflow-hidden rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] shadow-xs">
       {/* 1. Columna Izquierda: Sidebar de Conversaciones */}
       <div className={`h-full ${selectedContactId ? 'hidden md:flex' : 'flex w-full'}`}>
         <InboxSidebar
@@ -550,11 +575,49 @@ export function InboxView({
             }
           }}
           onChangeSearch={setSearchQuery}
-          onChangeFilter={(k, v) => setFilters((prev) => ({ ...prev, [k]: v }))}
-          onClearFilters={() =>
-            setFilters({ channel: 'all', agentId: 'all', stage: 'all', temperature: 'all' })
-          }
-          onRemoveFilterChip={(k) => setFilters((prev) => ({ ...prev, [k]: 'all' }))}
+          onChangeFilter={(k, v) => {
+            setFilters((prev) => {
+              const next = { ...prev, [k]: v };
+              if (typeof window !== 'undefined') {
+                const url = new URL(window.location.href);
+                if (next.channel !== 'all') url.searchParams.set('ch', next.channel);
+                else url.searchParams.delete('ch');
+                if (next.agentId !== 'all') url.searchParams.set('agent', next.agentId);
+                else url.searchParams.delete('agent');
+                if (next.stage !== 'all') url.searchParams.set('stage', next.stage);
+                else url.searchParams.delete('stage');
+                if (next.temperature !== 'all') url.searchParams.set('temp', next.temperature);
+                else url.searchParams.delete('temp');
+                window.history.replaceState(null, '', url.toString());
+              }
+              return next;
+            });
+          }}
+          onClearFilters={() => {
+            setFilters({ channel: 'all', agentId: 'all', stage: 'all', temperature: 'all' });
+            if (typeof window !== 'undefined') {
+              const url = new URL(window.location.href);
+              ['ch', 'agent', 'stage', 'temp'].forEach((p) => url.searchParams.delete(p));
+              window.history.replaceState(null, '', url.toString());
+            }
+          }}
+          onRemoveFilterChip={(k) => {
+            setFilters((prev) => {
+              const next = { ...prev, [k]: 'all' };
+              if (typeof window !== 'undefined') {
+                const url = new URL(window.location.href);
+                const paramMap: Record<keyof FilterState, string> = {
+                  channel: 'ch',
+                  agentId: 'agent',
+                  stage: 'stage',
+                  temperature: 'temp',
+                };
+                url.searchParams.delete(paramMap[k]);
+                window.history.replaceState(null, '', url.toString());
+              }
+              return next;
+            });
+          }}
           onLoadMore={() => loadContacts(contactList.length, true)}
           onQuickAssign={handleQuickAssign}
           onQuickClose={handleQuickClose}

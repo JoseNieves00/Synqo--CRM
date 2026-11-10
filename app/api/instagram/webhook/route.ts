@@ -9,6 +9,9 @@ import { InstagramService } from '@/services/instagram.service';
 import { OpenAIService } from '@/services/openai.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { InboundCoreService, InboundPayload } from '@/services/inbound-core.service';
+import { resolveInboundThumbnailMessage } from '@/lib/media/inbound-thumbnail';
+
+export const maxDuration = 60;
 
 /**
  * 1. GET: Handshake de verificación de Meta Instagram Webhook.
@@ -73,25 +76,7 @@ export async function POST(request: NextRequest) {
   const recipientId = messagingEvent.recipient?.id; // ID de Instagram de la cuenta empresarial
   const metaMessageId = messagingEvent.message.mid;
   let rawContent = (messagingEvent.message.text || '').trim();
-
-  // Enriquecimiento de publicaciones compartidas, reels o historias de Instagram
   const attachments = messagingEvent.message.attachments;
-  if (Array.isArray(attachments) && attachments.length > 0) {
-    const attachParts: string[] = [];
-    for (const att of attachments) {
-      const title = (att.payload?.title || att.title || '').trim();
-      const subtitle = (att.payload?.subtitle || att.subtitle || '').trim();
-      if (title) attachParts.push(`"${title}"`);
-      if (subtitle) attachParts.push(`"${subtitle}"`);
-      if (!title && !subtitle && att.type) {
-        attachParts.push(`[Elemento compartido: ${att.type}]`);
-      }
-    }
-    if (attachParts.length > 0) {
-      const prefix = `[Publicación/Elemento compartido de Instagram: ${attachParts.join(' - ')}]`;
-      rawContent = rawContent ? `${prefix} ${rawContent}` : prefix;
-    }
-  }
 
   if (!senderId || !recipientId) {
     return NextResponse.json({ error: 'Missing sender or recipient ID' }, { status: 400 });
@@ -100,7 +85,7 @@ export async function POST(request: NextRequest) {
   try {
     // Identificar organización dueña de la cuenta de Instagram
     const { data: organization, error: orgError } = await (supabaseAdmin.from('organizations') as any)
-      .select('id, name, subscription_status, is_active, instagram_account_id, instagram_access_token, instagram_app_secret, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
+      .select('id, name, subscription_status, is_active, instagram_account_id, instagram_access_token, instagram_app_secret, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, system_prompt, structured_prompt_data, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings')
       .eq('instagram_account_id', recipientId)
       .single();
 
@@ -140,6 +125,34 @@ export async function POST(request: NextRequest) {
     if (!rateLimitResult.success) {
       console.warn(`[RATE LIMIT EXCEEDED] Instagram sender ${senderId} excedió límite de mensajes.`);
       return NextResponse.json({ status: 'rate_limited' }, { status: 200 });
+    }
+
+    // Extraer y persistir miniatura/imagen de publicaciones compartidas o enlaces después de validar HMAC
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      const att = attachments[0];
+      const title = (att?.payload?.title || att?.title || '').trim();
+      const subtitle = (att?.payload?.subtitle || att?.subtitle || '').trim();
+      const attUrl = (att?.payload?.url || att?.url || '').trim();
+      const thumbUrl = (att?.payload?.thumbnail_url || att?.payload?.preview_url || '').trim();
+      const isDirectImage = att?.type === 'image';
+
+      rawContent = await resolveInboundThumbnailMessage({
+        organizationId: organization.id,
+        contactKey: `ig_${senderId}`,
+        text: rawContent,
+        labelPrefix: isDirectImage ? 'Imagen recibida de Instagram' : 'Publicación compartida de Instagram',
+        title: title || (!subtitle && !isDirectImage && att?.type ? `Tipo: ${att.type}` : ''),
+        body: subtitle,
+        thumbnailUrl: thumbUrl || (isDirectImage ? attUrl : ''),
+        sourceUrl: !isDirectImage ? (att?.payload?.target_url || attUrl) : '',
+      });
+    } else if (/https?:\/\//i.test(rawContent)) {
+      rawContent = await resolveInboundThumbnailMessage({
+        organizationId: organization.id,
+        contactKey: `ig_${senderId}`,
+        text: rawContent,
+        labelPrefix: 'Enlace compartido de Instagram',
+      });
     }
 
     const inboundPayload: InboundPayload = {

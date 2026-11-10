@@ -351,6 +351,95 @@ async function runInboxTests() {
   console.log('   ✅ Generación contextual con IA (interés detectado + 2 propuestas) aprobada.');
   console.log('   ✅ UI de Reactivación Copilot en ChatWindow aprobada.');
 
+  // 11. Ubicación exacta en los 5 buzones y clasificación automática
+  console.log('\n1️⃣1️⃣ Probando reglas exactas de buzones (lib/inbox/buckets.ts) y clasificación automática...');
+  const {
+    contactMatchesInboxView,
+    contactNeedsHumanResponse,
+    contactIsAiAttending,
+    contactNeedsFollowUp,
+  } = await import('../lib/inbox/buckets');
+
+  const nowEpoch = Date.now();
+  const leadTypingWithAi = {
+    id: 'b-1',
+    is_ai_active: true,
+    conversation_status: 'open',
+    last_message_sender: 'lead',
+    waiting_since: new Date(nowEpoch - 15 * 1000).toISOString(), // hace 15s
+    unread_count: 1,
+    pipeline_stage: 'nuevo',
+    custom_fields: {},
+  };
+  assert.strictEqual(
+    contactNeedsHumanResponse(leadTypingWithAi, nowEpoch),
+    false,
+    'Lead recién llegado con IA activa (<3m) NO debe contaminar Por Responder'
+  );
+  assert.strictEqual(
+    contactIsAiAttending(leadTypingWithAi),
+    true,
+    'Lead con IA activa sin relevo debe aparecer en IA Atendiendo'
+  );
+
+  const staleAiChat = {
+    ...leadTypingWithAi,
+    waiting_since: new Date(nowEpoch - 5 * 60 * 1000).toISOString(), // >3m
+  };
+  assert.strictEqual(
+    contactNeedsHumanResponse(staleAiChat, nowEpoch),
+    true,
+    'Lead con IA activa sin responder >3 min SÍ debe aparecer en Por Responder'
+  );
+
+  const humanPausedWaiting = {
+    id: 'b-2',
+    is_ai_active: false,
+    conversation_status: 'open',
+    last_message_sender: 'lead',
+    waiting_since: new Date(nowEpoch - 20 * 1000).toISOString(),
+    unread_count: 1,
+    assigned_to: 'agent-99',
+    pipeline_stage: 'calificado',
+    custom_fields: { unattended_handoff: true },
+  };
+  assert.strictEqual(contactNeedsHumanResponse(humanPausedWaiting, nowEpoch), true);
+  assert.strictEqual(contactIsAiAttending(humanPausedWaiting), false);
+  assert.strictEqual(contactMatchesInboxView(humanPausedWaiting, 'mis_abiertos', 'agent-99'), true);
+
+  // Un contacto con active_reminder: null y nextSendAt: null recientes NO debe colarse en Seguimiento
+  const falseNullReminder = {
+    id: 'b-3',
+    is_ai_active: true,
+    conversation_status: 'waiting_customer',
+    last_message_sender: 'ai',
+    waiting_since: null,
+    unread_count: 0,
+    last_interaction_at: new Date(nowEpoch - 60 * 60 * 1000).toISOString(),
+    pipeline_stage: 'nuevo',
+    custom_fields: { active_reminder: null, follow_up: { nextSendAt: null, completed: false } },
+  };
+  assert.strictEqual(
+    contactNeedsFollowUp(falseNullReminder, nowEpoch),
+    false,
+    'active_reminder: null o nextSendAt: null NO deben meter el chat en Seguimiento'
+  );
+
+  const closedChat = { ...humanPausedWaiting, conversation_status: 'closed' };
+  assert.strictEqual(contactMatchesInboxView(closedChat, 'cerrados'), true);
+  assert.strictEqual(contactNeedsHumanResponse(closedChat, nowEpoch), false);
+
+  assert.ok(
+    chatTsContent.includes('custom_fields->>active_reminder.not.is.null') &&
+      chatTsContent.includes('custom_fields->follow_up->>nextSendAt.not.is.null'),
+    'buildSeguimientoOrFilter debe usar ->> para ignorar valores JSON null'
+  );
+  assert.ok(
+    openaiServiceContent.includes('classifyUnclassifiedContactsForActiveOrgs'),
+    'OpenAIService debe exponer classifyUnclassifiedContactsForActiveOrgs para cron automático'
+  );
+  console.log('   ✅ Reglas de buzones y clasificación automática verificadas.');
+
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE REORGANIZACIÓN DEL INBOX PASARON EXITOSAMENTE!\n');
 }
 

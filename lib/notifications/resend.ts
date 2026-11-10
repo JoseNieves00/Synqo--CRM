@@ -152,7 +152,8 @@ export class NotificationService {
   }
 
   /**
-   * Alerta cuando la empresa agota el 100% o supera el 80% de su cuota mensual de tokens de IA
+   * Alerta cuando la empresa alcanza un umbral configurable (x% o 100%) de su cuota mensual de tokens de IA.
+   * En Modo Excedente, el bot sigue atendiendo sin interrupciones y notifica el acumulado.
    */
   static async sendTokenQuotaExhaustedAlert(params: {
     adminEmail: string;
@@ -160,6 +161,9 @@ export class NotificationService {
     usedTokens: number;
     limitTokens: number;
     percentage: number;
+    threshold?: number;
+    overageTokens?: number;
+    overageMode?: boolean;
   }): Promise<void> {
     if (!resend) {
       console.warn('[RESEND SKIPPED] Cuota de tokens:', params);
@@ -167,28 +171,53 @@ export class NotificationService {
     }
 
     try {
-      const isFull = params.percentage >= 100;
+      const isFull = params.percentage >= 100 || (params.threshold ?? 0) >= 100;
+      const isOverage = params.overageMode !== false;
+      const thresholdLabel = params.threshold ?? (isFull ? 100 : params.percentage);
+      const overage = params.overageTokens ?? Math.max(0, params.usedTokens - params.limitTokens);
+
       await resend.emails.send({
         from: 'Synqo IA <alertas@synqo.dev>',
         to: params.adminEmail,
-        subject: `${isFull ? '🚨 CUOTA AGOTADA' : '⚠️ ADVERTENCIA DE CUOTA (80%)'}: Tokens de IA en ${params.companyName}`,
+        subject: `${
+          isFull
+            ? isOverage
+              ? '🔔 CUPO BASE 100% — MODO EXCEDENTE ACTIVO'
+              : '🚨 CUOTA AGOTADA'
+            : `⚠️ AVISO DE CONSUMO (${thresholdLabel}%)`
+        }: Tokens de IA en ${params.companyName}`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
             <div style="margin-bottom: 20px;">
-              <span style="background-color: ${isFull ? '#fee2e2' : '#fef3c7'}; color: ${isFull ? '#991b1b' : '#92400e'}; padding: 4px 10px; border-radius: 9999px; font-weight: 700; font-size: 13px;">
-                ${isFull ? '🚨 100% de Cuota Consumida' : '⚠️ 80% de Cuota Alcanzada'}
+              <span style="background-color: ${isFull ? '#fef3c7' : '#e0f2fe'}; color: ${isFull ? '#92400e' : '#0369a1'}; padding: 4px 10px; border-radius: 9999px; font-weight: 700; font-size: 13px;">
+                ${isFull ? '🔔 100% del Cupo Base Alcanzado' : `⚠️ Umbral del ${thresholdLabel}% Alcanzado`}
               </span>
             </div>
-            <h2 style="color: #0f172a; margin-top: 0;">${isFull ? 'Atención Automática Pausada' : 'Consumo Elevado de Inteligencia Artificial'}</h2>
-            <p style="font-size: 15px; line-height: 1.5;">Tu empresa <strong>${params.companyName}</strong> ha consumido <strong>${params.usedTokens.toLocaleString()}</strong> de <strong>${params.limitTokens.toLocaleString()}</strong> tokens mensuales de IA (${params.percentage}%).</p>
+            <h2 style="color: #0f172a; margin-top: 0;">${
+              isFull && isOverage
+                ? 'Modo Excedente Activo (Tu bot sigue operando)'
+                : isFull
+                ? 'Atención Automática Pausada'
+                : `Consumo de IA al ${params.percentage}%`
+            }</h2>
+            <p style="font-size: 15px; line-height: 1.5;">Tu empresa <strong>${params.companyName}</strong> ha consumido <strong>${params.usedTokens.toLocaleString('es-CO')}</strong> de <strong>${params.limitTokens.toLocaleString('es-CO')}</strong> tokens base mensuales (${params.percentage}%).</p>
+            ${
+              overage > 0
+                ? `<p style="font-size: 14px; color: #b45309;">Excedente acumulado en el ciclo actual: <strong>${overage.toLocaleString('es-CO')} tokens</strong>.</p>`
+                : ''
+            }
             <p style="font-size: 14px; color: #475569;">
-              ${isFull 
-                ? 'Para evitar cobros imprevistos, la IA ha sido silenciada temporalmente. Tus asesores humanos pueden seguir atendiendo con normalidad desde el CRM.'
-                : 'Te recomendamos solicitar una recarga o ampliación de paquete para garantizar que la atención 24/7 no se interrumpa.'}
+              ${
+                isFull && isOverage
+                  ? 'Tu agente IA continúa atendiendo a tus clientes sin interrupciones en Modo Excedente. También puedes consultar el estado en cualquier momento escribiendo <strong>#tokens</strong> desde tu WhatsApp autorizado.'
+                  : isFull
+                  ? 'Para evitar cobros imprevistos, la IA ha sido silenciada temporalmente. Tus asesores humanos pueden seguir atendiendo con normalidad desde el CRM.'
+                  : 'Te avisamos con anticipación para que tengas visibilidad total de tu consumo. Al llegar al 100%, el bot continuará operando en Modo Excedente. Puedes consultar tu saldo escribiendo <strong>#tokens</strong> por WhatsApp.'
+              }
             </p>
             <div style="margin-top: 24px;">
               <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://synqo.dev'}/settings" style="background-color: #0f172a; color: #ffffff; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">
-                Gestionar Tokens y Plan
+                Ver Consumo y Configurar Alertas
               </a>
             </div>
           </div>

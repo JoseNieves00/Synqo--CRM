@@ -7,7 +7,14 @@ import { PIPELINE_STAGES } from '@/services/contact.service';
 import { KanbanColumn } from './KanbanColumn';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { createClient } from '@/lib/supabase/client';
-import { Search, Bot, User, Upload, Settings2, Download, Lock } from 'lucide-react';
+import { Search, Bot, User, Upload, Settings2, Download, Lock, Flame } from 'lucide-react';
+import {
+  LEAD_TEMPERATURE_META,
+  LEAD_TEMPERATURE_ORDER,
+  type LeadTemperature,
+  resolveLeadTemperature,
+  resolveProductInterest,
+} from '@/lib/ai/follow-up-types';
 
 const EditStageLabelsModal = dynamic(
   () => import('./EditStageLabelsModal').then((m) => m.EditStageLabelsModal),
@@ -34,6 +41,7 @@ interface KanbanBoardProps {
   customStageLabels?: Record<string, string>;
   userRole?: string;
   organizationId?: string;
+  initialTempFilter?: 'all' | LeadTemperature | 'unclassified';
 }
 
 export function KanbanBoard({
@@ -41,11 +49,13 @@ export function KanbanBoard({
   customStageLabels = {},
   userRole = 'agent',
   organizationId,
+  initialTempFilter = 'all',
 }: KanbanBoardProps) {
   const [contacts, setContacts] = useState<ContactItem[]>(initialContacts);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [aiFilter, setAiFilter] = useState<'all' | 'ai' | 'human'>('all');
+  const [tempFilter, setTempFilter] = useState<'all' | LeadTemperature | 'unclassified'>(initialTempFilter);
   const [stageLabels, setStageLabels] = useState<Record<string, string>>(customStageLabels);
   const [isEditLabelsOpen, setIsEditLabelsOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -114,14 +124,22 @@ export function KanbanBoard({
 
   const filteredContacts = contacts.filter((c) => {
     const query = deferredSearch.toLowerCase();
+    const interest = resolveProductInterest(c.custom_fields) || '';
     const matchesSearch =
       (c.name?.toLowerCase() || '').includes(query) ||
-      c.phone.includes(deferredSearch);
+      c.phone.includes(deferredSearch) ||
+      interest.toLowerCase().includes(query);
 
     if (!matchesSearch) return false;
 
-    if (aiFilter === 'ai') return c.is_ai_active;
-    if (aiFilter === 'human') return !c.is_ai_active;
+    if (aiFilter === 'ai' && !c.is_ai_active) return false;
+    if (aiFilter === 'human' && c.is_ai_active) return false;
+
+    if (tempFilter !== 'all') {
+      const t = resolveLeadTemperature(c.custom_fields);
+      if (tempFilter === 'unclassified' && t !== null) return false;
+      if (tempFilter !== 'unclassified' && t !== tempFilter) return false;
+    }
     return true;
   });
 
@@ -136,17 +154,22 @@ export function KanbanBoard({
       perdido: 'Perdido / Descarte',
     };
 
-    const headers = ['Nombre', 'WhatsApp / Teléfono', 'Etapa Pipeline', 'Control', 'Última Interacción'];
+    const headers = ['Nombre', 'WhatsApp / Teléfono', 'Calificación IA', 'Interés', 'Etapa Pipeline', 'Control', 'Última Interacción'];
 
     const escapeCsv = (val: string) => `"${val.replace(/"/g, '""')}"`;
 
-    const rows = filteredContacts.map((contact) => [
-      contact.name || 'Sin nombre',
-      contact.phone,
-      stageLabels[contact.pipeline_stage] || stageLabelMap[contact.pipeline_stage] || contact.pipeline_stage,
-      contact.is_ai_active ? 'IA Activa' : 'Asesor Humano',
-      contact.last_interaction_at ? new Date(contact.last_interaction_at).toLocaleString('es-ES') : 'N/A',
-    ]);
+    const rows = filteredContacts.map((contact) => {
+      const t = resolveLeadTemperature(contact.custom_fields);
+      return [
+        contact.name || 'Sin nombre',
+        contact.phone,
+        t ? LEAD_TEMPERATURE_META[t]?.label || t : 'Sin clasificar',
+        resolveProductInterest(contact.custom_fields) || '',
+        stageLabels[contact.pipeline_stage] || stageLabelMap[contact.pipeline_stage] || contact.pipeline_stage,
+        contact.is_ai_active ? 'IA Activa' : 'Asesor Humano',
+        contact.last_interaction_at ? new Date(contact.last_interaction_at).toLocaleString('es-ES') : 'N/A',
+      ];
+    });
 
     const csvContent = [
       headers.map(escapeCsv).join(','),
@@ -214,6 +237,30 @@ export function KanbanBoard({
             >
               <User className="w-3 h-3" /> Humano
             </button>
+          </div>
+
+          <div className="h-4 w-px bg-slate-200 dark:bg-[#232A3B] mx-0.5 hidden sm:block" />
+
+          {/* Filtro por Temperatura IA */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] px-2 py-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B]">
+            <Flame className="w-3 h-3 text-rose-500 shrink-0" />
+            <select
+              value={tempFilter}
+              onChange={(e) => setTempFilter(e.target.value as any)}
+              aria-label="Filtrar por calificación"
+              className="bg-transparent text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none py-0.5 cursor-pointer"
+            >
+              <option value="all" className="bg-white dark:bg-[#131722]">Todas calif.</option>
+              {LEAD_TEMPERATURE_ORDER.map((t) => {
+                const meta = LEAD_TEMPERATURE_META[t];
+                return (
+                  <option key={t} value={t} className="bg-white dark:bg-[#131722]">
+                    {meta.badge.split(' ')[0]} {meta.label}
+                  </option>
+                );
+              })}
+              <option value="unclassified" className="bg-white dark:bg-[#131722]">❔ Sin clasificar</option>
+            </select>
           </div>
 
           <div className="h-4 w-px bg-slate-200 dark:bg-[#232A3B] mx-0.5 hidden sm:block" />

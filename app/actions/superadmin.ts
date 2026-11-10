@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { calculateBillingStatus } from '@/lib/billing/billing-status';
 import { encryptSecret } from '@/lib/security/encryption';
+import { normalizeAlertThresholds, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -304,6 +305,8 @@ export async function provisionCompany(input: {
   evolutionMaxOutboundPerHour?: number;
   specialistLabel?: string;
   roomLabel?: string;
+  tokenAlertThresholds?: number[] | string;
+  overagePricePer500kCop?: number | null;
 }) {
   await requireSuperAdmin();
 
@@ -509,6 +512,8 @@ export async function updateCompanyDetails(input: {
   evolutionMaxOutboundPerHour?: number;
   specialistLabel?: string;
   roomLabel?: string;
+  tokenAlertThresholds?: number[] | string;
+  overagePricePer500kCop?: number | null;
 }) {
   await requireSuperAdmin();
 
@@ -589,6 +594,40 @@ export async function updateCompanyDetails(input: {
     updateData.ai_tokens_used = 0;
     updateData.ai_tokens_google_used = 0;
     updateData.ai_tokens_openai_used = 0;
+  }
+
+  if (
+    input.resetTokensUsed ||
+    input.tokenAlertThresholds !== undefined ||
+    input.overagePricePer500kCop !== undefined
+  ) {
+    const { data: currentOrg } = await (supabaseAdmin.from('organizations') as any)
+      .select('appointment_settings')
+      .eq('id', input.organizationId)
+      .single();
+    const curSettings =
+      currentOrg?.appointment_settings && typeof currentOrg.appointment_settings === 'object'
+        ? { ...currentOrg.appointment_settings }
+        : {};
+    const curPolicy = normalizeTokenPolicy(curSettings.token_policy);
+    updateData.appointment_settings = {
+      ...curSettings,
+      token_policy: {
+        ...curPolicy,
+        ...(input.tokenAlertThresholds !== undefined
+          ? { alertThresholds: normalizeAlertThresholds(input.tokenAlertThresholds) }
+          : {}),
+        ...(input.overagePricePer500kCop !== undefined
+          ? {
+              overagePricePer500kCop:
+                input.overagePricePer500kCop && input.overagePricePer500kCop > 0
+                  ? Math.round(input.overagePricePer500kCop)
+                  : null,
+            }
+          : {}),
+        ...(input.resetTokensUsed ? { alertsSentInCycle: {} } : {}),
+      },
+    };
   }
 
   let { error } = await (supabaseAdmin.from('organizations') as any)
@@ -736,13 +775,31 @@ export async function registerCompanyPayment(input: {
     console.warn('[PAYMENT LEDGER WARN]', err?.message);
   }
 
-  // 2. Actualizar empresa: reactivar, renovar ciclo y reiniciar tokens consumidos
+  const { data: orgBilling } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', input.organizationId)
+    .single();
+
+  const curBillingSettings =
+    orgBilling?.appointment_settings && typeof orgBilling.appointment_settings === 'object'
+      ? { ...orgBilling.appointment_settings }
+      : {};
+  const curBillingPolicy = normalizeTokenPolicy(curBillingSettings.token_policy);
+
+  // 2. Actualizar empresa: reactivar, renovar ciclo y reiniciar tokens + banderas de alertas
   const updateData: Record<string, any> = {
     paid_until_month: input.periodMonth,
     is_active: true,
     subscription_status: 'active',
     past_due_since: null,
     ai_tokens_used: 0, // Cláusula 6 y 7: tokens se renuevan al pagar el mes
+    appointment_settings: {
+      ...curBillingSettings,
+      token_policy: {
+        ...curBillingPolicy,
+        alertsSentInCycle: {},
+      },
+    },
     updated_at: new Date().toISOString(),
   };
 

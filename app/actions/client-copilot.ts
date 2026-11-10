@@ -1,8 +1,9 @@
 'use server';
 
-import OpenAI from 'openai';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { checkRateLimit } from '@/lib/security/rate-limiter';
+import { createChatCompletionWithFallback } from '@/services/openai.service';
+import { getAiUtilityChain } from '@/lib/ai/config';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -60,8 +61,7 @@ export async function askClientCopilot(question: string, history: ChatMessage[] 
     };
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY && !process.env.OPENAI_API_KEY) {
     return {
       success: false,
       answer: 'El motor de respuestas automáticas está temporalmente inactivo. Puedes crear un ticket técnico con un desarrollador.',
@@ -69,11 +69,9 @@ export async function askClientCopilot(question: string, history: ChatMessage[] 
   }
 
   try {
-    const openai = new OpenAI({ apiKey });
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const { response } = await createChatCompletionWithFallback({
+      chainOverride: getAiUtilityChain(),
       temperature: 0.3,
-      max_tokens: 500,
       messages: [
         {
           role: 'system',

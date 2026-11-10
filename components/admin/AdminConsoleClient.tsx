@@ -90,6 +90,7 @@ export default function AdminConsoleClient({
   const [editSeats, setEditSeats] = useState<number>(2);
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
   const [editResetTokens, setEditResetTokens] = useState<boolean>(false);
+  const [editTokenAlertThresholds, setEditTokenAlertThresholds] = useState<string>('80, 90, 100');
   const [editModules, setEditModules] = useState<EnabledModules>({
     native_calendar: true,
     physical_rooms: false,
@@ -246,6 +247,12 @@ export default function AdminConsoleClient({
     setEditSeats(org.max_users);
     setEditTokensLimit(org.ai_tokens_limit || 500000);
     setEditResetTokens(false);
+    const policyThresholds = (org.appointment_settings as any)?.token_policy?.alertThresholds;
+    setEditTokenAlertThresholds(
+      Array.isArray(policyThresholds) && policyThresholds.length > 0
+        ? policyThresholds.join(', ')
+        : '80, 90, 100'
+    );
     setEditModules(org.enabled_modules || {
       native_calendar: true,
       physical_rooms: false,
@@ -289,6 +296,7 @@ export default function AdminConsoleClient({
         maxUsers: editSeats,
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
+        tokenAlertThresholds: editTokenAlertThresholds,
         enabledModules: editModules,
         companyCode: editCompanyCode,
         whatsappProvider: editWaProvider,
@@ -1326,8 +1334,21 @@ export default function AdminConsoleClient({
                     </div>
 
                     <p className="text-[10px] text-slate-500 italic">
-                      Asigna la cuota mensual de tokens IA para la empresa.
+                      Asigna la cuota base mensual de tokens IA (en Modo Excedente el bot no se detiene al 100%).
                     </p>
+
+                    <div className="pt-2">
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                        Umbrales Push de Aviso (% separados por coma):
+                      </label>
+                      <input
+                        type="text"
+                        value={editTokenAlertThresholds}
+                        onChange={(e) => setEditTokenAlertThresholds(e.target.value)}
+                        placeholder="80, 90, 100"
+                        className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono text-slate-800"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
