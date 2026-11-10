@@ -17,7 +17,11 @@ import {
   PROMPT_SECTIONS,
   type BlueprintSlot,
 } from '@/lib/ai/prompt-assistant/blueprint';
-import type { PendingSectionProposal, PromptAssistantState } from '@/lib/ai/prompt-assistant/state';
+import type {
+  AssistantClientBudgetNotice,
+  PendingSectionProposal,
+  PromptAssistantState,
+} from '@/lib/ai/prompt-assistant/state';
 import type { ImportedCatalogItem } from '@/lib/ai/prompt-assistant/file-import';
 import { VoiceRecorder } from './VoiceRecorder';
 import { SectionProposalCard } from './SectionProposalCard';
@@ -38,12 +42,22 @@ interface AssistantChatProps {
   feed: AssistantChatFeedItem[];
   conflicts: string[];
   dailyLimitReached: boolean;
-  onSubmitAnswer: (slot: BlueprintSlot, answer: string) => Promise<void>;
+  budgetNotice?: AssistantClientBudgetNotice | null;
+  onSubmitAnswer: (slot: BlueprintSlot | null, answer: string) => Promise<void>;
   onAnalyzeExisting: () => Promise<void>;
   onAcceptProposal: (proposal: PendingSectionProposal) => Promise<void>;
   onRejectProposal: (proposalId: string) => Promise<void>;
   onPolishPrompt?: () => Promise<void>;
   polishingPrompt?: boolean;
+  polishPreview?: {
+    polishedPrompt: string;
+    tokensBefore: number;
+    tokensAfter: number;
+  } | null;
+  applyingPolish?: boolean;
+  onConfirmPolish?: () => Promise<void>;
+  onCancelPolish?: () => void;
+  onOpenSandbox?: () => void;
   onSaveImportedCatalog: (items: ImportedCatalogItem[]) => Promise<void>;
   onExtractPdfBlocks: (
     blocks: string[],
@@ -63,12 +77,18 @@ export function AssistantChat({
   feed,
   conflicts,
   dailyLimitReached,
+  budgetNotice,
   onSubmitAnswer,
   onAnalyzeExisting,
   onAcceptProposal,
   onRejectProposal,
   onPolishPrompt,
   polishingPrompt,
+  polishPreview,
+  applyingPolish,
+  onConfirmPolish,
+  onCancelPolish,
+  onOpenSandbox,
   onSaveImportedCatalog,
   onExtractPdfBlocks,
   pendingImport,
@@ -81,12 +101,15 @@ export function AssistantChat({
   const [uploadingFile, setUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isFreeMode = !activeSlotId || activeSlotId === 'free';
+
   const activeSlot = useMemo(() => {
+    if (isFreeMode) return null;
     return (
       PROMPT_BLUEPRINT_SLOTS.find((s) => s.id === activeSlotId) ||
       PROMPT_BLUEPRINT_SLOTS[0]
     );
-  }, [activeSlotId]);
+  }, [activeSlotId, isFreeMode]);
 
   const slotChips = useMemo(() => {
     const base = activeSlot?.chips ? activeSlot.chips(preset) : [];
@@ -95,11 +118,12 @@ export function AssistantChat({
 
   const handleSend = async (textOverride?: string) => {
     const val = (textOverride ?? inputText).trim();
-    if (!val || sending || !activeSlot) return;
+    if (!val || sending) return;
+    if (!isFreeMode && !activeSlot) return;
     if (!textOverride) setInputText('');
     setSending(true);
     try {
-      await onSubmitAnswer(activeSlot, val);
+      await onSubmitAnswer(isFreeMode ? null : activeSlot, val);
     } finally {
       setSending(false);
     }
@@ -168,24 +192,53 @@ export function AssistantChat({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Selector de sección + botón analizar prompt existente */}
+      {/* Modo libre vs guía opcional + botón analizar prompt existente */}
       <div className="px-3 py-2 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F] flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <select
-          value={activeSlot?.id || ''}
-          onChange={(e) => onSelectSlot(e.target.value)}
-          className="text-[11px] font-medium px-2 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-200 max-w-[215px]"
-          title="Cambiar de sección"
-        >
-          {PROMPT_BLUEPRINT_SLOTS.map((slot) => {
-            const done = state.sectionStatus[slot.sectionId] === 'complete';
-            return (
-              <option key={slot.id} value={slot.id}>
-                {done ? '✓ ' : ''}
-                {PROMPT_SECTIONS.find((sec) => sec.id === slot.sectionId)?.order}. {slot.sectionTitle} — {slot.label}
-              </option>
-            );
-          })}
-        </select>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] p-0.5 text-[11px] font-semibold">
+            <button
+              type="button"
+              onClick={() => onSelectSlot('free')}
+              className={`px-2 py-1 rounded-md transition cursor-pointer ${
+                isFreeMode
+                  ? 'bg-[#0052FF] text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Chat libre
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectSlot(PROMPT_BLUEPRINT_SLOTS[0].id)}
+              className={`px-2 py-1 rounded-md transition cursor-pointer ${
+                !isFreeMode
+                  ? 'bg-[#0052FF] text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Guía
+            </button>
+          </div>
+
+          {!isFreeMode && (
+            <select
+              value={activeSlot?.id || ''}
+              onChange={(e) => onSelectSlot(e.target.value)}
+              className="text-[11px] font-medium px-2 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-200 max-w-[155px]"
+              title="Cambiar de tema en la guía"
+            >
+              {PROMPT_BLUEPRINT_SLOTS.map((slot) => {
+                const done = state.sectionStatus[slot.sectionId] === 'complete';
+                return (
+                  <option key={slot.id} value={slot.id}>
+                    {done ? '✓ ' : ''}
+                    {PROMPT_SECTIONS.find((sec) => sec.id === slot.sectionId)?.order}. {slot.sectionTitle}
+                  </option>
+                );
+              })}
+            </select>
+          )}
+        </div>
 
         {hasPromptBody && (
           <button
@@ -233,6 +286,47 @@ export function AssistantChat({
           </div>
         )}
 
+        {polishPreview && (
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-700/50 bg-emerald-50/70 dark:bg-emerald-950/20 p-3 text-xs space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Vista previa simplificada</span>
+              </span>
+              {polishPreview.tokensBefore > 0 && polishPreview.tokensAfter < polishPreview.tokensBefore && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                  -{Math.max(1, Math.round(((polishPreview.tokensBefore - polishPreview.tokensAfter) / polishPreview.tokensBefore) * 100))}% más compacto
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+              Conservamos tus precios, medidas, cuentas, reglas y formato; eliminamos duplicados y redundancias.
+            </p>
+            <div className="max-h-44 overflow-y-auto rounded-lg bg-white dark:bg-[#090A0F] border border-emerald-200/80 dark:border-[#1E2433] p-2 text-[11px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+              {polishPreview.polishedPrompt.split('=== CATÁLOGO VISUAL DE PRODUCTOS')[0].trim()}
+            </div>
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={onCancelPolish}
+                disabled={applyingPolish}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1E2433] cursor-pointer"
+              >
+                Descartar
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmPolish}
+                disabled={applyingPolish}
+                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                {applyingPolish && <Loader2 className="w-3 h-3 animate-spin" />}
+                <span>Aplicar simplificación</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {state.pendingProposals.length > 0 && (
           <div className="space-y-2">
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -260,7 +354,41 @@ export function AssistantChat({
           />
         )}
 
-        {/* Pregunta guiada del slot actual */}
+        {/* Modo libre: redacta o dicta lo que necesites sin elegir sección manualmente */}
+        {isFreeMode && (
+          <div className="rounded-2xl rounded-tl-xs border border-blue-200/80 dark:border-blue-800/40 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#0052FF] dark:text-[#00D2FF] flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                Chat libre · Sin secciones obligatorias
+              </span>
+            </div>
+            <p className="text-xs font-semibold text-slate-900 dark:text-white leading-relaxed">
+              Escribe o dicta cualquier regla, producto, precio, horario o ajuste para tu IA.
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+              Identifico automáticamente en qué apartado ubicarlo sin borrar lo que ya configuraste.
+            </p>
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {[
+                'Cuando envíes fotos con precio y detalles, no repitas esos datos en texto.',
+                'Nuevo producto/servicio: ',
+                'Horario de atención y cobertura: ',
+              ].map((starter, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setInputText(starter)}
+                  className="px-2.5 py-1 rounded-full bg-white dark:bg-[#131722] hover:bg-blue-100/70 dark:hover:bg-[#1E2433] border border-blue-200 dark:border-[#232A3B] text-[10px] font-medium text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                >
+                  {idx === 0 ? 'Regla anti-redundancia visual' : idx === 1 ? '+ Producto / precio' : '+ Horario / cobertura'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pregunta guiada del slot actual (solo cuando el usuario elige "Guía") */}
         {activeSlot && (
           <div className="rounded-2xl rounded-tl-xs border border-blue-200/80 dark:border-blue-800/40 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
@@ -333,15 +461,39 @@ export function AssistantChat({
             </div>
           </div>
         ))}
+        {feed.length > 0 && onOpenSandbox && hasPromptBody && (
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={onOpenSandbox}
+              className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Probar estos cambios en el simulador (Sandbox)</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Barra inferior: adjuntar Excel/PDF + nota de voz + textarea/input */}
       <div className="p-2.5 border-t border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] shrink-0 space-y-1.5">
-        {dailyLimitReached && (
+        {dailyLimitReached ? (
           <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg px-2.5 py-1.5">
-            Alcanzaste el límite de generación automática por hoy. Aún puedes usar respuestas rápidas, subir Excel/CSV o editar el texto manualmente arriba.
+            Alcanzaste tu capacidad de generación automática ({budgetNotice?.limitScope === 'weekly' ? 'semanal' : 'diaria'}; se renueva {budgetNotice?.resetHint || 'pronto'}). Aún puedes usar respuestas rápidas o editar el texto arriba.
           </div>
-        )}
+        ) : budgetNotice?.showNotice ? (
+          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1">
+            <span>
+              Capacidad semanal de mejoras IA: <strong>{budgetNotice.usagePct}%</strong> usada · Se renueva {budgetNotice.resetHint}
+            </span>
+            <div className="w-14 h-1.5 rounded-full bg-slate-200 dark:bg-[#1E2433] overflow-hidden shrink-0">
+              <div
+                className="h-full bg-amber-500 rounded-full transition-all"
+                style={{ width: `${Math.min(100, budgetNotice.usagePct)}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex items-end gap-1.5">
           <input

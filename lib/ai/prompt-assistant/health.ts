@@ -32,6 +32,8 @@ export function evaluatePromptHealth(params: {
   state: PromptAssistantState;
   preset?: IndustryPreset;
   gallery?: Array<{ name?: string; price?: string }>;
+  paymentAccounts?: Array<{ label?: string; bank?: string; provider?: string; account_number?: string }>;
+  businessHours?: { enabled?: boolean; start?: string; end?: string } | null;
   pendingGapsCount?: number;
   followUpEnabled?: boolean;
   whatsappProvider?: 'meta' | 'evolution' | string;
@@ -172,6 +174,69 @@ export function evaluatePromptHealth(params: {
     actionTarget: !sandboxTested ? 'sandbox' : undefined,
     actionLabel: !sandboxTested ? 'Probar bot' : undefined,
   });
+
+  // Validación cruzada Prompt <-> Galería (precios consistentes)
+  if (galleryList.length > 0 && body.trim()) {
+    const bodyLines = body.split('\n');
+    const mismatchedNames: string[] = [];
+    for (const g of galleryList) {
+      const gName = String(g?.name || '').trim();
+      const gDigits = String(g?.price || '').replace(/[^0-9]/g, '');
+      if (gName.length < 3 || gDigits.length < 3) continue;
+      const gLower = gName.toLowerCase();
+      const matchingLine = bodyLines.find((l) => l.toLowerCase().includes(gLower));
+      if (!matchingLine) continue;
+      const linePrices = (matchingLine.match(/\$\s*[0-9]{1,3}(?:[.,][0-9]{3})+|\$\s*[0-9]{4,}/g) || []).map((m) =>
+        m.replace(/[^0-9]/g, '')
+      );
+      if (linePrices.length > 0 && !linePrices.includes(gDigits)) {
+        mismatchedNames.push(gName);
+      }
+    }
+    if (mismatchedNames.length > 0) {
+      checks.push({
+        id: 'gallery_price_sync',
+        label: 'Coherencia de precios Prompt vs Galería',
+        status: 'warning',
+        detail: `Diferencia de precio entre el texto y la foto de: ${mismatchedNames.slice(0, 3).join(', ')}.`,
+        actionTarget: 'gallery',
+        actionLabel: 'Revisar precios',
+      });
+    }
+  }
+
+  // Validación cruzada Prompt <-> Cuentas de Pago configuradas
+  const payAccounts = Array.isArray(params.paymentAccounts) ? params.paymentAccounts : [];
+  if (payAccounts.length > 0 && body.trim()) {
+    const missingInPrompt = payAccounts
+      .map((a) => String(a?.bank || a?.provider || a?.label || '').trim())
+      .filter((name) => name.length >= 3 && !lowerPrompt.includes(name.toLowerCase()));
+    if (missingInPrompt.length > 0) {
+      checks.push({
+        id: 'payments_sync',
+        label: 'Sincronía con tus cuentas de pago',
+        status: 'warning',
+        detail: `Tienes cuenta(s) en Pagos (${missingInPrompt.slice(0, 2).join(', ')}) no mencionadas en el texto del prompt.`,
+        actionTarget: 'payments',
+        actionLabel: 'Ver Pagos',
+      });
+    }
+  }
+
+  // Validación cruzada Horarios <-> Prompt
+  if (params.businessHours?.enabled && params.businessHours.start && params.businessHours.end && body.trim()) {
+    const hasHoursText = /(horario|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|a\.m\.|p\.m\.|\d{1,2}:\d{2})/i.test(lowerPrompt);
+    if (!hasHoursText) {
+      checks.push({
+        id: 'hours_sync',
+        label: 'Horario de atención en el prompt',
+        status: 'warning',
+        detail: `Tienes horario configurado (${params.businessHours.start}–${params.businessHours.end}) pero no está escrito para que el cliente lo conozca.`,
+        actionTarget: 'assistant',
+        actionLabel: 'Agregar horario',
+      });
+    }
+  }
 
   return {
     completenessPct,

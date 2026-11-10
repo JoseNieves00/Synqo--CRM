@@ -75,7 +75,16 @@ export const AI_OPERATIONAL_CONFIG = {
  */
 export const PROMPT_ASSISTANT_CONFIG = {
   get dailyTokenCap(): number {
-    return parsePositiveInt(process.env.PROMPT_ASSISTANT_DAILY_TOKEN_CAP, 25000);
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_DAILY_TOKEN_CAP, 50000);
+  },
+  get weeklyTokenCap(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_WEEKLY_TOKEN_CAP, 150000);
+  },
+  get weeklyAuditReserveTokens(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_AUDIT_RESERVE_TOKENS, 15000);
+  },
+  get clientWarningPct(): number {
+    return parsePositiveInt(process.env.PROMPT_ASSISTANT_WARNING_PCT, 75);
   },
   get targetPromptTokens(): number {
     return parsePositiveInt(process.env.PROMPT_TARGET_TOKENS, 1800);

@@ -24,6 +24,7 @@ import {
 } from '@/lib/ai/prompt-assistant/blueprint';
 import {
   createEmptyAssistantState,
+  type AssistantClientBudgetNotice,
   type PendingSectionProposal,
   type PromptAssistantState,
 } from '@/lib/ai/prompt-assistant/state';
@@ -33,6 +34,7 @@ import { COMMON_HELP_CHIPS } from '@/lib/ai/prompt-assistant/guide';
 import type { ImportedCatalogItem } from '@/lib/ai/prompt-assistant/file-import';
 import {
   analyzeExistingPromptAction,
+  applyPolishedPromptAction,
   applySectionProposalAction,
   askAssistantHelpAction,
   buildDeterministicSandboxQuestionsAction,
@@ -87,6 +89,7 @@ export function PromptAssistantPanel({
   const [whatsappProvider, setWhatsappProvider] = useState<'meta' | 'evolution'>('meta');
   const [activeSlotId, setActiveSlotId] = useState<string | null>('free');
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
+  const [budgetNotice, setBudgetNotice] = useState<AssistantClientBudgetNotice | null>(null);
   const [catalogInlineMax, setCatalogInlineMax] = useState(15);
 
   const [feed, setFeed] = useState<AssistantChatFeedItem[]>([]);
@@ -95,6 +98,12 @@ export function PromptAssistantPanel({
 
   const [showVersionsMenu, setShowVersionsMenu] = useState(false);
   const [polishing, setPolishing] = useState(false);
+  const [polishPreview, setPolishPreview] = useState<{
+    polishedPrompt: string;
+    tokensBefore: number;
+    tokensAfter: number;
+  } | null>(null);
+  const [applyingPolish, setApplyingPolish] = useState(false);
   const [openingSandbox, setOpeningSandbox] = useState(false);
   const [refreshingAudit, setRefreshingAudit] = useState(false);
 
@@ -121,6 +130,7 @@ export function PromptAssistantPanel({
       const hasExisting = currentPrompt.trim().length >= 35;
       setActiveSlotId(hasExisting ? 'free' : res.nextSlotId || 'free');
       setDailyLimitReached(Boolean(res.dailyLimitReached));
+      if (res.budgetNotice) setBudgetNotice(res.budgetNotice);
       if (res.catalogInlineMax) setCatalogInlineMax(res.catalogInlineMax);
       setBootstrapped(true);
     } catch (err: any) {
@@ -145,6 +155,7 @@ export function PromptAssistantPanel({
       setHealth(res.health);
       setVersions(res.versions || []);
       setDailyLimitReached(Boolean(res.dailyLimitReached));
+      if (res.budgetNotice) setBudgetNotice(res.budgetNotice);
       if (res.catalogInlineMax) setCatalogInlineMax(res.catalogInlineMax);
     } catch {}
   };
@@ -254,6 +265,14 @@ export function PromptAssistantPanel({
         res.highlightedSection,
         (res as any).structuredData
       );
+      setFeed((prev) => [
+        ...prev.slice(-14),
+        {
+          id: `app-${Date.now()}`,
+          role: 'assistant',
+          text: `Listo, apliqué el ajuste en **${proposal.sectionTitle}** respetando tu estructura actual (guardé respaldo previo en Historial).`,
+        },
+      ]);
       await refreshHealth(res.patchedPrompt);
     } catch (err: any) {
       pushNotice(err?.message || 'No se pudo aplicar la propuesta.');
@@ -346,22 +365,46 @@ export function PromptAssistantPanel({
     if (polishing || currentPrompt.trim().length < 40) return;
     setPolishing(true);
     try {
-      const res = await polishPromptDraftAction({ currentPrompt });
+      const res = await polishPromptDraftAction({ currentPrompt, previewOnly: true });
       if (res.limitReached) {
         setDailyLimitReached(true);
-        pushNotice('Alcanzaste el límite automático por hoy.');
+        if ((res as any).budgetNotice) setBudgetNotice((res as any).budgetNotice);
+        pushNotice('Alcanzaste tu capacidad automática por ahora. Puedes editar el texto arriba o usar respuestas rápidas.');
         return;
       }
-      setVersions(res.versions || []);
+      if ((res as any).budgetNotice) setBudgetNotice((res as any).budgetNotice);
       if (res.polishedPrompt) {
-        onApplyPromptFromAssistant(res.polishedPrompt, null, (res as any).structuredData);
-        pushNotice('Redacción optimizada conservando todos tus datos y precios intactos.');
+        setPolishPreview({
+          polishedPrompt: res.polishedPrompt,
+          tokensBefore: Number((res as any).estimatedTokensBefore || 0),
+          tokensAfter: Number((res as any).estimatedTokensAfter || 0),
+        });
+        setActiveTab('build');
       }
-      await refreshHealth(res.polishedPrompt || currentPrompt);
     } catch (err: any) {
       pushNotice(err?.message || 'No se pudo pulir el texto.');
     } finally {
       setPolishing(false);
+    }
+  };
+
+  const handleConfirmPolish = async () => {
+    if (!polishPreview || applyingPolish) return;
+    setApplyingPolish(true);
+    try {
+      const res = await applyPolishedPromptAction({
+        currentPrompt,
+        polishedPrompt: polishPreview.polishedPrompt,
+      });
+      setVersions(res.versions || []);
+      onApplyPromptFromAssistant(res.appliedPrompt, null, (res as any).structuredData);
+      setPolishPreview(null);
+      pushNotice('Simplificación aplicada (se guardó respaldo previo en Historial).');
+      await refreshHealth(res.appliedPrompt);
+    } catch (err: any) {
+      pushNotice(err?.message || 'No se pudo aplicar la simplificación.');
+    } finally {
+      setApplyingPolish(false);
     }
   };
 
@@ -623,12 +666,18 @@ export function PromptAssistantPanel({
             feed={feed}
             conflicts={conflicts}
             dailyLimitReached={dailyLimitReached}
+            budgetNotice={budgetNotice}
             onSubmitAnswer={handleSubmitAnswer}
             onAnalyzeExisting={handleAnalyzeExisting}
             onAcceptProposal={handleAcceptProposal}
             onRejectProposal={handleRejectProposal}
             onPolishPrompt={handlePolishPrompt}
             polishingPrompt={polishing}
+            polishPreview={polishPreview}
+            applyingPolish={applyingPolish}
+            onConfirmPolish={handleConfirmPolish}
+            onCancelPolish={() => setPolishPreview(null)}
+            onOpenSandbox={handleOpenSandbox}
             onSaveImportedCatalog={handleSaveImportedCatalog}
             onExtractPdfBlocks={handleExtractPdfBlocks}
             pendingImport={pendingImport}

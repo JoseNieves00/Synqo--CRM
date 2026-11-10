@@ -89,6 +89,7 @@ export async function createChatCompletionWithFallback(params: {
   tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
   toolChoice?: 'auto' | 'none';
   temperature?: number;
+  maxTokens?: number;
   aiProvider?: string | null;
   organizationId?: string;
   contactId?: string;
@@ -150,6 +151,7 @@ export async function createChatCompletionWithFallback(params: {
         tools: params.tools && params.tools.length > 0 ? params.tools : undefined,
         tool_choice: params.tools && params.tools.length > 0 ? params.toolChoice || 'auto' : undefined,
         temperature: params.temperature ?? 0.3,
+        ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
         ...(params.responseFormat ? { response_format: params.responseFormat } : {}),
       };
 
@@ -977,8 +979,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         let contentText = msg.content || '';
 
         const isOldTurn = i < totalCount - 4;
-        if (isOldTurn && contentText.length > 350) {
-          contentText = contentText.slice(0, 320) + '... [resumido]';
+        if (isOldTurn && contentText.length > 220) {
+          contentText = contentText.slice(0, 195) + '... [resumido]';
         }
 
         if (msg.sender_type === 'lead') {
@@ -1040,7 +1042,12 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             conversationHistory.push({ role: 'user', content: contentText });
           }
         } else if (msg.sender_type === 'ai' || msg.sender_type === 'agent_manual') {
-          conversationHistory.push({ role: 'assistant', content: contentText });
+          // Evitar gastar tokens re-enviando URLs largas de Storage en historial de fotos enviadas
+          const compactAssistantText = contentText.replace(
+            /\[IMAGEN:\s*https?:\/\/[^\]]+\]/gi,
+            '[Imagen enviada]'
+          );
+          conversationHistory.push({ role: 'assistant', content: compactAssistantText });
         }
       }
 
@@ -1157,6 +1164,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           tools: activeTools,
           toolChoice: allowToolsThisRound ? 'auto' : 'none',
           temperature: 0.3,
+          maxTokens: 600,
           aiProvider,
           organizationId,
           contactId,

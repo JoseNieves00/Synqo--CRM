@@ -13,20 +13,29 @@ import {
   tryParseSlotLocally,
 } from '@/lib/ai/prompt-assistant/blueprint';
 import {
-  getAssistantDailyUsage,
+  getAssistantBudgetStatus,
   getNextPendingSlot,
   normalizeAssistantState,
   recordAssistantUsageInState,
+  toClientBudgetNotice,
+  type AssistantClientBudgetNotice,
   type PendingSectionProposal,
   type PromptAssistantState,
 } from '@/lib/ai/prompt-assistant/state';
 import {
+  adaptBulletStyle,
+  buildCompactPromptOutline,
+  dedupePromptLinesDeterministically,
+  detectPromptFormat,
+  estimatePromptTokens,
+  extractExistingSectionContent,
   isMetaPromptCommentary,
   patchSectionInPrompt,
   pushPromptVersion,
   renderPromptFromSlots,
   renderSectionBodyFromSlots,
   splitGalleryTail,
+  tryRouteFreeInstructionLocally,
   type PromptVersionEntry,
 } from '@/lib/ai/prompt-assistant/versions';
 import { evaluatePromptHealth, type PromptHealthReport } from '@/lib/ai/prompt-assistant/health';
@@ -60,7 +69,7 @@ async function getAuthorizedOrgForAssistant() {
 
   const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
     .select(
-      'id, name, system_prompt, structured_prompt_data, industry_preset, ai_provider, whatsapp_provider, appointment_settings, enabled_modules'
+      'id, name, system_prompt, structured_prompt_data, industry_preset, ai_provider, whatsapp_provider, appointment_settings, business_hours, enabled_modules'
     )
     .eq('id', profile.organization_id)
     .single();
@@ -100,10 +109,7 @@ async function trackAssistantConsumption(params: {
     console.warn('[PROMPT ASSISTANT AI_RUNS AUDIT WARN]', err);
   }
 
-  const wasLimitedBefore = getAssistantDailyUsage(
-    params.currentState,
-    PROMPT_ASSISTANT_CONFIG.dailyTokenCap
-  ).limitReached;
+  const wasLimitedBefore = getAssistantBudgetStatus(params.currentState).limitReached;
 
   const updatedState = recordAssistantUsageInState(
     params.currentState,
@@ -111,8 +117,13 @@ async function trackAssistantConsumption(params: {
     PROMPT_ASSISTANT_CONFIG.dailyTokenCap
   );
 
-  const afterUsage = getAssistantDailyUsage(updatedState, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-  if (!wasLimitedBefore && afterUsage.limitReached) {
+  const afterBudget = getAssistantBudgetStatus(updatedState);
+  if (!wasLimitedBefore && afterBudget.limitReached) {
+    const scopeLabel = afterBudget.limitScope === 'weekly' ? 'Semanal' : 'Diario';
+    const currentAmount =
+      afterBudget.limitScope === 'weekly' ? afterBudget.tokensLast7Days : afterBudget.tokensToday;
+    const capAmount =
+      afterBudget.limitScope === 'weekly' ? afterBudget.weeklyCap : afterBudget.dailyCap;
     (supabaseAdmin.from('organizations') as any)
       .select('name')
       .eq('id', params.orgId)
@@ -122,8 +133,8 @@ async function trackAssistantConsumption(params: {
           type: 'assistant_cap_exceeded',
           orgId: params.orgId,
           companyName: data?.name || params.orgId,
-          title: 'Tope Diario de Asistente de Prompt Superado',
-          details: `Alcanzó ${afterUsage.tokensToday.toLocaleString('es-CO')} / ${afterUsage.cap.toLocaleString('es-CO')} tokens hoy (${afterUsage.callsToday} llamadas).`,
+          title: `Tope ${scopeLabel} de Asistente de Prompt Superado`,
+          details: `Alcanzó ${currentAmount.toLocaleString('es-CO')} / ${capAmount.toLocaleString('es-CO')} tokens (${scopeLabel.toLowerCase()}).`,
           dedupeWindowMinutes: 120,
         }).catch(() => {});
       })
@@ -205,23 +216,28 @@ export async function getPromptAssistantBootstrapAction(params?: { currentPrompt
     state,
     preset,
     gallery: Array.isArray(structured.gallery) ? structured.gallery : [],
+    paymentAccounts: Array.isArray(org.appointment_settings?.payment_accounts)
+      ? org.appointment_settings.payment_accounts
+      : [],
+    businessHours: org.business_hours || null,
     pendingGapsCount,
     followUpEnabled: Boolean(followUpSeq?.enabled),
     whatsappProvider: org.whatsapp_provider || 'meta',
     hasMetaTemplatesInFollowUp: hasMetaTpl,
   });
 
-  const dailyUsage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
+  const budgetStatus = getAssistantBudgetStatus(state);
   const nextSlot = getNextPendingSlot(state, preset);
 
   return {
-    state: { ...state, usageByDay: {}, totalAssistantTokens: 0 }, // No exponer conteos de tokens al cliente
+    state: { ...state, usageByDay: {}, totalAssistantTokens: 0 }, // No exponer conteos crudos de tokens al cliente
     versions,
     health,
     preset,
     whatsappProvider: (org.whatsapp_provider || 'meta') as 'meta' | 'evolution',
     nextSlotId: nextSlot?.id || null,
-    dailyLimitReached: dailyUsage.limitReached,
+    dailyLimitReached: budgetStatus.limitReached,
+    budgetNotice: toClientBudgetNotice(budgetStatus),
     catalogInlineMax: PROMPT_ASSISTANT_CONFIG.catalogInlineMax,
   };
 }
@@ -244,20 +260,35 @@ export async function interpretAssistantAnswerAction(input: {
     ? structured.prompt_versions
     : [];
 
-  const slot = PROMPT_BLUEPRINT_SLOTS.find((s) => s.id === input.slotId);
-  if (!slot) throw new Error('Sección o pregunta inválida');
+  const isFreeMode = input.slotId === 'free';
+  const slot = isFreeMode
+    ? null
+    : PROMPT_BLUEPRINT_SLOTS.find((s) => s.id === input.slotId);
+  if (!isFreeMode && !slot) throw new Error('Sección o pregunta inválida');
 
   const cleanAnswer = sanitizeImportedText(input.answer);
   if (!cleanAnswer) throw new Error('Escribe o selecciona una respuesta.');
 
-  // 1. Parseo determinístico (0 tokens)
-  const localAttempt = tryParseSlotLocally(slot, cleanAnswer, preset);
+  const formatProfile = detectPromptFormat(input.currentPrompt || '');
+  const existingPromptBody = splitGalleryTail(stripPhotoUrlsFromText(input.currentPrompt || '')).body.trim();
+
+  // 1. Parseo determinístico (0 tokens) tanto en modo guiado como para reglas claras en Chat Libre
+  const localAttempt = slot
+    ? tryParseSlotLocally(slot, cleanAnswer, preset)
+    : { handled: false as const };
+  const freeLocalRoute =
+    isFreeMode ? tryRouteFreeInstructionLocally(cleanAnswer, input.currentPrompt || '') : { handled: false };
+
   let filled: Record<string, any> = {};
   let alsoDetected: Record<string, any> = {};
+  const mergedSections: Record<string, string> = {};
   let followUpQuestion: string | null = null;
   let skippedSlot = false;
 
-  if (localAttempt.handled) {
+  if (freeLocalRoute.handled && freeLocalRoute.sectionId && freeLocalRoute.slotId && freeLocalRoute.mergedBody) {
+    alsoDetected[freeLocalRoute.slotId] = freeLocalRoute.value;
+    mergedSections[freeLocalRoute.sectionId] = freeLocalRoute.mergedBody;
+  } else if (localAttempt.handled && slot) {
     if (localAttempt.skipped) {
       skippedSlot = true;
       state.sectionStatus[slot.sectionId] = 'skipped';
@@ -265,41 +296,59 @@ export async function interpretAssistantAnswerAction(input: {
       filled[slot.id] = localAttempt.value;
     }
   } else {
-    // 2. Verificar tope diario anti-abuso antes de llamar al LLM utilitario (sin descontar al cliente)
-    const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-    if (usage.limitReached) {
+    // 2. Verificar tope semanal/diario anti-abuso antes de llamar al LLM utilitario (sin descontar al cliente)
+    const budget = getAssistantBudgetStatus(state);
+    if (budget.limitReached) {
       return {
         limitReached: true,
+        budgetNotice: toClientBudgetNotice(budget),
         assistantMessage:
-          'Alcanzaste el límite de generación automática por hoy. Puedes editar el texto manualmente arriba o continuar mañana.',
+          `Alcanzaste tu capacidad de mejoras automáticas (${budget.limitScope === 'weekly' ? 'semanal' : 'diaria'}). Se renueva ${budget.resetHint}. Mientras tanto puedes editar el texto arriba o usar respuestas rápidas.`,
         patchedPrompt: null,
         proposal: null,
         state: { ...state, usageByDay: {}, totalAssistantTokens: 0 },
-        nextSlotId: getNextPendingSlot(state, preset)?.id || null,
+        nextSlotId: isFreeMode ? 'free' : getNextPendingSlot(state, preset)?.id || null,
       };
     }
 
-    const sectionMeta = PROMPT_SECTIONS.find((s) => s.id === slot.sectionId);
-    const otherSlotsHint = PROMPT_BLUEPRINT_SLOTS.filter((s) => s.id !== slot.id)
-      .map((s) => `${s.id} (${s.label})`)
-      .join(', ');
+    const allSlotsHint = PROMPT_BLUEPRINT_SLOTS.map((s) => `${s.id} (${s.sectionTitle}: ${s.label})`).join('\n');
+    const compactOutline = hasExistingBody ? buildCompactPromptOutline(existingPromptBody, 1300) : '';
+    const existingContextHint = compactOutline
+      ? `\nEstilo del cliente: ${formatProfile.styleDescription}.\nEsquema actual:\n---\n${compactOutline}\n---`
+      : '';
 
-    const systemMsg = `Eres un extractor estructurado para configurar un asistente comercial multi-nicho.
-Sección actual: "${sectionMeta?.title || slot.sectionTitle}" (slot "${slot.id}", tipo "${slot.type}").
-Pregunta realizada: "${slot.question}"
-Convierte la respuesta libre del usuario en datos concisos y limpios (sin inventar precios ni datos).
+    const systemMsg = isFreeMode
+      ? `Eres un editor quirúrgico de prompts comerciales multi-nicho.
+El administrador escribió o dictó libremente una instrucción, dato, producto o regla.
+Slots disponibles:
+${allSlotsHint}
+${existingContextHint}
+
+REGLAS CRÍTICAS:
+1. Identifica a qué slot(s) pertenece y devuelve el dato en "also_detected" (para "catalogo.items", array [{"name","price","specs","variants","includes"}]).
+2. Si ya existe un prompt arriba, en "merged_sections" escribe para el sectionId tocado (ej. "adicional", "catalogo", "pagos", "envios", "politicas", "faq", "tono", "cierre", "relevo", "seguimiento", "empresa") el cuerpo ACTUALIZADO de esa sección: FUSIONA lo que ya tenía esa sección con la nueva instrucción, EVITA duplicados o redundancias, y ADÁPTATE exactamente al estilo del cliente (${formatProfile.styleDescription}) sin borrar reglas previas vigentes.
+3. Redacta SIEMPRE como instrucciones directas ejecutables por el bot (PROHIBIDO meta-consejos como "Es recomendable...").
+4. Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una pregunta breve en "follow_up_question", si no null.
+Responde ÚNICAMENTE JSON válido:
+{ "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "follow_up_question": string | null }`
+      : `Eres un extractor estructurado para configurar un asistente comercial multi-nicho.
+Sección actual: "${PROMPT_SECTIONS.find((s) => s.id === slot!.sectionId)?.title || slot!.sectionTitle}" (slot "${slot!.id}", tipo "${slot!.type}").
+Pregunta realizada: "${slot!.question}"
+${existingContextHint}
+Convierte la respuesta libre del usuario en datos concisos y limpios (sin inventar precios ni datos y sin meta-consejos), respetando el estilo del cliente (${formatProfile.styleDescription}).
 Si es "catalogo.items", devuelve un array de objetos: [{"name":"...","price":"...","specs":"...","variants":"...","includes":"..."}].
-Si menciona información útil de otras secciones (${otherSlotsHint}), colócala en "also_detected" con el slotId exacto.
+Si menciona información útil de otras secciones (${PROMPT_BLUEPRINT_SLOTS.filter((s) => s.id !== slot!.id).map((s) => `${s.id} (${s.label})`).join(', ')}), colócala en "also_detected" con el slotId exacto.
 Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una sola pregunta breve en "follow_up_question", de lo contrario null.
 Responde ÚNICAMENTE JSON válido:
-{ "filled_value": string | string[] | object[], "also_detected": Record<string, any>, "follow_up_question": string | null }`;
+{ "filled_value": string | string[] | object[], "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "follow_up_question": string | null }`;
 
     const llmRes = await createChatCompletionWithFallback({
       messages: [
         { role: 'system', content: systemMsg },
-        { role: 'user', content: cleanAnswer.slice(0, 2500) },
+        { role: 'user', content: cleanAnswer.slice(0, 2000) },
       ],
       temperature: 0.15,
+      maxTokens: 450,
       chainOverride: getAiUtilityChain(),
       aiProvider: org.ai_provider,
       organizationId: org.id,
@@ -320,19 +369,36 @@ Responde ÚNICAMENTE JSON válido:
 
     try {
       const parsed = JSON.parse(stripJsonFence(llmRes.response.choices[0]?.message?.content || '{}'));
-      if (parsed.filled_value !== undefined && parsed.filled_value !== null) {
-        filled[slot.id] = parsed.filled_value;
-      } else {
-        filled[slot.id] = cleanAnswer;
+      if (!isFreeMode && slot) {
+        if (parsed.filled_value !== undefined && parsed.filled_value !== null) {
+          filled[slot.id] = parsed.filled_value;
+        } else {
+          filled[slot.id] = cleanAnswer;
+        }
       }
       if (parsed.also_detected && typeof parsed.also_detected === 'object') {
         alsoDetected = parsed.also_detected;
+      }
+      if (parsed.merged_sections && typeof parsed.merged_sections === 'object') {
+        for (const [secKey, secVal] of Object.entries(parsed.merged_sections)) {
+          if (typeof secVal === 'string' && secVal.trim() && !isMetaPromptCommentary(secVal)) {
+            mergedSections[secKey] = adaptBulletStyle(secVal.trim(), formatProfile.bulletStyle);
+          }
+        }
       }
       if (typeof parsed.follow_up_question === 'string' && parsed.follow_up_question.trim()) {
         followUpQuestion = parsed.follow_up_question.trim();
       }
     } catch {
-      filled[slot.id] = cleanAnswer;
+      if (isFreeMode) {
+        alsoDetected['adicional.notas'] = cleanAnswer;
+      } else if (slot) {
+        filled[slot.id] = cleanAnswer;
+      }
+    }
+
+    if (isFreeMode && Object.keys(alsoDetected).length === 0) {
+      alsoDetected['adicional.notas'] = cleanAnswer;
     }
   }
 
@@ -341,7 +407,7 @@ Responde ÚNICAMENTE JSON válido:
   for (const [k, v] of Object.entries({ ...filled, ...alsoDetected })) {
     if (v === undefined || v === null) continue;
     if (Array.isArray(v) && v.length === 0) continue;
-    if (typeof v === 'string' && !v.trim()) continue;
+    if (typeof v === 'string' && (!v.trim() || isMetaPromptCommentary(v))) continue;
     state.slots[k] = v;
     const ownerSlot = PROMPT_BLUEPRINT_SLOTS.find((s) => s.id === k);
     if (ownerSlot) {
@@ -351,7 +417,12 @@ Responde ÚNICAMENTE JSON válido:
       }
     }
   }
-  if (!skippedSlot && !touchedSectionIds.includes(slot.sectionId)) {
+  for (const secKey of Object.keys(mergedSections)) {
+    if (PROMPT_SECTIONS.some((s) => s.id === secKey) && !touchedSectionIds.includes(secKey)) {
+      touchedSectionIds.push(secKey);
+    }
+  }
+  if (!skippedSlot && slot && !touchedSectionIds.includes(slot.sectionId)) {
     touchedSectionIds.unshift(slot.sectionId);
   }
 
@@ -362,20 +433,39 @@ Responde ÚNICAMENTE JSON válido:
     if (state.mode === 'improve' && hasExistingBody) {
       for (const secId of touchedSectionIds) {
         const secMeta = PROMPT_SECTIONS.find((s) => s.id === secId);
-        const bodyForSec = renderSectionBodyFromSlots(secId, state.slots);
-        if (!secMeta || !bodyForSec) continue;
+        if (!secMeta) continue;
+        const existingSec = extractExistingSectionContent(input.currentPrompt || '', secMeta.title, secId);
+        const renderedSlotBody = renderSectionBodyFromSlots(secId, state.slots);
+        let proposedBody = mergedSections[secId] || renderedSlotBody;
+        if (!proposedBody || isMetaPromptCommentary(proposedBody)) continue;
+
+        if (!mergedSections[secId] && existingSec.found && existingSec.body.trim()) {
+          const adaptedNew = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
+          const existingNorm = existingSec.body.toLowerCase();
+          const newLines = adaptedNew
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l && !existingNorm.includes(l.replace(/^[-*]\s*/, '').toLowerCase()));
+          proposedBody = newLines.length > 0 ? `${existingSec.body.trimEnd()}\n${newLines.join('\n')}` : existingSec.body;
+        } else {
+          proposedBody = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
+        }
+
         const prop: PendingSectionProposal = {
           id: `prop-${Date.now()}-${secId}`,
           sectionId: secId,
-          sectionTitle: secMeta.title,
-          currentText: '(Prompt actual conservado hasta que apruebes este cambio)',
-          proposedText: bodyForSec,
-          reason:
-            secId === slot.sectionId
-              ? `Actualización de ${slot.label}`
-              : `Detectado en tu respuesta (${secMeta.title})`,
+          sectionTitle: existingSec.rawHeading
+            ? existingSec.rawHeading.replace(/^#+\s*|[:\s]+$/g, '').trim()
+            : secMeta.title,
+          currentText: existingSec.found
+            ? existingSec.body
+            : 'No especificado (se agregará respetando el estilo de tu prompt)',
+          proposedText: proposedBody,
+          reason: slot && secId === slot.sectionId
+            ? `Actualización de ${slot.label}`
+            : `Ubicado en ${secMeta.title} (${formatProfile.styleDescription})`,
         };
-        if (secId === slot.sectionId) createdProposal = prop;
+        if (!createdProposal || (slot && secId === slot.sectionId)) createdProposal = prop;
         state.pendingProposals = [
           prop,
           ...state.pendingProposals.filter((p) => p.sectionId !== secId),
@@ -384,14 +474,18 @@ Responde ÚNICAMENTE JSON válido:
     } else {
       let workingPrompt = input.currentPrompt || '';
       if (workingPrompt.trim()) {
-        versions = pushPromptVersion(versions, workingPrompt, `Antes de editar ${slot.sectionTitle}`);
+        versions = pushPromptVersion(
+          versions,
+          workingPrompt,
+          slot ? `Antes de editar ${slot.sectionTitle}` : 'Antes de agregar instrucción libre'
+        );
       }
       let anyPatched = false;
       for (const secId of touchedSectionIds) {
         const secMeta = PROMPT_SECTIONS.find((s) => s.id === secId);
-        const bodyForSec = renderSectionBodyFromSlots(secId, state.slots);
-        if (!secMeta || !bodyForSec) continue;
-        workingPrompt = patchSectionInPrompt(workingPrompt, secMeta.title, bodyForSec);
+        const rawBody = mergedSections[secId] || renderSectionBodyFromSlots(secId, state.slots);
+        if (!secMeta || !rawBody || isMetaPromptCommentary(rawBody)) continue;
+        workingPrompt = patchSectionInPrompt(workingPrompt, secMeta.title, rawBody, secId);
         anyPatched = true;
       }
       if (anyPatched) {
@@ -407,25 +501,32 @@ Responde ÚNICAMENTE JSON válido:
     ...(patchedPrompt !== null ? { nextSystemPrompt: patchedPrompt } : {}),
   });
   const nextSlot = getNextPendingSlot(state, preset);
+  const firstTouchedTitle =
+    PROMPT_SECTIONS.find((s) => s.id === touchedSectionIds[0])?.title ||
+    slot?.sectionTitle ||
+    'Reglas adicionales';
+
+  const endBudget = getAssistantBudgetStatus(state);
 
   return {
-    limitReached: false,
+    limitReached: endBudget.limitReached,
+    budgetNotice: toClientBudgetNotice(endBudget),
     assistantMessage:
       followUpQuestion ||
-      (skippedSlot
+      (skippedSlot && slot
         ? `Perfecto, dejamos "${slot.sectionTitle}" para después.`
         : createdProposal
-        ? `Listo, preparé la propuesta para **${slot.sectionTitle}**. Revísala arriba y dale **Aceptar** para sumarla sin perder nada de tu prompt actual.`
+        ? `Listo, preparé la propuesta para **${firstTouchedTitle}**. Revísala arriba y dale **Aplicar en sección** para sumarla sin perder nada de tu prompt actual.`
         : touchedSectionIds.length > 1
-        ? `¡Anotado en **${slot.sectionTitle}** y en ${touchedSectionIds.length - 1} sección(es) relacionada(s)!`
-        : `¡Anotado en **${slot.sectionTitle}**!`),
+        ? `¡Anotado en **${firstTouchedTitle}** y en ${touchedSectionIds.length - 1} sección(es) relacionada(s)!`
+        : `¡Anotado en **${firstTouchedTitle}**!`),
     patchedPrompt,
-    highlightedSection: patchedPrompt ? slot.sectionTitle : null,
+    highlightedSection: patchedPrompt ? firstTouchedTitle : null,
     proposal: createdProposal,
     versions,
     state: { ...state, usageByDay: {}, totalAssistantTokens: 0 },
     structuredData: { ...savedStructured, assistant: { ...state, usageByDay: {}, totalAssistantTokens: 0 } },
-    nextSlotId: nextSlot?.id || null,
+    nextSlotId: isFreeMode ? 'free' : nextSlot?.id || null,
   };
 }
 
@@ -455,13 +556,16 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
     };
   }
 
-  const hash = crypto.createHash('sha256').update(`${cleanBody}::v2`).digest('hex').slice(0, 24);
+  const formatProfile = detectPromptFormat(cleanBody);
+  const hash = crypto.createHash('sha256').update(`${cleanBody}::v3`).digest('hex').slice(0, 24);
   if (state.analyzedPromptHash === hash && state.pendingProposals.length > 0) {
     const cleanCached = state.pendingProposals.filter((p) => !isMetaPromptCommentary(p.proposedText));
+    const endBudgetCached = getAssistantBudgetStatus(state);
     return {
       mode: 'improve' as const,
       cached: true,
       limitReached: false,
+      budgetNotice: toClientBudgetNotice(endBudgetCached),
       proposals: cleanCached,
       conflicts: cleanCached.filter((p) => p.isConflict).map((p) => p.reason),
       nextSlotId: getNextPendingSlot(state, preset)?.id || null,
@@ -469,12 +573,13 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
     };
   }
 
-  const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-  if (usage.limitReached) {
+  const budget = getAssistantBudgetStatus(state);
+  if (budget.limitReached) {
     return {
       mode: 'improve' as const,
       cached: false,
       limitReached: true,
+      budgetNotice: toClientBudgetNotice(budget),
       proposals: state.pendingProposals,
       conflicts: [],
       nextSlotId: getNextPendingSlot(state, preset)?.id || null,
@@ -488,13 +593,19 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
       {
         role: 'system',
         content: `Audita el prompt comercial actual del cliente sin modificarlo ni destruir sus reglas propias.
+Estilo nativo actual del cliente: ${formatProfile.styleDescription}.
 Slots del blueprint:
 ${slotList}
 
+OBJETIVO DOBLE:
+1. Detectar vacíos reales, contradicciones, líneas duplicadas o reglas repetidas entre secciones (y pautas genéricas redundantes como "no inventar precios" que la plataforma ya aplica).
+2. Proponer mejoras o simplificaciones quirúrgicas ADAPTADAS AL FORMATO NATIVO DEL CLIENTE (${formatProfile.styleDescription}).
+
 REGLA CRÍTICA DE SEPARACIÓN:
-1. "conflicts": coloca aquí TODA observación organizativa o contradicción dirigida al dueño del negocio (ej: "Las reglas de cierre están dispersas en dos secciones; usa 'Pulir redacción' para unificarlas", o "Hay dos precios distintos para el mismo ítem").
-2. "proposals": incluye ÚNICAMENTE mejoras reales que el dueño pueda pegar literalmente en su prompt (datos faltantes o una regla operativa redactada como orden directa al bot, ej: "- Cuando envíes fotos con precio y medidas, no repitas esos datos en el mensaje de texto.").
-   - PROHIBIDO poner meta-consejos en "proposedText" (nunca escribas "Es recomendable...", "Conviene...", "Deberías...", "Se sugiere...", "Por ejemplo, incluir..."). Si es una recomendación de orden/estructura y no texto ejecutable por el bot, ponla en "conflicts" y NO en "proposals".
+- "conflicts": coloca aquí TODA observación dirigida al dueño del negocio (ej: "Hay reglas duplicadas sobre pagos en dos apartados", "Hay dos precios distintos para el mismo producto").
+- "proposals": incluye ÚNICAMENTE texto ejecutable listo para pegar literalmente en esa sección (para completar un vacío O reemplazar una sección simplificándola sin perder datos).
+  * ADAPTA "proposedText" al mismo estilo de viñetas del cliente (${formatProfile.styleDescription}) y si esa sección ya existe, conserva sus reglas vigentes fusionando/simplificando duplicados.
+  * PROHIBIDO escribir meta-consejos en "proposedText" (nunca escribas "Es recomendable...", "Conviene...", "Deberías...", "Se sugiere...", "Por ejemplo, incluir...").
 
 Responde ÚNICAMENTE JSON válido:
 {
@@ -505,16 +616,17 @@ Responde ÚNICAMENTE JSON válido:
       "sectionId": "empresa|catalogo|pagos|envios|politicas|faq|tono|cierre|relevo|seguimiento|adicional",
       "sectionTitle": "Título exacto de sección",
       "currentText": "Extracto actual o 'No especificado'",
-      "proposedText": "Texto ejecutable listo para pegar literalmente en esa sección (NUNCA consejos ni explicaciones)",
-      "reason": "Por qué mejora respuestas o cierra vacíos",
+      "proposedText": "Texto ejecutable listo para pegar literalmente en esa sección (respetando formato del cliente; NUNCA consejos)",
+      "reason": "Por qué mejora respuestas, evita duplicados o simplifica tokens",
       "isConflict": boolean
     }
   ]
 }`,
       },
-      { role: 'user', content: cleanBody.slice(0, 7000) },
+      { role: 'user', content: dedupePromptLinesDeterministically(cleanBody).slice(0, 4800) },
     ],
     temperature: 0.15,
+    maxTokens: 700,
     chainOverride: getAiUtilityChain(),
     aiProvider: org.ai_provider,
     organizationId: org.id,
@@ -559,13 +671,20 @@ Responde ÚNICAMENTE JSON válido:
           conflicts.push(propText);
           continue;
         }
+        const secMeta = PROMPT_SECTIONS.find((s) => s.id === p.sectionId);
+        const existingSec = extractExistingSectionContent(
+          input.currentPrompt || '',
+          secMeta?.title || String(p.sectionTitle || p.sectionId),
+          String(p.sectionId)
+        );
         validList.push({
           id: `prop-${Date.now()}-${i}`,
           sectionId: String(p.sectionId),
-          sectionTitle:
-            PROMPT_SECTIONS.find((s) => s.id === p.sectionId)?.title || String(p.sectionTitle || p.sectionId),
-          currentText: String(p.currentText || 'No especificado'),
-          proposedText: propText,
+          sectionTitle: existingSec.rawHeading
+            ? existingSec.rawHeading.replace(/^#+\s*|[:\s]+$/g, '').trim()
+            : secMeta?.title || String(p.sectionTitle || p.sectionId),
+          currentText: existingSec.found ? existingSec.body : String(p.currentText || 'No especificado'),
+          proposedText: adaptBulletStyle(propText, formatProfile.bulletStyle),
           reason: String(p.reason || 'Completar información faltante'),
           isConflict: Boolean(p.isConflict),
           source: 'improve',
@@ -582,10 +701,13 @@ Responde ÚNICAMENTE JSON válido:
   state.pendingProposals = proposals;
   await persistStructuredSafely({ orgId: org.id, state });
 
+  const endAnalyzeBudget = getAssistantBudgetStatus(state);
+
   return {
     mode: 'improve' as const,
     cached: false,
-    limitReached: false,
+    limitReached: endAnalyzeBudget.limitReached,
+    budgetNotice: toClientBudgetNotice(endAnalyzeBudget),
     proposals,
     conflicts,
     nextSlotId: getNextPendingSlot(state, preset)?.id || null,
@@ -615,7 +737,8 @@ export async function applySectionProposalAction(input: {
   const patchedPrompt = patchSectionInPrompt(
     input.currentPrompt || '',
     input.sectionTitle,
-    input.proposedText
+    input.proposedText,
+    input.sectionId
   );
 
   state.pendingProposals = state.pendingProposals.filter((p) => p.id !== input.proposalId);
@@ -683,7 +806,7 @@ export async function restorePromptVersionAction(input: {
   };
 }
 
-export async function polishPromptDraftAction(input: { currentPrompt: string }) {
+export async function polishPromptDraftAction(input: { currentPrompt: string; previewOnly?: boolean }) {
   const { org } = await getAuthorizedOrgForAssistant();
   const structured =
     org.structured_prompt_data && typeof org.structured_prompt_data === 'object'
@@ -695,27 +818,37 @@ export async function polishPromptDraftAction(input: { currentPrompt: string }) 
     throw new Error('Redacta primero la información de tu negocio antes de pulir.');
   }
 
-  const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-  if (usage.limitReached) {
-    return { limitReached: true, polishedPrompt: null, versions: structured.prompt_versions || [] };
+  const budget = getAssistantBudgetStatus(state);
+  if (budget.limitReached) {
+    return {
+      limitReached: true,
+      budgetNotice: toClientBudgetNotice(budget),
+      polishedPrompt: null,
+      estimatedTokensBefore: estimatePromptTokens(body),
+      estimatedTokensAfter: estimatePromptTokens(body),
+      versions: structured.prompt_versions || [],
+    };
   }
 
-  const versions = pushPromptVersion(
-    structured.prompt_versions,
-    input.currentPrompt,
-    'Antes de pulir redacción con IA'
-  );
+  const formatProfile = detectPromptFormat(body);
+  const estimatedTokensBefore = estimatePromptTokens(body);
 
+  const dedupedBody = dedupePromptLinesDeterministically(body);
   const llmRes = await createChatCompletionWithFallback({
     messages: [
       {
         role: 'system',
-        content: `Mejora la claridad, estructura y brevedad de este prompt empresarial en Markdown limpio (## Sección).
-REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, ciudad, número de cuenta, tiempo de envío, garantía ni ninguna regla operativa/de cierre específica del cliente (como no repetir datos tras enviar fotos o pasos de cierre). Devuelve únicamente el texto final mejorado sin comentarios.`,
+        content: `Simplifica y unifica este prompt comercial para lograr el MISMO comportamiento con menos tokens y cero redundancias.
+REGLAS ESTRICTAS:
+1. ADÁPTATE al formato actual del cliente (${formatProfile.styleDescription}): NO impongas encabezados diferentes si el cliente ya tiene su propio estilo claro.
+2. FUSIONA y ELIMINA reglas repetidas, redundancias, párrafos duplicados o instrucciones genéricas obvias (como "no inventes precios") manteniendo exactamente el mismo efecto comercial.
+3. REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, variante, ciudad, número de cuenta, tiempo de envío, garantía ni ninguna regla operativa o ruta de cierre específica del cliente.
+4. Devuelve únicamente el texto final limpio sin comentarios introductorios.`,
       },
-      { role: 'user', content: body.slice(0, 7500) },
+      { role: 'user', content: dedupedBody.slice(0, 5800) },
     ],
     temperature: 0.15,
+    maxTokens: 1500,
     chainOverride: getAiUtilityChain(),
     aiProvider: org.ai_provider,
     organizationId: org.id,
@@ -734,7 +867,29 @@ REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, ciudad, 
   });
 
   const polishedBody = (llmRes.response.choices[0]?.message?.content || body).trim();
+  const estimatedTokensAfter = estimatePromptTokens(polishedBody);
   const finalPrompt = galleryTail ? `${polishedBody}\n\n${galleryTail}` : polishedBody;
+  const endBudget = getAssistantBudgetStatus(state);
+
+  if (input.previewOnly !== false) {
+    await persistStructuredSafely({ orgId: org.id, state });
+    return {
+      limitReached: false,
+      preview: true,
+      budgetNotice: toClientBudgetNotice(endBudget),
+      polishedPrompt: finalPrompt,
+      estimatedTokensBefore,
+      estimatedTokensAfter,
+      versions: structured.prompt_versions || [],
+      structuredData: { ...structured, assistant: { ...state, usageByDay: {}, totalAssistantTokens: 0 } },
+    };
+  }
+
+  const versions = pushPromptVersion(
+    structured.prompt_versions,
+    input.currentPrompt,
+    'Antes de pulir redacción con IA'
+  );
   const savedStructured = await persistStructuredSafely({
     orgId: org.id,
     state,
@@ -744,7 +899,46 @@ REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, ciudad, 
 
   return {
     limitReached: false,
+    preview: false,
+    budgetNotice: toClientBudgetNotice(endBudget),
     polishedPrompt: finalPrompt,
+    estimatedTokensBefore,
+    estimatedTokensAfter,
+    versions,
+    structuredData: { ...savedStructured, assistant: { ...state, usageByDay: {}, totalAssistantTokens: 0 } },
+  };
+}
+
+export async function applyPolishedPromptAction(input: {
+  currentPrompt: string;
+  polishedPrompt: string;
+}) {
+  const { org } = await getAuthorizedOrgForAssistant();
+  const structured =
+    org.structured_prompt_data && typeof org.structured_prompt_data === 'object'
+      ? org.structured_prompt_data
+      : {};
+  const state = normalizeAssistantState(structured.assistant, 'improve');
+  const cleanPolished = (input.polishedPrompt || '').trim();
+  if (cleanPolished.length < 25) {
+    throw new Error('El texto optimizado es demasiado corto.');
+  }
+
+  const versions = pushPromptVersion(
+    structured.prompt_versions,
+    input.currentPrompt || org.system_prompt || '',
+    'Antes de aplicar simplificación y orden con IA'
+  );
+
+  const savedStructured = await persistStructuredSafely({
+    orgId: org.id,
+    state,
+    versions,
+    nextSystemPrompt: cleanPolished,
+  });
+
+  return {
+    appliedPrompt: cleanPolished,
     versions,
     structuredData: { ...savedStructured, assistant: { ...state, usageByDay: {}, totalAssistantTokens: 0 } },
   };
@@ -790,7 +984,7 @@ export async function saveImportedCatalogToPromptAction(input: {
     keywords: [it.name, it.variants].filter(Boolean),
   }));
 
-  const patchedPrompt = patchSectionInPrompt(input.currentPrompt || '', 'Catálogo', sectionText);
+  const patchedPrompt = patchSectionInPrompt(input.currentPrompt || '', 'Catálogo', sectionText, 'catalogo');
   const savedStructured = await persistStructuredSafely({
     orgId: org.id,
     state,
@@ -816,9 +1010,9 @@ export async function extractPdfCatalogBlocksAction(input: { blocks: string[] })
       ? org.structured_prompt_data
       : {};
   let state = normalizeAssistantState(structured.assistant, 'improve');
-  const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-  if (usage.limitReached) {
-    return { limitReached: true, items: [] as ImportedCatalogItem[] };
+  const budget = getAssistantBudgetStatus(state);
+  if (budget.limitReached) {
+    return { limitReached: true, budgetNotice: toClientBudgetNotice(budget), items: [] as ImportedCatalogItem[] };
   }
 
   const gallery = Array.isArray(structured.gallery) ? structured.gallery : [];
@@ -838,6 +1032,7 @@ export async function extractPdfCatalogBlocksAction(input: { blocks: string[] })
         { role: 'user', content: cleanBlock },
       ],
       temperature: 0.1,
+      maxTokens: 900,
       chainOverride: getAiUtilityChain(),
       aiProvider: org.ai_provider,
       organizationId: org.id,
@@ -901,14 +1096,15 @@ export async function askAssistantHelpAction(input: { question: string }) {
       ? org.structured_prompt_data
       : {};
   let state = normalizeAssistantState(structured.assistant, 'improve');
-  const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-  if (usage.limitReached) {
+  const budget = getAssistantBudgetStatus(state);
+  if (budget.limitReached) {
     return {
       answer:
-        'Alcanzaste el límite de ayuda automática por hoy. Revisa las preguntas rápidas sugeridas arriba para respuestas inmediatas.',
-      topicTitle: 'Límite diario alcanzado',
+        `Alcanzaste tu capacidad de ayuda automática (${budget.limitScope === 'weekly' ? 'semanal' : 'diaria'}). Se renueva ${budget.resetHint}. Revisa las preguntas rápidas sugeridas arriba para respuestas inmediatas.`,
+      topicTitle: 'Capacidad de mejoras alcanzada',
       usedAi: false,
       limitReached: true,
+      budgetNotice: toClientBudgetNotice(budget),
     };
   }
 
@@ -922,6 +1118,7 @@ export async function askAssistantHelpAction(input: { question: string }) {
       { role: 'user', content: cleanQ },
     ],
     temperature: 0.2,
+    maxTokens: 220,
     chainOverride: getAiUtilityChain(),
     aiProvider: org.ai_provider,
     organizationId: org.id,

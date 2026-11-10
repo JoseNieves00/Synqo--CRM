@@ -7,12 +7,17 @@ import {
   tryParseSlotLocally,
 } from '../lib/ai/prompt-assistant/blueprint';
 import {
+  buildCompactPromptOutline,
+  dedupePromptLinesDeterministically,
+  detectPromptFormat,
   estimatePromptTokens,
+  extractExistingSectionContent,
   isMetaPromptCommentary,
   patchSectionInPrompt,
   pushPromptVersion,
   renderPromptFromSlots,
   splitGalleryTail,
+  tryRouteFreeInstructionLocally,
 } from '../lib/ai/prompt-assistant/versions';
 import {
   applySpreadsheetColumnMapping,
@@ -25,6 +30,7 @@ import { searchAssistantGuide } from '../lib/ai/prompt-assistant/guide';
 import { evaluatePromptHealth } from '../lib/ai/prompt-assistant/health';
 import {
   createEmptyAssistantState,
+  getAssistantBudgetStatus,
   getAssistantDailyUsage,
   normalizeAssistantState,
   recordAssistantUsageInState,
@@ -271,7 +277,110 @@ async function runPromptAssistantTests() {
     false,
     'Reglas ejecutables directas para el bot deben aceptarse como propuestas válidas'
   );
-  console.log('   ✅ Slot de flujo por empresa, filtro anti meta-consejos y auditoría diaria pasiva/estratificada verificados.\n');
+
+  // 10. Tope semanal (150k/7d) + burst diario (50k) + aviso desde 75% + reserva para auditoría pasiva
+  const fixedNow = new Date('2026-11-10T15:00:00-05:00');
+  let budgetState = createEmptyAssistantState('improve');
+  budgetState.usageByDay = {
+    '2026-11-05': { tokens: 45000, calls: 4 }, // dentro de 7d
+    '2026-11-08': { tokens: 40000, calls: 3 }, // dentro de 7d
+    '2026-11-01': { tokens: 90000, calls: 8 }, // fuera de 7d (>6 días atrás), no debe contar
+  };
+  const midBudget = getAssistantBudgetStatus(budgetState, undefined, fixedNow);
+  assert.strictEqual(midBudget.tokensLast7Days, 85000);
+  assert.strictEqual(midBudget.showNotice, false, 'Menos de 75% semanal no debe mostrar aviso');
+  assert.strictEqual(midBudget.limitReached, false);
+
+  budgetState.usageByDay['2026-11-10'] = { tokens: 35000, calls: 3 }; // 120k / 150k = 80%
+  const warnBudget = getAssistantBudgetStatus(budgetState, undefined, fixedNow);
+  assert.strictEqual(warnBudget.usagePct, 80);
+  assert.strictEqual(warnBudget.showNotice, true, 'Desde 75% semanal debe mostrar aviso discreto');
+  assert.strictEqual(warnBudget.limitReached, false);
+
+  budgetState.usageByDay['2026-11-10'] = { tokens: 65000, calls: 6 }; // 150k semanal + >50k diario
+  const fullBudget = getAssistantBudgetStatus(budgetState, undefined, fixedNow);
+  assert.strictEqual(fullBudget.limitReached, true);
+  assert.strictEqual(fullBudget.limitScope, 'weekly');
+  assert.strictEqual(fullBudget.auditLimitReached, false, 'Auditoría pasiva debe conservar reserva de 15k sobre el cupo');
+
+  // 11. Adaptador de formato nativo (# TITULO: y * viñetas) + validación cruzada Prompt<->Galería/Pagos/Horarios
+  const customClientPrompt = [
+    '# EMPRESA:',
+    '* Tienda Aurora Bogotá',
+    '',
+    '# RUTA DE CIERRE AGIL:',
+    '* Si ya mandaste foto con medidas, no repitas medidas en texto.',
+    '',
+    '# CATALOGO:',
+    '* Escritorio Pro — $500.000',
+  ].join('\n');
+
+  const fmt = detectPromptFormat(customClientPrompt);
+  assert.strictEqual(fmt.headingStyle, 'hash1', 'Debe detectar encabezados # de 1 numeral del cliente');
+  assert.strictEqual(fmt.bulletStyle, '*', 'Debe detectar viñetas con asterisco del cliente');
+
+  const foundRoute = extractExistingSectionContent(customClientPrompt, 'Reglas adicionales', 'adicional');
+  assert.strictEqual(foundRoute.found, true, 'Debe reconocer # RUTA DE CIERRE AGIL como sinónimo de adicional');
+  assert.strictEqual(foundRoute.rawHeading, '# RUTA DE CIERRE AGIL:');
+
+  const mergedSameHeading = patchSectionInPrompt(
+    customClientPrompt,
+    'Reglas adicionales',
+    '- Si ya mandaste foto con medidas, no repitas medidas en texto.\n- Cierra preguntando método de pago.',
+    'adicional'
+  );
+  assert.ok(mergedSameHeading.includes('# RUTA DE CIERRE AGIL:\n* Si ya mandaste foto con medidas'), 'Debe preservar encabezado original y viñetas * del cliente');
+  assert.ok(!mergedSameHeading.includes('## Reglas adicionales'), 'No debe crear una sección duplicada con formato ajeno');
+
+  const addedSectionAdopted = patchSectionInPrompt(
+    customClientPrompt,
+    'Envíos y cobertura',
+    '- Envíos nacionales en 2 días hábiles.',
+    'envios'
+  );
+  assert.ok(addedSectionAdopted.includes('# ENVÍOS Y COBERTURA:\n* Envíos nacionales'), 'Nueva sección debe adoptar estilo nativo # MAYÚSCULAS y *');
+
+  const crossHealth = evaluatePromptHealth({
+    prompt: customClientPrompt,
+    state: budgetState,
+    gallery: [{ name: 'Escritorio Pro', price: '420000' }],
+    paymentAccounts: [{ label: 'Nequi Principal', bank: 'Nequi' }],
+    businessHours: { enabled: true, start: '08:00', end: '18:00' },
+  });
+  assert.ok(crossHealth.checks.some((c) => c.id === 'gallery_price_sync'), 'Debe detectar diferencia de precio entre prompt y galería');
+  assert.ok(crossHealth.checks.some((c) => c.id === 'payments_sync'), 'Debe detectar cuenta bancaria en Pagos omitida en prompt');
+  assert.ok(crossHealth.checks.some((c) => c.id === 'hours_sync'), 'Debe detectar horario configurado omitido en prompt');
+
+  // 12. Optimizaciones de ahorro de tokens (0-token routing, dedupe, esquema compacto)
+  const freeLocal = tryRouteFreeInstructionLocally(
+    'Cuando envíes fotos con precio y detalles, no repitas esos datos en texto.',
+    customClientPrompt
+  );
+  assert.strictEqual(freeLocal.handled, true, 'Reglas claras en Chat Libre deben resolverse en 0 tokens');
+  assert.strictEqual(freeLocal.sectionId, 'adicional');
+  assert.ok(freeLocal.mergedBody?.includes('* Si ya mandaste foto'), 'Debe preservar reglas existentes de esa sección');
+
+  const duplicatedPrompt = [
+    '# REGLAS:',
+    '* Nunca prometas envíos gratis sin confirmar.',
+    '* Nunca prometas envíos gratis sin confirmar.',
+    '',
+    '',
+    '* Cierra con una pregunta amable.',
+  ].join('\n');
+  const deduped = dedupePromptLinesDeterministically(duplicatedPrompt);
+  assert.strictEqual(
+    deduped.match(/Nunca prometas/g)?.length,
+    1,
+    'Deduplicador determinístico debe eliminar líneas repetidas en 0 tokens'
+  );
+
+  const bigCatalog = Array.from({ length: 40 }, (_, i) => `* Producto ${i + 1} — $${(i + 1) * 10000}`).join('\n');
+  const outline = buildCompactPromptOutline(`${customClientPrompt}\n\n# CATALOGO GRANDE:\n${bigCatalog}`, 700);
+  assert.ok(outline.length <= 700, 'Esquema compacto debe respetar presupuesto estricto de caracteres');
+  assert.ok(outline.includes('# RUTA DE CIERRE AGIL:'), 'Esquema compacto debe conservar títulos clave');
+
+  console.log('   ✅ Adaptador de formato nativo, cero duplicados, validación cruzada, cupo semanal y ahorro de tokens verificados.\n');
 }
 
 runPromptAssistantTests().catch((err) => {

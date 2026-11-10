@@ -11,7 +11,7 @@ import {
   type SpreadsheetColumnMapping,
 } from '@/lib/ai/prompt-assistant/file-import';
 import {
-  getAssistantDailyUsage,
+  getAssistantBudgetStatus,
   normalizeAssistantState,
   recordAssistantUsageInState,
 } from '@/lib/ai/prompt-assistant/state';
@@ -76,10 +76,10 @@ export async function POST(req: NextRequest) {
 
     // 1. Nota de voz del asistente
     if (kind === 'audio') {
-      const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-      if (usage.limitReached) {
+      const budget = getAssistantBudgetStatus(state);
+      if (budget.limitReached) {
         return NextResponse.json(
-          { error: 'Límite diario del asistente alcanzado. Intenta mañana o escribe tu respuesta.' },
+          { error: `Capacidad del asistente alcanzada (se renueva ${budget.resetHint}). Mientras tanto puedes escribir tu respuesta.` },
           { status: 429 }
         );
       }
@@ -124,10 +124,10 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const usage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-      if (usage.limitReached) {
+      const budget = getAssistantBudgetStatus(state);
+      if (budget.limitReached) {
         return NextResponse.json(
-          { error: 'Límite diario del asistente alcanzado. Intenta mañana.' },
+          { error: `Capacidad del asistente alcanzada (se renueva ${budget.resetHint}).` },
           { status: 429 }
         );
       }

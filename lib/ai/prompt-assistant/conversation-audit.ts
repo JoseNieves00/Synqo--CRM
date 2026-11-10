@@ -5,7 +5,7 @@ import { resolveLeadTemperature, resolveProductInterest } from '@/lib/ai/follow-
 import { createChatCompletionWithFallback } from '@/services/openai.service';
 import { PROMPT_SECTIONS } from './blueprint';
 import {
-  getAssistantDailyUsage,
+  getAssistantBudgetStatus,
   getAssistantDayKey,
   normalizeAssistantState,
   recordAssistantUsageInState,
@@ -219,9 +219,9 @@ export class ConversationAuditService {
       };
     }
 
-    const dailyUsage = getAssistantDailyUsage(state, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
-    if (dailyUsage.limitReached) {
-      return { ranAi: false, skippedReason: 'daily_cap_reached', insights: state.dailyInsights || null };
+    const budget = getAssistantBudgetStatus(state);
+    if (budget.auditLimitReached) {
+      return { ranAi: false, skippedReason: 'weekly_audit_cap_reached', insights: state.dailyInsights || null };
     }
 
     const cutoffIso = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -338,12 +338,13 @@ REGLAS ESTRICTAS:
           content: [
             `MÉTRICAS DEL EMBUDO (últimos 14d): convertidos=${sample.categoryStats.converted}, en_duda=${sample.categoryStats.inDoubt}, tibios=${sample.categoryStats.stalledWarm}, perdidos=${sample.categoryStats.lost}, relevos=${sample.categoryStats.pendingHandoffs}`,
             `\nVACÍOS REALES DETECTADOS:\n${gapsSummary}`,
-            `\nEXTRACTOS DE PROMPT ACTUAL:\n${promptBody.slice(0, 2600)}`,
+            `\nEXTRACTOS DE PROMPT ACTUAL:\n${promptBody.slice(0, 1800)}`,
             `\nMUESTRA COMPACTA DE CONVERSACIONES:\n${compactedThreads}`,
           ].join('\n'),
         },
       ],
       temperature: 0.2,
+      maxTokens: 650,
       chainOverride: getAiUtilityChain(),
       aiProvider: org.ai_provider || undefined,
       organizationId: org.id,

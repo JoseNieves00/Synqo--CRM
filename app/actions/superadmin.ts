@@ -10,7 +10,7 @@ import { calculateBillingStatus } from '@/lib/billing/billing-status';
 import { encryptSecret } from '@/lib/security/encryption';
 import { normalizeAlertThresholds, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
 import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
-import { getAssistantDailyUsage, normalizeAssistantState } from '@/lib/ai/prompt-assistant/state';
+import { getAssistantBudgetStatus, normalizeAssistantState } from '@/lib/ai/prompt-assistant/state';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -177,6 +177,9 @@ export interface OrganizationRow {
     callsToday: number;
     dailyCap: number;
     capExceededToday: boolean;
+    tokensLast7Days?: number;
+    weeklyCap?: number;
+    capExceededWeekly?: boolean;
     totalTokens: number;
   };
 }
@@ -216,7 +219,7 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
     const bStatus = calculateBillingStatus({ ...org, is_exempt: isSuperAdminOrg });
 
     const assistantState = normalizeAssistantState(org?.structured_prompt_data?.assistant);
-    const assistantDaily = getAssistantDailyUsage(assistantState, PROMPT_ASSISTANT_CONFIG.dailyTokenCap);
+    const assistantBudget = getAssistantBudgetStatus(assistantState);
 
     return {
       id: org.id,
@@ -261,10 +264,13 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       room_label: org.room_label || null,
       industry_preset: org.industry_preset || null,
       prompt_assistant_stats: {
-        tokensToday: assistantDaily.tokensToday,
-        callsToday: assistantDaily.callsToday,
-        dailyCap: assistantDaily.cap,
-        capExceededToday: assistantDaily.limitReached,
+        tokensToday: assistantBudget.tokensToday,
+        callsToday: assistantBudget.callsToday,
+        dailyCap: assistantBudget.dailyCap,
+        capExceededToday: assistantBudget.limitScope === 'daily' || assistantBudget.limitScope === 'weekly',
+        tokensLast7Days: assistantBudget.tokensLast7Days,
+        weeklyCap: assistantBudget.weeklyCap,
+        capExceededWeekly: assistantBudget.limitScope === 'weekly',
         totalTokens: assistantState.totalAssistantTokens,
       },
       enabled_modules: (org.enabled_modules as EnabledModules) || {
