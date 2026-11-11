@@ -173,6 +173,7 @@ export function InboxView({
     initialFilters?.agentId,
     initialFilters?.stage,
     initialFilters?.temperature,
+    initialFilters?.sort,
   ]);
 
   // Sembrar mensajes iniciales de SSR en el store inmediatamente si aún no existen

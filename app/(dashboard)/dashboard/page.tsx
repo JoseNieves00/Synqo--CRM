@@ -306,73 +306,93 @@ export default async function DashboardPage({
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
             <Link
               href="/inbox?view=ia_atendiendo&temp=hot"
-              className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 hover:border-rose-400 transition block"
+              className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 hover:border-rose-400 hover:shadow-xs transition block group"
+              title="Filtrar en Inbox: Calificados listos para la compra"
             >
-              <div className="flex items-center gap-1 text-rose-700 dark:text-rose-300 text-[11px] font-bold">
-                <Flame className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Calif. · Listo</span>
+              <div className="flex items-center justify-between gap-1 text-rose-700 dark:text-rose-300 text-[11px] font-bold">
+                <span className="flex items-center gap-1 truncate">
+                  <Flame className="w-3.5 h-3.5 shrink-0" />
+                  <span>Calif. · Compra</span>
+                </span>
+                <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </div>
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.hot || 0}
               </div>
-              <p className="text-[10px] text-rose-700/80 dark:text-rose-300/80">Listo para cerrar →</p>
+              <p className="text-[10px] text-rose-700/80 dark:text-rose-300/80 font-medium">Ver en Inbox →</p>
             </Link>
 
             <Link
               href="/inbox?view=ia_atendiendo&temp=qualified_doubt"
-              className="p-3 rounded-xl bg-orange-50/70 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 hover:border-orange-400 transition block"
+              className="p-3 rounded-xl bg-orange-50/70 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 hover:border-orange-400 hover:shadow-xs transition block group"
+              title="Filtrar en Inbox: Clientes con dudas puntuales"
             >
-              <div className="flex items-center gap-1 text-orange-700 dark:text-orange-300 text-[11px] font-bold">
-                <HelpCircle className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Calif. · Dudas</span>
+              <div className="flex items-center justify-between gap-1 text-orange-700 dark:text-orange-300 text-[11px] font-bold">
+                <span className="flex items-center gap-1 truncate">
+                  <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Con Dudas</span>
+                </span>
+                <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </div>
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.qualifiedDoubt || 0}
               </div>
-              <p className="text-[10px] text-orange-700/80 dark:text-orange-300/80">Por confirmar →</p>
+              <p className="text-[10px] text-orange-700/80 dark:text-orange-300/80 font-medium">Ver en Inbox →</p>
             </Link>
 
             <Link
               href="/inbox?view=ia_atendiendo&temp=warm"
-              className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hover:border-amber-400 transition block"
+              className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 hover:border-amber-400 hover:shadow-xs transition block group"
+              title="Filtrar en Inbox: Prospectos tibios evaluando"
             >
-              <div className="flex items-center gap-1 text-amber-700 dark:text-amber-300 text-[11px] font-bold">
-                <Zap className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Tibios</span>
+              <div className="flex items-center justify-between gap-1 text-amber-700 dark:text-amber-300 text-[11px] font-bold">
+                <span className="flex items-center gap-1 truncate">
+                  <Zap className="w-3.5 h-3.5 shrink-0" />
+                  <span>Tibios</span>
+                </span>
+                <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </div>
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.warm || 0}
               </div>
-              <p className="text-[10px] text-amber-700/80 dark:text-amber-300/80">Evaluando →</p>
+              <p className="text-[10px] text-amber-700/80 dark:text-amber-300/80 font-medium">Ver en Inbox →</p>
             </Link>
 
             <Link
               href="/pipeline?temp=cold"
-              className="p-3 rounded-xl bg-sky-50/70 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 hover:border-sky-400 transition block"
+              className="p-3 rounded-xl bg-sky-50/70 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 hover:border-sky-400 hover:shadow-xs transition block group"
+              title="Filtrar en Pipeline: Prospectos fríos sin interés"
             >
-              <div className="flex items-center gap-1 text-sky-700 dark:text-sky-300 text-[11px] font-bold">
-                <Snowflake className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Fríos</span>
+              <div className="flex items-center justify-between gap-1 text-sky-700 dark:text-sky-300 text-[11px] font-bold">
+                <span className="flex items-center gap-1 truncate">
+                  <Snowflake className="w-3.5 h-3.5 shrink-0" />
+                  <span>Fríos</span>
+                </span>
+                <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </div>
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.cold || 0}
               </div>
-              <p className="text-[10px] text-sky-700/80 dark:text-sky-300/80">Sin interés →</p>
+              <p className="text-[10px] text-sky-700/80 dark:text-sky-300/80 font-medium">En Pipeline →</p>
             </Link>
 
             <Link
               href="/inbox?view=cerrados&stage=ganado"
-              className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-400 transition block col-span-2 sm:col-span-1"
+              className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-400 hover:shadow-xs transition block col-span-2 sm:col-span-1 group"
+              title="Filtrar en Inbox: Clientes con compra o cierre ganado"
             >
-              <div className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Cerrados</span>
+              <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">
+                <span className="flex items-center gap-1 truncate">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Cerrados</span>
+                </span>
+                <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </div>
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.buyers || 0}
               </div>
-              <p className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
-                {metrics?.isCalendarBusiness ? 'Clientes cerrados →' : 'Cierres ganados →'}
+              <p className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 font-medium">
+                {metrics?.isCalendarBusiness ? 'Citas cerradas →' : 'Cierres ganados →'}
               </p>
             </Link>
           </div>
