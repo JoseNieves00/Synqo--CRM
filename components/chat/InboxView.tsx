@@ -683,7 +683,7 @@ export function InboxView({
             });
           }}
           onClearFilters={() => {
-            setFilters({ channel: 'all', agentId: 'all', stage: 'all', temperature: 'all', sort: 'auto' });
+            setFilters({ channel: 'all', agentId: 'all', stage: 'all', temperature: 'all', sort: 'recent' });
             if (typeof window !== 'undefined') {
               const url = new URL(window.location.href);
               ['ch', 'agent', 'stage', 'temp', 'sort'].forEach((p) => url.searchParams.delete(p));
@@ -692,7 +692,7 @@ export function InboxView({
           }}
           onRemoveFilterChip={(k) => {
             setFilters((prev) => {
-              const next = { ...prev, [k]: k === 'sort' ? 'auto' : 'all' };
+              const next = { ...prev, [k]: k === 'sort' ? 'recent' : 'all' };
               if (typeof window !== 'undefined') {
                 const url = new URL(window.location.href);
                 const paramMap: Record<keyof FilterState, string> = {
