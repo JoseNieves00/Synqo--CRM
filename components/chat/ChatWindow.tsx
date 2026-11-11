@@ -559,35 +559,60 @@ export const ChatWindow = React.memo(function ChatWindow({
     return false;
   }, [messages, contact.pipeline_stage]);
 
-  // Preservar la posición de scroll individual por conversación al cambiar de contacto
-  useEffect(() => {
-    // 1. Guardar la posición de scroll del contacto que estamos dejando
-    if (lastContactIdRef.current && scrollContainerRef.current) {
-      scrollPositionsRef.current[lastContactIdRef.current] = scrollContainerRef.current.scrollTop;
+  // Asegurar que al cargar o cambiar de chat siempre se posicione al final del historial
+  const initialScrollDoneRef = useRef<Record<string, boolean>>({});
+
+  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (!scrollContainerRef.current) return;
+    scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
     }
+  }, []);
+
+  // 1. Al cambiar de contacto o cargarse por primera vez: bajar al final del chat de forma garantizada
+  useEffect(() => {
     lastContactIdRef.current = contact.id;
 
-    // 2. Restaurar la posición de lectura o bajar al fondo si es la primera vez que se abre
-    const savedPos = scrollPositionsRef.current[contact.id];
-    requestAnimationFrame(() => {
-      if (!scrollContainerRef.current) return;
-      if (typeof savedPos === 'number') {
-        scrollContainerRef.current.scrollTop = savedPos;
-      } else {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-      }
+    // Ejecutar inmediatamente y en el siguiente frame de renderizado
+    scrollToBottom('auto');
+    const rafId = requestAnimationFrame(() => {
+      scrollToBottom('auto');
     });
-  }, [contact.id]);
+    const timer = setTimeout(() => {
+      scrollToBottom('auto');
+      initialScrollDoneRef.current[contact.id] = true;
+    }, 60);
 
-  // Auto-scroll suave solo cuando el usuario ya se encuentra cerca del fondo
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+    };
+  }, [contact.id, scrollToBottom]);
+
+  // 2. Al recibir o renderizar los mensajes del contacto activo
   useEffect(() => {
-    if (!scrollContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 180;
-    if (isNearBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length === 0) return;
+
+    // Si aún no ha completado el scroll inicial de este contacto, forzar ir al fondo de inmediato
+    if (!initialScrollDoneRef.current[contact.id]) {
+      scrollToBottom('auto');
+      const timer = setTimeout(() => {
+        scrollToBottom('auto');
+        initialScrollDoneRef.current[contact.id] = true;
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [messages.length]);
+
+    // Auto-scroll cuando llega un nuevo mensaje y el usuario está cerca del fondo
+    if (scrollContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 220;
+      if (isNearBottom) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    }
+  }, [contact.id, messages.length, scrollToBottom]);
 
   // Cargar lote anterior de mensajes con compensación de altura (cero saltos visuales)
   const handleLoadOlder = async () => {
