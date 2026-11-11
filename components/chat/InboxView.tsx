@@ -29,7 +29,7 @@ import {
   useInboxCounts,
   useViewContactIds,
 } from '@/lib/inbox/use-inbox-store';
-import { compareInboxContacts } from '@/lib/inbox/buckets';
+import { compareInboxContacts, type InboxSortMode } from '@/lib/inbox/buckets';
 
 interface MessageItem {
   id: string;
@@ -252,12 +252,13 @@ export function InboxView({
       setSelectedContactId(contactParam);
       useInboxStore.getState().setActiveContactId(contactParam);
     }
+    const validSorts: InboxSortMode[] = ['recent', 'unread_first', 'score', 'oldest', 'name', 'auto'];
     setFilters((prev) => ({
       channel: channelParam && ['all', 'whatsapp', 'instagram'].includes(channelParam) ? channelParam : prev.channel,
       stage: stageParam || prev.stage,
       temperature: tempParam || prev.temperature,
       agentId: agentParam || prev.agentId,
-      sort: sortParam === 'score' || sortParam === 'recent' ? sortParam : prev.sort || 'auto',
+      sort: sortParam && validSorts.includes(sortParam as InboxSortMode) ? (sortParam as InboxSortMode) : prev.sort || 'recent',
     }));
   }, []);
 

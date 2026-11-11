@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUserAndOrg } from '@/app/actions/auth';
 import { getKnowledgeGapsCount } from '@/app/actions/knowledge-gaps';
 import { listInbox, getInboxCounts, InboxViewType } from '@/app/actions/chat';
+import type { InboxSortMode } from '@/lib/inbox/buckets';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
@@ -50,8 +51,11 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const stageFilter = searchParams?.stage || 'all';
   const tempFilter = searchParams?.temp || 'all';
   const agentFilter = searchParams?.agent || 'all';
-  const sortMode: 'auto' | 'recent' | 'score' =
-    searchParams?.sort === 'score' || searchParams?.sort === 'recent' ? searchParams.sort : 'auto';
+  const validSortModes: InboxSortMode[] = ['recent', 'unread_first', 'score', 'oldest', 'name', 'auto'];
+  const sortMode: InboxSortMode =
+    searchParams?.sort && validSortModes.includes(searchParams.sort as InboxSortMode)
+      ? (searchParams.sort as InboxSortMode)
+      : 'recent';
 
   // Consultar contactos, contadores, miembros, catálogo y cuentas de pago en paralelo (cero saltos visuales)
   const [inboxRes, initialCounts, { data: teamMembers }, gapsCount, paymentAccounts, catalogItems] = await Promise.all([

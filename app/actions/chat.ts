@@ -1473,10 +1473,14 @@ export async function listInbox({
 
   const staleAiIso = new Date(Date.now() - 3 * 60 * 1000).toISOString();
 
-  // 0. Orden por propensión de compra (columna indexada lead_score) como criterio primario
+  // 0. Orden configurable como criterio primario
   const effectiveSort = resolveInboxSort(view as any, sort);
   if (effectiveSort === 'score') {
     query = query.order('lead_score', { ascending: false, nullsFirst: false });
+  } else if (effectiveSort === 'name') {
+    query = query.order('name', { ascending: true, nullsFirst: false });
+  } else if (effectiveSort === 'oldest') {
+    query = query.order('last_interaction_at', { ascending: true, nullsFirst: false });
   }
 
   // 1. Filtros por Vista / Bandeja Principal (alineados 1:1 con getInboxCounts y lib/inbox/buckets.ts)

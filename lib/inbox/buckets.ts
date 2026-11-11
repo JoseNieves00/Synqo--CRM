@@ -211,15 +211,20 @@ export function getContactInteractionTimestamp(c: any): number {
  */
 /**
  * Modo de orden de la bandeja:
- * - `auto`: orden por defecto de cada bandeja (Seguimiento usa score; el resto, el canónico).
- * - `recent`: orden canónico (SLA en Por responder, más reciente arriba en el resto).
- * - `score`: más propensos a comprar primero (lead_score DESC), desempate canónico.
+ * - `recent`: orden predeterminado estándar estilo WhatsApp (último mensaje/interacción arriba).
+ * - `auto`: respeta el criterio automático de la bandeja.
+ * - `unread_first`: no leídos arriba primero, luego más recientes (similar al filtro no leídos de WhatsApp).
+ * - `oldest`: más antiguos primero (para atender pendientes por antigüedad).
+ * - `score`: más propensos a comprar primero (lead_score DESC).
+ * - `name`: alfabético A-Z por nombre del contacto.
  */
-export type InboxSortMode = 'auto' | 'recent' | 'score';
+export type InboxSortMode = 'recent' | 'auto' | 'unread_first' | 'oldest' | 'score' | 'name';
 
-export function resolveInboxSort(view: CanonicalInboxView, sort: InboxSortMode = 'auto'): 'recent' | 'score' {
-  if (sort === 'score' || sort === 'recent') return sort;
-  return view === 'seguimiento' ? 'score' : 'recent';
+export function resolveInboxSort(view: CanonicalInboxView, sort: InboxSortMode = 'recent'): InboxSortMode {
+  if (sort === 'auto') {
+    return view === 'seguimiento' ? 'score' : 'recent';
+  }
+  return sort || 'recent';
 }
 
 function leadScoreValue(c: any): number {
@@ -230,15 +235,45 @@ export function compareInboxContacts(
   a: any,
   b: any,
   view: CanonicalInboxView,
-  sort: InboxSortMode = 'auto'
+  sort: InboxSortMode = 'recent'
 ): number {
-  if (resolveInboxSort(view, sort) === 'score') {
+  const effectiveSort = resolveInboxSort(view, sort);
+
+  // 1. Modo "No leídos primero"
+  if (effectiveSort === 'unread_first') {
+    const aUnread = Boolean(a?.unread || (typeof a?.unread_count === 'number' && a.unread_count > 0));
+    const bUnread = Boolean(b?.unread || (typeof b?.unread_count === 'number' && b.unread_count > 0));
+    if (aUnread !== bUnread) {
+      return aUnread ? -1 : 1;
+    }
+  }
+
+  // 2. Modo "Más propensos a comprar"
+  if (effectiveSort === 'score') {
     const diff = leadScoreValue(b) - leadScoreValue(a);
     if (diff !== 0) return diff;
   }
 
+  // 3. Modo Alfabético A-Z
+  if (effectiveSort === 'name') {
+    const nameA = String(a?.name || '').trim();
+    const nameB = String(b?.name || '').trim();
+    const nameDiff = nameA.localeCompare(nameB, 'es', { sensitivity: 'base' });
+    if (nameDiff !== 0) return nameDiff;
+  }
+
   const aTime = getContactInteractionTimestamp(a);
   const bTime = getContactInteractionTimestamp(b);
+
+  // 4. Modo Más antiguos primero
+  if (effectiveSort === 'oldest') {
+    if (aTime !== bTime) {
+      if (aTime === 0) return 1;
+      if (bTime === 0) return -1;
+      return aTime - bTime;
+    }
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  }
 
   if (view === 'por_responder') {
     const aWait = a?.waiting_since ? new Date(a.waiting_since).getTime() : aTime;

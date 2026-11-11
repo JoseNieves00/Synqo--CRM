@@ -15,14 +15,16 @@ export interface FilterState {
   agentId: string;
   stage: string;
   temperature: string;
-  /** Orden de la lista: auto (por bandeja), recientes o más propensos a comprar. */
+  /** Orden de la lista: recent (WhatsApp estándar), unread_first, score, oldest, name o auto. */
   sort?: InboxSortMode;
 }
 
-const SORT_OPTIONS: Array<{ id: InboxSortMode; label: string; hint: string }> = [
-  { id: 'auto', label: 'Automático', hint: 'Seguimiento por probabilidad de compra; resto por actividad' },
-  { id: 'recent', label: 'Recientes', hint: 'Por espera (Por responder) o última actividad' },
-  { id: 'score', label: '🔥 Más propensos', hint: 'Mayor probabilidad de compra primero' },
+export const SORT_OPTIONS: Array<{ id: InboxSortMode; label: string; hint: string }> = [
+  { id: 'recent', label: '💬 Recientes (WhatsApp)', hint: 'Predeterminado de WhatsApp: mensajes más recientes arriba' },
+  { id: 'unread_first', label: '🔵 No leídos primero', hint: 'Chats no leídos arriba, seguidos de los más recientes' },
+  { id: 'score', label: '🔥 Más propensos', hint: 'Mayor probabilidad de compra primero (lead score)' },
+  { id: 'oldest', label: '⏳ Más antiguos', hint: 'Chats con más tiempo sin interacción primero' },
+  { id: 'name', label: '🔤 Nombre A-Z', hint: 'Orden alfabético por nombre del contacto' },
 ];
 
 interface TeamMember {
@@ -117,7 +119,7 @@ export function InboxFiltersPopover({
               <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
                 Ordenar por
               </label>
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                 {SORT_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
@@ -125,7 +127,7 @@ export function InboxFiltersPopover({
                     title={opt.hint}
                     onClick={() => onChangeFilter('sort', opt.id)}
                     className={`py-1 px-1 rounded-md text-center text-[10px] font-medium transition cursor-pointer border truncate ${
-                      (filters.sort || 'auto') === opt.id
+                      (filters.sort || 'recent') === opt.id
                         ? 'bg-[#0052FF] text-white border-[#0052FF]'
                         : 'bg-slate-50 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-100'
                     }`}
@@ -276,8 +278,15 @@ export function InboxActiveFilterChips({
     chips.push({ key: 'temperature', label: tempLabel });
   }
 
-  if (filters.sort && filters.sort !== 'auto') {
-    chips.push({ key: 'sort', label: filters.sort === 'score' ? 'Orden: 🔥 Más propensos' : 'Orden: Recientes' });
+  if (filters.sort && filters.sort !== 'recent') {
+    const sortLabels: Record<string, string> = {
+      unread_first: 'Orden: 🔵 No leídos',
+      score: 'Orden: 🔥 Más propensos',
+      oldest: 'Orden: ⏳ Más antiguos',
+      name: 'Orden: 🔤 Nombre A-Z',
+      auto: 'Orden: Automático',
+    };
+    chips.push({ key: 'sort', label: sortLabels[filters.sort] || `Orden: ${filters.sort}` });
   }
 
   if (chips.length === 0) return null;
