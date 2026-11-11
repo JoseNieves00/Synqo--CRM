@@ -50,16 +50,40 @@ export interface PromptFormatProfile {
 
 const SECTION_HEADING_SYNONYMS: Record<string, string[]> = {
   empresa: ['empresa', 'negocio', 'identidad', 'sobre nosotros', 'quienes somos', 'quiénes somos'],
-  catalogo: ['catalogo', 'catálogo', 'productos', 'servicios', 'portafolio', 'planes', 'precios', 'catalogo oferta'],
-  pagos: ['pagos', 'medios de pago', 'metodos de pago', 'métodos de pago', 'plan separe', 'cuentas', 'abonos'],
-  envios: ['envios y cobertura', 'envíos y cobertura', 'envios', 'envíos', 'entregas', 'domicilios', 'cobertura'],
-  politicas: ['politicas y garantias', 'políticas y garantías', 'politicas', 'políticas', 'garantia', 'garantía', 'cambios', 'devoluciones'],
-  faq: ['preguntas frecuentes', 'faq', 'dudas frecuentes'],
+  catalogo: [
+    'catalogo', 'catálogo', 'productos', 'servicios', 'portafolio', 'planes', 'precios',
+    'catalogo oferta', 'productos servicios y precios', 'productos y precios', 'productos y servicios',
+  ],
+  pagos: [
+    'pagos', 'medios de pago', 'metodos de pago', 'métodos de pago', 'plan separe', 'cuentas', 'abonos',
+    // secciones compuestas que incluyen pagos
+    'politicas envios y pagos', 'politicas  envios y pagos', 'envios y pagos', 'politicas y pagos',
+  ],
+  envios: [
+    'envios y cobertura', 'envíos y cobertura', 'envios', 'envíos', 'entregas', 'domicilios', 'cobertura',
+    // secciones compuestas que incluyen envíos
+    'politicas envios y pagos', 'politicas  envios y pagos', 'envios y pagos', 'politicas y envios',
+  ],
+  politicas: [
+    'politicas y garantias', 'políticas y garantías', 'politicas', 'políticas', 'garantia', 'garantía',
+    'cambios', 'devoluciones',
+    // secciones compuestas que incluyen políticas
+    'politicas envios y pagos', 'politicas  envios y pagos', 'politicas y pagos', 'politicas y envios',
+  ],
+  faq: ['preguntas frecuentes', 'faq', 'dudas frecuentes', 'preguntas y respuestas'],
   tono: ['tono y estilo', 'tono', 'estilo', 'personalidad', 'comunicacion', 'comunicación'],
-  cierre: ['datos de cierre', 'cierre', 'cierre agil', 'cierre ágil', 'confirmacion', 'confirmación', 'pedido'],
+  cierre: [
+    'datos de cierre', 'cierre', 'cierre agil', 'cierre ágil', 'confirmacion', 'confirmación', 'pedido',
+    'ruta de cierre', 'ruta de cierre agil', 'ruta de cierre ágil', 'datos de contacto y cierre',
+  ],
   relevo: ['relevo humano y horario', 'relevo', 'horario', 'atencion humana', 'atención humana', 'soporte'],
   seguimiento: ['seguimiento', 'recontacto'],
-  adicional: ['reglas adicionales', 'reglas operativas', 'ruta de cierre', 'ruta de cierre agil', 'ruta de cierre ágil', 'instrucciones', 'reglas'],
+  adicional: [
+    'reglas adicionales', 'reglas operativas', 'instrucciones', 'reglas',
+    // 'ruta de cierre agil' como instrucciones/flujo del bot (sinónimo de adicional en muchos clientes)
+    'ruta de cierre', 'ruta de cierre agil', 'ruta de cierre ágil',
+    'instrucciones generales', 'instrucciones clave',
+  ],
 };
 
 function normalizeHeadingKey(raw: string): string {
@@ -193,14 +217,26 @@ function findMatchingSectionBlock(
   const exact = blocks.find((b) => b.normalizedTitle === targetNorm);
   if (exact) return exact;
 
-  // 2. Coincidencia por sinónimo exacto o incluido en el encabezado del cliente
+  // 2. Coincidencia por sinónimo exacto
   const synExact = blocks.find((b) => synonyms.has(b.normalizedTitle));
   if (synExact) return synExact;
 
-  const synPartial = blocks.find((b) =>
-    Array.from(synonyms).some((s) => s.length >= 4 && b.normalizedTitle.includes(s))
+  // 3. Sinónimo contenido DENTRO del título del cliente (p.ej. "envios" dentro de "politicas  envios y pagos")
+  const synInClientTitle = blocks.find((b) =>
+    Array.from(synonyms).some((s) => s.length >= 5 && b.normalizedTitle.includes(s))
   );
-  if (synPartial) return synPartial;
+  if (synInClientTitle) return synInClientTitle;
+
+  // 4. Match inverso: alguna palabra clave del título del cliente está en los sinónimos de la sección
+  //    Esto captura p.ej. "politicas  envios y pagos" cuando buscamos sectionId="envios"
+  const inverseMatch = blocks.find((b) => {
+    const clientNorm = b.normalizedTitle;
+    // Verificar si algún sinónimo de largo suficiente está contenido en el título compuesto del cliente
+    return Array.from(synonyms).some(
+      (s) => s.length >= 5 && clientNorm.includes(normalizeHeadingKey(s))
+    );
+  });
+  if (inverseMatch) return inverseMatch;
 
   return null;
 }
@@ -396,6 +432,16 @@ const META_COMMENTARY_START_REGEX =
 
 const META_COMMENTARY_BODY_REGEX =
   /(?:evitar dispersi[oó]n|unificar (?:las )?instrucciones|por ejemplo,\s*(?:incluir|agregar|crear) una secci[oó]n|en un solo apartado|reorganizar (?:el|este) prompt)/i;
+
+/**
+ * Extrae los encabezados exactos del prompt del cliente (en su formato original) ordenados.
+ * Se usa para alimentar al LLM con los títulos reales, evitando que cree secciones duplicadas.
+ */
+export function buildExactSectionHeadingsList(prompt: string): string[] {
+  const { body } = splitGalleryTail(prompt);
+  if (!body.trim()) return [];
+  return findParsedSections(body).map((b) => b.rawHeading.replace(/\n+$/, '').trim());
+}
 
 /**
  * Detecta si un texto propuesto es un consejo/meta-comentario dirigido al administrador

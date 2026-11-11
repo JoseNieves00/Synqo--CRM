@@ -25,6 +25,7 @@ import {
 import {
   adaptBulletStyle,
   buildCompactPromptOutline,
+  buildExactSectionHeadingsList,
   dedupePromptLinesDeterministically,
   detectPromptFormat,
   estimatePromptTokens,
@@ -324,8 +325,12 @@ export async function interpretAssistantAnswerAction(input: {
 
     const allSlotsHint = PROMPT_BLUEPRINT_SLOTS.map((s) => `${s.id} (${s.sectionTitle}: ${s.label})`).join('\n');
     const compactOutline = hasExistingBody ? buildCompactPromptOutline(existingPromptBody, 1300) : '';
+    const exactHeadings = hasExistingBody ? buildExactSectionHeadingsList(input.currentPrompt || '') : [];
+    const headingsList = exactHeadings.length
+      ? `Encabezados EXACTOS del prompt del cliente:\n${exactHeadings.map((h) => `  • "${h}"`).join('\n')}\n`
+      : '';
     const existingContextHint = compactOutline
-      ? `\nEstilo del cliente: ${formatProfile.styleDescription}.\nEsquema actual:\n---\n${compactOutline}\n---`
+      ? `\nEstilo del cliente: ${formatProfile.styleDescription}.\n${headingsList}Esquema actual:\n---\n${compactOutline}\n---`
       : '';
 
     const systemMsg = isFreeMode
@@ -338,8 +343,9 @@ ${existingContextHint}
 REGLAS CRÍTICAS:
 1. Identifica a qué slot(s) pertenece y devuelve el dato en "also_detected" (para "catalogo.items", array [{"name","price","specs","variants","includes"}]).
 2. Si ya existe un prompt arriba, en "merged_sections" escribe para el sectionId tocado (ej. "adicional", "catalogo", "pagos", "envios", "politicas", "faq", "tono", "cierre", "relevo", "seguimiento", "empresa") el cuerpo ACTUALIZADO de esa sección: FUSIONA lo que ya tenía esa sección con la nueva instrucción, EVITA duplicados o redundancias, y ADÁPTATE exactamente al estilo del cliente (${formatProfile.styleDescription}) sin borrar reglas previas vigentes.
-3. Redacta SIEMPRE como instrucciones directas ejecutables por el bot (PROHIBIDO meta-consejos como "Es recomendable...").
-4. Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una pregunta breve en "follow_up_question", si no null.
+3. REGLA ANTI-DUPLICADOS DE SECCIÓN: Si el prompt del cliente ya tiene una sección compuesta que engloba el contenido (ej. la sección "${exactHeadings[0] || '## POLÍTICAS, ENVÍOS Y PAGOS:'}" ya cubre envíos Y pagos AND políticas), en "merged_sections" usa el sectionId del blueprint más relevante (ej. "envios", "pagos" o "politicas") — el sistema fusionará ese contenido en la sección compuesta existente automáticamente. NUNCA inventes una clave de sectionId que no esté en la lista de slots disponibles.
+4. Redacta SIEMPRE como instrucciones directas ejecutables por el bot (PROHIBIDO meta-consejos como "Es recomendable...").
+5. Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una pregunta breve en "follow_up_question", si no null.
 Responde ÚNICAMENTE JSON válido:
 { "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "follow_up_question": string | null }`
       : `Eres un extractor estructurado para configurar un asistente comercial multi-nicho.
@@ -435,6 +441,55 @@ Responde ÚNICAMENTE JSON válido:
   }
   if (!skippedSlot && slot && !touchedSectionIds.includes(slot.sectionId)) {
     touchedSectionIds.unshift(slot.sectionId);
+  }
+
+  // DEDUPLICACIÓN POR BLOQUE FÍSICO: si varios sectionIds del blueprint apuntan al mismo
+  // encabezado existente del cliente (ej. "envios" y "politicas" ambos matchean
+  // "## POLÍTICAS, ENVÍOS Y PAGOS:"), consolidar sus cuerpos en el primero que matchee
+  // y eliminar los redundantes para evitar que se creen secciones duplicadas.
+  if (hasExistingBody && touchedSectionIds.length > 1) {
+    const resolvedBlockStartIdx: Map<number, string> = new Map(); // startIdx → winning sectionId
+    const consolidatedBodies: Map<string, string[]> = new Map(); // winning sectionId → array of bodies to merge
+    const toRemove = new Set<string>();
+
+    for (const secId of touchedSectionIds) {
+      const secMeta = PROMPT_SECTIONS.find((s) => s.id === secId);
+      if (!secMeta) continue;
+      const block = extractExistingSectionContent(input.currentPrompt || '', secMeta.title, secId);
+      if (!block.found) continue;
+      // Encontrar el startIdx real del bloque parseado
+      const { body: promptBody } = splitGalleryTail(input.currentPrompt || '');
+      const rawIdx = block.rawHeading ? promptBody.indexOf(block.rawHeading) : -1;
+      if (rawIdx < 0) continue;
+
+      const existing = resolvedBlockStartIdx.get(rawIdx);
+      if (existing === undefined) {
+        resolvedBlockStartIdx.set(rawIdx, secId);
+        consolidatedBodies.set(secId, []);
+      } else {
+        // Este secId comparte el mismo bloque físico → consolidar su body en el winner
+        const myBody = mergedSections[secId] || renderSectionBodyFromSlots(secId, state.slots);
+        if (myBody && !isMetaPromptCommentary(myBody)) {
+          consolidatedBodies.get(existing)!.push(myBody);
+        }
+        toRemove.add(secId);
+      }
+    }
+
+    // Aplicar cuerpos consolidados al winner
+    for (const [winnerId, extraBodies] of consolidatedBodies.entries()) {
+      if (extraBodies.length > 0) {
+        const existing = mergedSections[winnerId] || renderSectionBodyFromSlots(winnerId, state.slots) || '';
+        mergedSections[winnerId] = [existing.trim(), ...extraBodies].filter(Boolean).join('\n\n');
+      }
+    }
+
+    // Eliminar los sectionIds redundantes de la lista
+    for (const removeId of toRemove) {
+      const idx = touchedSectionIds.indexOf(removeId);
+      if (idx >= 0) touchedSectionIds.splice(idx, 1);
+      delete mergedSections[removeId];
+    }
   }
 
   let patchedPrompt: string | null = null;
