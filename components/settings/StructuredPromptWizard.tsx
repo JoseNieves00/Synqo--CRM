@@ -221,6 +221,19 @@ export function StructuredPromptWizard({
       setGallery(updatedGallery);
       const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
       await saveProductGallery(updatedGallery, compiled);
+
+      // Si el modal de edición está abierto, actualizar su objeto producto en vivo
+      if (editingProduct) {
+        const recomputedGroups = groupGalleryIntoProducts(updatedGallery);
+        const updatedTarget = recomputedGroups.find(
+          (p) => canonicalGroupKey(p.productName) === canonicalGroupKey(editingProduct.productName)
+        );
+        if (updatedTarget) {
+          setEditingProduct(updatedTarget);
+          setEditingPreviewPhotoId(targetPhotoId);
+        }
+      }
+
       setFeedbackBanner({
         type: 'success',
         text: `Foto de "${productName}" establecida como Portada Principal (primera en orden visual).`,
@@ -1463,6 +1476,19 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                           <span className="text-blue-200">Foto {activeIdx + 1} de {editingProduct.allPhotos.length}</span>
                         )}
                       </span>
+
+                      {/* Botón directo para convertir esta foto activa en la Portada Principal */}
+                      {!isPrimary && (
+                        <button
+                          type="button"
+                          onClick={() => handleSetPrimaryPhoto(activePhoto.id, editingProduct.productName)}
+                          className="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-bold transition shadow-md cursor-pointer animate-in fade-in duration-150"
+                          title="Fijar esta foto como la Portada Principal de este producto"
+                        >
+                          <Star className="w-3 h-3 fill-slate-950" />
+                          <span>Fijar como Portada</span>
+                        </button>
+                      )}
                     </div>
 
                     {editingProduct.allPhotos.length > 1 && (
