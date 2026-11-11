@@ -49,6 +49,7 @@ import {
   restorePromptVersionAction,
   saveImportedCatalogToPromptAction,
 } from '@/app/actions/prompt-assistant';
+import type { SmartSuggestionItem } from '@/lib/ai/prompt-assistant/smart-suggestions';
 import type { FollowUpSuggestionMap } from '@/components/settings/FollowUpSequencesSettings';
 import { AssistantChat, type AssistantChatFeedItem } from './AssistantChat';
 import { HealthChecklist } from './HealthChecklist';
@@ -95,6 +96,7 @@ export function PromptAssistantPanel({
 
   const [feed, setFeed] = useState<AssistantChatFeedItem[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
+  const [smartSuggestions, setSmartSuggestions] = useState<SmartSuggestionItem[]>([]);
   const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
 
   const [showVersionsMenu, setShowVersionsMenu] = useState(false);
@@ -132,6 +134,7 @@ export function PromptAssistantPanel({
       const hasExisting = currentPrompt.trim().length >= 35;
       setActiveSlotId(hasExisting ? 'free' : res.nextSlotId || 'free');
       setDailyLimitReached(Boolean(res.dailyLimitReached));
+      if (res.smartSuggestions) setSmartSuggestions(res.smartSuggestions);
       if (res.budgetNotice) setBudgetNotice(res.budgetNotice);
       if (res.catalogInlineMax) setCatalogInlineMax(res.catalogInlineMax);
       setBootstrapped(true);
@@ -681,6 +684,7 @@ export function PromptAssistantPanel({
             onSelectSlot={(id) => setActiveSlotId(id)}
             feed={feed}
             conflicts={conflicts}
+            smartSuggestions={smartSuggestions}
             dailyLimitReached={dailyLimitReached}
             budgetNotice={budgetNotice}
             onOpenUsageModal={() => setShowUsageModal(true)}

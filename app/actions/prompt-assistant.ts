@@ -42,6 +42,10 @@ import { evaluatePromptHealth, type PromptHealthReport } from '@/lib/ai/prompt-a
 import { searchAssistantGuide } from '@/lib/ai/prompt-assistant/guide';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import {
+  getSmartCommercialSuggestions,
+  type SmartSuggestionItem,
+} from '@/lib/ai/prompt-assistant/smart-suggestions';
+import {
   matchImportedItemsWithGallery,
   sanitizeImportedText,
   type ImportedCatalogItem,
@@ -229,6 +233,12 @@ export async function getPromptAssistantBootstrapAction(params?: { currentPrompt
   const budgetStatus = getAssistantBudgetStatus(state);
   const nextSlot = getNextPendingSlot(state, preset);
 
+  const smartSuggestions: SmartSuggestionItem[] = getSmartCommercialSuggestions({
+    preset,
+    currentPrompt: activePrompt,
+    hasCatalog: Boolean(structured.catalog?.length || structured.gallery?.length),
+  });
+
   return {
     state: { ...state, usageByDay: {}, totalAssistantTokens: 0 }, // No exponer conteos crudos de tokens al cliente
     versions,
@@ -239,6 +249,7 @@ export async function getPromptAssistantBootstrapAction(params?: { currentPrompt
     dailyLimitReached: budgetStatus.limitReached,
     budgetNotice: toClientBudgetNotice(budgetStatus),
     catalogInlineMax: PROMPT_ASSISTANT_CONFIG.catalogInlineMax,
+    smartSuggestions,
   };
 }
 
@@ -592,20 +603,23 @@ export async function analyzeExistingPromptAction(input: { currentPrompt: string
     messages: [
       {
         role: 'system',
-        content: `Audita el prompt comercial actual del cliente sin modificarlo ni destruir sus reglas propias.
+        content: `Audita el prompt comercial actual del cliente para transformarlo en un ASESOR COMERCIAL CONSULTIVO EXPERTO en WhatsApp (evitando que actúe como un folleto pasivo).
 Estilo nativo actual del cliente: ${formatProfile.styleDescription}.
 Slots del blueprint:
 ${slotList}
 
 OBJETIVO DOBLE:
 1. Detectar vacíos reales, contradicciones, líneas duplicadas o reglas repetidas entre secciones (y pautas genéricas redundantes como "no inventar precios" que la plataforma ya aplica).
-2. Proponer mejoras o simplificaciones quirúrgicas ADAPTADAS AL FORMATO NATIVO DEL CLIENTE (${formatProfile.styleDescription}).
+2. Proponer mejoras o simplificaciones quirúrgicas ADAPTADAS AL FORMATO NATIVO DEL CLIENTE (${formatProfile.styleDescription}) que eleven la CONVERSIÓN COMERCIAL:
+   - Técnica de Cierre con Doble Alternativa (ofrecer 2 opciones concretas en lugar de preguntas abiertas que dejan en visto).
+   - Derribo proactivo de objeciones (tranquilidad en pagos, reservas con abono del 50%, garantía y tiempos de entrega).
+   - Respuestas empáticas con diagnóstico breve antes de saturar al cliente con listas largas.
 
 REGLA CRÍTICA DE SEPARACIÓN:
 - "conflicts": coloca aquí TODA observación dirigida al dueño del negocio (ej: "Hay reglas duplicadas sobre pagos en dos apartados", "Hay dos precios distintos para el mismo producto").
 - "proposals": incluye ÚNICAMENTE texto ejecutable listo para pegar literalmente en esa sección (para completar un vacío O reemplazar una sección simplificándola sin perder datos).
   * ADAPTA "proposedText" al mismo estilo de viñetas del cliente (${formatProfile.styleDescription}) y si esa sección ya existe, conserva sus reglas vigentes fusionando/simplificando duplicados.
-  * PROHIBIDO escribir meta-consejos en "proposedText" (nunca escribas "Es recomendable...", "Conviene...", "Deberías...", "Se sugiere...", "Por ejemplo, incluir...").
+  * PROHIBIDO escribir meta-consejos en "proposedText" (nunca escribas "Es recomendable...", "Conviene...", "Deberías...", "Se sugiere...", "Por ejemplo, incluir..."). Escribe siempre la directiva directa que debe obedecer el bot.
 
 Responde ÚNICAMENTE JSON válido:
 {

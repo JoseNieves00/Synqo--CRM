@@ -23,6 +23,7 @@ import type {
   PromptAssistantState,
 } from '@/lib/ai/prompt-assistant/state';
 import type { ImportedCatalogItem } from '@/lib/ai/prompt-assistant/file-import';
+import type { SmartSuggestionItem } from '@/lib/ai/prompt-assistant/smart-suggestions';
 import { VoiceRecorder } from './VoiceRecorder';
 import { SectionProposalCard } from './SectionProposalCard';
 import { CatalogImportPreview, type PendingImportState } from './CatalogImportPreview';
@@ -41,6 +42,7 @@ interface AssistantChatProps {
   onSelectSlot: (slotId: string) => void;
   feed: AssistantChatFeedItem[];
   conflicts: string[];
+  smartSuggestions?: SmartSuggestionItem[];
   dailyLimitReached: boolean;
   budgetNotice?: AssistantClientBudgetNotice | null;
   onOpenUsageModal?: () => void;
@@ -77,6 +79,7 @@ export function AssistantChat({
   onSelectSlot,
   feed,
   conflicts,
+  smartSuggestions = [],
   dailyLimitReached,
   budgetNotice,
   onOpenUsageModal,
@@ -358,11 +361,11 @@ export function AssistantChat({
 
         {/* Modo libre: redacta o dicta lo que necesites sin elegir sección manualmente */}
         {isFreeMode && (
-          <div className="rounded-2xl rounded-tl-xs border border-blue-200/80 dark:border-blue-800/40 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-2">
+          <div className="rounded-2xl rounded-tl-xs border border-blue-200/80 dark:border-blue-800/40 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#0052FF] dark:text-[#00D2FF] flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
-                Chat libre · Sin secciones obligatorias
+                Chat libre · Especialización comercial
               </span>
             </div>
             <p className="text-xs font-semibold text-slate-900 dark:text-white leading-relaxed">
@@ -371,11 +374,47 @@ export function AssistantChat({
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
               Identifico automáticamente en qué apartado ubicarlo sin borrar lo que ya configuraste.
             </p>
+
+            {/* Sugerencias comerciales inteligentes por nicho y táctica */}
+            {smartSuggestions.length > 0 && (
+              <div className="pt-1 space-y-1.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <span>💡 Tácticas recomendadas para tu negocio:</span>
+                </div>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {smartSuggestions.slice(0, 4).map((sug) => (
+                    <div
+                      key={sug.id}
+                      className="p-2 rounded-xl bg-white dark:bg-[#131722] border border-blue-100 dark:border-[#232A3B] hover:border-[#0052FF]/40 dark:hover:border-[#00D2FF]/40 transition text-left flex flex-col gap-1"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                          <span>{sug.badge}</span>
+                          <span>{sug.title}</span>
+                        </span>
+                        <button
+                          type="button"
+                          disabled={sending}
+                          onClick={() => handleSend(sug.instructionToApply)}
+                          className="px-2 py-0.5 rounded-md bg-[#0052FF] hover:bg-[#0040CC] text-white text-[10px] font-bold transition cursor-pointer disabled:opacity-50 shrink-0"
+                        >
+                          + Agregar
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                        {sug.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-1.5 pt-0.5">
               {[
-                'Cuando envíes fotos con precio y detalles, no repitas esos datos en texto.',
                 'Nuevo producto/servicio: ',
                 'Horario de atención y cobertura: ',
+                'Método de pago y cuentas: ',
               ].map((starter, idx) => (
                 <button
                   key={idx}
@@ -383,7 +422,7 @@ export function AssistantChat({
                   onClick={() => setInputText(starter)}
                   className="px-2.5 py-1 rounded-full bg-white dark:bg-[#131722] hover:bg-blue-100/70 dark:hover:bg-[#1E2433] border border-blue-200 dark:border-[#232A3B] text-[10px] font-medium text-slate-700 dark:text-slate-200 transition cursor-pointer"
                 >
-                  {idx === 0 ? 'Regla anti-redundancia visual' : idx === 1 ? '+ Producto / precio' : '+ Horario / cobertura'}
+                  {starter.replace(': ', '')}
                 </button>
               ))}
             </div>
