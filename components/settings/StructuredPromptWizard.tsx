@@ -121,6 +121,7 @@ export function StructuredPromptWizard({
 
   // Modal para editar producto consolidado en el catálogo
   const [editingProduct, setEditingProduct] = useState<GroupedProductGallery | null>(null);
+  const [editingPreviewPhotoId, setEditingPreviewPhotoId] = useState<string | null>(null);
   const [editProductName, setEditProductName] = useState('');
   const [editProductPrice, setEditProductPrice] = useState('');
   const [editProductKeywords, setEditProductKeywords] = useState<string[]>([]);
@@ -265,6 +266,7 @@ export function StructuredPromptWizard({
 
   const handleOpenEditProductModal = (product: GroupedProductGallery) => {
     setEditingProduct(product);
+    setEditingPreviewPhotoId(product.primaryPhoto.id);
     setEditProductName(product.productName);
     setEditProductPrice(product.price || '');
     setEditProductKeywords(product.keywords || []);
@@ -274,6 +276,7 @@ export function StructuredPromptWizard({
 
   const handleCloseEditProductModal = () => {
     setEditingProduct(null);
+    setEditingPreviewPhotoId(null);
     setEditProductName('');
     setEditProductPrice('');
     setEditProductKeywords([]);
@@ -1434,50 +1437,78 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 [scrollbar-width:thin]">
-              {/* Previsualización del Producto (Foto Principal + Miniaturas si tiene varias fotos) */}
-              <div className="space-y-2">
-                <div className="relative rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
-                  <img
-                    src={editingProduct.primaryPhoto.url}
-                    alt={editingProduct.productName}
-                    className="w-full h-full object-contain"
-                  />
-                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-slate-900/85 text-amber-300 text-[10px] font-bold backdrop-blur-xs border border-amber-400/30 shadow-xs flex items-center gap-1">
-                    <Star className="w-3 h-3 fill-amber-300" />
-                    <span>Foto de Portada</span>
-                  </span>
-                </div>
+              {/* Previsualización del Producto (Foto Activa + Miniaturas clickeables si tiene varias fotos) */}
+              {(() => {
+                const activePhotoId = editingPreviewPhotoId || editingProduct.primaryPhoto.id;
+                const activePhoto =
+                  editingProduct.allPhotos.find((p) => p.id === activePhotoId) || editingProduct.primaryPhoto;
+                const activeIdx = editingProduct.allPhotos.findIndex((p) => p.id === activePhoto.id);
+                const isPrimary = activeIdx === 0;
 
-                {editingProduct.allPhotos.length > 1 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
-                    {editingProduct.allPhotos.map((photo, pIdx) => (
-                      <div
-                        key={photo.id}
-                        className={`relative w-10 h-10 rounded-lg overflow-hidden border shrink-0 ${
-                          pIdx === 0
-                            ? 'border-amber-400 ring-1 ring-amber-400/40'
-                            : 'border-slate-200 dark:border-slate-700'
-                        }`}
-                        title={pIdx === 0 ? 'Foto de Portada' : `Foto Adicional ${pIdx + 1}`}
-                      >
-                        <img
-                          src={photo.url}
-                          alt={`Foto ${pIdx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                        {pIdx === 0 && (
-                          <span className="absolute bottom-0 right-0 p-0.5 bg-amber-500 text-white rounded-tl-md">
-                            <Star className="w-2 h-2 fill-current" />
-                          </span>
+                return (
+                  <div className="space-y-2">
+                    <div className="relative rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
+                      <img
+                        src={activePhoto.url}
+                        alt={`${editingProduct.productName} - ${isPrimary ? 'Portada' : `Foto ${activeIdx + 1}`}`}
+                        className="w-full h-full object-contain"
+                      />
+                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-slate-900/85 text-[10px] font-bold backdrop-blur-xs border shadow-xs flex items-center gap-1">
+                        {isPrimary ? (
+                          <>
+                            <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                            <span className="text-amber-300">Foto de Portada</span>
+                          </>
+                        ) : (
+                          <span className="text-blue-200">Foto {activeIdx + 1} de {editingProduct.allPhotos.length}</span>
                         )}
+                      </span>
+                    </div>
+
+                    {editingProduct.allPhotos.length > 1 && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between px-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">Haz clic en cualquier imagen para previsualizar:</span>
+                          <span>{editingProduct.allPhotos.length} fotos</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                          {editingProduct.allPhotos.map((photo, pIdx) => {
+                            const isSelected = photo.id === activePhoto.id;
+                            const isThisPrimary = pIdx === 0;
+
+                            return (
+                              <button
+                                key={photo.id}
+                                type="button"
+                                onClick={() => setEditingPreviewPhotoId(photo.id)}
+                                className={`relative w-12 h-12 rounded-lg overflow-hidden border-2 shrink-0 transition cursor-pointer ${
+                                  isSelected
+                                    ? 'border-[#0052FF] ring-2 ring-blue-500/30 scale-102'
+                                    : isThisPrimary
+                                    ? 'border-amber-400 hover:border-amber-500'
+                                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                                }`}
+                                title={`Ver Foto ${pIdx + 1}${isThisPrimary ? ' (Portada)' : ''} (Clic para previsualizar)`}
+                              >
+                                <img
+                                  src={photo.url}
+                                  alt={`Foto ${pIdx + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                                {isThisPrimary && (
+                                  <span className="absolute bottom-0 right-0 p-0.5 bg-amber-500 text-white rounded-tl-md">
+                                    <Star className="w-2 h-2 fill-current" />
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    ))}
-                    <span className="text-[10px] text-slate-400 font-medium pl-1 shrink-0">
-                      {editingProduct.allPhotos.length} fotos vinculadas
-                    </span>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Input de Nombre y Autocompletar */}
               <div className="space-y-1.5">
