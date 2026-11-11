@@ -1117,26 +1117,26 @@ export function ChatInput({
                         </button>
                       </div>
 
-                      {/* Tira desplegable de fotos alternas del mismo producto */}
+                      {/* Tira desplegable de fotos adicionales del mismo producto */}
                       {hasAlternates && isExpanded && (
                         <div className="pt-2 border-t border-slate-200/70 dark:border-[#232A3B]/70 space-y-1.5 animate-in fade-in duration-150">
                           <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block px-0.5">
-                            Ángulos y variantes de este producto:
+                            Fotos adicionales de este producto:
                           </span>
                           <div className="grid grid-cols-2 gap-1.5">
-                            {prod.alternatePhotos.map((altPhoto) => (
+                            {prod.alternatePhotos.map((altPhoto, altIdx) => (
                               <div
                                 key={altPhoto.id}
                                 className="flex items-center gap-1.5 p-1 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B]"
                               >
                                 <img
                                   src={altPhoto.url}
-                                  alt={altPhoto.imageRole || 'alterna'}
+                                  alt={`Foto ${altIdx + 2}`}
                                   className="w-8 h-8 rounded-md object-cover border border-slate-200 dark:border-[#232A3B] shrink-0"
                                 />
                                 <div className="flex-1 min-w-0">
-                                  <span className="text-[9px] font-bold text-slate-700 dark:text-slate-300 capitalize truncate block">
-                                    {altPhoto.imageRole || 'Alterna'}
+                                  <span className="text-[9px] font-bold text-slate-700 dark:text-slate-300 truncate block">
+                                    Foto {altIdx + 2}
                                   </span>
                                 </div>
                                 <button
@@ -1144,7 +1144,7 @@ export function ChatInput({
                                   onClick={() => handleSendCatalogItem(altPhoto)}
                                   disabled={Boolean(isSendingCatalogPhoto)}
                                   className="px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-700 dark:text-slate-200 text-[9px] font-bold transition shrink-0"
-                                  title="Enviar este ángulo"
+                                  title={`Enviar Foto ${altIdx + 2}`}
                                 >
                                   {isSendingCatalogPhoto === altPhoto.id ? (
                                     <Loader2 className="w-2.5 h-2.5 animate-spin" />

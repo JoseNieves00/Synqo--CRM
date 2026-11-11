@@ -303,7 +303,7 @@ export interface GroupedProductGallery {
   allPhotos: GalleryPhotoItem[]; // [primaryPhoto, ...alternatePhotos]
 }
 
-function canonicalGroupKey(name: string): string {
+export function canonicalGroupKey(name: string): string {
   return normalizeSearchText(name)
     .replace(/\+/g, ' ')
     .replace(/\s+/g, ' ')

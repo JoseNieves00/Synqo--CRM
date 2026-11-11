@@ -33,7 +33,7 @@ import {
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { estimatePromptTokens } from '@/lib/ai/prompt-assistant/versions';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
-import { groupGalleryIntoProducts, setPrimaryPhotoInGallery } from '@/lib/ai/product-gallery';
+import { groupGalleryIntoProducts, setPrimaryPhotoInGallery, canonicalGroupKey, type GroupedProductGallery } from '@/lib/ai/product-gallery';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { saveProductGallery } from '@/app/actions/settings';
 import { suggestProductCatalogAi } from '@/app/actions/ai-catalog';
@@ -119,12 +119,11 @@ export function StructuredPromptWizard({
   // Agrupación de fotos en productos consolidados con la portada SIEMPRE de primera
   const groupedProducts = React.useMemo(() => groupGalleryIntoProducts(gallery), [gallery]);
 
-  // Modal para editar foto existente en el catálogo
-  const [editingPhoto, setEditingPhoto] = useState<GalleryPhotoItem | null>(null);
-  const [editPhotoName, setEditPhotoName] = useState('');
-  const [editPhotoPrice, setEditPhotoPrice] = useState('');
-  const [editPhotoRole, setEditPhotoRole] = useState('principal');
-  const [editPhotoKeywords, setEditPhotoKeywords] = useState<string[]>([]);
+  // Modal para editar producto consolidado en el catálogo
+  const [editingProduct, setEditingProduct] = useState<GroupedProductGallery | null>(null);
+  const [editProductName, setEditProductName] = useState('');
+  const [editProductPrice, setEditProductPrice] = useState('');
+  const [editProductKeywords, setEditProductKeywords] = useState<string[]>([]);
   const [editKeywordInput, setEditKeywordInput] = useState('');
   const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -256,73 +255,75 @@ export function StructuredPromptWizard({
   };
 
   useEffect(() => {
-    if (isAddPhotoModalOpen || selectedTemplateModal || !!editingPhoto) {
+    if (isAddPhotoModalOpen || selectedTemplateModal || !!editingProduct) {
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = '';
       };
     }
-  }, [isAddPhotoModalOpen, selectedTemplateModal, editingPhoto]);
+  }, [isAddPhotoModalOpen, selectedTemplateModal, editingProduct]);
 
-  const handleOpenEditModal = (item: GalleryPhotoItem) => {
-    setEditingPhoto(item);
-    setEditPhotoName(item.productName || item.name);
-    setEditPhotoPrice(item.price || '');
-    setEditPhotoRole(item.imageRole || 'principal');
-    setEditPhotoKeywords(item.keywords || []);
+  const handleOpenEditProductModal = (product: GroupedProductGallery) => {
+    setEditingProduct(product);
+    setEditProductName(product.productName);
+    setEditProductPrice(product.price || '');
+    setEditProductKeywords(product.keywords || []);
     setEditKeywordInput('');
     setEditError(null);
   };
 
-  const handleCloseEditModal = () => {
-    setEditingPhoto(null);
-    setEditPhotoName('');
-    setEditPhotoPrice('');
-    setEditPhotoRole('principal');
-    setEditPhotoKeywords([]);
+  const handleCloseEditProductModal = () => {
+    setEditingProduct(null);
+    setEditProductName('');
+    setEditProductPrice('');
+    setEditProductKeywords([]);
     setEditKeywordInput('');
     setEditError(null);
     setIsSavingEdit(false);
   };
 
-  const handleSaveEditedPhoto = async (e?: React.SyntheticEvent) => {
+  const handleSaveEditedProduct = async (e?: React.SyntheticEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!editingPhoto || !editPhotoName.trim()) {
+    if (!editingProduct || !editProductName.trim()) {
       setEditError('El nombre o título del producto no puede estar vacío.');
       return;
     }
     setIsSavingEdit(true);
     setEditError(null);
     try {
-      const cleanRole = editPhotoRole.trim() || 'principal';
-      const prodName = editPhotoName.trim();
-      const updatedGallery = gallery.map((item) =>
-        item.id === editingPhoto.id
-          ? {
-              ...item,
-              name: prodName,
-              productName: prodName,
-              imageRole: cleanRole,
-              price: editPhotoPrice.trim() || undefined,
-              keywords: editPhotoKeywords.length > 0 ? editPhotoKeywords : undefined,
-            }
-          : item
-      );
+      const newProdName = editProductName.trim();
+      const targetCanonicalKey = canonicalGroupKey(editingProduct.productName);
+
+      // Actualizar todas las fotos asociadas a este producto (principal y alternas)
+      const updatedGallery = gallery.map((item) => {
+        const itemKey = canonicalGroupKey(item.productName || item.name || '');
+        if (itemKey === targetCanonicalKey) {
+          return {
+            ...item,
+            name: newProdName,
+            productName: newProdName,
+            price: editProductPrice.trim() || undefined,
+            keywords: editProductKeywords.length > 0 ? editProductKeywords : undefined,
+          };
+        }
+        return item;
+      });
+
       setGallery(updatedGallery);
       const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
       await saveProductGallery(updatedGallery, compiled);
 
       setFeedbackBanner({
         type: 'success',
-        text: `Producto "${prodName}" actualizado y sincronizado con éxito.`,
+        text: `Producto "${newProdName}" actualizado con todas sus fotos y sincronizado con éxito.`,
       });
       setTimeout(() => setFeedbackBanner(null), 5000);
-      handleCloseEditModal();
+      handleCloseEditProductModal();
     } catch (err: any) {
-      console.error('[EDIT PHOTO ERROR]', err);
+      console.error('[EDIT PRODUCT ERROR]', err);
       setEditError(err?.message || 'Error al guardar los cambios en la base de datos.');
     } finally {
       setIsSavingEdit(false);
@@ -330,7 +331,7 @@ export function StructuredPromptWizard({
   };
 
   const handleAutocompleteWithGemini = async (isEdit = false) => {
-    const nameToUse = isEdit ? editPhotoName : photoName;
+    const nameToUse = isEdit ? editProductName : photoName;
     if (!nameToUse.trim()) {
       if (isEdit) {
         setEditError('Escribe primero el nombre o modelo del producto para sugerir.');
@@ -351,16 +352,16 @@ export function StructuredPromptWizard({
     try {
       const res = await suggestProductCatalogAi({
         productName: nameToUse,
-        imageUrl: isEdit ? editingPhoto?.url : undefined,
+        imageUrl: isEdit ? editingProduct?.primaryPhoto?.url : undefined,
       });
 
       if (res.success && res.data) {
         if (isEdit) {
-          if (res.data.name && (!editPhotoName.trim() || editPhotoName.length < 5)) {
-            setEditPhotoName(res.data.name);
+          if (res.data.name && (!editProductName.trim() || editProductName.length < 5)) {
+            setEditProductName(res.data.name);
           }
-          const mergedTags = Array.from(new Set([...editPhotoKeywords, ...(res.data.keywords || [])]));
-          setEditPhotoKeywords(mergedTags);
+          const mergedTags = Array.from(new Set([...editProductKeywords, ...(res.data.keywords || [])]));
+          setEditProductKeywords(mergedTags);
         } else {
           if (res.data.name && (!photoName.trim() || photoName.length < 5)) {
             setPhotoName(res.data.name);
@@ -384,8 +385,8 @@ export function StructuredPromptWizard({
     const clean = kw.trim().replace(/^,|,$/g, '');
     if (!clean) return;
     if (isEdit) {
-      if (!editPhotoKeywords.includes(clean)) {
-        setEditPhotoKeywords([...editPhotoKeywords, clean]);
+      if (!editProductKeywords.includes(clean)) {
+        setEditProductKeywords([...editProductKeywords, clean]);
       }
       setEditKeywordInput('');
     } else {
@@ -398,7 +399,7 @@ export function StructuredPromptWizard({
 
   const handleRemoveKeyword = (kwToRemove: string, isEdit = false) => {
     if (isEdit) {
-      setEditPhotoKeywords(editPhotoKeywords.filter((k) => k !== kwToRemove));
+      setEditProductKeywords(editProductKeywords.filter((k) => k !== kwToRemove));
     } else {
       setPhotoKeywords(photoKeywords.filter((k) => k !== kwToRemove));
     }
@@ -830,7 +831,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                       loading="lazy"
                     />
 
-                    {/* Badge Portada (Siempre primera) o Vista Alterna */}
+                    {/* Badge Portada (Siempre primera) o Foto Adicional */}
                     <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 pointer-events-none">
                       {isViewingPrimary ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900/85 text-amber-300 text-[10px] font-bold backdrop-blur-xs border border-amber-400/30 shadow-xs">
@@ -838,8 +839,8 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                           <span>Portada Principal</span>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-600/90 text-white text-[10px] font-bold backdrop-blur-xs shadow-xs">
-                          <span>Vista: {activePhoto.imageRole || 'Alterna'}</span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900/85 text-blue-200 text-[10px] font-bold backdrop-blur-xs border border-blue-400/30 shadow-xs">
+                          <span>Foto {product.allPhotos.findIndex((p) => p.id === activePhoto.id) + 1} de {product.allPhotos.length}</span>
                         </span>
                       )}
                     </div>
@@ -914,7 +915,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                               title={`${
                                 isThisPrimary
                                   ? 'Foto Principal / Portada'
-                                  : `Foto Alterna: ${photo.imageRole || 'Ángulo'}`
+                                  : `Foto Adicional ${pIdx + 1}`
                               } (Clic para previsualizar)`}
                             >
                               <img
@@ -986,9 +987,9 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             type="button"
-                            onClick={() => handleOpenEditModal(product.primaryPhoto)}
+                            onClick={() => handleOpenEditProductModal(product)}
                             className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
-                            title="Editar datos del producto o palabras clave"
+                            title="Editar datos del producto, precio y palabras clave"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -1238,8 +1239,6 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </div>
               )}
 
-              {/* Precio y Vista/Rol de la Imagen */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {!targetProductForAlternate && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1255,47 +1254,6 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     />
                   </div>
                 )}
-
-                <div className={targetProductForAlternate ? 'sm:col-span-2' : ''}>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Vista / Ángulo de la Foto
-                  </label>
-                  {/* Chips sugeridos rápidos de un clic */}
-                  <div className="flex flex-wrap gap-1 mb-1.5">
-                    {[
-                      { label: 'Portada', value: 'principal' },
-                      { label: 'Interior / Abierta', value: 'interior' },
-                      { label: 'Vista Lateral', value: 'lateral' },
-                      { label: 'Medidas / Detalles', value: 'medidas' },
-                      { label: 'Variante / Color', value: 'variante' },
-                    ].map((preset) => (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => setPhotoRole(preset.value)}
-                        className={`text-[10px] px-2 py-0.5 rounded-md font-semibold border transition cursor-pointer ${
-                          photoRole.toLowerCase() === preset.value.toLowerCase()
-                            ? 'bg-[#0052FF] text-white border-[#0052FF]'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Ej: principal, interior, lateral, medidas..."
-                    value={photoRole}
-                    onChange={(e) => setPhotoRole(e.target.value)}
-                    disabled={isUploadingPhoto}
-                    className="w-full text-xs px-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Permite que la IA o los asesores identifiquen exactamente qué muestra esta imagen.
-                  </p>
-                </div>
-              </div>
 
               {/* Palabras clave (solo si es nuevo producto) */}
               {!targetProductForAlternate && (
@@ -1447,8 +1405,8 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
         document.body
       )}
 
-      {/* Modal para Editar Nombre de Foto Existente (Portaled a document.body) */}
-      {editingPhoto && mounted && createPortal(
+      {/* Modal para Editar Producto Completo (Portaled a document.body) */}
+      {editingProduct && mounted && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
             <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
@@ -1458,16 +1416,16 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Editar Nombre del Producto
+                    Editar Producto
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Cambia la etiqueta que usa la IA para identificar esta foto
+                    Actualiza el nombre, precio y palabras clave para este producto y sus {editingProduct.allPhotos.length} fotos
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={handleCloseEditModal}
+                onClick={handleCloseEditProductModal}
                 disabled={isSavingEdit}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer disabled:opacity-50"
               >
@@ -1476,28 +1434,64 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 [scrollbar-width:thin]">
-              {/* Previsualización actual */}
-              <div className="relative rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
-                <img
-                  src={editingPhoto.url}
-                  alt={editingPhoto.name}
-                  className="w-full h-full object-contain"
-                />
+              {/* Previsualización del Producto (Foto Principal + Miniaturas si tiene varias fotos) */}
+              <div className="space-y-2">
+                <div className="relative rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden bg-black/5 aspect-video flex items-center justify-center">
+                  <img
+                    src={editingProduct.primaryPhoto.url}
+                    alt={editingProduct.productName}
+                    className="w-full h-full object-contain"
+                  />
+                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-slate-900/85 text-amber-300 text-[10px] font-bold backdrop-blur-xs border border-amber-400/30 shadow-xs flex items-center gap-1">
+                    <Star className="w-3 h-3 fill-amber-300" />
+                    <span>Foto de Portada</span>
+                  </span>
+                </div>
+
+                {editingProduct.allPhotos.length > 1 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                    {editingProduct.allPhotos.map((photo, pIdx) => (
+                      <div
+                        key={photo.id}
+                        className={`relative w-10 h-10 rounded-lg overflow-hidden border shrink-0 ${
+                          pIdx === 0
+                            ? 'border-amber-400 ring-1 ring-amber-400/40'
+                            : 'border-slate-200 dark:border-slate-700'
+                        }`}
+                        title={pIdx === 0 ? 'Foto de Portada' : `Foto Adicional ${pIdx + 1}`}
+                      >
+                        <img
+                          src={photo.url}
+                          alt={`Foto ${pIdx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        {pIdx === 0 && (
+                          <span className="absolute bottom-0 right-0 p-0.5 bg-amber-500 text-white rounded-tl-md">
+                            <Star className="w-2 h-2 fill-current" />
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    <span className="text-[10px] text-slate-400 font-medium pl-1 shrink-0">
+                      {editingProduct.allPhotos.length} fotos vinculadas
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Input de Nombre y Autocompletar */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <span>Nombre / Modelo del Producto:</span>
+                    <span>Nombre del Producto:</span>
                     <span className="text-rose-500">*</span>
                   </label>
                   <button
                     type="button"
                     onClick={() => handleAutocompleteWithGemini(true)}
-                    disabled={isGeneratingEditAiTags || isSavingEdit || !editPhotoName.trim()}
+                    disabled={isGeneratingEditAiTags || isSavingEdit || !editProductName.trim()}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer disabled:opacity-50"
-                    title="Genera sinónimos de búsqueda y optimiza el nombre usando Gemini 1.5 Flash (Gratuito)"
+                    title="Genera sinónimos de búsqueda y optimiza el nombre usando Gemini 1.5 Flash"
                   >
                     {isGeneratingEditAiTags ? (
                       <Loader2 className="w-3 h-3 animate-spin text-purple-600" />
@@ -1509,12 +1503,12 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </div>
                 <input
                   type="text"
-                  value={editPhotoName}
-                  onChange={(e) => setEditPhotoName(e.target.value)}
+                  value={editProductName}
+                  onChange={(e) => setEditProductName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      handleSaveEditedPhoto();
+                      handleSaveEditedProduct();
                     }
                   }}
                   disabled={isSavingEdit}
@@ -1523,42 +1517,23 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   autoFocus
                 />
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  La IA enviará esta imagen cuando el cliente pregunte o pida fotos de este producto exacto.
+                  La IA enviará este producto cuando el cliente pregunte o pida fotos en WhatsApp.
                 </p>
               </div>
 
-              {/* Precio y Vista/Etiqueta */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Precio (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: $250.000 COP"
-                    value={editPhotoPrice}
-                    onChange={(e) => setEditPhotoPrice(e.target.value)}
-                    disabled={isSavingEdit}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Vista / Etiqueta de la Foto
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: principal, personalizada, de lado..."
-                    value={editPhotoRole}
-                    onChange={(e) => setEditPhotoRole(e.target.value)}
-                    disabled={isSavingEdit}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Permite a la IA saber qué ángulo o variante de la foto enviar.
-                  </p>
-                </div>
+              {/* Precio del Producto */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Precio (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: $250.000 COP"
+                  value={editProductPrice}
+                  onChange={(e) => setEditProductPrice(e.target.value)}
+                  disabled={isSavingEdit}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
               </div>
 
               {/* Palabras clave / Sinónimos para WhatsApp */}
@@ -1590,9 +1565,9 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     + Tag
                   </button>
                 </div>
-                {editPhotoKeywords.length > 0 && (
+                {editProductKeywords.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-100 dark:border-[#1E2433]">
-                    {editPhotoKeywords.map((tag, idx) => (
+                    {editProductKeywords.map((tag, idx) => (
                       <span
                         key={idx}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
@@ -1624,7 +1599,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
             <div className="shrink-0 flex items-center justify-end gap-2.5 px-6 py-3.5 border-t border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#0E131F]">
               <button
                 type="button"
-                onClick={handleCloseEditModal}
+                onClick={handleCloseEditProductModal}
                 disabled={isSavingEdit}
                 className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
               >
@@ -1632,8 +1607,8 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
               </button>
               <button
                 type="button"
-                onClick={handleSaveEditedPhoto}
-                disabled={isSavingEdit || !editPhotoName.trim()}
+                onClick={handleSaveEditedProduct}
+                disabled={isSavingEdit || !editProductName.trim()}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 {isSavingEdit ? (
@@ -1642,7 +1617,7 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     <span>Guardando cambios...</span>
                   </>
                 ) : (
-                  <span>Guardar Nombre</span>
+                  <span>Guardar Producto</span>
                 )}
               </button>
             </div>
