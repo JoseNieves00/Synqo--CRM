@@ -64,6 +64,11 @@ export const SendProductCardToolSchema = z.object({
     .max(400)
     .optional()
     .describe('Medidas, características o tiempo/envío leídos textualmente del prompt del negocio'),
+  image_role: z
+    .string()
+    .max(80)
+    .optional()
+    .describe('Etiqueta opcional de la vista solicitada (ej: "principal", "de lado", "personalizada", "accesorios", "abierta") para productos con múltiples fotos'),
 });
 
 export const UpdateLeadProfileToolSchema = z.object({

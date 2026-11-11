@@ -147,27 +147,41 @@ export function resolveOrganizationGallery(organization?: any, systemPromptText?
 
 export function findGalleryProductMatch(
   items: EnrichedGalleryItem[],
-  query: string
+  query: string,
+  preferredRole?: string | null
 ): EnrichedGalleryItem | null {
   if (!items || items.length === 0 || !query || !query.trim()) return null;
 
   const cleanQuery = query.trim();
   const normQuery = normalizeSearchText(cleanQuery);
+  const normPreferredRole = preferredRole ? normalizeSearchText(preferredRole) : null;
 
-  // 1. Match exacto por ID o nombre normalizado
-  const exactMatch = items.find(
-    (item) => item.id === cleanQuery || normalizeSearchText(item.name) === normQuery
+  // Filtrar o priorizar si se pide un rol de imagen específico
+  const filterByRole = (candidates: EnrichedGalleryItem[]) => {
+    if (!normPreferredRole) return candidates[0];
+    const roleMatch = candidates.find(
+      (c) => c.imageRole && normalizeSearchText(c.imageRole).includes(normPreferredRole)
+    );
+    return roleMatch || candidates[0];
+  };
+
+  // 1. Match exacto por ID o nombre/productName normalizado
+  const exactMatches = items.filter(
+    (item) =>
+      item.id === cleanQuery ||
+      normalizeSearchText(item.name) === normQuery ||
+      (item.productName && normalizeSearchText(item.productName) === normQuery)
   );
-  if (exactMatch) return exactMatch;
+  if (exactMatches.length > 0) return filterByRole(exactMatches);
 
   // 2. Match exacto o por inclusión dentro de keywords
-  const keywordMatch = items.find((item) =>
+  const keywordMatches = items.filter((item) =>
     item.searchKeywords.some((kw) => {
       const nkw = normalizeSearchText(kw);
       return nkw === normQuery || (normQuery.length >= 4 && nkw.includes(normQuery));
     })
   );
-  if (keywordMatch) return keywordMatch;
+  if (keywordMatches.length > 0) return filterByRole(keywordMatches);
 
   // 3. Scoring semántico por tokens + coincidencia de subcadena
   const queryTokens = tokenizeSearch(cleanQuery);
@@ -177,18 +191,30 @@ export function findGalleryProductMatch(
   let bestScore = 0;
 
   for (const item of items) {
+    const parentName = item.productName || item.name;
     const normItemName = normalizeSearchText(item.name);
+    const normParentName = normalizeSearchText(parentName);
     const nameTokens = tokenizeSearch(item.name);
+    const parentTokens = tokenizeSearch(parentName);
     const kwTokens = item.searchKeywords.flatMap((k) => tokenizeSearch(k));
-    const allItemTokens = Array.from(new Set([...nameTokens, ...kwTokens]));
+    const roleTokens = item.imageRole ? tokenizeSearch(item.imageRole) : [];
+    const allItemTokens = Array.from(new Set([...nameTokens, ...parentTokens, ...kwTokens, ...roleTokens]));
 
     let score = 0;
-    if (normItemName.includes(normQuery) || normQuery.includes(normItemName)) {
+    if (
+      normItemName.includes(normQuery) ||
+      normQuery.includes(normItemName) ||
+      normParentName.includes(normQuery) ||
+      normQuery.includes(normParentName)
+    ) {
       score += 4;
     }
 
     for (const qt of queryTokens) {
       let maxTokenSim = 0;
+      for (const it of parentTokens) {
+        maxTokenSim = Math.max(maxTokenSim, tokenMatchScore(qt, it) * 1.5);
+      }
       for (const it of nameTokens) {
         maxTokenSim = Math.max(maxTokenSim, tokenMatchScore(qt, it) * 1.4);
       }
@@ -196,6 +222,11 @@ export function findGalleryProductMatch(
         maxTokenSim = Math.max(maxTokenSim, tokenMatchScore(qt, it));
       }
       score += maxTokenSim;
+    }
+
+    // Si coincide con el rol preferido solicitado
+    if (normPreferredRole && item.imageRole && normalizeSearchText(item.imageRole).includes(normPreferredRole)) {
+      score += 2.0;
     }
 
     // Preferir item marcado como isHero solo en empate exacto de relevancia

@@ -91,6 +91,7 @@ export function StructuredPromptWizard({
   const [isAddPhotoModalOpen, setIsAddPhotoModalOpen] = useState(false);
   const [photoName, setPhotoName] = useState('');
   const [photoPrice, setPhotoPrice] = useState('');
+  const [photoRole, setPhotoRole] = useState('principal');
   const [photoKeywords, setPhotoKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
   const [isGeneratingAiTags, setIsGeneratingAiTags] = useState(false);
@@ -107,6 +108,7 @@ export function StructuredPromptWizard({
   const [editingPhoto, setEditingPhoto] = useState<GalleryPhotoItem | null>(null);
   const [editPhotoName, setEditPhotoName] = useState('');
   const [editPhotoPrice, setEditPhotoPrice] = useState('');
+  const [editPhotoRole, setEditPhotoRole] = useState('principal');
   const [editPhotoKeywords, setEditPhotoKeywords] = useState<string[]>([]);
   const [editKeywordInput, setEditKeywordInput] = useState('');
   const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
@@ -124,7 +126,9 @@ export function StructuredPromptWizard({
           .map((g) => {
             const tags = g.keywords && g.keywords.length > 0 ? ` (Búsqueda/Sinónimos: ${g.keywords.join(', ')})` : '';
             const priceStr = g.price ? ` - Precio: ${g.price}` : '';
-            return `- ${g.name}${priceStr}${tags}: [foto: ${g.url}] (Despachar proactivamente con send_product_card cuando se consulte o mencione este modelo o sus precios; PROHIBIDO colocar la URL en el texto)`;
+            const roleStr = g.imageRole ? ` [Vista: ${g.imageRole}]` : '';
+            const productRef = g.productName && g.productName !== g.name ? ` (Producto: ${g.productName})` : '';
+            return `- ${g.name}${productRef}${roleStr}${priceStr}${tags}: [foto: ${g.url}] (Despachar proactivamente con send_product_card cuando se consulte o mencione este modelo o sus precios; PROHIBIDO colocar la URL en el texto)`;
           })
           .join('\n');
       compiled += galleryBlock;
@@ -196,8 +200,9 @@ export function StructuredPromptWizard({
 
   const handleOpenEditModal = (item: GalleryPhotoItem) => {
     setEditingPhoto(item);
-    setEditPhotoName(item.name);
+    setEditPhotoName(item.productName || item.name);
     setEditPhotoPrice(item.price || '');
+    setEditPhotoRole(item.imageRole || 'principal');
     setEditPhotoKeywords(item.keywords || []);
     setEditKeywordInput('');
     setEditError(null);
@@ -207,6 +212,7 @@ export function StructuredPromptWizard({
     setEditingPhoto(null);
     setEditPhotoName('');
     setEditPhotoPrice('');
+    setEditPhotoRole('principal');
     setEditPhotoKeywords([]);
     setEditKeywordInput('');
     setEditError(null);
@@ -225,11 +231,15 @@ export function StructuredPromptWizard({
     setIsSavingEdit(true);
     setEditError(null);
     try {
+      const cleanRole = editPhotoRole.trim() || 'principal';
+      const prodName = editPhotoName.trim();
       const updatedGallery = gallery.map((item) =>
         item.id === editingPhoto.id
           ? {
               ...item,
-              name: editPhotoName.trim(),
+              name: prodName,
+              productName: prodName,
+              imageRole: cleanRole,
               price: editPhotoPrice.trim() || undefined,
               keywords: editPhotoKeywords.length > 0 ? editPhotoKeywords : undefined,
             }
@@ -241,7 +251,7 @@ export function StructuredPromptWizard({
 
       setFeedbackBanner({
         type: 'success',
-        text: `Producto "${editPhotoName.trim()}" actualizado y sincronizado con éxito.`,
+        text: `Producto "${prodName}" actualizado y sincronizado con éxito.`,
       });
       setTimeout(() => setFeedbackBanner(null), 5000);
       handleCloseEditModal();
@@ -376,9 +386,12 @@ export function StructuredPromptWizard({
         throw new Error('No se recibió la URL de la imagen.');
       }
 
+      const cleanRole = photoRole.trim() || 'principal';
       const newPhotoItem: GalleryPhotoItem = {
         id: `photo-${Date.now()}`,
         name: photoName.trim(),
+        productName: photoName.trim(),
+        imageRole: cleanRole,
         url: result.url,
         price: photoPrice.trim() || undefined,
         keywords: photoKeywords.length > 0 ? photoKeywords : undefined,
@@ -768,6 +781,13 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                       </button>
                     </div>
                   </div>
+                  {item.imageRole && item.imageRole !== 'principal' && (
+                    <div className="inline-flex items-center">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-800 font-semibold truncate max-w-[140px]">
+                        Vista: {item.imageRole}
+                      </span>
+                    </div>
+                  )}
                   {item.keywords && item.keywords.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
                       {item.keywords.slice(0, 2).map((k, i) => (
@@ -947,19 +967,38 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </p>
               </div>
 
-              {/* Precio */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Precio (Opcional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: $250.000 COP"
-                  value={photoPrice}
-                  onChange={(e) => setPhotoPrice(e.target.value)}
-                  disabled={isUploadingPhoto}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
+              {/* Precio y Vista/Rol de la Imagen */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Precio (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: $250.000 COP"
+                    value={photoPrice}
+                    onChange={(e) => setPhotoPrice(e.target.value)}
+                    disabled={isUploadingPhoto}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Vista / Etiqueta de la Foto
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: principal, personalizada, de lado..."
+                    value={photoRole}
+                    onChange={(e) => setPhotoRole(e.target.value)}
+                    disabled={isUploadingPhoto}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Permite tener varias fotos del mismo producto sin confundir a la IA.
+                  </p>
+                </div>
               </div>
 
               {/* Palabras clave / Sinónimos para WhatsApp */}
@@ -1188,19 +1227,38 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 </p>
               </div>
 
-              {/* Precio */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Precio (Opcional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: $250.000 COP"
-                  value={editPhotoPrice}
-                  onChange={(e) => setEditPhotoPrice(e.target.value)}
-                  disabled={isSavingEdit}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
+              {/* Precio y Vista/Etiqueta */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Precio (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: $250.000 COP"
+                    value={editPhotoPrice}
+                    onChange={(e) => setEditPhotoPrice(e.target.value)}
+                    disabled={isSavingEdit}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Vista / Etiqueta de la Foto
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: principal, personalizada, de lado..."
+                    value={editPhotoRole}
+                    onChange={(e) => setEditPhotoRole(e.target.value)}
+                    disabled={isSavingEdit}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Permite a la IA saber qué ángulo o variante de la foto enviar.
+                  </p>
+                </div>
               </div>
 
               {/* Palabras clave / Sinónimos para WhatsApp */}

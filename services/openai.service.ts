@@ -252,7 +252,7 @@ const sendProductCardTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'send_product_card',
     description:
-      'Envía al cliente la foto oficial y el precio verificado de un producto desde la galería del negocio, junto con detalles (medidas, envío o características del prompt). Úsala de manera PROACTIVA ante consultas de producto, precio, medidas o catálogo.',
+      'Envía al cliente la foto oficial y el precio verificado de un producto desde la galería del negocio, junto con detalles (medidas, envío o características del prompt). Úsala de manera PROACTIVA ante consultas de producto, precio, medidas o catálogo. Si el producto tiene varias fotos (ej: vista frontal, de lado, personalizada), puedes indicar image_role para elegir la vista adecuada.',
     parameters: {
       type: 'object',
       properties: {
@@ -263,6 +263,10 @@ const sendProductCardTool: OpenAI.Chat.Completions.ChatCompletionTool = {
         details: {
           type: 'string',
           description: 'Medidas, tiempos o detalles tomados del prompt del negocio.',
+        },
+        image_role: {
+          type: 'string',
+          description: 'Etiqueta opcional de la vista solicitada (ej: "principal", "de lado", "personalizada", "accesorios", "abierta") si el cliente pide una vista específica.',
         },
       },
       required: ['product_name_or_id'],
@@ -686,10 +690,31 @@ function buildDynamicContextBlock(params: {
     ? `Pedido previo registrado por $${Number(cf.order.total || contactData?.deal_value || 0).toLocaleString('es-CO')} (${cf.order.ciudad || ''})`
     : '';
 
+  // Agrupar items de galería por producto canónico para que la IA entienda claramente
+  // qué fotos son del mismo producto y qué vista representan (ej: principal, de lado, personalizada).
+  const groupedGallery = new Map<string, { price?: string; views: string[] }>();
+  for (const g of galleryItems) {
+    const canonicalName = (g.productName || g.name).trim();
+    const existing = groupedGallery.get(canonicalName) || {
+      price: g.price,
+      views: [],
+    };
+    if (!existing.price && g.price) existing.price = g.price;
+    const viewLabel = g.imageRole ? g.imageRole.trim() : (g.productName && g.name !== g.productName ? g.name.trim() : 'principal');
+    if (!existing.views.includes(viewLabel)) {
+      existing.views.push(viewLabel);
+    }
+    groupedGallery.set(canonicalName, existing);
+  }
+
   const gallerySummary =
-    galleryItems.length > 0
-      ? `\nProductos con foto oficial en galería para usar con send_product_card:\n${galleryItems
-          .map((g) => `- "${g.name}" (${formatGalleryPrice(g.price) || 'precio en catálogo'})`)
+    groupedGallery.size > 0
+      ? `\nProductos con foto oficial en galería para usar con send_product_card:\n${Array.from(groupedGallery.entries())
+          .map(([prodName, data]) => {
+            const priceStr = formatGalleryPrice(data.price) || 'precio en catálogo';
+            const viewsDesc = data.views.length > 1 ? ` · [${data.views.length} vistas: ${data.views.join(', ')}]` : '';
+            return `- "${prodName}" (${priceStr})${viewsDesc}`;
+          })
           .join('\n')}`
       : '';
 
@@ -1228,7 +1253,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           try {
             if (functionName === 'send_product_card') {
               const validated = SendProductCardToolSchema.parse(functionArgs);
-              const matched = findGalleryProductMatch(galleryItems, validated.product_name_or_id);
+              const matched = findGalleryProductMatch(galleryItems, validated.product_name_or_id, validated.image_role);
 
               if (!matched) {
                 toolResult = JSON.stringify({
@@ -3085,7 +3110,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
           if (!parsed.success) {
             resultPayload = { status: 'validation_error', error: parsed.error.message };
           } else {
-            const matched = findGalleryProductMatch(galleryItems, parsed.data.product_name_or_id);
+            const matched = findGalleryProductMatch(galleryItems, parsed.data.product_name_or_id, parsed.data.image_role);
             if (!matched) {
               resultPayload = { status: 'not_found' };
             } else {

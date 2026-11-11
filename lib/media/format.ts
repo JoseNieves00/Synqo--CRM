@@ -147,6 +147,15 @@ export interface GalleryPhotoItem {
   keywords?: string[];
   price?: string;
   isHero?: boolean;
+  /**
+   * Identificador o nombre canónico del producto padre (para agrupar múltiples fotos bajo un mismo producto).
+   * Si no se especifica, se asume igual a `name`.
+   */
+  productName?: string;
+  /**
+   * Rol o etiqueta de la vista (ej: "principal", "personalizada", "de lado", "accesorios", "abierta").
+   */
+  imageRole?: string;
 }
 
 /**
