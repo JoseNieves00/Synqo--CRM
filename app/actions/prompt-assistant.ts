@@ -450,14 +450,41 @@ Responde ÚNICAMENTE JSON válido:
         let proposedBody = mergedSections[secId] || renderedSlotBody;
         if (!proposedBody || isMetaPromptCommentary(proposedBody)) continue;
 
-        if (!mergedSections[secId] && existingSec.found && existingSec.body.trim()) {
-          const adaptedNew = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
-          const existingNorm = existingSec.body.toLowerCase();
-          const newLines = adaptedNew
-            .split('\n')
-            .map((l) => l.trim())
-            .filter((l) => l && !existingNorm.includes(l.replace(/^[-*]\s*/, '').toLowerCase()));
-          proposedBody = newLines.length > 0 ? `${existingSec.body.trimEnd()}\n${newLines.join('\n')}` : existingSec.body;
+        // Si la sección ya existe en el prompt actual, GARANTIZAR preservación acumulativa estricta:
+        // Si el LLM omitió contenido previo (ej: solo devolvió el nuevo ítem en mergedSections),
+        // fusionamos acumulativamente para NUNCA destruir las preguntas, productos o reglas previas.
+        if (existingSec.found && existingSec.body.trim()) {
+          const existingText = existingSec.body.trim();
+          const existingNorm = existingText.toLowerCase();
+
+          // Verificar si proposedBody ya contiene el contenido existente
+          const proposedNorm = proposedBody.toLowerCase();
+          const containsExisting =
+            existingNorm.length <= 60
+              ? proposedNorm.includes(existingNorm)
+              : proposedNorm.includes(existingNorm.slice(0, 50)) ||
+                (existingNorm.split('\n').filter((l) => l.trim().length > 15).length > 0 &&
+                  existingNorm
+                    .split('\n')
+                    .filter((l) => l.trim().length > 15)
+                    .every((l) => proposedNorm.includes(l.trim())));
+
+          if (!containsExisting) {
+            // El LLM o slot solo redactó el cambio puntual; conservar intacto lo existente y anexar lo nuevo al final
+            const adaptedNew = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
+            const newLines = adaptedNew
+              .split('\n\n')
+              .map((block) => block.trim())
+              .filter((block) => block && !existingNorm.includes(block.slice(0, 30).toLowerCase()));
+
+            if (newLines.length > 0) {
+              proposedBody = `${existingText}\n\n${newLines.join('\n\n')}`;
+            } else {
+              proposedBody = existingText;
+            }
+          } else {
+            proposedBody = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
+          }
         } else {
           proposedBody = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
         }
