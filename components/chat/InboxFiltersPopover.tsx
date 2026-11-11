@@ -1,5 +1,6 @@
 'use client';
 
+import type { InboxSortMode } from '@/lib/inbox/buckets';
 import React, { useState, useRef, useEffect } from 'react';
 import { SlidersHorizontal, X, Check, RotateCcw } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
@@ -14,7 +15,15 @@ export interface FilterState {
   agentId: string;
   stage: string;
   temperature: string;
+  /** Orden de la lista: auto (por bandeja), recientes o más propensos a comprar. */
+  sort?: InboxSortMode;
 }
+
+const SORT_OPTIONS: Array<{ id: InboxSortMode; label: string; hint: string }> = [
+  { id: 'auto', label: 'Automático', hint: 'Seguimiento por probabilidad de compra; resto por actividad' },
+  { id: 'recent', label: 'Recientes', hint: 'Por espera (Por responder) o última actividad' },
+  { id: 'score', label: '🔥 Más propensos', hint: 'Mayor probabilidad de compra primero' },
+];
 
 interface TeamMember {
   id: string;
@@ -62,6 +71,7 @@ export function InboxFiltersPopover({
     filters.agentId !== 'all',
     filters.stage !== 'all',
     filters.temperature !== 'all',
+    Boolean(filters.sort && filters.sort !== 'auto'),
   ].filter(Boolean).length;
 
   return (
@@ -74,7 +84,7 @@ export function InboxFiltersPopover({
             ? 'bg-blue-50 dark:bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-[#00D2FF]/30 font-semibold'
             : 'bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
         }`}
-        title="Filtros secundarios: Canal, Asesor, Etapa y Temperatura"
+        title="Orden y filtros: Canal, Asesor, Etapa y Temperatura"
       >
         <SlidersHorizontal className="w-3.5 h-3.5" />
         <span>Filtros</span>
@@ -102,6 +112,30 @@ export function InboxFiltersPopover({
           </div>
 
           <div className="space-y-3">
+            {/* Orden de la lista */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                Ordenar por
+              </label>
+              <div className="grid grid-cols-3 gap-1">
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    title={opt.hint}
+                    onClick={() => onChangeFilter('sort', opt.id)}
+                    className={`py-1 px-1 rounded-md text-center text-[10px] font-medium transition cursor-pointer border truncate ${
+                      (filters.sort || 'auto') === opt.id
+                        ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                        : 'bg-slate-50 dark:bg-[#090A0F] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-100'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Canal */}
             <div>
               <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
@@ -240,6 +274,10 @@ export function InboxActiveFilterChips({
       ? '❔ Sin clasificar'
       : filters.temperature;
     chips.push({ key: 'temperature', label: tempLabel });
+  }
+
+  if (filters.sort && filters.sort !== 'auto') {
+    chips.push({ key: 'sort', label: filters.sort === 'score' ? 'Orden: 🔥 Más propensos' : 'Orden: Recientes' });
   }
 
   if (chips.length === 0) return null;

@@ -1,18 +1,19 @@
 'use server';
 
+import { LeadScoreService } from '@/services/lead-score.service';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { WhatsAppService, META_TEMPLATES, MetaTemplateKey } from '@/services/whatsapp.service';
 import { EvolutionService } from '@/services/evolution.service';
 import { normalizeContactInboxState as normalizeContactPure } from '@/lib/inbox/normalize';
-import { classifySeguimientoSubBucket, compareInboxContacts } from '@/lib/inbox/buckets';
+import { classifySeguimientoSubBucket, compareInboxContacts, resolveInboxSort, type InboxSortMode } from '@/lib/inbox/buckets';
 import { MessagingService } from '@/services/messaging.service';
 import { InstagramService } from '@/services/instagram.service';
 import { decryptSecret } from '@/lib/security/encryption';
 import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMessageContent, formatVideoMessageContent } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
 import { InboundCoreService } from '@/services/inbound-core.service';
-import { isWithin24HourWindow } from '@/services/contact.service';
+import { isLeadWindowOpen } from '@/services/contact.service';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -197,6 +198,10 @@ export async function sendAgentMessage(
         .eq('reminder_type', 'reactivation')
         .eq('status', 'pending');
     } catch {}
+
+    if (updatedCustom.lead_temperature !== currentTemp) {
+      await LeadScoreService.recompute(contactId);
+    }
 
     return { success: true, messageId, metaMessageId };
   } catch (err: any) {
@@ -1356,6 +1361,8 @@ export async function endContactConversation(
     content: `[✓ Conversación finalizada por ${profile.full_name || 'Asesor'} (${auditLabel})${auditNote}]`,
   });
 
+  await LeadScoreService.recompute(contactId);
+
   revalidatePath('/inbox');
   revalidatePath(`/inbox/${contactId}`);
   return { success: true };
@@ -1377,6 +1384,7 @@ export interface ListInboxParams {
   agentId?: string; // 'all' | 'unassigned' | profile_id
   stage?: string; // 'all' | pipeline_stage
   temperature?: string; // 'all' | 'cold' | 'warm' | 'hot'
+  sort?: InboxSortMode; // 'auto' | 'recent' | 'score'
   search?: string;
   offset?: number;
   limit?: number;
@@ -1433,6 +1441,7 @@ export async function listInbox({
   agentId = 'all',
   stage = 'all',
   temperature = 'all',
+  sort = 'auto',
   search = '',
   offset = 0,
   limit = 30,
@@ -1455,13 +1464,20 @@ export async function listInbox({
   // Consulta base
   let query = (supabaseAdmin.from('contacts') as any)
     .select(
-      'id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until',
-      { count: 'exact' }
+      'id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until, last_lead_message_at, lead_score, lead_score_breakdown, lead_temperature',
+      // El conteo exacto es costoso: solo en la primera página (o en Seguimiento, que pagina en memoria)
+      safeOffset === 0 || view === 'seguimiento' ? { count: 'exact' } : {}
     )
     .eq('organization_id', orgId)
     .is('deleted_at', null);
 
   const staleAiIso = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+
+  // 0. Orden por propensión de compra (columna indexada lead_score) como criterio primario
+  const effectiveSort = resolveInboxSort(view as any, sort);
+  if (effectiveSort === 'score') {
+    query = query.order('lead_score', { ascending: false, nullsFirst: false });
+  }
 
   // 1. Filtros por Vista / Bandeja Principal (alineados 1:1 con getInboxCounts y lib/inbox/buckets.ts)
   if (view === 'por_responder') {
@@ -1511,6 +1527,9 @@ export async function listInbox({
       .order('updated_at', { ascending: false });
   }
 
+  // Desempate determinista: evita que el orden "salte" entre páginas con timestamps iguales
+  query = query.order('id', { ascending: true });
+
   // 2. Filtro de Canal (WhatsApp vs Instagram)
   if (channel === 'whatsapp') {
     query = query.neq('channel', 'instagram');
@@ -1531,10 +1550,12 @@ export async function listInbox({
   }
 
   // 5. Filtro de Temperatura del Lead (compatible con lead_temperature, clave legada temperature y sin clasificar)
+  // Usa la columna indexada lead_temperature (sincronizada por trigger desde custom_fields).
+  // Se valida contra la lista blanca para no interpolar valores arbitrarios en el filtro.
   if (temperature === 'unclassified') {
-    query = query.is('custom_fields->>lead_temperature', null).is('custom_fields->>temperature', null);
-  } else if (temperature && temperature !== 'all') {
-    query = query.or(`custom_fields->>lead_temperature.eq.${temperature},custom_fields->>temperature.eq.${temperature}`);
+    query = query.is('lead_temperature', null);
+  } else if (temperature && ['hot', 'qualified_doubt', 'warm', 'cold'].includes(temperature)) {
+    query = query.eq('lead_temperature', temperature);
   }
 
   // 6. Búsqueda por texto (nombre, teléfono, instagram) sanitizada para sintaxis PostgREST
@@ -1570,7 +1591,7 @@ export async function listInbox({
       }
     }
 
-    filteredAll.sort((a, b) => compareInboxContacts(a, b, 'seguimiento'));
+    filteredAll.sort((a, b) => compareInboxContacts(a, b, 'seguimiento', sort));
 
     return {
       contacts: filteredAll.slice(safeOffset, safeOffset + safeLimit),
@@ -1588,7 +1609,7 @@ export async function listInbox({
   }
 
   const normalized = (contacts || []).map(normalizeContactPure);
-  normalized.sort((a: any, b: any) => compareInboxContacts(a, b, view));
+  normalized.sort((a: any, b: any) => compareInboxContacts(a, b, view, sort));
   return { contacts: normalized, totalCount: count ?? null, seguimientoSubCounts: null };
 }
 
@@ -2064,7 +2085,7 @@ export async function sendBatchApologyMessage(options: BatchApologyOptions): Pro
 
   // Obtener contactos seleccionados validados por organización (Anti-IDOR)
   const { data: contacts, error: contactsError } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, channel, instagram_id, last_interaction_at, custom_fields')
+    .select('id, name, phone, channel, instagram_id, last_interaction_at, last_lead_message_at, custom_fields')
     .eq('organization_id', orgId)
     .in('id', contactIds.slice(0, 50)); // Tope de 50 por lote seguro
 
@@ -2117,7 +2138,7 @@ export async function sendBatchApologyMessage(options: BatchApologyOptions): Pro
           text: personalizedMessage,
         });
       } else {
-        const is24hOpen = isWithin24HourWindow(contact.last_interaction_at);
+        const is24hOpen = isLeadWindowOpen(contact);
         const provider = org.whatsapp_provider || 'meta';
         const targetRecipient = contact.custom_fields?.remote_jid || contact.phone;
 

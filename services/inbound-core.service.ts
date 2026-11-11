@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { LeadScoreService } from '@/services/lead-score.service';
 import { sanitizeLeadMessage } from '@/lib/security/sanitize';
 import { formatQuoteMessageContent, formatImageMessageContent } from '@/lib/media/format';
 import { AssignmentService } from './assignment.service';
@@ -171,6 +172,16 @@ export class InboundCoreService {
    * Procesa de manera uniforme cualquier mensaje entrante de Meta WhatsApp, Evolution API o Instagram Direct.
    */
   static async processInbound(payload: InboundPayload): Promise<InboundResult> {
+    const result = await this.processInboundInternal(payload);
+    // Score de propensión: recalcular tras cada mensaje entrante que afecte a un contacto
+    // (cubre reglas de opt-out, comprobante de pago, cortesía y nuevos contactos).
+    if (result?.contactId && result.status !== 'duplicate_ignored' && result.status !== 'error') {
+      await LeadScoreService.recompute(result.contactId);
+    }
+    return result;
+  }
+
+  private static async processInboundInternal(payload: InboundPayload): Promise<InboundResult> {
     const { organization, channel, channelMessageId, senderId, senderName } = payload;
     const orgId = organization.id;
 
@@ -741,6 +752,19 @@ export class InboundCoreService {
    * Worker Asíncrono de Inteligencia Artificial con Anti-Burst Buffer y Auditoría en ai_runs.
    */
   static async runAiWorker(params: {
+    payload: InboundPayload;
+    contactId: string;
+    insertedMessageId: string;
+  }): Promise<void> {
+    try {
+      await this.runAiWorkerInternal(params);
+    } finally {
+      // La IA pudo cambiar temperatura, etapa, pedido o cita durante el turno → refrescar score
+      await LeadScoreService.recompute(params.contactId);
+    }
+  }
+
+  private static async runAiWorkerInternal(params: {
     payload: InboundPayload;
     contactId: string;
     insertedMessageId: string;

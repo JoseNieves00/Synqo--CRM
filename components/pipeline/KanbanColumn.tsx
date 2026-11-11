@@ -13,6 +13,8 @@ interface ContactItem {
   last_interaction_at: string;
   deal_value?: number | null;
   custom_fields?: any;
+  lead_score?: number | null;
+  lead_score_breakdown?: any;
 }
 
 interface KanbanColumnProps {
@@ -118,6 +120,8 @@ export function KanbanColumn({
                 lastInteractionAt={contact.last_interaction_at}
                 dealValue={contact.deal_value}
                 custom_fields={contact.custom_fields}
+                leadScore={contact.lead_score}
+                leadScoreBreakdown={contact.lead_score_breakdown}
                 onMoveStage={onMoveStage}
               />
             ))}

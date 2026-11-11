@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from 'openai';
+import { LeadScoreService } from '@/services/lead-score.service';
 import { AppointmentService } from './appointment.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { NotificationService } from '@/lib/notifications/resend';
@@ -2277,6 +2278,7 @@ Reglas: responde directo y amable (1 a 3 líneas), usa precios/datos reales del 
     suggestedMessage?: string | null;
     productInterest?: string | null;
     lastObjection?: string | null;
+    leadScore?: number | null;
   }): Promise<{ message: string; includeProductPhoto: boolean; productQuery: string | null }> {
     const {
       organization,
@@ -2287,7 +2289,18 @@ Reglas: responde directo y amable (1 a 3 líneas), usa precios/datos reales del 
       suggestedMessage,
       productInterest,
       lastObjection,
+      leadScore,
     } = params;
+
+    // Estrategia de cierre según propensión de compra (score 0-100)
+    const closingStrategy =
+      typeof leadScore === 'number'
+        ? leadScore >= 70
+          ? 'ALTA probabilidad de compra: invita a concretar HOY con una acción concreta (confirmar pedido, separar, agendar). Directo pero amable.'
+          : leadScore >= 45
+          ? 'Probabilidad MEDIA: resuelve la duda u objeción previa en una frase y propone el siguiente paso concreto.'
+          : 'Probabilidad BAJA: reabre la conversación con suavidad y una pregunta abierta, sin presionar.'
+        : '';
 
     const cleanName = (leadName || '').trim();
     const isPhoneOnly =
@@ -2335,6 +2348,7 @@ Cliente: ${firstName || 'No especificado'}
 Motivo / contexto del recontacto: ${reminderNote || 'Seguimiento comercial autónomo'}
 ${productInterest ? `Producto/servicio de interés: ${productInterest}` : ''}
 ${lastObjection ? `Duda u objeción previa: ${lastObjection}` : ''}
+${closingStrategy ? `Estrategia de cierre: ${closingStrategy}` : ''}
 ${suggestedMessage ? `Referencia inicial: ${suggestedMessage}` : ''}
 Últimos mensajes:
 ${conversationSnippet}
@@ -2721,6 +2735,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       }
 
       await (supabaseAdmin.from('contacts') as any).update(updatePayload).eq('id', contact.id);
+      await LeadScoreService.recompute(contact.id);
 
       if (syncRes.shouldCancelPendingReactivations) {
         await (supabaseAdmin.from('scheduled_reminders') as any)

@@ -18,6 +18,30 @@ export function isWithin24HourWindow(lastInteractionAt: string | Date | null | u
 }
 
 /**
+ * Ancla real de la ventana de 24h de Meta: el ÚLTIMO MENSAJE DEL CLIENTE.
+ * `last_interaction_at` NO sirve porque también se actualiza con mensajes salientes
+ * (IA, asesor, follow-ups), lo que hacía creer que la ventana seguía abierta.
+ */
+export function getLeadWindowAnchor(contact: {
+  last_lead_message_at?: string | null;
+  custom_fields?: any;
+} | null | undefined): string | null {
+  if (!contact) return null;
+  return contact.last_lead_message_at || contact.custom_fields?.last_lead_message_at || null;
+}
+
+/**
+ * Indica si la ventana de servicio de 24h de Meta está abierta para el contacto
+ * (solo cuenta mensajes ENTRANTES del cliente). Sin mensaje del cliente → cerrada.
+ */
+export function isLeadWindowOpen(contact: {
+  last_lead_message_at?: string | null;
+  custom_fields?: any;
+} | null | undefined): boolean {
+  return isWithin24HourWindow(getLeadWindowAnchor(contact));
+}
+
+/**
  * Calcula las horas restantes de la ventana de 24 horas de Meta.
  */
 export function getRemainingHoursInWindow(lastInteractionAt: string | Date | null | undefined): number {

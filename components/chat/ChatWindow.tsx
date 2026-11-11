@@ -9,7 +9,7 @@ import { AiToggleSwitch } from './AiToggleSwitch';
 import { ChatHeader } from './ChatHeader';
 import { ContactPanel } from './ContactPanel';
 import { formatMessageDateDivider } from '@/lib/utils/inbox-date';
-import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
+import { isLeadWindowOpen, getLeadWindowAnchor, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
 import {
   sendAgentMessage,
   sendAgentMediaMessage,
@@ -127,7 +127,7 @@ interface ChatWindowProps {
   onBack?: () => void;
 }
 
-export function ChatWindow({
+export const ChatWindow = React.memo(function ChatWindow({
   contact,
   messages,
   isLoadingMessages = false,
@@ -421,8 +421,8 @@ export function ChatWindow({
   };
 
   const isBaileys = whatsappProvider === 'evolution';
-  const is24hValid = isBaileys ? true : isWithin24HourWindow(contact.last_interaction_at);
-  const remainingHours = getRemainingHoursInWindow(contact.last_interaction_at);
+  const is24hValid = isBaileys ? true : isLeadWindowOpen(contact);
+  const remainingHours = getRemainingHoursInWindow(getLeadWindowAnchor(contact));
   const effectiveTemplates = isBaileys ? [] : customTemplates;
 
   const isAdminOrSupervisor = currentUserRole === 'admin' || currentUserRole === 'supervisor';
@@ -2024,4 +2024,4 @@ export function ChatWindow({
       )}
     </div>
   );
-}
+});

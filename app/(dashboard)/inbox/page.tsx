@@ -5,6 +5,7 @@ import { getKnowledgeGapsCount } from '@/app/actions/knowledge-gaps';
 import { listInbox, getInboxCounts, InboxViewType } from '@/app/actions/chat';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { InboxView } from '@/components/chat/InboxView';
 import { InboxMobileDisabledCard } from '@/components/chat/InboxMobileDisabledCard';
 import { NewLeadModal } from '@/components/pipeline/NewLeadModal';
@@ -18,6 +19,7 @@ interface InboxPageProps {
     stage?: string;
     temp?: string;
     agent?: string;
+    sort?: string;
   };
 }
 
@@ -27,6 +29,14 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const current = await getCurrentUserAndOrg();
   if (!current) {
     redirect('/login');
+  }
+
+  // Inbox deshabilitado en teléfonos: no ejecutar consultas ni montar InboxView/realtime de la lista.
+  // (El ocultamiento CSS md:hidden se mantiene como respaldo para user-agents no detectados.)
+  const userAgent = headers().get('user-agent') || '';
+  const isPhone = /iPhone|iPod|Android.+Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile|Mobi/i.test(userAgent);
+  if (isPhone) {
+    return <InboxMobileDisabledCard forceVisible />;
   }
 
   const validViews: InboxViewType[] = ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'];
@@ -40,6 +50,8 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   const stageFilter = searchParams?.stage || 'all';
   const tempFilter = searchParams?.temp || 'all';
   const agentFilter = searchParams?.agent || 'all';
+  const sortMode: 'auto' | 'recent' | 'score' =
+    searchParams?.sort === 'score' || searchParams?.sort === 'recent' ? searchParams.sort : 'auto';
 
   // Consultar contactos, contadores, miembros, catálogo y cuentas de pago en paralelo (cero saltos visuales)
   const [inboxRes, initialCounts, { data: teamMembers }, gapsCount, paymentAccounts, catalogItems] = await Promise.all([
@@ -49,6 +61,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       agentId: agentFilter,
       stage: stageFilter,
       temperature: tempFilter,
+      sort: sortMode,
       search: '',
       offset: 0,
       limit: 30,
@@ -77,7 +90,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
 
   if (targetContactId && !activeContact) {
     const { data: singleContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
+      .select('id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until, last_lead_message_at, lead_score, lead_score_breakdown, lead_temperature')
       .eq('id', targetContactId)
       .eq('organization_id', current.organization.id)
       .is('deleted_at', null)
@@ -117,6 +130,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
             agentId: agentFilter,
             stage: stageFilter,
             temperature: tempFilter,
+            sort: sortMode,
           }}
           customTemplates={(current.organization as any)?.whatsapp_templates || []}
           whatsappProvider={(current.organization as any)?.whatsapp_provider || ((current.organization as any)?.evolution_instance_name ? 'evolution' : 'meta')}

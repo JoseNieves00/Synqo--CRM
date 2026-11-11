@@ -280,6 +280,43 @@ export function FollowUpSequencesSettings({
           </div>
         </div>
 
+        {/* Priorización por score de propensión de compra */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-[#232A3B]">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={config.prioritizeByScore !== false}
+              onChange={(e) => setConfig((p) => ({ ...p, prioritizeByScore: e.target.checked }))}
+              className="w-4 h-4 rounded text-[#0052FF] focus:ring-[#0052FF]"
+            />
+            <span className="text-xs font-semibold">
+              Recontactar primero a los clientes más propensos a comprar (score IA)
+            </span>
+          </label>
+
+          <label
+            className={`inline-flex items-center gap-2 text-[11px] font-medium shrink-0 ${
+              config.prioritizeByScore === false ? 'opacity-50' : ''
+            }`}
+          >
+            <span>Score mínimo para recontactar</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={5}
+              disabled={config.prioritizeByScore === false}
+              value={config.minLeadScore ?? 25}
+              onChange={(e) => {
+                const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                setConfig((p) => ({ ...p, minLeadScore: v }));
+              }}
+              className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0F1420] text-xs"
+            />
+            <span className="text-slate-400">/100</span>
+          </label>
+        </div>
+
         {feedback && (
           <div
             className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${

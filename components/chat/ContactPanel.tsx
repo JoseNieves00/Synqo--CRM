@@ -1,5 +1,6 @@
 'use client';
 
+import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
 import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
@@ -52,6 +53,8 @@ interface ContactPanelProps {
     instagram_id?: string | null;
     conversation_status?: string;
     deal_value?: number | null;
+    lead_score?: number | null;
+    lead_score_breakdown?: any;
   };
   teamMembers?: Array<{ id: string; full_name: string }>;
   onContactUpdate?: (fields: Partial<any>) => void;
@@ -403,6 +406,37 @@ export function ContactPanel({
                 />
               </div>
             </div>
+
+            {/* Probabilidad de compra (score IA híbrido) */}
+            {typeof contact.lead_score === 'number' && (
+              <div className="rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                    Probabilidad de compra
+                  </span>
+                  <LeadScoreBadge score={contact.lead_score} breakdown={contact.lead_score_breakdown} size="sm" showLabel />
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-[#232A3B] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 via-lime-500 to-emerald-500"
+                    style={{ width: `${Math.max(2, contact.lead_score)}%` }}
+                  />
+                </div>
+                {Array.isArray(contact.lead_score_breakdown) && contact.lead_score_breakdown.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {contact.lead_score_breakdown.map((f: any) => (
+                      <li key={f.key} className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                        <span className="truncate">{f.label}</span>
+                        <span className={`font-mono ${f.points >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                          {f.points > 0 ? '+' : ''}
+                          {f.points}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* Nivel de Calificación / Temperatura */}
             <div>

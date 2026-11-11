@@ -516,7 +516,8 @@ async function runInboxTests() {
     'contacts.ts debe sincronizar clasificación manual con buildSynchronizedClassification'
   );
   assert.ok(
-    reactivationTsContent.includes("cat === 'qualified_doubt'") &&
+    reactivationTsContent.includes('prioritizeReactivationQueue(') &&
+      fs.readFileSync('lib/leads/reactivation-priority.ts', 'utf8').includes('qualified_doubt: 1') &&
       reactivationTsContent.includes("resolveLeadTemperature(cf) === 'cold'"),
     'reactivation.service.ts debe priorizar qualified_doubt y saltar cold'
   );

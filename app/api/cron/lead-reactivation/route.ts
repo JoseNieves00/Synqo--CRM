@@ -4,6 +4,7 @@ import { LeadReactivationService } from '@/services/reactivation.service';
 import { OpenAIService } from '@/services/openai.service';
 import { PlatformAlertService } from '@/services/platform-alert.service';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
+import { LeadScoreService } from '@/services/lead-score.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -56,21 +57,47 @@ async function handleCron(request: NextRequest) {
 
   try {
     const orgId = searchParams.get('orgId') || undefined;
-    const autoClassifyResult = await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 35);
+    // Presupuesto de tiempo: Vercel corta a los 60s. Lo crítico (score + recontacto) va primero;
+    // las tareas pesadas de IA solo corren si queda margen suficiente.
+    const startedAt = Date.now();
+    const HARD_BUDGET_MS = 50_000;
+    const remainingMs = () => HARD_BUDGET_MS - (Date.now() - startedAt);
+
+    // 1. Score de propensión (decaimiento por recencia) → alimenta el orden del recontacto
+    const leadScoreResult = await LeadScoreService.recomputeStale({
+      organizationId: orgId,
+      staleHours: 6,
+      maxContacts: 800,
+      deadlineMs: startedAt + 8_000,
+    });
+
+    // 2. Recontacto autónomo (núcleo del pilar de automatización)
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
-    const passiveAuditResult = await ConversationAuditService.runPassiveDailyAuditsForActiveOrgs(orgId, 6).catch(() => ({
-      auditedOrgs: 0,
-      skippedOrgs: 0,
-    }));
-    const superAdminDigestSent = !orgId
-      ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
-      : false;
+
+    // 3. Tareas de IA en lote, solo con margen de tiempo
+    const autoClassifyResult =
+      remainingMs() > 20_000
+        ? await OpenAIService.classifyUnclassifiedContactsForActiveOrgs(orgId, 5, 35)
+        : { skipped: 'time_budget' };
+    const passiveAuditResult =
+      remainingMs() > 15_000
+        ? await ConversationAuditService.runPassiveDailyAuditsForActiveOrgs(orgId, 6).catch(() => ({
+            auditedOrgs: 0,
+            skippedOrgs: 0,
+          }))
+        : { auditedOrgs: 0, skippedOrgs: 0, skipped: 'time_budget' };
+    const superAdminDigestSent =
+      !orgId && remainingMs() > 5_000
+        ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
+        : false;
 
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
       ...reactivationResult,
+      leadScore: leadScoreResult,
       autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
       passiveConversationAudits: passiveAuditResult,

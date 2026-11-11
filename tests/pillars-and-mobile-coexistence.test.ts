@@ -94,7 +94,7 @@ async function runPillarsAndMobileTests() {
   assert.ok(openaiSrc.includes("isNonColdDowngrade"), 'update_lead_profile debe evitar degradación silenciosa desde hot');
   assert.ok(inboundSrc.includes("last_lead_message_at"), 'Inbound debe registrar timestamp real del cliente para ventana 24h');
   assert.ok(inboundSrc.includes("hasPauseHandoff || newerLeadWhileThinking ? 'open' : 'waiting_customer'"), 'Relevos desde IA deben quedar abiertos en Por responder');
-  assert.ok(reactivationSrc.includes("custom.last_lead_message_at || contact.last_interaction_at"), 'Meta 24h debe medirse desde el último mensaje del lead');
+  assert.ok(reactivationSrc.includes("isLeadWindowOpen(contact)") && !reactivationSrc.includes("isWithin24HourWindow("), 'Meta 24h debe medirse desde el último mensaje del lead (isLeadWindowOpen)');
   assert.ok(evolutionSrc.includes("HumanOutboundService.recordMobileHumanOutbound"), 'Evolution fromMe debe usar HumanOutboundService');
   assert.ok(igSrc.includes("HumanOutboundService.recordMobileHumanOutbound"), 'Instagram is_echo debe sincronizarse con HumanOutboundService');
   assert.ok(pipelineSrc.includes("conversation_status: 'closed'"), 'updateLeadStage en ganado/perdido debe cerrar conversation_status');

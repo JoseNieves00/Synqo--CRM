@@ -1,5 +1,6 @@
 'use client';
 
+import { useShallow } from 'zustand/react/shallow';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
@@ -184,43 +185,52 @@ export function InboxView({
 
   // 5. Selectores Finos del Store Normalizado
   const counts = useInboxCounts();
-  const contactsById = useInboxStore((s) => s.contactsById);
   const viewContactIds = useViewContactIds(activeView);
-  const messagesByContact = useInboxStore((s) => s.messagesByContact);
+  // Selectores acotados: InboxView solo re-renderiza si cambian los contactos de la vista actual,
+  // el contacto activo o los mensajes del chat abierto (no ante cualquier evento del store).
+  const viewContacts = useInboxStore(
+    useShallow((s) => viewContactIds.map((id) => s.contactsById[id]).filter(Boolean) as ContactRowData[])
+  );
+  const selectedContactFromStore = useInboxStore((s) =>
+    selectedContactId ? (s.contactsById[selectedContactId] as ContactRowData | undefined) : undefined
+  );
+  const selectedMessagesFromStore = useInboxStore((s) =>
+    selectedContactId ? s.messagesByContact[selectedContactId]?.items : undefined
+  );
 
   // Lista de contactos de la vista actual (orden WhatsApp Web garantizado)
   const contactList = useMemo(() => {
-    const fromStore = viewContactIds.map((id) => contactsById[id]).filter(Boolean) as ContactRowData[];
+    const fromStore = viewContacts;
     if (fromStore.length > 0) {
-      return [...fromStore].sort((a, b) => compareInboxContacts(a, b, activeView));
+      return [...fromStore].sort((a, b) => compareInboxContacts(a, b, activeView, filters.sort));
     }
     if (initialContacts && initialContacts.length > 0 && activeView === initialView && !searchQuery.trim() && filters.channel === 'all' && filters.agentId === 'all' && filters.stage === 'all' && filters.temperature === 'all') {
-      return [...(initialContacts as ContactRowData[])].sort((a, b) => compareInboxContacts(a, b, activeView));
+      return [...(initialContacts as ContactRowData[])].sort((a, b) => compareInboxContacts(a, b, activeView, filters.sort));
     }
     return fromStore;
-  }, [viewContactIds, contactsById, initialContacts, activeView, initialView, searchQuery, filters]);
+  }, [viewContacts, initialContacts, activeView, initialView, searchQuery, filters]);
 
   // Mensajes de la conversación activa (con fallback inmediato a SSR para evitar pestañeo en blanco)
   const activeMessages = useMemo(() => {
     if (!selectedContactId) return [];
-    const fromStore = messagesByContact[selectedContactId]?.items;
+    const fromStore = selectedMessagesFromStore;
     if (fromStore && fromStore.length > 0) return fromStore;
     if (activeContact && selectedContactId === activeContact.id && messages && messages.length > 0) {
       return messages;
     }
     return fromStore || [];
-  }, [messagesByContact, selectedContactId, activeContact, messages]);
+  }, [selectedMessagesFromStore, selectedContactId, activeContact, messages]);
 
   // Contacto activo en pantalla
   const activeContactData = useMemo(() => {
-    if (selectedContactId && contactsById[selectedContactId]) {
-      return contactsById[selectedContactId] as ContactRowData;
+    if (selectedContactId && selectedContactFromStore) {
+      return selectedContactFromStore;
     }
     if (activeContact && (!selectedContactId || selectedContactId === activeContact.id)) {
       return activeContact as ContactRowData;
     }
     return null;
-  }, [contactsById, selectedContactId, activeContact]);
+  }, [selectedContactFromStore, selectedContactId, activeContact]);
 
   // 6. Sincronización inicial desde URL (query params completos: view, c, ch, stage, temp, agent)
   useEffect(() => {
@@ -232,6 +242,7 @@ export function InboxView({
     const stageParam = params.get('stage');
     const tempParam = params.get('temp');
     const agentParam = params.get('agent');
+    const sortParam = params.get('sort');
 
     if (viewParam && ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'].includes(viewParam)) {
       setActiveView(viewParam);
@@ -246,6 +257,7 @@ export function InboxView({
       stage: stageParam || prev.stage,
       temperature: tempParam || prev.temperature,
       agentId: agentParam || prev.agentId,
+      sort: sortParam === 'score' || sortParam === 'recent' ? sortParam : prev.sort || 'auto',
     }));
   }, []);
 
@@ -273,6 +285,7 @@ export function InboxView({
           agentId: filters.agentId,
           stage: filters.stage,
           temperature: filters.temperature,
+          sort: filters.sort || 'auto',
           search: debouncedSearchQuery,
           offset,
           limit: 30,
@@ -463,6 +476,16 @@ export function InboxView({
   }, []);
 
   // 10. Actualización optimista de mensajes
+  const handleBackFromChat = useCallback(() => {
+    setSelectedContactId(null);
+    useInboxStore.getState().setActiveContactId(null);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('c');
+      window.history.pushState(null, '', url.toString());
+    }
+  }, []);
+
   const handleOptimisticMessage = useCallback((msg: MessageItem) => {
     if (!selectedContactId) return;
     useInboxStore.getState().upsertMessage({
@@ -651,22 +674,24 @@ export function InboxView({
                 else url.searchParams.delete('stage');
                 if (next.temperature !== 'all') url.searchParams.set('temp', next.temperature);
                 else url.searchParams.delete('temp');
+                if (next.sort && next.sort !== 'auto') url.searchParams.set('sort', next.sort);
+                else url.searchParams.delete('sort');
                 window.history.replaceState(null, '', url.toString());
               }
               return next;
             });
           }}
           onClearFilters={() => {
-            setFilters({ channel: 'all', agentId: 'all', stage: 'all', temperature: 'all' });
+            setFilters({ channel: 'all', agentId: 'all', stage: 'all', temperature: 'all', sort: 'auto' });
             if (typeof window !== 'undefined') {
               const url = new URL(window.location.href);
-              ['ch', 'agent', 'stage', 'temp'].forEach((p) => url.searchParams.delete(p));
+              ['ch', 'agent', 'stage', 'temp', 'sort'].forEach((p) => url.searchParams.delete(p));
               window.history.replaceState(null, '', url.toString());
             }
           }}
           onRemoveFilterChip={(k) => {
             setFilters((prev) => {
-              const next = { ...prev, [k]: 'all' };
+              const next = { ...prev, [k]: k === 'sort' ? 'auto' : 'all' };
               if (typeof window !== 'undefined') {
                 const url = new URL(window.location.href);
                 const paramMap: Record<keyof FilterState, string> = {
@@ -674,6 +699,7 @@ export function InboxView({
                   agentId: 'agent',
                   stage: 'stage',
                   temperature: 'temp',
+                  sort: 'sort',
                 };
                 url.searchParams.delete(paramMap[k]);
                 window.history.replaceState(null, '', url.toString());
@@ -705,15 +731,7 @@ export function InboxView({
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             teamMembers={teamMembers}
-            onBack={() => {
-              setSelectedContactId(null);
-              useInboxStore.getState().setActiveContactId(null);
-              if (typeof window !== 'undefined') {
-                const url = new URL(window.location.href);
-                url.searchParams.delete('c');
-                window.history.pushState(null, '', url.toString());
-              }
-            }}
+            onBack={handleBackFromChat}
           />
         ) : (
           <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 bg-slate-50/50 dark:bg-[#090A0F]/50">

@@ -88,8 +88,14 @@ export interface FollowUpSequenceConfig {
 export interface FollowUpSettingsConfig {
   enabled: boolean;
   dailyCap?: number;
+  /** Recontactar primero a los contactos con mayor score de propensión de compra. */
+  prioritizeByScore?: boolean;
+  /** Score mínimo (0-100) para recibir recontacto autónomo. No aplica a post-pedido. */
+  minLeadScore?: number;
   sequences: Record<FollowUpCategory, FollowUpSequenceConfig>;
 }
+
+export const DEFAULT_MIN_LEAD_SCORE = 25;
 
 export interface ContactFollowUpState {
   category: FollowUpCategory;
@@ -136,6 +142,8 @@ export function createEmptyFollowUpSettings(): FollowUpSettingsConfig {
   return {
     enabled: false,
     dailyCap: 40,
+    prioritizeByScore: true,
+    minLeadScore: DEFAULT_MIN_LEAD_SCORE,
     sequences: {
       hot_unclosed: { category: 'hot_unclosed', enabled: true, steps: [] },
       qualified_doubt: { category: 'qualified_doubt', enabled: true, steps: [] },
@@ -186,6 +194,11 @@ export function normalizeFollowUpSettings(raw: any): FollowUpSettingsConfig {
   return {
     enabled: Boolean(raw.enabled),
     dailyCap: Number(raw.dailyCap) > 0 ? Math.min(500, Math.floor(Number(raw.dailyCap))) : 40,
+    prioritizeByScore: raw.prioritizeByScore !== false,
+    minLeadScore:
+      raw.minLeadScore !== undefined && raw.minLeadScore !== null && Number.isFinite(Number(raw.minLeadScore))
+        ? Math.max(0, Math.min(100, Math.round(Number(raw.minLeadScore))))
+        : DEFAULT_MIN_LEAD_SCORE,
     sequences,
   };
 }

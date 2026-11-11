@@ -290,6 +290,11 @@ export interface Database {
           snoozed_until?: string | null;
           deal_value?: number | null;
           closed_at?: string | null;
+          last_lead_message_at?: string | null;
+          lead_score?: number | null;
+          lead_score_updated_at?: string | null;
+          lead_score_breakdown?: any;
+          lead_temperature?: string | null;
           close_reason?: string | null;
           created_at: string;
           updated_at: string;
@@ -317,6 +322,11 @@ export interface Database {
           snoozed_until?: string | null;
           deal_value?: number | null;
           closed_at?: string | null;
+          last_lead_message_at?: string | null;
+          lead_score?: number | null;
+          lead_score_updated_at?: string | null;
+          lead_score_breakdown?: any;
+          lead_temperature?: string | null;
           close_reason?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -344,6 +354,11 @@ export interface Database {
           snoozed_until?: string | null;
           deal_value?: number | null;
           closed_at?: string | null;
+          last_lead_message_at?: string | null;
+          lead_score?: number | null;
+          lead_score_updated_at?: string | null;
+          lead_score_breakdown?: any;
+          lead_temperature?: string | null;
           close_reason?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -445,6 +460,7 @@ export interface Database {
           reminder_type: string;
           status: ReminderStatus;
           created_at: string;
+          organization_id?: string | null;
         };
         Insert: {
           id?: string;
@@ -453,6 +469,7 @@ export interface Database {
           reminder_type: string;
           status?: ReminderStatus;
           created_at?: string;
+          organization_id?: string | null;
         };
         Update: {
           id?: string;
@@ -461,6 +478,7 @@ export interface Database {
           reminder_type?: string;
           status?: ReminderStatus;
           created_at?: string;
+          organization_id?: string | null;
         };
         Relationships: [];
       };

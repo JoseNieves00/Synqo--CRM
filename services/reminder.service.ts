@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
 import { decryptSecret } from '@/lib/security/encryption';
-import { isWithin24HourWindow } from '@/services/contact.service';
+import { isLeadWindowOpen } from '@/services/contact.service';
 
 interface ProcessResult {
   processedCount: number;
@@ -72,7 +72,7 @@ export class ReminderService {
         booked_via,
         notes,
         reminder_sent_at,
-        contact:contacts(id, name, phone, last_interaction_at),
+        contact:contacts(id, name, phone, last_interaction_at, last_lead_message_at, custom_fields),
         specialist:specialists(id, name),
         organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
@@ -182,7 +182,7 @@ export class ReminderService {
         service_name,
         start_time,
         booked_via,
-        contact:contacts(id, name, phone, last_interaction_at),
+        contact:contacts(id, name, phone, last_interaction_at, last_lead_message_at, custom_fields),
         specialist:specialists(id, name),
         organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
@@ -236,7 +236,7 @@ export class ReminderService {
 
           const bodyText = `Hola ${appt.contact.name || ''} 👋 Te recordamos tu cita programada para mañana a las ${startFormatted}${specialistName} (${appt.service_name}).\n\nPor favor confirma tu asistencia a continuación. Recuerda que las citas no confirmadas se liberan con 8 horas de antelación.`;
 
-          const is24hOpen = isWithin24HourWindow(appt.contact.last_interaction_at);
+          const is24hOpen = isLeadWindowOpen(appt.contact);
           const provider = appt.organization.whatsapp_provider || 'meta';
 
           if (provider === 'meta' && !is24hOpen) {

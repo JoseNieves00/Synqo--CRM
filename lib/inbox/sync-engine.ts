@@ -8,22 +8,46 @@ let debounceCountsTimer: NodeJS.Timeout | null = null;
 let isSyncingDelta = false;
 
 /**
- * Solicita los contadores reales al servidor con debounce de 1 segundo
- * para evitar colapsar la cola de server actions cuando entran ráfagas de mensajes.
+ * Solicita los contadores reales al servidor con THROTTLE (máx. 1 consulta cada 4s, con
+ * ejecución final garantizada). Un debounce puro nunca se dispara o se dispara sin parar en
+ * bandejas con tráfico continuo; además se evita solapar peticiones y consultar con la
+ * pestaña oculta (se refresca al volver vía performDeltaSync).
  */
+const COUNTS_MIN_INTERVAL_MS = 4000;
+let lastCountsRefreshAt = 0;
+let countsRequestInFlight = false;
+let countsRefreshPending = false;
+
+async function runCountsRefresh() {
+  if (countsRequestInFlight) {
+    countsRefreshPending = true;
+    return;
+  }
+  countsRequestInFlight = true;
+  lastCountsRefreshAt = Date.now();
+  try {
+    const counts = await getInboxCounts();
+    useInboxStore.getState().setCounts(counts);
+  } catch (err) {
+    console.warn('[SyncEngine] Error refrescando contadores:', err);
+  } finally {
+    countsRequestInFlight = false;
+    if (countsRefreshPending) {
+      countsRefreshPending = false;
+      scheduleDebouncedCountsRefresh();
+    }
+  }
+}
+
 export function scheduleDebouncedCountsRefresh() {
   if (typeof window === 'undefined') return;
-  if (debounceCountsTimer) {
-    clearTimeout(debounceCountsTimer);
-  }
-  debounceCountsTimer = setTimeout(async () => {
-    try {
-      const counts = await getInboxCounts();
-      useInboxStore.getState().setCounts(counts);
-    } catch (err) {
-      console.warn('[SyncEngine] Error refrescando contadores debounced:', err);
-    }
-  }, 1000);
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (debounceCountsTimer) return; // ya hay una ejecución programada (trailing)
+  const wait = Math.max(600, COUNTS_MIN_INTERVAL_MS - (Date.now() - lastCountsRefreshAt));
+  debounceCountsTimer = setTimeout(() => {
+    debounceCountsTimer = null;
+    void runCountsRefresh();
+  }, wait);
 }
 
 /**
@@ -47,10 +71,12 @@ export async function performDeltaSync(supabase: any) {
   try {
     // 1. Consultar contactos modificados desde lastSync
     const { data: updatedContacts } = await (supabase.from('contacts') as any)
-      .select('id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until')
+      .select('id, name, phone, pipeline_stage, deal_value, is_ai_active, last_interaction_at, updated_at, custom_fields, assigned_to, channel, instagram_username, instagram_id, unread_count, last_message, last_message_sender, last_message_preview, waiting_since, conversation_status, ai_snooze_until, last_lead_message_at, lead_score, lead_score_breakdown, lead_temperature')
       .eq('organization_id', orgId)
       .gt('updated_at', lastSync)
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .order('updated_at', { ascending: false })
+      .limit(500);
 
     if (updatedContacts && updatedContacts.length > 0) {
       updatedContacts.forEach((c: ContactItem) => {
@@ -63,9 +89,10 @@ export async function performDeltaSync(supabase: any) {
     if (cachedContactIds.length > 0) {
       const { data: newMessages } = await (supabase.from('messages') as any)
         .select('id, contact_id, sender_type, content, created_at, status, reply_to_message_id, reactions, meta_message_id')
-        .in('contact_id', cachedContactIds)
+        .in('contact_id', cachedContactIds.slice(0, 100))
         .gt('created_at', lastSync)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(1000);
 
       if (newMessages && newMessages.length > 0) {
         newMessages.forEach((m: any) => {
@@ -130,6 +157,9 @@ export function initSyncEngine(supabase: any, organizationId: string) {
         event: '*',
         schema: 'public',
         table: 'messages',
+        // Seguridad multi-tenant: solo eventos de la propia organización
+        // (organization_id lo rellena el trigger de messages desde la migración 20261109030000)
+        filter: `organization_id=eq.${organizationId}`,
       },
       (payload: any) => {
         const currentStore = useInboxStore.getState();
@@ -137,7 +167,7 @@ export function initSyncEngine(supabase: any, organizationId: string) {
         if (!msg || !msg.contact_id) return;
 
         // Validar pertenencia por organization_id (si la columna ya existe) o por caché de contactos
-        const belongsToOrg = !msg.organization_id || msg.organization_id === organizationId || Boolean(currentStore.contactsById[msg.contact_id]);
+        const belongsToOrg = msg.organization_id === organizationId;
         if (!belongsToOrg) return;
 
         if (payload.eventType === 'UPDATE') {

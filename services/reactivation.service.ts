@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
-import { isWithin24HourWindow } from '@/services/contact.service';
+import { isLeadWindowOpen } from '@/services/contact.service';
+import { LeadScoreService } from '@/services/lead-score.service';
 import { sleep } from '@/lib/anti-ban/cadence';
 import { formatImageMessageContent } from '@/lib/media/format';
 import { AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
@@ -19,7 +20,9 @@ import {
   normalizeFollowUpSettings,
   resolveLeadTemperature,
   resolveProductInterest,
+  DEFAULT_MIN_LEAD_SCORE,
 } from '@/lib/ai/follow-up-types';
+import { prioritizeReactivationQueue } from '@/lib/leads/reactivation-priority';
 
 export interface ReactivationResult {
   processedCount: number;
@@ -27,6 +30,7 @@ export interface ReactivationResult {
   scheduledRemindersSent: number;
   skippedCurfewCount: number;
   skippedNoTemplateCount: number;
+  skippedLowScoreCount?: number;
   errors: string[];
 }
 
@@ -243,7 +247,7 @@ export class LeadReactivationService {
     } = params;
     const provider = org.whatsapp_provider || 'meta';
     const custom = (contact.custom_fields as Record<string, any>) || {};
-    const is24hOpen = isWithin24HourWindow(custom.last_lead_message_at || contact.last_interaction_at);
+    const is24hOpen = isLeadWindowOpen(contact);
     const targetRecipient = custom.remote_jid || custom.whatsapp_jid || contact.phone;
 
     let metaMessageId: string | null = null;
@@ -386,6 +390,7 @@ export class LeadReactivationService {
       suggestedMessage: cf.active_reminder?.suggestedMessage,
       productInterest,
       lastObjection: cf.last_objection || cf.ai_summary?.objections_doubts || null,
+      leadScore: typeof contact.lead_score === 'number' ? contact.lead_score : null,
     });
 
     let imageUrls = [...existingImageUrls];
@@ -413,6 +418,7 @@ export class LeadReactivationService {
       scheduledRemindersSent: 0,
       skippedCurfewCount: 0,
       skippedNoTemplateCount: 0,
+      skippedLowScoreCount: 0,
       errors: [],
     };
 
@@ -523,6 +529,7 @@ export class LeadReactivationService {
       // -----------------------------------------------------------
       const { data: dueReminders } = await (supabaseAdmin.from('scheduled_reminders') as any)
         .select('id, contact_id, scheduled_for, reminder_type, status')
+        .eq('organization_id', org.id)
         .eq('reminder_type', 'reactivation')
         .eq('status', 'pending')
         .lte('scheduled_for', nowIso)
@@ -534,7 +541,7 @@ export class LeadReactivationService {
       if (dueReminders && dueReminders.length > 0) {
         const contactIds = Array.from(new Set(dueReminders.map((r: any) => r.contact_id)));
         const { data: remContacts } = await (supabaseAdmin.from('contacts') as any)
-          .select('id, organization_id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, unread_count, waiting_since, conversation_status, deal_value')
+          .select('id, organization_id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, last_lead_message_at, lead_score, custom_fields, unread_count, waiting_since, conversation_status, deal_value')
           .eq('organization_id', org.id)
           .in('id', contactIds)
           .is('deleted_at', null);
@@ -572,7 +579,7 @@ export class LeadReactivationService {
           const step: FollowUpStep | undefined = steps[currentStepIdx];
 
           const isMetaLocked =
-            (org.whatsapp_provider || 'meta') === 'meta' && !isWithin24HourWindow(contact.last_interaction_at);
+            (org.whatsapp_provider || 'meta') === 'meta' && !isLeadWindowOpen(contact);
           const hasAutonomousContext = Boolean(cf.active_reminder?.note || cf.active_reminder?.suggestedMessage);
 
           let bodyMessage: string;
@@ -673,6 +680,7 @@ export class LeadReactivationService {
                 last_message_preview: bodyMessage.slice(0, 160),
               })
               .eq('id', contact.id);
+            await LeadScoreService.recompute(contact.id);
 
             if ((org.whatsapp_provider || 'meta') === 'evolution') {
               await sleep(2000 + Math.floor(Math.random() * 1500));
@@ -702,7 +710,7 @@ export class LeadReactivationService {
 
       for (let offset = 0; offset < MAX_SCAN; offset += PAGE_SIZE) {
         const { data: candidates, error: candErr } = await (supabaseAdmin.from('contacts') as any)
-          .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, custom_fields, unread_count, last_message, waiting_since, last_message_sender, conversation_status, deal_value')
+          .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, last_lead_message_at, lead_score, custom_fields, unread_count, last_message, waiting_since, last_message_sender, conversation_status, deal_value')
           .eq('organization_id', org.id)
           .eq('is_ai_active', true)
           .is('deleted_at', null)
@@ -784,20 +792,15 @@ export class LeadReactivationService {
         if (candidates.length < PAGE_SIZE) break;
       }
 
-      // Priorizar leads calientes primero, luego calificado con dudas, luego tibios y post-pedido
-      eligibleQueue.sort((a, b) => {
-        const rank = (cat: FollowUpCategory) =>
-          cat === 'hot_unclosed'
-            ? 0
-            : cat === 'qualified_doubt'
-            ? 1
-            : cat === 'warm'
-            ? 2
-            : cat === 'post_order'
-            ? 3
-            : 4;
-        return rank(a.category) - rank(b.category);
+      // Priorización inteligente: primero los más propensos a comprar (lead_score),
+      // con la categoría de temperatura como desempate / respaldo si aún no hay score.
+      const prioritizedQueue = prioritizeReactivationQueue(eligibleQueue, {
+        prioritizeByScore: seqConfig.prioritizeByScore !== false,
+        minLeadScore: seqConfig.minLeadScore ?? DEFAULT_MIN_LEAD_SCORE,
       });
+      result.skippedLowScoreCount = (result.skippedLowScoreCount || 0) + (eligibleQueue.length - prioritizedQueue.length);
+      eligibleQueue.length = 0;
+      eligibleQueue.push(...prioritizedQueue);
 
       const remainingToday = Math.max(0, dailyCap - sentToday);
       const remainingThisHour = Math.max(0, hourlyCap - sentThisHour);
@@ -814,7 +817,7 @@ export class LeadReactivationService {
 
         const isMetaLocked =
           (org.whatsapp_provider || 'meta') === 'meta' &&
-          !isWithin24HourWindow(cf.last_lead_message_at || contact.last_interaction_at);
+          !isLeadWindowOpen(contact);
 
         let bodyMessage: string;
         let resolvedImageUrls: string[] | undefined = step?.imageUrls;
@@ -946,6 +949,7 @@ export class LeadReactivationService {
               last_message_preview: bodyMessage.slice(0, 160),
             })
             .eq('id', contact.id);
+          await LeadScoreService.recompute(contact.id);
 
           try {
             await (supabaseAdmin.from('scheduled_reminders') as any)

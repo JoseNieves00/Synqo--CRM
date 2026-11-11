@@ -34,6 +34,10 @@ interface ContactItem {
   is_ai_active: boolean;
   last_interaction_at: string;
   custom_fields?: any;
+  deal_value?: number | null;
+  lead_score?: number | null;
+  lead_score_breakdown?: any;
+  deleted_at?: string | null;
 }
 
 interface KanbanBoardProps {
@@ -55,6 +59,7 @@ export function KanbanBoard({
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [aiFilter, setAiFilter] = useState<'all' | 'ai' | 'human'>('all');
+  const [sortMode, setSortMode] = useState<'recent' | 'score'>('score');
   const [tempFilter, setTempFilter] = useState<'all' | LeadTemperature | 'unclassified'>(initialTempFilter);
   const [stageLabels, setStageLabels] = useState<Record<string, string>>(customStageLabels);
   const [isEditLabelsOpen, setIsEditLabelsOpen] = useState(false);
@@ -88,12 +93,19 @@ export function KanbanBoard({
         (payload) => {
           if (payload.eventType === 'UPDATE') {
             const updated = payload.new as ContactItem;
+            if (updated.deleted_at) {
+              // Soft-delete: retirar del tablero
+              setContacts((prev) => prev.filter((c) => c.id !== updated.id));
+              return;
+            }
             setContacts((prev) =>
               prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
             );
           } else if (payload.eventType === 'INSERT') {
             const inserted = payload.new as ContactItem;
-            setContacts((prev) => [inserted, ...prev]);
+            if (inserted.deleted_at) return;
+            // Evitar duplicados (p. ej. alta optimista + evento realtime)
+            setContacts((prev) => (prev.some((c) => c.id === inserted.id) ? prev : [inserted, ...prev]));
           } else if (payload.eventType === 'DELETE') {
             const deleted = payload.old as { id: string };
             setContacts((prev) => prev.filter((c) => c.id !== deleted.id));
@@ -241,6 +253,19 @@ export function KanbanBoard({
 
           <div className="h-4 w-px bg-slate-200 dark:bg-[#232A3B] mx-0.5 hidden sm:block" />
 
+          {/* Orden: más propensos a comprar vs. actividad reciente */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] px-2 py-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B]">
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as 'recent' | 'score')}
+              aria-label="Ordenar tarjetas"
+              className="bg-transparent text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none py-0.5 cursor-pointer"
+            >
+              <option value="score" className="bg-white dark:bg-[#131722]">🔥 Más propensos</option>
+              <option value="recent" className="bg-white dark:bg-[#131722]">🕒 Más recientes</option>
+            </select>
+          </div>
+
           {/* Filtro por Temperatura IA */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#090A0F] px-2 py-0.5 rounded-lg border border-slate-200 dark:border-[#232A3B]">
             <Flame className="w-3 h-3 text-rose-500 shrink-0" />
@@ -316,6 +341,13 @@ export function KanbanBoard({
       <div className="flex gap-4 overflow-x-auto pb-6 pt-1">
         {PIPELINE_STAGES.map((stage) => {
           const stageContacts = filteredContacts.filter((c) => c.pipeline_stage === stage.id);
+          if (sortMode === 'score') {
+            stageContacts.sort((a, b) => {
+              const diff = (b.lead_score ?? -1) - (a.lead_score ?? -1);
+              if (diff !== 0) return diff;
+              return new Date(b.last_interaction_at).getTime() - new Date(a.last_interaction_at).getTime();
+            });
+          }
           const customLabel = stageLabels[stage.id] || stage.label;
           return (
             <KanbanColumn

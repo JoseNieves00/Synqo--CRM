@@ -2,9 +2,9 @@ import React from 'react';
 import Link from 'next/link';
 import { Monitor, ArrowRight, LayoutDashboard, Settings } from 'lucide-react';
 
-export function InboxMobileDisabledCard() {
+export function InboxMobileDisabledCard({ forceVisible = false }: { forceVisible?: boolean } = {}) {
   return (
-    <div className="flex md:hidden flex-col items-center justify-center min-h-[calc(100dvh-180px)] px-4 py-8 text-center animate-in fade-in duration-200">
+    <div className={`${forceVisible ? 'flex' : 'flex md:hidden'} flex-col items-center justify-center min-h-[calc(100dvh-180px)] px-4 py-8 text-center animate-in fade-in duration-200`}>
       <div className="w-full max-w-sm bg-white dark:bg-[#131722] rounded-3xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xl space-y-5">
         <div className="w-14 h-14 rounded-2xl bg-[#0052FF]/10 dark:bg-[#00D2FF]/10 text-[#0052FF] dark:text-[#00D2FF] border border-[#0052FF]/20 dark:border-[#00D2FF]/20 flex items-center justify-center mx-auto shadow-inner">
           <Monitor className="w-7 h-7" />

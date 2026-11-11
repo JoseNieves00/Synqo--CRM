@@ -25,7 +25,7 @@ export default async function PipelinePage({
 
   // Consultar contactos de la organización activa con límite de rendimiento
   const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, deal_value, custom_fields')
+    .select('id, name, phone, pipeline_stage, is_ai_active, last_interaction_at, deal_value, custom_fields, lead_score, lead_score_breakdown')
     .eq('organization_id', current.organization.id)
     .is('deleted_at', null)
     .order('last_interaction_at', { ascending: false })

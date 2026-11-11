@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import { MessageSquare, Instagram, Clock, CheckCircle2, UserCheck, Bot, User, Check, Pause } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
+import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
 import {
   LEAD_TEMPERATURE_META,
   resolveLeadTemperature,
@@ -29,6 +30,8 @@ export interface ContactRowData {
   last_message_preview?: string | null;
   last_message_sender?: string | null;
   deal_value?: number | null;
+  lead_score?: number | null;
+  lead_score_breakdown?: any;
 }
 
 interface ConversationRowProps {
@@ -223,6 +226,7 @@ export const ConversationRow = React.memo(function ConversationRow({
           >
             {c.name || (c.channel === 'instagram' && c.instagram_username ? `@${c.instagram_username}` : c.phone)}
           </h3>
+          {!isClosed && <LeadScoreBadge score={c.lead_score} breakdown={c.lead_score_breakdown} />}
         </div>
 
         {/* Hora / Fecha y Temporizador SLA */}

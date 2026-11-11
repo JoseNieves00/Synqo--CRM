@@ -1,5 +1,6 @@
 'use client';
 
+import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
 import React from 'react';
 import { Bot, User, Clock, ArrowRight, Flame, Zap, Snowflake, BellRing, HelpCircle } from 'lucide-react';
 import { PipelineStage } from '@/lib/supabase/types';
@@ -20,6 +21,8 @@ interface ContactCardProps {
   lastInteractionAt: string;
   dealValue?: number | null;
   custom_fields?: any;
+  leadScore?: number | null;
+  leadScoreBreakdown?: any;
   onMoveStage?: (contactId: string, newStage: PipelineStage) => void;
 }
 
@@ -32,6 +35,8 @@ function ContactCardComponent({
   lastInteractionAt,
   dealValue: rawDealValue,
   custom_fields,
+  leadScore,
+  leadScoreBreakdown,
   onMoveStage,
 }: ContactCardProps) {
   const formattedDate = new Date(lastInteractionAt).toLocaleDateString([], {
@@ -91,8 +96,9 @@ function ContactCardComponent({
 
       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mb-2">{phone}</p>
 
-      {(temp || interest || nextFollowUp) && (
+      {(temp || interest || nextFollowUp || typeof leadScore === 'number') && (
         <div className="flex flex-wrap items-center gap-1 mb-2">
+          <LeadScoreBadge score={leadScore} breakdown={leadScoreBreakdown} />
           {temp && LEAD_TEMPERATURE_META[temp] && (
             <span
               className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border ${LEAD_TEMPERATURE_META[temp].pillClass}`}
@@ -162,6 +168,8 @@ function areCardsEqual(prev: ContactCardProps, next: ContactCardProps) {
     prev.currentStage === next.currentStage &&
     prev.isAiActive === next.isAiActive &&
     prev.lastInteractionAt === next.lastInteractionAt &&
+    prev.dealValue === next.dealValue &&
+    prev.leadScore === next.leadScore &&
     prev.custom_fields?.deal_value === next.custom_fields?.deal_value &&
     prev.custom_fields?.lead_temperature === next.custom_fields?.lead_temperature &&
     prev.custom_fields?.active_reminder?.scheduledFor === next.custom_fields?.active_reminder?.scheduledFor &&

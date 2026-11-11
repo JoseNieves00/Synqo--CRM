@@ -24,7 +24,7 @@ import {
   Search,
 } from 'lucide-react';
 import { AiToggleSwitch } from './AiToggleSwitch';
-import { isWithin24HourWindow, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
+import { getLeadWindowAnchor, PIPELINE_STAGES } from '@/services/contact.service';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
 
 interface TeamMember {
@@ -42,6 +42,7 @@ interface ChatHeaderProps {
     pipeline_stage?: any;
     is_ai_active: boolean;
     last_interaction_at: string;
+    last_lead_message_at?: string | null;
     assigned_to?: string | null;
     custom_fields?: any;
     channel?: 'whatsapp' | 'instagram';
@@ -102,15 +103,16 @@ export function ChatHeader({
       // En Evolution API no hay restricción de 24 horas; omitimos badge para mantener la barra 100% limpia
       return { isExpired: false, label: '', tooltip: '' };
     }
-    if (!contact.last_interaction_at) {
+    const windowAnchor = getLeadWindowAnchor(contact);
+    if (!windowAnchor) {
       return { isExpired: true, label: '24h Expirada', tooltip: 'Requiere plantilla oficial pre-aprobada por Meta' };
     }
-    const diffHours = (Date.now() - new Date(contact.last_interaction_at).getTime()) / (1000 * 3600);
+    const diffHours = (Date.now() - new Date(windowAnchor).getTime()) / (1000 * 3600);
     if (diffHours >= 24) {
       return { isExpired: true, label: '24h Expirada', tooltip: 'Ventana de 24h Meta cerrada. Pulsa para enviar plantilla oficial' };
     }
     return { isExpired: false, label: '', tooltip: '' };
-  }, [contact.channel, contact.last_interaction_at, whatsappProvider]);
+  }, [contact.channel, contact.last_lead_message_at, contact.custom_fields, whatsappProvider]);
 
   const isAdminOrSupervisor = currentUserRole === 'admin' || currentUserRole === 'supervisor';
   const isAssignedToMe = contact.assigned_to === currentUserId;

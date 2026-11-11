@@ -4,6 +4,7 @@ import {
   contactMatchesInboxView,
   contactNeedsHumanResponse,
   sortInboxViewIds,
+  type InboxSortMode,
 } from './buckets';
 
 export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
@@ -29,6 +30,10 @@ export interface ContactItem {
   conversation_status?: string;
   deal_value?: number | null;
   ai_snooze_until?: string | null;
+  last_lead_message_at?: string | null;
+  lead_score?: number | null;
+  lead_score_breakdown?: any;
+  lead_temperature?: string | null;
 }
 
 export interface MessageItem {
@@ -56,6 +61,7 @@ export interface InboxFilters {
   agentId: string;
   stage: string;
   temperature: string;
+  sort?: InboxSortMode;
 }
 
 export interface BootstrapData {
@@ -232,7 +238,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         contactsById: mergedContactsById,
         viewIds: {
           ...state.viewIds,
-          [targetView]: sortInboxViewIds(ids, mergedContactsById, targetView),
+          [targetView]: sortInboxViewIds(ids, mergedContactsById, targetView, state.filters.sort),
         },
         messagesByContact: { ...state.messagesByContact, ...messagesMap },
         counts: initialCounts,
@@ -257,8 +263,14 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
 
   upsertContact: (contact) => {
     set((state) => {
-      const existing = state.contactsById[contact.id] || {};
+      const existing = (state.contactsById[contact.id] || {}) as Partial<ContactItem>;
       const updated = { ...existing, ...contact } as ContactItem;
+      // Solo reordenar listas si cambió alguna clave de orden (evita O(n log n) por cada evento realtime)
+      const sortKeyChanged =
+        existing.last_interaction_at !== updated.last_interaction_at ||
+        existing.updated_at !== updated.updated_at ||
+        existing.waiting_since !== updated.waiting_since ||
+        existing.lead_score !== updated.lead_score;
       const nextContactsById = {
         ...state.contactsById,
         [contact.id]: updated,
@@ -278,7 +290,8 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         if (f.agentId !== 'all' && f.agentId !== 'unassigned' && updated.assigned_to !== f.agentId) return false;
         if (f.stage !== 'all' && updated.pipeline_stage !== f.stage) return false;
         if (f.temperature !== 'all') {
-          const t = updated.custom_fields?.lead_temperature || updated.custom_fields?.temperature || null;
+          const t =
+            updated.lead_temperature || updated.custom_fields?.lead_temperature || updated.custom_fields?.temperature || null;
           if (f.temperature === 'unclassified' && t) return false;
           if (f.temperature !== 'unclassified' && t !== f.temperature) return false;
         }
@@ -295,9 +308,9 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       if (isAlreadyInView && !matchesCurrentView) {
         nextViewIds[currentView] = currentIds.filter((id) => id !== contact.id);
       } else if (!isAlreadyInView && matchesCurrentView) {
-        nextViewIds[currentView] = sortInboxViewIds([contact.id, ...currentIds], nextContactsById, currentView);
-      } else if (isAlreadyInView && matchesCurrentView) {
-        nextViewIds[currentView] = sortInboxViewIds(currentIds, nextContactsById, currentView);
+        nextViewIds[currentView] = sortInboxViewIds([contact.id, ...currentIds], nextContactsById, currentView, state.filters.sort);
+      } else if (isAlreadyInView && matchesCurrentView && sortKeyChanged) {
+        nextViewIds[currentView] = sortInboxViewIds(currentIds, nextContactsById, currentView, state.filters.sort);
       }
 
       // También sincronizar/ordenar otras vistas en caché cuando el chat cambia de dueño/estado o fecha
@@ -308,8 +321,8 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         if (ids.includes(contact.id)) {
           if (!contactMatchesInboxView(updated, v, state.currentUserId)) {
             nextViewIds[v] = ids.filter((id) => id !== contact.id);
-          } else {
-            nextViewIds[v] = sortInboxViewIds(ids, nextContactsById, v);
+          } else if (sortKeyChanged) {
+            nextViewIds[v] = sortInboxViewIds(ids, nextContactsById, v, state.filters.sort);
           }
         }
       });
@@ -345,7 +358,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       });
 
       const currentIds = isAppend ? (state.viewIds[view] || []) : [];
-      const sortedMergedIds = sortInboxViewIds([...currentIds, ...newIds], newContactsById, view);
+      const sortedMergedIds = sortInboxViewIds([...currentIds, ...newIds], newContactsById, view, state.filters.sort);
 
       return {
         contactsById: newContactsById,
@@ -452,13 +465,13 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
           const aiAttending = contactIsAiAttending(updatedContactItem);
 
           if (viewList.includes(contactId)) {
-            nextViewIds[currentView] = sortInboxViewIds(viewList, updatedContactsById, currentView);
+            nextViewIds[currentView] = sortInboxViewIds(viewList, updatedContactsById, currentView, state.filters.sort);
           } else if (
             (currentView === 'por_responder' && needsHuman) ||
             (currentView === 'ia_atendiendo' && aiAttending) ||
             (currentView === 'mis_abiertos' && updatedContactItem.assigned_to === state.currentUserId)
           ) {
-            nextViewIds[currentView] = sortInboxViewIds([contactId, ...viewList], updatedContactsById, currentView);
+            nextViewIds[currentView] = sortInboxViewIds([contactId, ...viewList], updatedContactsById, currentView, state.filters.sort);
           }
         } else {
           // Si el mensaje es de la IA o de un asesor, ya fue respondido
@@ -469,10 +482,10 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
             const list = nextViewIds['ia_atendiendo'].includes(contactId)
               ? nextViewIds['ia_atendiendo']
               : [contactId, ...nextViewIds['ia_atendiendo']];
-            nextViewIds['ia_atendiendo'] = sortInboxViewIds(list, updatedContactsById, 'ia_atendiendo');
+            nextViewIds['ia_atendiendo'] = sortInboxViewIds(list, updatedContactsById, 'ia_atendiendo', state.filters.sort);
           }
           if (viewList.includes(contactId)) {
-            nextViewIds[currentView] = sortInboxViewIds(viewList, updatedContactsById, currentView);
+            nextViewIds[currentView] = sortInboxViewIds(viewList, updatedContactsById, currentView, state.filters.sort);
           }
         }
       }

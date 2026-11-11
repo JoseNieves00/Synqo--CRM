@@ -209,7 +209,34 @@ export function getContactInteractionTimestamp(c: any): number {
  * - `ia_atendiendo`, `mis_abiertos`, `seguimiento`, `cerrados`: Orden cronológico estricto por
  *   última interacción real (`last_interaction_at` DESC), de más reciente a más antiguo.
  */
-export function compareInboxContacts(a: any, b: any, view: CanonicalInboxView): number {
+/**
+ * Modo de orden de la bandeja:
+ * - `auto`: orden por defecto de cada bandeja (Seguimiento usa score; el resto, el canónico).
+ * - `recent`: orden canónico (SLA en Por responder, más reciente arriba en el resto).
+ * - `score`: más propensos a comprar primero (lead_score DESC), desempate canónico.
+ */
+export type InboxSortMode = 'auto' | 'recent' | 'score';
+
+export function resolveInboxSort(view: CanonicalInboxView, sort: InboxSortMode = 'auto'): 'recent' | 'score' {
+  if (sort === 'score' || sort === 'recent') return sort;
+  return view === 'seguimiento' ? 'score' : 'recent';
+}
+
+function leadScoreValue(c: any): number {
+  return typeof c?.lead_score === 'number' && Number.isFinite(c.lead_score) ? c.lead_score : -1;
+}
+
+export function compareInboxContacts(
+  a: any,
+  b: any,
+  view: CanonicalInboxView,
+  sort: InboxSortMode = 'auto'
+): number {
+  if (resolveInboxSort(view, sort) === 'score') {
+    const diff = leadScoreValue(b) - leadScoreValue(a);
+    if (diff !== 0) return diff;
+  }
+
   const aTime = getContactInteractionTimestamp(a);
   const bTime = getContactInteractionTimestamp(b);
 
@@ -238,7 +265,8 @@ export function compareInboxContacts(a: any, b: any, view: CanonicalInboxView): 
 export function sortInboxViewIds(
   ids: string[],
   contactsById: Record<string, any>,
-  view: CanonicalInboxView
+  view: CanonicalInboxView,
+  sort: InboxSortMode = 'auto'
 ): string[] {
   const seen = new Set<string>();
   const uniqueIds: string[] = [];
@@ -248,6 +276,6 @@ export function sortInboxViewIds(
       uniqueIds.push(id);
     }
   }
-  uniqueIds.sort((idA, idB) => compareInboxContacts(contactsById[idA], contactsById[idB], view));
+  uniqueIds.sort((idA, idB) => compareInboxContacts(contactsById[idA], contactsById[idB], view, sort));
   return uniqueIds;
 }

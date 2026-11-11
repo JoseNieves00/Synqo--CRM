@@ -1,5 +1,6 @@
 'use server';
 
+import { LeadScoreService } from '@/services/lead-score.service';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PipelineStage } from '@/lib/supabase/types';
@@ -235,6 +236,8 @@ export async function updateContactDetails(
       content: `[📊 Etapa actualizada por Humano (${actorName}): ${updates.pipelineStage}]`,
     });
   }
+
+  await LeadScoreService.recompute(contactId);
 
   revalidatePath('/inbox');
   revalidatePath('/pipeline');
