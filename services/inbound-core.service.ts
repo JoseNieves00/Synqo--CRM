@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { LeadScoreService } from '@/services/lead-score.service';
+import { CampaignService } from '@/services/campaign.service';
 import { sanitizeLeadMessage } from '@/lib/security/sanitize';
 import { formatQuoteMessageContent, formatImageMessageContent } from '@/lib/media/format';
 import { AssignmentService } from './assignment.service';
@@ -176,7 +177,11 @@ export class InboundCoreService {
     // Score de propensión: recalcular tras cada mensaje entrante que afecte a un contacto
     // (cubre reglas de opt-out, comprobante de pago, cortesía y nuevos contactos).
     if (result?.contactId && result.status !== 'duplicate_ignored' && result.status !== 'error') {
-      await LeadScoreService.recompute(result.contactId);
+      await Promise.all([
+        LeadScoreService.recompute(result.contactId),
+        // Atribución de respuesta a campañas IA recientes
+        result.status !== 'reaction_recorded' ? CampaignService.markReplied(result.contactId) : Promise.resolve(),
+      ]);
     }
     return result;
   }

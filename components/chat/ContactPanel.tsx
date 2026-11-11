@@ -24,6 +24,10 @@ import {
   MessageSquare,
   AlertCircle,
   Archive,
+  Tag as TagIcon,
+  ShoppingBag,
+  UserRoundSearch,
+  Plus,
 } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { updateLeadStage } from '@/app/actions/pipeline';
@@ -37,6 +41,9 @@ import { updateContactDetails } from '@/app/actions/contacts';
 import { generateContactAiSummary, endContactConversation, reopenContactConversation } from '@/app/actions/chat';
 import { toggleContactFollowUpPause } from '@/app/actions/reminders';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
+import { getCustomer360Action } from '@/app/actions/crm';
+import { Customer360Drawer } from '@/components/crm/Customer360Drawer';
+import { TAG_COLOR_CLASSES, formatCop } from '@/components/crm/crm-ui-helpers';
 
 interface ContactPanelProps {
   contact: {
@@ -99,6 +106,34 @@ export function ContactPanel({
   const [closeResolution, setCloseResolution] = useState<'won' | 'lost' | 'dismissed'>('won');
   const [closeNote, setCloseNote] = useState('');
   const [isClosingChat, setIsClosingChat] = useState(false);
+
+  // Ficha 360 integrada (etiquetas, pedidos/LTV y notas del equipo)
+  const [is360Open, setIs360Open] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<'resumen' | 'etiquetas' | 'pedidos' | 'notas'>('resumen');
+  const [crmMini, setCrmMini] = useState<{
+    tags: Array<{ id: string; name: string; color: string; source: 'ai' | 'human' }>;
+    ordersCount: number;
+    ltv: number;
+    notesCount: number;
+  } | null>(null);
+
+  const loadCrmMini = React.useCallback(async () => {
+    try {
+      const res = await getCustomer360Action(contact.id);
+      setCrmMini({
+        tags: res.tags || [],
+        ordersCount: res.ordersCount || 0,
+        ltv: res.ltv || 0,
+        notesCount: (res.notes || []).length,
+      });
+    } catch {
+      // Silencioso si aún no corrió migración o sin datos
+    }
+  }, [contact.id]);
+
+  useEffect(() => {
+    loadCrmMini();
+  }, [loadCrmMini]);
 
   useEffect(() => {
     setStage(contact.pipeline_stage || 'nuevo');
@@ -555,6 +590,103 @@ export function ContactPanel({
           )}
         </div>
 
+        {/* Ficha 360: Etiquetas, Pedidos y LTV */}
+        <div className="p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]/60 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
+              <UserRoundSearch className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+              Ficha 360°
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setDrawerTab('resumen');
+                setIs360Open(true);
+              }}
+              className="text-[11px] font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:underline cursor-pointer"
+            >
+              Ver completa
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <button
+              type="button"
+              onClick={() => {
+                setDrawerTab('pedidos');
+                setIs360Open(true);
+              }}
+              className="text-left p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B] hover:border-[#0052FF]/50 transition cursor-pointer"
+            >
+              <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                <ShoppingBag className="w-3 h-3" /> Pedidos ({crmMini?.ordersCount ?? 0})
+              </div>
+              <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
+                {formatCop(crmMini?.ltv ?? 0)}
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDrawerTab('etiquetas');
+                setIs360Open(true);
+              }}
+              className="text-left p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B] hover:border-[#0052FF]/50 transition cursor-pointer"
+            >
+              <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                <TagIcon className="w-3 h-3" /> Etiquetas ({crmMini?.tags.length ?? 0})
+              </div>
+              <div className="text-[11px] font-medium text-slate-700 dark:text-slate-200 truncate mt-0.5">
+                {crmMini && crmMini.tags.length > 0 ? 'Gestionar' : '+ Etiquetar'}
+              </div>
+            </button>
+          </div>
+
+          {crmMini && crmMini.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {crmMini.tags.slice(0, 6).map((t) => (
+                <span
+                  key={t.id}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${
+                    TAG_COLOR_CLASSES[t.color] || TAG_COLOR_CLASSES.slate
+                  }`}
+                >
+                  {t.source === 'ai' && <Sparkles className="w-2.5 h-2.5" />}
+                  {t.name}
+                </span>
+              ))}
+              {crmMini.tags.length > 6 && (
+                <span className="text-[10px] text-slate-400 self-center">
+                  +{crmMini.tags.length - 6}
+                </span>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setDrawerTab('pedidos');
+                setIs360Open(true);
+              }}
+              className="flex-1 inline-flex items-center justify-center gap-1 py-1 rounded-md bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF]/50 text-[11px] font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
+            >
+              <Plus className="w-3 h-3" /> Pedido
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDrawerTab('notas');
+                setIs360Open(true);
+              }}
+              className="flex-1 inline-flex items-center justify-center gap-1 py-1 rounded-md bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF]/50 text-[11px] font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
+            >
+              Notas equipo ({crmMini?.notesCount ?? 0})
+            </button>
+          </div>
+        </div>
+
         {/* Ficha / Notas Internas */}
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between">
@@ -602,6 +734,13 @@ export function ContactPanel({
           )}
         </div>
       </div>
+
+      <Customer360Drawer
+        contactId={is360Open ? contact.id : null}
+        initialTab={drawerTab}
+        onClose={() => setIs360Open(false)}
+        onChanged={loadCrmMini}
+      />
 
       {/* Modal de Finalización / Cierre con Resultado */}
       {isClosingModalOpen && (

@@ -1,4 +1,6 @@
 import OpenAI, { toFile } from 'openai';
+import { TagService } from '@/services/tag.service';
+import { OrderService } from '@/services/order.service';
 import { LeadScoreService } from '@/services/lead-score.service';
 import { AppointmentService } from './appointment.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -316,6 +318,12 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
         lost_reason: {
           type: 'string',
           description: 'Motivo real si el cliente rechaza explícitamente avanzar.',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Hasta 3 etiquetas CORTAS (1-3 palabras) y reutilizables para organizar al cliente en el CRM: preferencia o dato comercial útil (ej. "Pago contraentrega", "Talla 4", "Regalo", "Mayorista", "Bogotá"). Nunca datos sensibles. Omitir si no aporta nada nuevo.',
         },
       },
       required: ['temperature'],
@@ -1448,10 +1456,13 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
               }
 
+              const appliedTags = await TagService.applyAiTags(organizationId, contactId, validated.tags);
+
               toolResult = JSON.stringify({
                 status: 'updated',
                 temperature: effectiveTemp,
                 stage_updated: syncRes.nextStage,
+                ...(appliedTags.length > 0 ? { tags: appliedTags } : {}),
               });
             } else if (functionName === 'schedule_follow_up') {
               const validated = ScheduleFollowUpToolSchema.parse(functionArgs);
@@ -1573,6 +1584,22 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   updated_at: nowIso,
                 })
                 .eq('id', contactId);
+
+              // Pedido como entidad propia (historial de compras, valor del cliente y atribución a campañas)
+              await OrderService.recordOrder({
+                organizationId,
+                contactId,
+                items: validated.items,
+                total: validated.total,
+                status: 'confirmed',
+                paymentMethod: validated.metodo_pago || null,
+                customerName: validated.nombre,
+                customerPhone: validated.telefono,
+                address: validated.direccion || null,
+                city: validated.ciudad || null,
+                notes: validated.notas || null,
+                source: 'ai',
+              });
 
               const deliveryLabel = [validated.ciudad, validated.direccion].filter(Boolean).join(' - ');
               const itemsStr = validated.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');

@@ -32,6 +32,7 @@ import type { PromptVersionEntry } from '@/lib/ai/prompt-assistant/versions';
 import type { HealthActionTarget, PromptHealthReport } from '@/lib/ai/prompt-assistant/health';
 import { COMMON_HELP_CHIPS } from '@/lib/ai/prompt-assistant/guide';
 import type { ImportedCatalogItem } from '@/lib/ai/prompt-assistant/file-import';
+import { AssistantUsageModal } from './AssistantUsageModal';
 import {
   analyzeExistingPromptAction,
   applyPolishedPromptAction,
@@ -97,6 +98,7 @@ export function PromptAssistantPanel({
   const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
 
   const [showVersionsMenu, setShowVersionsMenu] = useState(false);
+  const [showUsageModal, setShowUsageModal] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [polishPreview, setPolishPreview] = useState<{
     polishedPrompt: string;
@@ -511,11 +513,25 @@ export function PromptAssistantPanel({
             <div>
               <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Asistente de Prompt</span>
-                {health && (
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-[10px] font-mono text-emerald-700 dark:text-emerald-300">
-                    {health.completenessPct}%
-                  </span>
-                )}
+                {budgetNotice ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowUsageModal(true)}
+                    className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100/70 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 transition cursor-pointer"
+                    title="Ver tokens restantes por día y por semana"
+                  >
+                    {budgetNotice.remainingDailyPct}%
+                  </button>
+                ) : health ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowUsageModal(true)}
+                    className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100/70 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 transition cursor-pointer"
+                    title="Ver tokens restantes"
+                  >
+                    100%
+                  </button>
+                ) : null}
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Arma o mejora tu bot sin perder información
@@ -667,6 +683,7 @@ export function PromptAssistantPanel({
             conflicts={conflicts}
             dailyLimitReached={dailyLimitReached}
             budgetNotice={budgetNotice}
+            onOpenUsageModal={() => setShowUsageModal(true)}
             onSubmitAnswer={handleSubmitAnswer}
             onAnalyzeExisting={handleAnalyzeExisting}
             onAcceptProposal={handleAcceptProposal}
@@ -985,6 +1002,13 @@ export function PromptAssistantPanel({
           </div>
         )}
       </div>
+
+      {/* Modal de Uso y Topes de Tokens (Estilo Antigravity) */}
+      <AssistantUsageModal
+        isOpen={showUsageModal}
+        onClose={() => setShowUsageModal(false)}
+        budget={budgetNotice}
+      />
     </div>
   );
 }

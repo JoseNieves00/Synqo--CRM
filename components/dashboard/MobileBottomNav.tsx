@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Kanban,
+  Users,
   Calendar,
   Settings,
   ShieldCheck,
@@ -49,6 +50,7 @@ export function MobileBottomNav({ isAdmin, isSuperAdmin = false, enabledModules 
   }> = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { href: '/pipeline', label: 'Pipeline', icon: Kanban, exact: true },
+    { href: '/clientes', label: 'Clientes', icon: Users, exact: false },
     ...(enabledModules?.native_calendar !== false
       ? [{ href: '/calendar', label: 'Agenda', icon: Calendar, exact: false }]
       : []),

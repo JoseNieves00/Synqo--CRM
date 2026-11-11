@@ -42,7 +42,7 @@ export interface ReactivationResult {
  * - Evolution: aplica cadencia anti-ban y tope diario configurable.
  */
 export class LeadReactivationService {
-  private static getLocalScheduleState(businessHours: any, timeZone: string): { isAllowed: boolean } {
+  static getLocalScheduleState(businessHours: any, timeZone: string): { isAllowed: boolean } {
     try {
       const now = new Date();
       const parts = new Intl.DateTimeFormat('en-US', {
@@ -182,7 +182,7 @@ export class LeadReactivationService {
   /**
    * Cuenta mensajes automatizados enviados en los últimos 60 min (persistido en DB) para blindaje Anti-Ban.
    */
-  private static async getRecentHourlyFollowUpsCount(orgId: string): Promise<number> {
+  static async getRecentHourlyFollowUpsCount(orgId: string): Promise<number> {
     try {
       const oneHourAgoIso = new Date(Date.now() - 3600 * 1000).toISOString();
       const { count } = await (supabaseAdmin.from('messages') as any)
@@ -201,7 +201,7 @@ export class LeadReactivationService {
   /**
    * Evita envíos repetidos o traslapados al mismo contacto dentro de la ventana de enfriamiento.
    */
-  private static async hasRecentFollowUpForContact(contactId: string, cooldownHours: number): Promise<boolean> {
+  static async hasRecentFollowUpForContact(contactId: string, cooldownHours: number): Promise<boolean> {
     try {
       const cutoffIso = new Date(Date.now() - cooldownHours * 3600 * 1000).toISOString();
       const { count } = await (supabaseAdmin.from('messages') as any)
@@ -209,7 +209,7 @@ export class LeadReactivationService {
         .eq('contact_id', contactId)
         .eq('sender_type', 'ai')
         .gte('created_at', cutoffIso)
-        .or('content.ilike.%[Seguimiento %,content.ilike.%[Reactivación Autónoma%');
+        .or('content.ilike.%[Seguimiento %,content.ilike.%[Reactivación Autónoma%,content.ilike.%[Campaña%');
 
       return (count || 0) > 0;
     } catch {
@@ -221,7 +221,7 @@ export class LeadReactivationService {
    * Despacha un paso de seguimiento (texto + imágenes o plantilla Meta fuera de 24h)
    * y retorna metadatos del resultado.
    */
-  private static async dispatchFollowUpStep(params: {
+  static async dispatchFollowUpStep(params: {
     org: any;
     contact: any;
     bodyMessage: string;
@@ -366,7 +366,7 @@ export class LeadReactivationService {
   /**
    * Resuelve el mensaje autónomo y la imagen del catálogo guiándose por las reglas del prompt de la empresa.
    */
-  private static async resolveAutonomousFollowUpPayload(params: {
+  static async resolveAutonomousFollowUpPayload(params: {
     org: any;
     contact: any;
     cf: Record<string, any>;

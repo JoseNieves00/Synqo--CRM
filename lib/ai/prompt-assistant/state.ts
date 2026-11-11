@@ -105,6 +105,17 @@ export interface AssistantClientBudgetNotice {
   limitReached: boolean;
   limitScope: 'none' | 'daily' | 'weekly';
   resetHint: string;
+  // Métricas para modal de uso de tokens
+  tokensToday: number;
+  dailyCap: number;
+  tokensRemainingToday: number;
+  remainingDailyPct: number;
+  tokensLast7Days: number;
+  weeklyCap: number;
+  tokensRemainingWeekly: number;
+  remainingWeeklyPct: number;
+  callsToday: number;
+  callsLast7Days: number;
 }
 
 export interface AssistantBudgetStatus extends AssistantClientBudgetNotice {
@@ -181,14 +192,23 @@ export function getAssistantBudgetStatus(
       ? 'en 1 día'
       : `en ${daysUntilRollover} días`;
 
+  const tokensRemainingToday = Math.max(0, dailyCap - tokensToday);
+  const remainingDailyPct = Math.max(0, Math.min(100, Math.round((tokensRemainingToday / dailyCap) * 100)));
+  const tokensRemainingWeekly = Math.max(0, weeklyCap - tokensLast7Days);
+  const remainingWeeklyPct = Math.max(0, Math.min(100, Math.round((tokensRemainingWeekly / weeklyCap) * 100)));
+
   return {
     dayKey,
     tokensToday,
     callsToday,
     dailyCap,
+    tokensRemainingToday,
+    remainingDailyPct,
     tokensLast7Days,
     callsLast7Days,
     weeklyCap,
+    tokensRemainingWeekly,
+    remainingWeeklyPct,
     usagePct,
     showNotice,
     limitReached,
@@ -199,12 +219,32 @@ export function getAssistantBudgetStatus(
 }
 
 export function toClientBudgetNotice(status: AssistantBudgetStatus): AssistantClientBudgetNotice {
+  const dailyCap = Math.max(1, Number(status.dailyCap || 50000));
+  const tokensToday = Math.max(0, Number(status.tokensToday || 0));
+  const tokensRemainingToday = Math.max(0, dailyCap - tokensToday);
+  const remainingDailyPct = Math.max(0, Math.min(100, Math.round((tokensRemainingToday / dailyCap) * 100)));
+
+  const weeklyCap = Math.max(1, Number(status.weeklyCap || 150000));
+  const tokensLast7Days = Math.max(0, Number(status.tokensLast7Days || 0));
+  const tokensRemainingWeekly = Math.max(0, weeklyCap - tokensLast7Days);
+  const remainingWeeklyPct = Math.max(0, Math.min(100, Math.round((tokensRemainingWeekly / weeklyCap) * 100)));
+
   return {
     usagePct: status.usagePct,
     showNotice: status.showNotice,
     limitReached: status.limitReached,
     limitScope: status.limitScope,
     resetHint: status.resetHint,
+    tokensToday,
+    dailyCap,
+    tokensRemainingToday,
+    remainingDailyPct,
+    tokensLast7Days,
+    weeklyCap,
+    tokensRemainingWeekly,
+    remainingWeeklyPct,
+    callsToday: Number(status.callsToday || 0),
+    callsLast7Days: Number(status.callsLast7Days || 0),
   };
 }
 

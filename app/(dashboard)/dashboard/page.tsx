@@ -7,6 +7,7 @@ import { getOrganizationTokenUsage } from '@/app/actions/usage';
 import { getOrganizationPendingReminders } from '@/app/actions/reminders';
 import { getDashboardMetrics, type DashboardPeriod } from '@/app/actions/dashboard';
 import { RemindersDashboardWidget } from '@/components/dashboard/RemindersDashboardWidget';
+import { TopPropensityWidget } from '@/components/dashboard/TopPropensityWidget';
 import { getRecentAiActivity } from '@/app/actions/ai-activity';
 import { AiActivityFeed } from '@/components/dashboard/AiActivityFeed';
 import { ClassifyLeadsButton } from '@/components/dashboard/ClassifyLeadsButton';
@@ -562,6 +563,9 @@ export default async function DashboardPage({
         currentUserRole={current.profile.role}
         currentUserId={current.user.id}
       />
+
+      {/* Top 10 Más Propensos a Cerrar */}
+      <TopPropensityWidget leads={metrics?.topPropensityLeads || []} />
 
       {/* Leads Recientes */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

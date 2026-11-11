@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Bot, Send, User, RotateCcw, X, Sparkles, Clock, Zap, Loader2 } from 'lucide-react';
 import { simulateBotMessage } from '@/app/actions/settings';
 
@@ -30,6 +31,7 @@ export function BotSandboxModal({
   suggestedQuestions,
   onMessageSimulated,
 }: BotSandboxModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<SimulatedMessage[]>([
     {
       id: 'welcome',
@@ -43,15 +45,22 @@ export function BotSandboxModal({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const cleanInput = input.trim();
     if (!cleanInput || isLoading) return;
 
@@ -121,7 +130,7 @@ export function BotSandboxModal({
   const quickPrompts =
     suggestedQuestions && suggestedQuestions.length > 0 ? suggestedQuestions : defaultQuickPrompts;
 
-  return (
+  const modalContent = (
     <div
       onClick={onClose}
       className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
@@ -279,5 +288,7 @@ export function BotSandboxModal({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 }
 

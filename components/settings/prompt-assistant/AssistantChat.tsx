@@ -43,6 +43,7 @@ interface AssistantChatProps {
   conflicts: string[];
   dailyLimitReached: boolean;
   budgetNotice?: AssistantClientBudgetNotice | null;
+  onOpenUsageModal?: () => void;
   onSubmitAnswer: (slot: BlueprintSlot | null, answer: string) => Promise<void>;
   onAnalyzeExisting: () => Promise<void>;
   onAcceptProposal: (proposal: PendingSectionProposal) => Promise<void>;
@@ -78,6 +79,7 @@ export function AssistantChat({
   conflicts,
   dailyLimitReached,
   budgetNotice,
+  onOpenUsageModal,
   onSubmitAnswer,
   onAnalyzeExisting,
   onAcceptProposal,
@@ -478,21 +480,39 @@ export function AssistantChat({
       {/* Barra inferior: adjuntar Excel/PDF + nota de voz + textarea/input */}
       <div className="p-2.5 border-t border-slate-200 dark:border-[#1E2433] bg-white dark:bg-[#0E121B] shrink-0 space-y-1.5">
         {dailyLimitReached ? (
-          <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg px-2.5 py-1.5">
-            Alcanzaste tu capacidad de generación automática ({budgetNotice?.limitScope === 'weekly' ? 'semanal' : 'diaria'}; se renueva {budgetNotice?.resetHint || 'pronto'}). Aún puedes usar respuestas rápidas o editar el texto arriba.
+          <div
+            onClick={onOpenUsageModal}
+            className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg px-2.5 py-1.5 cursor-pointer hover:bg-amber-100/60 dark:hover:bg-amber-950/50 transition flex items-center justify-between gap-2"
+          >
+            <span>
+              Alcanzaste tu capacidad ({budgetNotice?.limitScope === 'weekly' ? 'semanal' : 'diaria'}; se renueva {budgetNotice?.resetHint || 'pronto'}).
+            </span>
+            <span className="underline font-semibold shrink-0">Ver detalle</span>
           </div>
         ) : budgetNotice?.showNotice ? (
-          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1">
-            <span>
-              Capacidad semanal de mejoras IA: <strong>{budgetNotice.usagePct}%</strong> usada · Se renueva {budgetNotice.resetHint}
-            </span>
+          <button
+            type="button"
+            onClick={onOpenUsageModal}
+            className="w-full flex items-center justify-between gap-2 text-[10px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-[#131722] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2.5 py-1 transition cursor-pointer text-left"
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span>Tokens diarios restantes: <strong>{budgetNotice.remainingDailyPct ?? 100}%</strong></span>
+              <span className="text-slate-400">·</span>
+              <span className="text-[9px] text-[#0052FF] dark:text-[#00D2FF] hover:underline font-medium">Ver desglose</span>
+            </div>
             <div className="w-14 h-1.5 rounded-full bg-slate-200 dark:bg-[#1E2433] overflow-hidden shrink-0">
               <div
-                className="h-full bg-amber-500 rounded-full transition-all"
-                style={{ width: `${Math.min(100, budgetNotice.usagePct)}%` }}
+                className={`h-full rounded-full transition-all ${
+                  (budgetNotice.remainingDailyPct ?? 100) > 40
+                    ? 'bg-emerald-500'
+                    : (budgetNotice.remainingDailyPct ?? 100) > 15
+                    ? 'bg-amber-500'
+                    : 'bg-rose-500'
+                }`}
+                style={{ width: `${Math.max(4, Math.min(100, budgetNotice.remainingDailyPct ?? 100))}%` }}
               />
             </div>
-          </div>
+          </button>
         ) : null}
 
         <div className="flex items-end gap-1.5">

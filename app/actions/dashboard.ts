@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { calculateTurnCostUsd, AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
 import { resolveLeadTemperature } from '@/lib/ai/follow-up-types';
+import type { LeadScoreFactor } from '@/lib/leads/lead-score';
 
 export type DashboardPeriod = 'today' | '7d' | 'month';
 
@@ -43,6 +44,18 @@ export interface DashboardMetrics {
     pipeline_stage: string | null;
     last_interaction_at: string | null;
     reason: string;
+  }>;
+  topPropensityLeads?: Array<{
+    id: string;
+    name: string | null;
+    phone: string | null;
+    channel: string | null;
+    pipeline_stage: string | null;
+    lead_score: number;
+    lead_score_breakdown: LeadScoreFactor[] | null;
+    deal_value: number | null;
+    product_interest: string | null;
+    last_interaction_at: string | null;
   }>;
   aiActiveCount: number;
   funnelCounts: Record<'nuevo' | 'calificado' | 'cita_agendada' | 'ganado' | 'perdido', number>;
@@ -189,7 +202,7 @@ export async function getDashboardMetrics(
   const [contactsRes, runsRes] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
       .select(
-        'id, name, phone, channel, pipeline_stage, is_ai_active, assigned_to, conversation_status, waiting_since, last_message_sender, deal_value, closed_at, close_reason, created_at, updated_at, last_interaction_at, custom_fields'
+        'id, name, phone, channel, pipeline_stage, is_ai_active, assigned_to, conversation_status, waiting_since, last_message_sender, deal_value, closed_at, close_reason, created_at, updated_at, last_interaction_at, custom_fields, lead_score, lead_score_breakdown'
       )
       .eq('organization_id', orgId)
       .is('deleted_at', null),
@@ -464,6 +477,43 @@ export async function getDashboardMetrics(
       new Date(a.last_interaction_at || 0).getTime()
   );
 
+  const topPropensityLeads = contacts
+    .filter(
+      (c: any) =>
+        c.pipeline_stage !== 'ganado' &&
+        c.pipeline_stage !== 'perdido' &&
+        typeof c.lead_score === 'number'
+    )
+    .sort((a: any, b: any) => {
+      if ((b.lead_score ?? 0) !== (a.lead_score ?? 0)) {
+        return (b.lead_score ?? 0) - (a.lead_score ?? 0);
+      }
+      return (
+        new Date(b.last_interaction_at || 0).getTime() -
+        new Date(a.last_interaction_at || 0).getTime()
+      );
+    })
+    .slice(0, 10)
+    .map((c: any) => {
+      const cf = (c.custom_fields || {}) as Record<string, any>;
+      const rawInterest = cf.producto_interes ?? cf.interes ?? cf.service ?? null;
+      return {
+        id: c.id,
+        name: c.name ?? null,
+        phone: c.phone ?? null,
+        channel: c.channel ?? null,
+        pipeline_stage: c.pipeline_stage ?? null,
+        lead_score: Number(c.lead_score ?? 0),
+        lead_score_breakdown: Array.isArray(c.lead_score_breakdown)
+          ? (c.lead_score_breakdown as LeadScoreFactor[])
+          : null,
+        deal_value: typeof c.deal_value === 'number' ? c.deal_value : null,
+        product_interest:
+          typeof rawInterest === 'string' && rawInterest.trim() ? rawInterest.trim() : null,
+        last_interaction_at: c.last_interaction_at ?? null,
+      };
+    });
+
   return {
     period,
     periodLabel,
@@ -480,6 +530,7 @@ export async function getDashboardMetrics(
     unassignedCount,
     needsHumanCount: needsHumanLeads.length,
     needsHumanLeads: needsHumanLeads.slice(0, 6),
+    topPropensityLeads,
     aiActiveCount,
     funnelCounts,
     categories: {

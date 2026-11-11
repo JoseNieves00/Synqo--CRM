@@ -5,6 +5,7 @@ import { OpenAIService } from '@/services/openai.service';
 import { PlatformAlertService } from '@/services/platform-alert.service';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import { LeadScoreService } from '@/services/lead-score.service';
+import { CampaignService } from '@/services/campaign.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -75,6 +76,15 @@ async function handleCron(request: NextRequest) {
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
+    // 2b. Campañas IA a segmentos (comparten topes anti-ban con el recontacto)
+    const campaignResult =
+      remainingMs() > 10_000
+        ? await CampaignService.processRunningCampaigns({
+            organizationId: orgId,
+            deadlineMs: Date.now() + Math.min(20_000, remainingMs() - 8_000),
+          }).catch((err: any) => ({ error: String(err?.message || err) }))
+        : { skipped: 'time_budget' };
+
     // 3. Tareas de IA en lote, solo con margen de tiempo
     const autoClassifyResult =
       remainingMs() > 20_000
@@ -98,6 +108,7 @@ async function handleCron(request: NextRequest) {
       durationMs: Date.now() - startedAt,
       ...reactivationResult,
       leadScore: leadScoreResult,
+      campaigns: campaignResult,
       autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
       passiveConversationAudits: passiveAuditResult,
