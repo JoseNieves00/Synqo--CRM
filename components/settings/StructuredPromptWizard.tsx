@@ -26,10 +26,14 @@ import {
   Pencil,
   Tag,
   DollarSign,
+  Star,
+  ImagePlus,
+  Layers,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { estimatePromptTokens } from '@/lib/ai/prompt-assistant/versions';
 import { stripPhotoUrlsFromText, extractPhotoUrlsFromText, type GalleryPhotoItem } from '@/lib/media/format';
+import { groupGalleryIntoProducts, setPrimaryPhotoInGallery } from '@/lib/ai/product-gallery';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { saveProductGallery } from '@/app/actions/settings';
 import { suggestProductCatalogAi } from '@/app/actions/ai-catalog';
@@ -104,6 +108,17 @@ export function StructuredPromptWizard({
   const modalFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Soporte para fotos alternas / variantes de un producto específico
+  const [targetProductForAlternate, setTargetProductForAlternate] = useState<{
+    name: string;
+    price?: string;
+    keywords?: string[];
+  } | null>(null);
+  const [activePhotoByProduct, setActivePhotoByProduct] = useState<Record<string, string>>({});
+
+  // Agrupación de fotos en productos consolidados con la portada SIEMPRE de primera
+  const groupedProducts = React.useMemo(() => groupGalleryIntoProducts(gallery), [gallery]);
+
   // Modal para editar foto existente en el catálogo
   const [editingPhoto, setEditingPhoto] = useState<GalleryPhotoItem | null>(null);
   const [editPhotoName, setEditPhotoName] = useState('');
@@ -164,10 +179,20 @@ export function StructuredPromptWizard({
 
   const estimatedPromptTokens = estimatePromptTokens(textPrompt);
 
-  const handleOpenAddModal = () => {
-    setPhotoName('');
-    setPhotoPrice('');
-    setPhotoKeywords([]);
+  const handleOpenAddModal = (targetProduct?: { name: string; price?: string; keywords?: string[] }) => {
+    if (targetProduct) {
+      setTargetProductForAlternate(targetProduct);
+      setPhotoName(targetProduct.name);
+      setPhotoPrice(targetProduct.price || '');
+      setPhotoKeywords(targetProduct.keywords || []);
+      setPhotoRole('alterna');
+    } else {
+      setTargetProductForAlternate(null);
+      setPhotoName('');
+      setPhotoPrice('');
+      setPhotoKeywords([]);
+      setPhotoRole('principal');
+    }
     setKeywordInput('');
     setSelectedPhotoFile(null);
     setPhotoPreviewUrl(null);
@@ -187,6 +212,47 @@ export function StructuredPromptWizard({
     setPhotoKeywords([]);
     setKeywordInput('');
     setPhotoUploadError(null);
+    setTargetProductForAlternate(null);
+  };
+
+  const handleSetPrimaryPhoto = async (targetPhotoId: string, productName: string) => {
+    try {
+      const updatedGallery = setPrimaryPhotoInGallery(gallery, targetPhotoId);
+      setGallery(updatedGallery);
+      const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
+      await saveProductGallery(updatedGallery, compiled);
+      setFeedbackBanner({
+        type: 'success',
+        text: `Foto de "${productName}" establecida como Portada Principal (primera en orden visual).`,
+      });
+      setTimeout(() => setFeedbackBanner(null), 4000);
+    } catch (err: any) {
+      console.error('[SET PRIMARY PHOTO ERROR]', err);
+    }
+  };
+
+  const handleDeleteProductGroup = async (productName: string, photos: GalleryPhotoItem[]) => {
+    if (
+      !window.confirm(
+        `¿Estás seguro de que deseas eliminar el producto "${productName}" y todas sus ${photos.length} fotos vinculadas?`
+      )
+    ) {
+      return;
+    }
+    try {
+      const photoIdsToRemove = new Set(photos.map((p) => p.id));
+      const updatedGallery = gallery.filter((item) => !photoIdsToRemove.has(item.id));
+      setGallery(updatedGallery);
+      const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
+      await saveProductGallery(updatedGallery, compiled);
+      setFeedbackBanner({
+        type: 'success',
+        text: `Producto "${productName}" y sus fotos eliminados con éxito.`,
+      });
+      setTimeout(() => setFeedbackBanner(null), 4000);
+    } catch (err: any) {
+      console.error('[DELETE PRODUCT GROUP ERROR]', err);
+    }
   };
 
   useEffect(() => {
@@ -386,7 +452,9 @@ export function StructuredPromptWizard({
         throw new Error('No se recibió la URL de la imagen.');
       }
 
-      const cleanRole = photoRole.trim() || 'principal';
+      const cleanRole = photoRole.trim() || (targetProductForAlternate ? 'alterna' : 'principal');
+      const isHero = !targetProductForAlternate && (cleanRole === 'principal' || gallery.every((g) => (g.productName || g.name) !== photoName.trim()));
+
       const newPhotoItem: GalleryPhotoItem = {
         id: `photo-${Date.now()}`,
         name: photoName.trim(),
@@ -395,18 +463,39 @@ export function StructuredPromptWizard({
         url: result.url,
         price: photoPrice.trim() || undefined,
         keywords: photoKeywords.length > 0 ? photoKeywords : undefined,
+        isHero,
       };
 
-      const updatedGallery = [...gallery, newPhotoItem];
+      let updatedGallery: GalleryPhotoItem[];
+      if (targetProductForAlternate) {
+        const canonTarget = targetProductForAlternate.name.toLowerCase();
+        const lastIndexOfProduct = gallery
+          .map((g) => (g.productName || g.name || '').trim().toLowerCase())
+          .lastIndexOf(canonTarget);
+        if (lastIndexOfProduct !== -1) {
+          updatedGallery = [
+            ...gallery.slice(0, lastIndexOfProduct + 1),
+            newPhotoItem,
+            ...gallery.slice(lastIndexOfProduct + 1),
+          ];
+        } else {
+          updatedGallery = [...gallery, newPhotoItem];
+        }
+      } else {
+        updatedGallery = [...gallery, newPhotoItem];
+      }
+
       setGallery(updatedGallery);
-      const { compiled, structuredData } = compileAndPropagate(textPrompt, updatedGallery);
+      const { compiled } = compileAndPropagate(textPrompt, updatedGallery);
 
       // Guardar de inmediato en la base de datos atómicamente sin recargar la página
       try {
         await saveProductGallery(updatedGallery, compiled);
         setFeedbackBanner({
           type: 'success',
-          text: `Foto "${newPhotoItem.name}" guardada y sincronizada en la base de datos con éxito.`,
+          text: targetProductForAlternate
+            ? `Foto alterna agregada con éxito al producto "${targetProductForAlternate.name}".`
+            : `Producto "${newPhotoItem.name}" guardado y sincronizado con éxito.`,
         });
         setTimeout(() => setFeedbackBanner(null), 5000);
       } catch (dbErr: any) {
@@ -655,24 +744,24 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 <ImageIcon className="w-4 h-4" />
               </div>
               <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                Fotos de Productos & Modelos (WhatsApp)
+                Catálogo Visual de Productos (WhatsApp)
               </h4>
               <span className="text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">
-                {gallery.length} {gallery.length === 1 ? 'foto vinculada' : 'fotos vinculadas'}
+                {groupedProducts.length} {groupedProducts.length === 1 ? 'producto' : 'productos'} · {gallery.length} {gallery.length === 1 ? 'foto' : 'fotos'}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              La IA enviará automáticamente estas imágenes a WhatsApp cuando los clientes pidan fotos o modelos. No necesitas pegar URLs técnicas en tus instrucciones.
+              Organiza tus productos y agrega fotos alternas (ángulos, detalles o variantes) a cada uno. La IA y los asesores podrán despacharlas por WhatsApp sin duplicar productos.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={handleOpenAddModal}
+            onClick={() => handleOpenAddModal()}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-xs font-semibold hover:bg-slate-800 dark:hover:bg-slate-100 transition cursor-pointer shadow-xs self-start sm:self-auto shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Agregar Foto de Producto</span>
+            <span>Nuevo Producto</span>
           </button>
         </div>
 
@@ -703,118 +792,274 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
           </div>
         )}
 
-        {/* Grid de Fotos o Estado Vacío */}
-        {gallery.length === 0 ? (
+        {/* Grid de Productos Consolidados o Estado Vacío */}
+        {groupedProducts.length === 0 ? (
           <div
-            onClick={handleOpenAddModal}
+            onClick={() => handleOpenAddModal()}
             className="border-2 border-dashed border-slate-200 dark:border-[#232A3B] hover:border-blue-400 dark:hover:border-blue-500 rounded-xl p-6 text-center cursor-pointer transition bg-slate-50/50 dark:bg-[#090A0F]/50 group"
           >
             <div className="mx-auto w-10 h-10 rounded-full bg-blue-50 dark:bg-[#1A1F2C] text-[#0052FF] dark:text-[#00D2FF] flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
               <Upload className="w-5 h-5" />
             </div>
             <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              No tienes fotos de productos vinculadas aún
+              No tienes productos en el catálogo visual aún
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-md mx-auto">
-              Haz clic aquí para subir fotos de tus modelos o catálogo. La IA podrá despacharlas instantáneamente en WhatsApp sin llenar tu texto de enlaces.
+              Haz clic aquí para agregar tu primer producto con su foto de portada y luego podrás añadirle fotos alternas (ángulos, detalles o medidas).
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {gallery.map((item) => (
-              <div
-                key={item.id}
-                className="group relative rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] overflow-hidden flex flex-col justify-between shadow-xs hover:border-blue-400 dark:hover:border-blue-500 transition"
-              >
-                <div className="relative aspect-video sm:aspect-square w-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <img
-                    src={item.url}
-                    alt={item.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                  />
-                  {item.price && (
-                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-slate-900/80 text-emerald-300 text-[10px] font-bold backdrop-blur-xs">
-                      {item.price}
-                    </span>
-                  )}
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
-                    title="Ver imagen completa"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {groupedProducts.map((product) => {
+              const activePhotoId = activePhotoByProduct[product.productName] || product.primaryPhoto.id;
+              const activePhoto =
+                product.allPhotos.find((p) => p.id === activePhotoId) || product.primaryPhoto;
+              const isViewingPrimary = activePhoto.id === product.primaryPhoto.id;
 
-                <div className="p-2.5 flex flex-col gap-1 bg-white dark:bg-[#131722]">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span
-                      className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex-1"
-                      title={item.name}
-                    >
-                      {item.name}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
+              return (
+                <div
+                  key={product.id}
+                  className="group relative rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] overflow-hidden flex flex-col justify-between shadow-xs hover:border-blue-400/80 dark:hover:border-blue-500/80 transition-all"
+                >
+                  {/* 1. Vista Previa de Imagen Activa */}
+                  <div className="relative aspect-video sm:aspect-[4/3] w-full bg-slate-100 dark:bg-slate-900/80 overflow-hidden">
+                    <img
+                      src={activePhoto.url}
+                      alt={product.productName}
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102"
+                      loading="lazy"
+                    />
+
+                    {/* Badge Portada (Siempre primera) o Vista Alterna */}
+                    <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 pointer-events-none">
+                      {isViewingPrimary ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900/85 text-amber-300 text-[10px] font-bold backdrop-blur-xs border border-amber-400/30 shadow-xs">
+                          <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                          <span>Portada Principal</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-600/90 text-white text-[10px] font-bold backdrop-blur-xs shadow-xs">
+                          <span>Vista: {activePhoto.imageRole || 'Alterna'}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Contador de fotos y enlace externo */}
+                    <div className="absolute top-2 right-2 flex items-center gap-1.5 z-10">
+                      <span className="px-2 py-0.5 rounded-full bg-slate-900/80 text-white text-[10px] font-mono font-bold backdrop-blur-xs">
+                        {product.allPhotos.length} {product.allPhotos.length === 1 ? 'foto' : 'fotos'}
+                      </span>
+                      <a
+                        href={activePhoto.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1 rounded-full bg-black/60 text-white hover:bg-black/90 transition"
+                        title="Ver imagen en tamaño completo"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+
+                    {/* Precio en la foto si existe */}
+                    {product.price && (
+                      <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-lg bg-slate-900/85 text-emerald-300 text-[11px] font-bold backdrop-blur-xs border border-emerald-500/20">
+                        {product.price}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 2. Mini-Tira de Miniaturas del Producto (La foto principal siempre de primera) */}
+                  <div className="p-2.5 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F]/60">
+                    <div className="flex items-center justify-between gap-1 mb-1.5 px-0.5">
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        <Layers className="w-3 h-3" />
+                        <span>Álbum ({product.allPhotos.length}):</span>
+                      </span>
+                      {activePhoto && !isViewingPrimary && (
+                        <button
+                          type="button"
+                          onClick={() => handleSetPrimaryPhoto(activePhoto.id, product.productName)}
+                          className="text-[9.5px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                          title="Fijar esta imagen como la Portada Principal (primera en orden visual)"
+                        >
+                          <Star className="w-2.5 h-2.5 fill-current" />
+                          <span>Hacer Portada</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Tira horizontal de miniaturas */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+                      {product.allPhotos.map((photo, pIdx) => {
+                        const isThisActive = photo.id === activePhoto.id;
+                        const isThisPrimary = pIdx === 0;
+
+                        return (
+                          <div key={photo.id} className="relative group/thumb shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActivePhotoByProduct((prev) => ({
+                                  ...prev,
+                                  [product.productName]: photo.id,
+                                }))
+                              }
+                              className={`relative w-11 h-11 rounded-lg overflow-hidden border-2 transition cursor-pointer ${
+                                isThisActive
+                                  ? 'border-[#0052FF] ring-2 ring-blue-500/30'
+                                  : isThisPrimary
+                                  ? 'border-amber-400/80 hover:border-amber-500'
+                                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                              }`}
+                              title={`${
+                                isThisPrimary
+                                  ? 'Foto Principal / Portada'
+                                  : `Foto Alterna: ${photo.imageRole || 'Ángulo'}`
+                              } (Clic para previsualizar)`}
+                            >
+                              <img
+                                src={photo.url}
+                                alt={photo.name}
+                                className="w-full h-full object-cover"
+                              />
+                              {isThisPrimary && (
+                                <span
+                                  className="absolute bottom-0 right-0 p-0.5 bg-amber-500 text-white rounded-tl-md shadow-xs"
+                                  title="Foto de Portada"
+                                >
+                                  <Star className="w-2 h-2 fill-current" />
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Botón rápido para eliminar SOLO esta foto alterna (si hay más de 1 foto) */}
+                            {!isThisPrimary && (
+                              <button
+                                type="button"
+                                disabled={isDeletingId === photo.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePhoto(photo.id, `${photo.name} (${photo.imageRole || 'alterna'})`);
+                                }}
+                                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center cursor-pointer shadow-xs hover:bg-rose-600 disabled:opacity-50"
+                                title="Eliminar solo este ángulo/foto alterna"
+                              >
+                                {isDeletingId === photo.id ? (
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                ) : (
+                                  <X className="w-2.5 h-2.5" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Botón "+" para añadir foto alterna directamente en la tira */}
                       <button
                         type="button"
-                        onClick={() => handleOpenEditModal(item)}
-                        className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
-                        title="Cambiar datos o palabras clave"
+                        onClick={() =>
+                          handleOpenAddModal({
+                            name: product.productName,
+                            price: product.price,
+                            keywords: product.keywords,
+                          })
+                        }
+                        className="w-11 h-11 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-[#0052FF] dark:hover:border-[#00D2FF] flex flex-col items-center justify-center text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition shrink-0 cursor-pointer"
+                        title={`Añadir otro ángulo, detalle o variante a "${product.productName}"`}
                       >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isDeletingId === item.id}
-                        onClick={() => handleDeletePhoto(item.id, item.name)}
-                        className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md transition cursor-pointer disabled:opacity-50"
-                        title="Eliminar foto del catálogo"
-                      >
-                        {isDeletingId === item.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
-                        ) : (
-                          <Trash2 className="w-3.5 h-3.5" />
-                        )}
+                        <Plus className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
-                  {item.imageRole && item.imageRole !== 'principal' && (
-                    <div className="inline-flex items-center">
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-800 font-semibold truncate max-w-[140px]">
-                        Vista: {item.imageRole}
-                      </span>
-                    </div>
-                  )}
-                  {item.keywords && item.keywords.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-0.5">
-                      {item.keywords.slice(0, 2).map((k, i) => (
-                        <span key={i} className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium truncate max-w-[80px]">
-                          #{k}
+
+                  {/* 3. Información del Producto & Acciones */}
+                  <div className="p-3 flex flex-col gap-1.5 bg-white dark:bg-[#131722] flex-1 justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span
+                          className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate flex-1"
+                          title={product.productName}
+                        >
+                          {product.productName}
                         </span>
-                      ))}
-                      {item.keywords.length > 2 && (
-                        <span className="text-[9px] text-slate-400 font-medium">+{item.keywords.length - 2}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(product.primaryPhoto)}
+                            className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
+                            title="Editar datos del producto o palabras clave"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeleteProductGroup(product.productName, product.allPhotos)
+                            }
+                            className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md transition cursor-pointer"
+                            title="Eliminar producto completo y todas sus fotos"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {product.keywords && product.keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {product.keywords.slice(0, 3).map((k, i) => (
+                            <span
+                              key={i}
+                              className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium truncate max-w-[95px]"
+                            >
+                              #{k}
+                            </span>
+                          ))}
+                          {product.keywords.length > 3 && (
+                            <span className="text-[9px] text-slate-400 font-medium">
+                              +{product.keywords.length - 3}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            ))}
 
-            {/* Tarjeta de añadir más rápido */}
+                    {/* Botón rápido "+ Añadir foto alterna" */}
+                    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-[#1E2433]">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenAddModal({
+                            name: product.productName,
+                            price: product.price,
+                            keywords: product.keywords,
+                          })
+                        }
+                        className="w-full py-1.5 px-2 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF] text-[11px] font-semibold border border-blue-200/60 dark:border-blue-900/50 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <ImagePlus className="w-3.5 h-3.5" />
+                        <span>Añadir foto alterna / ángulo</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Tarjeta de "+ Nuevo Producto" al final del grid */}
             <button
               type="button"
-              onClick={handleOpenAddModal}
-              className="border-2 border-dashed border-slate-200 dark:border-[#232A3B] hover:border-blue-400 dark:hover:border-blue-500 rounded-xl flex flex-col items-center justify-center p-4 text-center cursor-pointer transition bg-slate-50/40 dark:bg-[#090A0F]/40 group min-h-[120px]"
+              onClick={() => handleOpenAddModal()}
+              className="border-2 border-dashed border-slate-200 dark:border-[#232A3B] hover:border-blue-400 dark:hover:border-blue-500 rounded-2xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition bg-slate-50/40 dark:bg-[#090A0F]/40 group min-h-[220px]"
             >
-              <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-400 group-hover:text-[#0052FF] dark:group-hover:text-[#00D2FF] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/30 flex items-center justify-center mb-1 transition">
-                <Plus className="w-4 h-4" />
+              <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-[#1A1F2C] text-slate-600 dark:text-slate-400 group-hover:text-[#0052FF] dark:group-hover:text-[#00D2FF] group-hover:bg-blue-50 dark:group-hover:bg-blue-900/30 flex items-center justify-center mb-2 transition">
+                <Plus className="w-5 h-5" />
               </div>
-              <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                + Nueva Foto
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                + Agregar Nuevo Producto
+              </span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-[200px]">
+                Crea un nuevo producto con su foto de portada
               </span>
             </button>
           </div>
@@ -914,11 +1159,13 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
           <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-slate-900 dark:text-slate-100">
             <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF]">
-                  <ImageIcon className="w-4 h-4" />
+                <div className={`p-1.5 rounded-lg ${targetProductForAlternate ? 'bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400' : 'bg-blue-50 dark:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF]'}`}>
+                  {targetProductForAlternate ? <ImagePlus className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
                 </div>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Agregar Foto de Producto
+                  {targetProductForAlternate
+                    ? `Añadir Foto Alterna a "${targetProductForAlternate.name}"`
+                    : 'Agregar Nuevo Producto con Foto'}
                 </h4>
               </div>
               <button
@@ -932,127 +1179,178 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3.5 [scrollbar-width:thin]">
-              {/* Campo Nombre del Producto */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Nombre o Modelo del Producto <span className="text-rose-500">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => handleAutocompleteWithGemini(false)}
-                    disabled={isGeneratingAiTags || isUploadingPhoto || !photoName.trim()}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer disabled:opacity-50"
-                    title="Genera sinónimos de búsqueda y optimiza el nombre usando Gemini 1.5 Flash (Gratuito)"
-                  >
-                    {isGeneratingAiTags ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-purple-600" />
-                    ) : (
-                      <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+              {/* Si es una foto alterna de un producto existente: mostrar tarjeta de contexto pre-llenada */}
+              {targetProductForAlternate ? (
+                <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-900/50 space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                        Producto:
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white truncate">
+                        {targetProductForAlternate.name}
+                      </span>
+                    </div>
+                    {targetProductForAlternate.price && (
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0 font-mono text-[11px]">
+                        {targetProductForAlternate.price}
+                      </span>
                     )}
-                    <span>✨ Autocompletar con Gemini</span>
-                  </button>
+                  </div>
+                  <p className="text-[10.5px] text-blue-700 dark:text-blue-300 leading-snug">
+                    Esta foto se vinculará como un ángulo o variante de este producto. No creará un producto aparte en el catálogo ni en el chat.
+                  </p>
                 </div>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Cocina Mediana, Casita de Madera, Combo Completo"
-                  value={photoName}
-                  onChange={(e) => setPhotoName(e.target.value)}
-                  disabled={isUploadingPhoto}
-                  className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                  Este nombre permite a la IA asociar la foto cuando un cliente pregunte por este modelo en WhatsApp.
-                </p>
-              </div>
+              ) : (
+                /* Campo Nombre del Producto tradicional si es un nuevo producto */
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Nombre o Modelo del Producto <span className="text-rose-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleAutocompleteWithGemini(false)}
+                      disabled={isGeneratingAiTags || isUploadingPhoto || !photoName.trim()}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer disabled:opacity-50"
+                      title="Genera sinónimos de búsqueda y optimiza el nombre usando Gemini 1.5 Flash (Gratuito)"
+                    >
+                      {isGeneratingAiTags ? (
+                        <Loader2 className="w-3 h-3 animate-spin text-purple-600" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                      )}
+                      <span>✨ Autocompletar con Gemini</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Cocina Mediana, Casita de Madera, Combo Completo"
+                    value={photoName}
+                    onChange={(e) => setPhotoName(e.target.value)}
+                    disabled={isUploadingPhoto}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    Este nombre permite a la IA asociar la foto cuando un cliente pregunte por este modelo en WhatsApp.
+                  </p>
+                </div>
+              )}
 
               {/* Precio y Vista/Rol de la Imagen */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Precio (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: $250.000 COP"
-                    value={photoPrice}
-                    onChange={(e) => setPhotoPrice(e.target.value)}
-                    disabled={isUploadingPhoto}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                </div>
+                {!targetProductForAlternate && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Precio (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej: $250.000 COP"
+                      value={photoPrice}
+                      onChange={(e) => setPhotoPrice(e.target.value)}
+                      disabled={isUploadingPhoto}
+                      className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                  </div>
+                )}
 
-                <div>
+                <div className={targetProductForAlternate ? 'sm:col-span-2' : ''}>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Vista / Etiqueta de la Foto
+                    Vista / Ángulo de la Foto
                   </label>
+                  {/* Chips sugeridos rápidos de un clic */}
+                  <div className="flex flex-wrap gap-1 mb-1.5">
+                    {[
+                      { label: 'Portada', value: 'principal' },
+                      { label: 'Interior / Abierta', value: 'interior' },
+                      { label: 'Vista Lateral', value: 'lateral' },
+                      { label: 'Medidas / Detalles', value: 'medidas' },
+                      { label: 'Variante / Color', value: 'variante' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setPhotoRole(preset.value)}
+                        className={`text-[10px] px-2 py-0.5 rounded-md font-semibold border transition cursor-pointer ${
+                          photoRole.toLowerCase() === preset.value.toLowerCase()
+                            ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
                   <input
                     type="text"
-                    placeholder="Ej: principal, personalizada, de lado..."
+                    placeholder="Ej: principal, interior, lateral, medidas..."
                     value={photoRole}
                     onChange={(e) => setPhotoRole(e.target.value)}
                     disabled={isUploadingPhoto}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    className="w-full text-xs px-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Permite tener varias fotos del mismo producto sin confundir a la IA.
+                    Permite que la IA o los asesores identifiquen exactamente qué muestra esta imagen.
                   </p>
                 </div>
               </div>
 
-              {/* Palabras clave / Sinónimos para WhatsApp */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Palabras clave y sinónimos de WhatsApp (Tags de búsqueda rápida)
-                </label>
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <input
-                    type="text"
-                    placeholder="Escribe un sinónimo (ej: cocinita, madera) y presiona Enter"
-                    value={keywordInput}
-                    onChange={(e) => setKeywordInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ',') {
-                        e.preventDefault();
-                        handleAddKeyword(keywordInput, false);
-                      }
-                    }}
-                    disabled={isUploadingPhoto}
-                    className="flex-1 text-xs px-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleAddKeyword(keywordInput, false)}
-                    disabled={!keywordInput.trim() || isUploadingPhoto}
-                    className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-40"
-                  >
-                    + Tag
-                  </button>
-                </div>
-                {photoKeywords.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-100 dark:border-[#1E2433]">
-                    {photoKeywords.map((tag, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
-                      >
-                        #{tag}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveKeyword(tag, false)}
-                          className="hover:text-rose-500 cursor-pointer ml-0.5"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
+              {/* Palabras clave (solo si es nuevo producto) */}
+              {!targetProductForAlternate && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Palabras clave y sinónimos de WhatsApp (Tags de búsqueda rápida)
+                  </label>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <input
+                      type="text"
+                      placeholder="Escribe un sinónimo (ej: cocinita, madera) y presiona Enter"
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ',') {
+                          e.preventDefault();
+                          handleAddKeyword(keywordInput, false);
+                        }
+                      }}
+                      disabled={isUploadingPhoto}
+                      className="flex-1 text-xs px-3 py-1.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddKeyword(keywordInput, false)}
+                      disabled={!keywordInput.trim() || isUploadingPhoto}
+                      className="px-2.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-40"
+                    >
+                      + Tag
+                    </button>
                   </div>
-                )}
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                  La IA vinculará esta foto cuando los prospectos pregunten usando cualquiera de estas palabras o sinónimos.
-                </p>
-              </div>
+                  {photoKeywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-100 dark:border-[#1E2433]">
+                      {photoKeywords.map((tag, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
+                        >
+                          #{tag}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveKeyword(tag, false)}
+                            className="hover:text-rose-500 cursor-pointer ml-0.5"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    La IA vinculará este producto cuando los prospectos pregunten usando cualquiera de estas palabras.
+                  </p>
+                </div>
+              )}
 
               {/* Selector / Previsualización de Imagen */}
               <div>
@@ -1137,8 +1435,10 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>Guardando foto...</span>
                   </>
+                ) : targetProductForAlternate ? (
+                  <span>Guardar Foto Alterna</span>
                 ) : (
-                  <span>Guardar en Catálogo Visual</span>
+                  <span>Guardar Nuevo Producto</span>
                 )}
               </button>
             </div>

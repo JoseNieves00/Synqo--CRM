@@ -289,3 +289,128 @@ export function findHallucinatedPrices(
 
   return invalid;
 }
+
+/**
+ * Representa un producto consolidado con su foto principal y sus fotos alternas (ángulos, detalles, variantes).
+ */
+export interface GroupedProductGallery {
+  id: string;
+  productName: string;
+  price?: string;
+  keywords: string[];
+  primaryPhoto: GalleryPhotoItem; // ⭐ Siempre la primera (foto de portada / referencia visual)
+  alternatePhotos: GalleryPhotoItem[];
+  allPhotos: GalleryPhotoItem[]; // [primaryPhoto, ...alternatePhotos]
+}
+
+function canonicalGroupKey(name: string): string {
+  return normalizeSearchText(name)
+    .replace(/\+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Agrupa la lista plana de fotos en productos consolidados.
+ * Garantiza que la foto principal siempre esté de primera en el orden para dar referencia visual clara.
+ */
+export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedProductGallery[] {
+  if (!Array.isArray(gallery) || gallery.length === 0) return [];
+
+  const groups = new Map<
+    string,
+    {
+      id: string;
+      productName: string;
+      price?: string;
+      keywords: string[];
+      photos: GalleryPhotoItem[];
+    }
+  >();
+
+  for (const item of gallery) {
+    if (!item || !item.url) continue;
+    const rawName = (item.productName || item.name || '').trim();
+    if (!rawName) continue;
+    const key = canonicalGroupKey(rawName);
+    if (!key) continue;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        id: item.id || `prod-${Date.now()}`,
+        productName: rawName,
+        price: item.price,
+        keywords: item.keywords || [],
+        photos: [],
+      });
+    }
+
+    const group = groups.get(key)!;
+    if (!group.price && item.price) group.price = item.price;
+    if (item.keywords && item.keywords.length > 0) {
+      group.keywords = Array.from(new Set([...group.keywords, ...item.keywords]));
+    }
+    group.photos.push(item);
+  }
+
+  return Array.from(groups.values()).map((g) => {
+    // La foto principal es la marcada con isHero, o con imageRole === 'principal', o la primera de la lista
+    const heroIndex = g.photos.findIndex((p) => p.isHero || p.imageRole === 'principal');
+    let primaryPhoto: GalleryPhotoItem;
+    let alternatePhotos: GalleryPhotoItem[] = [];
+
+    if (heroIndex > 0) {
+      primaryPhoto = { ...g.photos[heroIndex], isHero: true };
+      alternatePhotos = g.photos.filter((_, idx) => idx !== heroIndex).map((p) => ({ ...p, isHero: false }));
+    } else if (g.photos.length > 0) {
+      primaryPhoto = { ...g.photos[0], isHero: true };
+      alternatePhotos = g.photos.slice(1).map((p) => ({ ...p, isHero: false }));
+    } else {
+      primaryPhoto = g.photos[0];
+    }
+
+    // Regla estricta: allPhotos siempre coloca la foto principal DE PRIMERO
+    const allPhotos = [primaryPhoto, ...alternatePhotos];
+
+    return {
+      id: g.id,
+      productName: g.productName,
+      price: g.price || primaryPhoto?.price,
+      keywords: g.keywords,
+      primaryPhoto,
+      alternatePhotos,
+      allPhotos,
+    };
+  });
+}
+
+/**
+ * Establece una foto específica como la portada/principal de su producto y la ubica de primera.
+ */
+export function setPrimaryPhotoInGallery(gallery: GalleryPhotoItem[], targetPhotoId: string): GalleryPhotoItem[] {
+  const target = gallery.find((p) => p.id === targetPhotoId);
+  if (!target) return gallery;
+
+  const targetKey = canonicalGroupKey(target.productName || target.name || '');
+
+  return gallery.map((p) => {
+    const pKey = canonicalGroupKey(p.productName || p.name || '');
+    if (pKey === targetKey) {
+      if (p.id === targetPhotoId) {
+        return {
+          ...p,
+          isHero: true,
+          imageRole: p.imageRole === 'alterna' ? 'principal' : (p.imageRole || 'principal'),
+        };
+      } else {
+        return {
+          ...p,
+          isHero: false,
+          imageRole: p.imageRole === 'principal' ? 'alterna' : (p.imageRole || 'alterna'),
+        };
+      }
+    }
+    return p;
+  });
+}
+
