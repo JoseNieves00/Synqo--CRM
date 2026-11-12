@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { isConversationClosed } from '@/lib/crm/constants';
 import { MessagingService } from './messaging.service';
 import { AssignmentService } from './assignment.service';
 
@@ -44,13 +45,20 @@ export class HandoffService {
     try {
       // 1. Obtener datos del contacto y de la organización
       const { data: contact, error: contactError } = await (supabaseAdmin.from('contacts') as any)
-        .select('id, name, phone, instagram_id, assigned_to, custom_fields, is_ai_active')
+        .select('id, name, phone, instagram_id, assigned_to, custom_fields, is_ai_active, conversation_status, closed_at, pipeline_stage')
         .eq('id', contactId)
         .single();
 
       if (contactError || !contact) {
         console.warn('[HANDOFF SERVICE] Contacto no encontrado para handoff:', contactId);
         return { success: false, alertSent: false };
+      }
+
+      // 🛡️ Anti-falsos-positivos: nunca alertar a un asesor por un cliente cuya
+      // conversación ya fue cerrada (ganado/perdido/dismissed/completed).
+      if (isConversationClosed(contact)) {
+        console.log('[HANDOFF SERVICE] Conversación cerrada: alerta omitida para', contactId);
+        return { success: true, assignedAgentId: contact.assigned_to || null, alertSent: false };
       }
 
       const { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)

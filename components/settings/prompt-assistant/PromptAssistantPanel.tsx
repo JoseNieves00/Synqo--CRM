@@ -30,6 +30,7 @@ import {
 } from '@/lib/ai/prompt-assistant/state';
 import type { PromptVersionEntry } from '@/lib/ai/prompt-assistant/versions';
 import type { HealthActionTarget, PromptHealthReport } from '@/lib/ai/prompt-assistant/health';
+import type { BehaviorContract } from '@/lib/ai/prompt-assistant/readiness';
 import { COMMON_HELP_CHIPS } from '@/lib/ai/prompt-assistant/guide';
 import type { ImportedCatalogItem } from '@/lib/ai/prompt-assistant/file-import';
 import { AssistantUsageModal } from './AssistantUsageModal';
@@ -53,6 +54,7 @@ import type { SmartSuggestionItem } from '@/lib/ai/prompt-assistant/smart-sugges
 import type { FollowUpSuggestionMap } from '@/components/settings/FollowUpSequencesSettings';
 import { AssistantChat, type AssistantChatFeedItem } from './AssistantChat';
 import { HealthChecklist } from './HealthChecklist';
+import { BehaviorContractCard } from './BehaviorContractCard';
 import { SectionProposalCard } from './SectionProposalCard';
 import type { PendingImportState } from './CatalogImportPreview';
 
@@ -98,6 +100,8 @@ export function PromptAssistantPanel({
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [smartSuggestions, setSmartSuggestions] = useState<SmartSuggestionItem[]>([]);
   const [pendingImport, setPendingImport] = useState<PendingImportState | null>(null);
+  const [behaviorContract, setBehaviorContract] = useState<BehaviorContract | null>(null);
+  const [behaviorProposals, setBehaviorProposals] = useState<PendingSectionProposal[]>([]);
 
   const [showVersionsMenu, setShowVersionsMenu] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(false);
@@ -129,6 +133,8 @@ export function PromptAssistantPanel({
       setState(res.state);
       setVersions(res.versions || []);
       setHealth(res.health);
+      setBehaviorContract((res as any).behaviorContract || null);
+      setBehaviorProposals((res as any).behaviorProposals || []);
       setPreset(res.preset);
       setWhatsappProvider(res.whatsappProvider);
       const hasExisting = currentPrompt.trim().length >= 35;
@@ -158,6 +164,8 @@ export function PromptAssistantPanel({
         currentPrompt: promptOverride !== undefined ? promptOverride : currentPrompt,
       });
       setHealth(res.health);
+      setBehaviorContract((res as any).behaviorContract || null);
+      setBehaviorProposals((res as any).behaviorProposals || []);
       setVersions(res.versions || []);
       setDailyLimitReached(Boolean(res.dailyLimitReached));
       if (res.budgetNotice) setBudgetNotice(res.budgetNotice);
@@ -291,8 +299,39 @@ export function PromptAssistantPanel({
         ...prev,
         pendingProposals: res.remainingProposals || [],
       }));
+      setBehaviorProposals((prev) => prev.filter((p) => p.id !== proposalId));
     } catch (err: any) {
       pushNotice(err?.message || 'No se pudo descartar la propuesta.');
+    }
+  };
+
+  const handleAcceptBehaviorProposal = async (proposal: PendingSectionProposal) => {
+    try {
+      const res = await applySectionProposalAction({
+        proposalId: proposal.id,
+        sectionId: proposal.sectionId,
+        sectionTitle: proposal.sectionTitle,
+        proposedText: proposal.proposedText,
+        currentPrompt,
+      });
+      setVersions(res.versions || []);
+      setBehaviorProposals((prev) => prev.filter((p) => p.id !== proposal.id));
+      onApplyPromptFromAssistant(
+        res.patchedPrompt,
+        res.highlightedSection,
+        (res as any).structuredData
+      );
+      setFeed((prev) => [
+        ...prev.slice(-14),
+        {
+          id: `contract-${Date.now()}`,
+          role: 'assistant',
+          text: `Listo: ahora tu bot **${proposal.sectionTitle.toLowerCase()}**. Editable en el prompt cuando quieras.`,
+        },
+      ]);
+      await refreshHealth(res.patchedPrompt);
+    } catch (err: any) {
+      pushNotice(err?.message || 'No se pudo aplicar la propuesta.');
     }
   };
 
@@ -944,6 +983,13 @@ export function PromptAssistantPanel({
                 }}
               />
             )}
+
+            <BehaviorContractCard
+              contract={behaviorContract}
+              proposals={behaviorProposals}
+              onAccept={handleAcceptBehaviorProposal}
+              onReject={(proposalId) => setBehaviorProposals((prev) => prev.filter((p) => p.id !== proposalId))}
+            />
 
             <div className="border-t border-slate-200 dark:border-[#1E2433] pt-3 space-y-2.5">
               <div className="text-xs font-bold text-slate-900 dark:text-white">

@@ -3,6 +3,7 @@ import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
 import { PROMPT_BLUEPRINT_SLOTS } from './blueprint';
 import { isSlotApplicable, type PromptAssistantState } from './state';
 import { estimatePromptTokens, splitGalleryTail } from './versions';
+import { SECTION_SIGNALS } from './readiness';
 
 export type HealthActionTarget = 'assistant' | 'gallery' | 'follow_up' | 'gaps' | 'sandbox' | 'payments';
 
@@ -56,33 +57,11 @@ export function evaluatePromptHealth(params: {
     if (typeof val === 'string' && val.trim().length > 0) return true;
     if (!body.trim()) return false;
 
-    switch (slotId) {
-      case 'empresa.resumen':
-        return body.length >= 40;
-      case 'catalogo.items':
-        return /(\$|precio|valor|plan|servicio|producto|##\s*cat[aá]logo)/i.test(lowerPrompt);
-      case 'pagos.medios':
-        return /(pago|transferencia|tarjeta|efectivo|contraentrega|enlace|abono|##\s*pagos)/i.test(lowerPrompt);
-      case 'tono.estilo':
-        return /(tono|tute|usted|emoji|cercan|amable|##\s*tono)/i.test(lowerPrompt);
-      case 'cierre.datos':
-        return /(nombre|tel[eé]fono|direcci[oó]n|ciudad|correo|datos|confirmar|##\s*datos de cierre)/i.test(lowerPrompt);
-      case 'relevo.reglas':
-        return /(asesor|humano|relevo|reclamo|comprobante|horario|##\s*relevo)/i.test(lowerPrompt);
-      case 'envios.cobertura':
-        return /(env[ií]o|domicilio|entrega|transportadora|cobertura|presencial|sede|##\s*env[ií]os)/i.test(lowerPrompt);
-      case 'politicas.garantia':
-        return /(garant[ií]a|cambio|devoluci[oó]n|cancelaci[oó]n|reprogram|pol[ií]tica|##\s*pol[ií]ticas)/i.test(lowerPrompt);
-      case 'faq.lista':
-        return /(pregunta|frecuente|faq|##\s*preguntas frecuentes)/i.test(lowerPrompt);
-      case 'seguimiento.estrategia':
-        return /(seguimiento|recontacto|recordatorio|promoci[oó]n|descuento|##\s*seguimiento)/i.test(lowerPrompt);
-      case 'adicional.flujo':
-      case 'adicional.notas':
-        return /(reglas adicionales|regla de flujo|no repetir|ruta de cierre|prohib|nunca|restricci|##\s*reglas adicionales)/i.test(lowerPrompt);
-      default:
-        return false;
-    }
+    if (slotId === 'empresa.resumen') return body.length >= 40;
+
+    // Fuente única de señales por sección (compartida con el contrato de comportamiento)
+    const signalRx = SECTION_SIGNALS[slotId];
+    return signalRx ? signalRx.test(lowerPrompt) : false;
   };
 
   const filledApplicable = applicableSlots.filter((s) => slotHasSignal(s.id)).length;

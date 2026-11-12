@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { isConversationClosed } from '@/lib/crm/constants';
 import { MessagingService } from '@/services/messaging.service';
 import { decryptSecret } from '@/lib/security/encryption';
 import { isLeadWindowOpen } from '@/services/contact.service';
@@ -72,7 +73,7 @@ export class ReminderService {
         booked_via,
         notes,
         reminder_sent_at,
-        contact:contacts(id, name, phone, last_interaction_at, last_lead_message_at, custom_fields),
+        contact:contacts(id, name, phone, last_interaction_at, last_lead_message_at, custom_fields, conversation_status, closed_at, pipeline_stage),
         specialist:specialists(id, name),
         organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
@@ -96,6 +97,12 @@ export class ReminderService {
         // 🛡️ REGLA DE MÓDULO: No auto-cancelar si anti_no_show está desactivado por el Super Admin
         const orgModules = (appt.organization as any)?.enabled_modules;
         if (orgModules && orgModules.anti_no_show === false) {
+          continue;
+        }
+
+        // 🛡️ Anti-falsos-positivos: si la conversación del cliente ya está cerrada,
+        // no cancelar ni notificar (evita mensajes a clientes ganados/perdidos).
+        if (isConversationClosed(appt.contact)) {
           continue;
         }
 
@@ -182,7 +189,7 @@ export class ReminderService {
         service_name,
         start_time,
         booked_via,
-        contact:contacts(id, name, phone, last_interaction_at, last_lead_message_at, custom_fields),
+        contact:contacts(id, name, phone, last_interaction_at, last_lead_message_at, custom_fields, conversation_status, closed_at, pipeline_stage),
         specialist:specialists(id, name),
         organization:organizations(id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, enabled_modules, appointment_settings)
       `)
@@ -206,6 +213,11 @@ export class ReminderService {
         // 🛡️ REGLA DE MÓDULO: No enviar recordatorios automáticos si anti_no_show está desactivado por el Super Admin
         const orgModules = (appt.organization as any)?.enabled_modules;
         if (orgModules && orgModules.anti_no_show === false) {
+          continue;
+        }
+
+        // 🛡️ Anti-falsos-positivos: cliente cerrado → no recordar
+        if (isConversationClosed(appt.contact)) {
           continue;
         }
 

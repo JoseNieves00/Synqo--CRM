@@ -9,6 +9,7 @@ export type PlatformAlertEventType =
   | 'token_expired'
   | 'company_token_threshold'
   | 'assistant_cap_exceeded'
+  | 'ai_retry_exhausted'
   | 'daily_digest';
 
 export interface PlatformAlertEvent {

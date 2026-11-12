@@ -53,6 +53,17 @@ export const AI_OPERATIONAL_CONFIG = {
   get maxToolRounds(): number {
     return parsePositiveInt(process.env.AI_MAX_TOOL_ROUNDS, 3);
   },
+  /**
+   * Rondas extra cuando el turno involucra herramientas de agenda nativa
+   * (consultar disponibilidad → reservar → confirmar exige más pasos que un chat simple).
+   */
+  get extendedMaxToolRounds(): number {
+    return parsePositiveInt(process.env.AI_MAX_TOOL_ROUNDS_CALENDAR, 5);
+  },
+  /** Tope de tokens de salida por turno del chat principal (respuestas largas se truncarían si es muy bajo). */
+  get maxTurnOutputTokens(): number {
+    return parsePositiveInt(process.env.AI_MAX_TURN_OUTPUT_TOKENS, 600);
+  },
   get debounceMs(): number {
     return parsePositiveInt(process.env.AI_DEBOUNCE_MS, 3500);
   },

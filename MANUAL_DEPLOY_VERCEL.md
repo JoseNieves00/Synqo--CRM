@@ -128,12 +128,24 @@ https://tu-dominio.com/api/webhooks/whatsapp/evolution
 
 ---
 
-## 6. Automatización de Recordatorios (Vercel Cron)
+## 6. Automatización (pg_cron en Supabase, NO Vercel Cron)
 
-El repositorio incluye un archivo [`vercel.json`](file:///Users/josenieves/Documents/Synqo/CRM%20synqo.dev/vercel.json) configurado para invocar automáticamente cada 15 minutos:
-- **Ruta:** `/api/cron/appointment-reminders`
-- **Función:** Envío de recordatorios a 24h (con toque de queda nocturno 8 PM a 8 AM) y liberación de citas no confirmadas a 8h.
-- Se autentica automáticamente con la cabecera `x-vercel-cron: 1`.
+Los crons **no corren en Vercel** (`vercel.json` está vacío a propósito): están programados en la base de datos con `pg_cron + pg_net` vía la migración `20261111100000_schedule_core_crons.sql`:
+
+- **`/api/cron/lead-reactivation`** — cada 15 min: recontacto autónomo por score, recálculo de lead score, **reintentos diferidos de IA** (cola `ai_retry_queue`), auto-clasificación, auditorías pasivas y digest.
+- **`/api/cron/appointment-reminders`** — cada 15 min: recordatorios de citas (toque de queda nocturno) y liberación de citas no confirmadas.
+- **`/api/cron/cleanup-storage`** — diario 03:00 UTC: retención de media.
+
+**Configuración única (SQL Editor en Supabase, obligatoria):**
+
+```sql
+select vault.create_secret('https://TU-DOMINIO-PRODUCCION.com', 'synqo_app_url');
+select vault.create_secret('<valor de CRON_SECRET>', 'synqo_cron_secret');
+```
+
+Si estos secretos **no existen, los crons se omiten** — ya no es silencioso: la omisión queda registrada en la tabla `cron_job_log` y es visible en el panel `/admin` (SuperAdmin → "Salud de Automatización"). La autenticación de los endpoints es exclusivamente `Authorization: Bearer CRON_SECRET` (o `?secret=`).
+
+Verificación manual local o contra producción: `npx tsx scripts/verify-crons.ts`.
 
 ---
 

@@ -6,6 +6,8 @@
  * 3) Respaldo multi-nicho por defecto cuando la empresa no definió una regla específica.
  */
 
+import { evaluatePromptReadiness } from './prompt-assistant/readiness';
+
 export interface SalesPlaybookOptions {
   hasCalendar?: boolean;
 }
@@ -79,8 +81,19 @@ export function composePlaybookAndBusinessPrompt(params: {
     .replace(GALLERY_TAIL_REGEX, '')
     .trim();
   const cleanBusiness = withoutDuplicateGalleryTail || 'Eres el asesor comercial de la empresa.';
+
+  // Blindaje de readiness: prompts débiles (sin catálogo/pagos/relevo) reciben un
+  // bloque defensivo que prohíbe improvisar datos y obliga a ofrecer relevo.
+  // Se evalúa sobre el prompt COMPLETO: la señal de catálogo vive en la cola de
+  // galería, que splitGalleryTail maneja internamente.
+  const readiness = evaluatePromptReadiness(params.businessPrompt);
+  const defensiveSuffix =
+    readiness.level === 'weak' && readiness.defensiveBlock
+      ? `\n\n${readiness.defensiveBlock}`
+      : '';
+
   return [
     buildSalesPlaybook({ hasCalendar: params.hasCalendar }),
-    `<instrucciones_del_negocio prioridad="MAXIMA">\nEstas reglas fueron configuradas por la empresa cliente y MANDAN sobre estilo, brevedad, formato visual o cierre del playbook base (dentro de los guardrails de seguridad).\n\n${cleanBusiness}\n</instrucciones_del_negocio>`,
+    `<instrucciones_del_negocio prioridad="MAXIMA">\nEstas reglas fueron configuradas por la empresa cliente y MANDAN sobre estilo, brevedad, formato visual o cierre del playbook base (dentro de los guardrails de seguridad).\n\n${cleanBusiness}\n</instrucciones_del_negocio>${defensiveSuffix}`,
   ].join('\n\n');
 }

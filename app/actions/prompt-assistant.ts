@@ -40,6 +40,11 @@ import {
   type PromptVersionEntry,
 } from '@/lib/ai/prompt-assistant/versions';
 import { evaluatePromptHealth, type PromptHealthReport } from '@/lib/ai/prompt-assistant/health';
+import {
+  buildBehaviorContract,
+  buildMissingBehaviorProposals,
+  type BehaviorContract,
+} from '@/lib/ai/prompt-assistant/readiness';
 import { searchAssistantGuide } from '@/lib/ai/prompt-assistant/guide';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import {
@@ -234,6 +239,11 @@ export async function getPromptAssistantBootstrapAction(params?: { currentPrompt
   const budgetStatus = getAssistantBudgetStatus(state);
   const nextSlot = getNextPendingSlot(state, preset);
 
+  // Contrato de comportamiento: qué hará el bot realmente con el prompt actual
+  const galleryList = Array.isArray(structured.gallery) ? structured.gallery : [];
+  const behaviorContract: BehaviorContract = buildBehaviorContract(activePrompt, galleryList);
+  const behaviorProposals = buildMissingBehaviorProposals(activePrompt, galleryList);
+
   const smartSuggestions: SmartSuggestionItem[] = getSmartCommercialSuggestions({
     preset,
     currentPrompt: activePrompt,
@@ -244,6 +254,8 @@ export async function getPromptAssistantBootstrapAction(params?: { currentPrompt
     state: { ...state, usageByDay: {}, totalAssistantTokens: 0 }, // No exponer conteos crudos de tokens al cliente
     versions,
     health,
+    behaviorContract,
+    behaviorProposals,
     preset,
     whatsappProvider: (org.whatsapp_provider || 'meta') as 'meta' | 'evolution',
     nextSlotId: nextSlot?.id || null,

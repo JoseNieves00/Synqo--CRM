@@ -132,6 +132,57 @@ export async function getSuperAdminMetrics() {
   };
 }
 
+export interface CronHealthEntry {
+  jobName: string;
+  lastRunAt: string | null;
+  lastStatus: string | null;
+  lastDetail: string | null;
+  invocationsLast24h: number;
+  errorsLast24h: number;
+  skippedMissingSecretsLast24h: number;
+}
+
+/**
+ * Salud de los crons del pilar de automatización (recontacto autónomo, recordatorios).
+ * Detecta el modo silencioso: si los secretos de Vault faltan, el cron de reactivación
+ * se omite sin error — esta lectura lo hace visible.
+ */
+export async function getCronHealthAction(): Promise<{ jobs: CronHealthEntry[] }> {
+  await requireSuperAdmin();
+
+  const JOBS = ['lead-reactivation', 'appointment-reminders', 'cleanup-storage'];
+  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await (supabaseAdmin.from('cron_job_log') as any)
+    .select('job_name, status, detail, created_at')
+    .gte('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(2000);
+
+  if (error) {
+    console.warn('[SUPERADMIN CRON HEALTH WARN]', error);
+    return { jobs: JOBS.map((jobName) => ({ jobName, lastRunAt: null, lastStatus: null, lastDetail: null, invocationsLast24h: 0, errorsLast24h: 0, skippedMissingSecretsLast24h: 0 })) };
+  }
+
+  const rows = (data || []) as Array<{ job_name: string; status: string; detail: string | null; created_at: string }>;
+
+  const jobs: CronHealthEntry[] = JOBS.map((jobName) => {
+    const jobRows = rows.filter((r) => r.job_name === jobName);
+    const last = jobRows[0] || null;
+    return {
+      jobName,
+      lastRunAt: last?.created_at || null,
+      lastStatus: last?.status || null,
+      lastDetail: last?.detail || null,
+      invocationsLast24h: jobRows.filter((r) => r.status === 'invoked').length,
+      errorsLast24h: jobRows.filter((r) => r.status === 'error').length,
+      skippedMissingSecretsLast24h: jobRows.filter((r) => r.status === 'skipped_missing_secrets').length,
+    };
+  });
+
+  return { jobs };
+}
+
 export interface OrganizationRow {
   id: string;
   name: string;

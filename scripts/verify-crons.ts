@@ -13,6 +13,7 @@ async function runCronVerification() {
   // Importar dinámicamente los handlers después de definir process.env.CRON_SECRET
   const { GET: reminderGet, POST: reminderPost } = await import('../app/api/cron/appointment-reminders/route');
   const { GET: cleanupGet, POST: cleanupPost } = await import('../app/api/cron/cleanup-storage/route');
+  const { GET: reactivationGet, POST: reactivationPost } = await import('../app/api/cron/lead-reactivation/route');
 
   // ---------------------------------------------------------------------------
   // TEST 1: Seguridad y rechazo de peticiones no autorizadas
@@ -92,6 +93,30 @@ async function runCronVerification() {
   assert.strictEqual(resStorage.status, 200, 'Debe responder 200 OK en cleanup-storage');
   assert.strictEqual(dataStorage.success, true);
   console.log('   ✅ Respuesta Storage:', JSON.stringify(dataStorage));
+
+  // ---------------------------------------------------------------------------
+  // TEST 6: Ejecución del Cron de Reactivación Autónoma (recontacto IA + reintentos)
+  // ---------------------------------------------------------------------------
+  console.log('\n6️⃣  Probando Cron de Reactivación Autónoma de Leads (recontacto IA + score + reintentos)...');
+
+  const reqReactivationNoAuth = new NextRequest('http://localhost:3000/api/cron/lead-reactivation');
+  const resReactivationNoAuth = await reactivationGet(reqReactivationNoAuth);
+  assert.strictEqual(resReactivationNoAuth.status, 401, 'lead-reactivation sin autorización debe responder 401');
+
+  const reqReactivation = new NextRequest(`http://localhost:3000/api/cron/lead-reactivation?secret=${TEST_CRON_SECRET}`);
+  const resReactivation = await reactivationGet(reqReactivation);
+  const dataReactivation = await resReactivation.json();
+  assert.strictEqual(resReactivation.status, 200, 'Debe responder 200 OK en lead-reactivation');
+  assert.strictEqual(dataReactivation.success, true);
+  assert.ok('aiRetries' in dataReactivation, 'la respuesta debe incluir el resultado de la cola de reintentos de IA');
+
+  const resReactivationPost = await reactivationPost(
+    new NextRequest(`http://localhost:3000/api/cron/lead-reactivation?secret=${TEST_CRON_SECRET}`, { method: 'POST' })
+  );
+  const dataReactivationPost = await resReactivationPost.json();
+  assert.strictEqual(resReactivationPost.status, 200, 'Debe responder 200 OK con método POST');
+  assert.strictEqual(dataReactivationPost.success, true);
+  console.log('   ✅ Respuesta Reactivación:', JSON.stringify(dataReactivation).slice(0, 300));
 
   console.log('\n🎉 ==============================================================================');
   console.log('   ¡VERIFICACIÓN COMPLETA! LOS CRON JOBS ESTÁN FUNCIONANDO AL 100%');

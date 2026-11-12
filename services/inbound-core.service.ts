@@ -10,6 +10,7 @@ import { OpenAIService } from './openai.service';
 import { HandoffService } from './handoff.service';
 import { ManagerWhatsAppService } from './manager-whatsapp.service';
 import { PlatformAlertService } from './platform-alert.service';
+import { AiRetryService, isChannelAuthError } from './ai-retry.service';
 import { NotificationService } from '@/lib/notifications/resend';
 import { decryptSecret } from '@/lib/security/encryption';
 import { AI_OPERATIONAL_CONFIG, AI_TEXT_TEMPLATES, getAiChatChain } from '@/lib/ai/config';
@@ -628,6 +629,7 @@ export class InboundCoreService {
       const receiptCf: Record<string, any> = {
         ...updatedSnoozeCustom,
         unattended_handoff: true,
+        handoff_reason: 'payment_receipt',
         lead_temperature: 'hot',
       };
       delete receiptCf.temperature;
@@ -1020,6 +1022,12 @@ export class InboundCoreService {
       }
 
       // Despacho de salida al canal correspondiente con Interceptor Anti-Fugas
+      // (variables de reintento diferido: si el despacho falla, AiRetryService
+      // reenvía exactamente esto sin volver a gastar tokens del LLM)
+      let retryOutboundText: string | null = null;
+      let retryOutboundMedia: Array<{ url: string; caption?: string }> = [];
+      let retryRecipientId: string | null = null;
+      let retryMessageRowId: string | null = null;
       let outboundMessageId: string | null = null;
       try {
         // --- INTERCEPTOR ANTI-FUGA DE ENLACES E IMÁGENES ---
@@ -1053,6 +1061,7 @@ export class InboundCoreService {
             leakedMedia.push({ url });
           }
         }
+        retryOutboundMedia = leakedMedia;
 
         const { data: contactData } = await (supabaseAdmin.from('contacts') as any)
           .select('custom_fields')
@@ -1061,6 +1070,7 @@ export class InboundCoreService {
 
         const customFields = (contactData?.custom_fields as Record<string, any>) || {};
         const targetRecipient = customFields.remote_jid || customFields.whatsapp_jid || senderId;
+        retryRecipientId = targetRecipient;
 
         // Si se detectaron imágenes fugadas en el texto, despacharlas como mensajes multimedia nativos
         for (const media of leakedMedia) {
@@ -1111,8 +1121,7 @@ export class InboundCoreService {
         }
 
         // Limpiar el texto removiendo markdown y URLs
-        let cleanedAiText = aiResponseText
-          .replace(/!\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]+\s*\)/gi, '')
+        let cleanedAiText = aiResponseText          .replace(/!\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]+\s*\)/gi, '')
           .replace(/\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]*(?:chat-media|[^\s\)]+\.(?:jpe?g|png|webp|gif|pdf))[^\s\)]*\s*\)/gi, '')
           .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\s\]]+\]/gi, '')
           .replace(/https:\/\/[^\s\)]+\.supabase\.co\/storage\/v1\/object\/public\/[^\s\)]+(?:\.jpe?g|\.png|\.webp|\.gif|\b)/gi, '')
@@ -1121,6 +1130,7 @@ export class InboundCoreService {
           .filter((line) => line && line !== '•' && line !== '*' && line !== '-' && !/^[•\-\*]?\s*\*?[^:\n]+\*?:\s*$/.test(line))
           .join('\n')
           .trim();
+        retryOutboundText = cleanedAiText || null;
 
         if (cleanedAiText) {
           const messageId = crypto.randomUUID();
@@ -1136,6 +1146,7 @@ export class InboundCoreService {
             status: 'sending',
             channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
           });
+          retryMessageRowId = messageId;
 
           if (outboxInsertErr) {
             console.error('[INBOUND CORE OUTBOX INSERT ERROR]', outboxInsertErr);
@@ -1299,7 +1310,25 @@ export class InboundCoreService {
           errorMessage: dispatchError?.message || 'Error al despachar mensaje al canal',
         });
 
-        const errMessage = dispatchError?.message || '';
+        // Reintento diferido: la respuesta ya está generada; reenviarla sin gastar tokens.
+        // Errores de credenciales (token expirado) no se reintentan: ya disparan su propia alerta.
+        const errMessageRaw = dispatchError?.message || '';
+        if (!isChannelAuthError(errMessageRaw)) {
+          await AiRetryService.enqueueRetry({
+            organizationId: organization.id,
+            contactId,
+            channel,
+            strategy: 'resend',
+            payload: {
+              messageId: retryMessageRowId,
+              recipientId: retryRecipientId,
+              text: retryOutboundText,
+              media: retryOutboundMedia,
+            },
+          }).catch(() => {});
+        }
+
+        const errMessage = errMessageRaw;
         if (errMessage.includes('190') || errMessage.includes('expired') || errMessage.includes('OAuthException')) {
           await (supabaseAdmin.from('messages') as any).insert({
             contact_id: contactId,
@@ -1350,6 +1379,16 @@ export class InboundCoreService {
         status: 'failed',
         errorMessage: workerError?.message || 'Excepción no controlada en el worker de IA',
       });
+
+      // Reintento diferido de generación: la IA falló antes de responder al lead.
+      // La cola verifica ventana 24h y toma el chat del asesor antes de reintentar.
+      await AiRetryService.enqueueRetry({
+        organizationId: organization.id,
+        contactId,
+        channel,
+        strategy: 'regenerate',
+        payload: { insertedMessageId },
+      }).catch(() => {});
     } finally {
       // Liberar el bloqueo atómico del contacto de inmediato si se adquirió
       if (workerId) {

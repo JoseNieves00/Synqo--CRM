@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ReminderService } from '@/services/reminder.service';
 import { AssignmentService } from '@/services/assignment.service';
 import { LeadReactivationService } from '@/services/reactivation.service';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -61,16 +62,23 @@ async function handleCron(request: NextRequest) {
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
+    await logCronRun(
+      'invoked',
+      `handoffs: ${slaResult.reallocatedCount} reasignados / ${slaResult.autoResumedCount} retomados por IA`
+    );
+
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
       ...result,
       reallocatedHandoffs: slaResult.reallocatedCount,
+      aiAutoResumedHandoffs: slaResult.autoResumedCount,
       autonomousReactivations: reactivationResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
     });
   } catch (err: any) {
     console.error('[CRON APPOINTMENT REMINDERS ERROR]', err);
+    await logCronRun('error', err?.message || 'Error procesando recordatorios de citas');
     return NextResponse.json(
       {
         success: false,
@@ -78,6 +86,19 @@ async function handleCron(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+/** Registro de salud del cron en cron_job_log (visible en el panel SuperAdmin). */
+async function logCronRun(status: 'invoked' | 'error', detail: string): Promise<void> {
+  try {
+    await (supabaseAdmin.from('cron_job_log') as any).insert({
+      job_name: 'appointment-reminders',
+      status,
+      detail: String(detail).slice(0, 400),
+    });
+  } catch (e) {
+    console.warn('[CRON JOB LOG WARN]', e);
   }
 }
 

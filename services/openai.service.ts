@@ -23,6 +23,7 @@ import { InstagramService } from './instagram.service';
 import { HandoffService } from './handoff.service';
 import { formatImageMessageContent } from '@/lib/media/format';
 import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
+import { evaluatePromptReadiness } from '@/lib/ai/prompt-assistant/readiness';
 import { decryptSecret } from '@/lib/security/encryption';
 import { sanitizeTranscription } from '@/lib/media/whisper-sanitizer';
 import {
@@ -955,6 +956,25 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
     const allFailedAttempts: FailedModelAttempt[] = [];
 
     try {
+      // 🚧 COMPUERTA DE READINESS (asistente ↔ autonomía):
+      // Sin prompt configurado, la IA NO improvisa con el playbook genérico.
+      // El asesor atiende manualmente y el bot se recupera solo en cuanto el
+      // negocio complete su configuración en el Asistente de Prompts.
+      const gatePromptSource = systemPromptConfig || organization?.system_prompt || '';
+      if (evaluatePromptReadiness(gatePromptSource).level === 'empty') {
+        await this.notifyPromptGateOnce(organizationId, contactId);
+        return {
+          text: '',
+          modelUsed: metaModel,
+          provider: metaProvider,
+          isFallback: false,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          cachedTokens: 0,
+        };
+      }
+
       // 0. Consultar estado de cuota (Modo Excedente activo: nunca detiene al bot, alertas Push en recordTokenUsage)
       await checkTokenQuota(organizationId);
 
@@ -1180,7 +1200,13 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
       // 3. Bucle multi-ronda de inferencia + herramientas (hasta AI_MAX_TOOL_ROUNDS)
       const activeTools = getAvailableTools(enabledModules);
-      const maxRounds = AI_OPERATIONAL_CONFIG.maxToolRounds;
+      // Flujos de agenda nativa (disponibilidad → reservar → confirmar) requieren más rondas
+      const calendarToolsActive = activeTools.some(
+        (t: any) => typeof t?.function?.name === 'string' && t.function.name.includes('_native_')
+      );
+      const maxRounds = calendarToolsActive
+        ? AI_OPERATIONAL_CONFIG.extendedMaxToolRounds
+        : AI_OPERATIONAL_CONFIG.maxToolRounds;
       const dispatchedUrlsThisTurn = new Set<string>();
       let finalResponseText = '';
       let activeRoundChain: AiChainEntry[] | undefined = undefined;
@@ -1198,7 +1224,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           tools: activeTools,
           toolChoice: allowToolsThisRound ? 'auto' : 'none',
           temperature: 0.3,
-          maxTokens: 600,
+          maxTokens: AI_OPERATIONAL_CONFIG.maxTurnOutputTokens,
           aiProvider,
           organizationId,
           contactId,
@@ -2971,6 +2997,38 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
   /**
    * Simulador Sandbox (soporta modo texto simple para UI y modo Dry-Run con Tools reales para `npm run eval`).
    */
+  /**
+   * Nota de sistema única por contacto cuando el bot está en compuerta por
+   * prompt no configurado (el asesor entiende por qué la IA no respondió).
+   */
+  static async notifyPromptGateOnce(organizationId: string, contactId: string): Promise<void> {
+    try {
+      const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+        .select('custom_fields')
+        .eq('id', contactId)
+        .maybeSingle();
+      const cf = (contact?.custom_fields as Record<string, any>) || {};
+      if (cf.prompt_gate_notified === true) return;
+
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contactId,
+        organization_id: organizationId,
+        sender_type: 'system',
+        content:
+          '[🤖 IA en pausa: este negocio aún no completó su Asistente de Prompts, así que el bot no responde automáticamente. Configúralo en Ajustes → Asistente de Prompts y la IA se activará sola]',
+      });
+
+      await (supabaseAdmin.from('contacts') as any)
+        .update({
+          custom_fields: { ...cf, prompt_gate_notified: true },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', contactId);
+    } catch (err) {
+      console.warn('[PROMPT GATE NOTIFY WARN]', err);
+    }
+  }
+
   static async simulateSandboxMessage(params: {
     systemPrompt: string;
     userMessage: string;
