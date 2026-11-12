@@ -654,6 +654,7 @@ function buildDynamicContextBlock(params: {
   delayedHours?: number;
   isAfterHours?: boolean;
   afterHoursMessage?: string | null;
+  lastAssistantText?: string | null;
 }): string {
   const {
     orgTimezone,
@@ -664,6 +665,7 @@ function buildDynamicContextBlock(params: {
     delayedHours,
     isAfterHours = false,
     afterHoursMessage = null,
+    lastAssistantText = null,
   } = params;
   let currentLocalTime = '';
   try {
@@ -737,6 +739,10 @@ function buildDynamicContextBlock(params: {
           .join('\n')}`
       : '';
 
+  const antiDuplicateInstruction = lastAssistantText
+    ? `\n[VARIACIÓN CONVERSACIONAL OBLIGATORIA]: Tu último mensaje fue: "${lastAssistantText.slice(0, 160)}...". Si el cliente insiste, reafirma o responde afirmativamente a tu propuesta previa, NO repitas el mismo mensaje ni frases idénticas. Reconoce brevemente lo anterior de forma diferente y natural.`
+    : '';
+
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <perfil_lead>
@@ -745,7 +751,7 @@ Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}
 Interés detectado: ${interest}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}
+</perfil_lead>${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -1116,6 +1122,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
           await supabaseAdmin.from('messages').insert({
             contact_id: contactId,
+            organization_id: organizationId,
             sender_type: 'system',
             content: `[🚨 Relevo Solicitado: Asesor requerido - Motivo: "${handoffReason}"]`,
           });
@@ -1158,6 +1165,10 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         ? (Date.now() - new Date(lastLeadMsg.created_at).getTime()) / (1000 * 60 * 60)
         : 0;
 
+      // Último mensaje emitido por el asistente para evitar repeticiones
+      const lastAssistantMsg = [...dbMessages].reverse().find((m: any) => m.sender_type === 'ai' || m.sender_type === 'agent_manual');
+      const lastAssistantText = lastAssistantMsg?.content || null;
+
       // Bloque dinámico al FINAL para mantener prefijo estático cacheable
       const orgTimezone = timezone || businessHours?.timezone || AI_OPERATIONAL_CONFIG.defaultTimezone;
       const rawStoredCatalog = Array.isArray(orgData?.structured_prompt_data?.catalog)
@@ -1175,6 +1186,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           delayedHours: hoursAgo >= 6 ? hoursAgo : undefined,
           isAfterHours,
           afterHoursMessage,
+          lastAssistantText,
         }),
       });
 
@@ -1466,6 +1478,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 const label = LEAD_TEMPERATURE_META[effectiveTemp]?.label || effectiveTemp;
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
+                  organization_id: organizationId,
                   sender_type: 'system',
                   content: `[🏷️ Categoría actualizada por IA: ${label}${
                     validated.lost_reason ? ` — Motivo: ${validated.lost_reason}` : ''
@@ -1476,6 +1489,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               if (syncRes.nextStage) {
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
+                  organization_id: organizationId,
                   sender_type: 'system',
                   content: `[📊 Etapa actualizada por IA: ${syncRes.nextStage}]`,
                 });
@@ -1557,6 +1571,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
                 await supabaseAdmin.from('messages').insert({
                   contact_id: contactId,
+                  organization_id: organizationId,
                   sender_type: 'system',
                   content: `[⏰ Seguimiento Agendado por IA para ${niceDate}${
                     validated.reason ? ` - "${validated.reason}"` : ''
@@ -1630,6 +1645,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               const itemsStr = validated.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
+                organization_id: organizationId,
                 sender_type: 'system',
                 content: `[🛒 Pedido registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')}${deliveryLabel ? ` · ${deliveryLabel}` : ''} · Cliente: ${validated.nombre}]`,
               });
@@ -1698,6 +1714,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
+                organization_id: organizationId,
                 sender_type: 'system',
                 content: `[📊 Etapa actualizada por IA: ${validated.new_stage}${validated.reason ? ` (${validated.reason})` : ''}]`,
               });
@@ -1867,6 +1884,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
+                organization_id: organizationId,
                 sender_type: 'system',
                 content: `[🚨 Relevo Silencioso: Asesor humano requerido - Motivo: "${handoffReason}"]`,
               });
@@ -2183,6 +2201,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               });
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
+                organization_id: organizationId,
                 sender_type: 'system',
                 content: `[🤖 Recordatorio autónomo programado por IA para ${niceDate} — "${inferred.reason}"]`,
               });
@@ -2250,6 +2269,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       try {
         await supabaseAdmin.from('messages').insert({
           contact_id: contactId,
+          organization_id: organizationId,
           sender_type: 'system',
           content: `[🚨 Respaldo Activado: Falla temporal de proveedores (${globalAiError?.message || 'indisponible'}). IA pausada tras responder.]`,
         });

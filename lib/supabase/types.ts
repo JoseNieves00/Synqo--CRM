@@ -369,6 +369,7 @@ export interface Database {
         Row: {
           id: string;
           contact_id: string;
+          organization_id?: string | null;
           sender_type: MessageSender;
           content: string;
           meta_message_id: string | null;
@@ -381,6 +382,7 @@ export interface Database {
         Insert: {
           id?: string;
           contact_id: string;
+          organization_id?: string | null;
           sender_type: MessageSender;
           content: string;
           meta_message_id?: string | null;
@@ -393,6 +395,7 @@ export interface Database {
         Update: {
           id?: string;
           contact_id?: string;
+          organization_id?: string | null;
           sender_type?: MessageSender;
           content?: string;
           meta_message_id?: string | null;

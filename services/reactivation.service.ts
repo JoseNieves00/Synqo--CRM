@@ -1035,6 +1035,7 @@ export class LeadReactivationService {
 
             await (supabaseAdmin.from('messages') as any).insert({
               contact_id: contact.id,
+              organization_id: contact.organization_id,
               sender_type: 'system',
               content:
                 '[❄️ Marca automática Frío & Archivada tras finalizar secuencia de seguimiento 48h sin respuesta]',

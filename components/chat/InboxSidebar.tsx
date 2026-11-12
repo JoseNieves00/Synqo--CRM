@@ -40,6 +40,7 @@ interface InboxSidebarProps {
   onRemoveFilterChip: <K extends keyof FilterState>(key: K) => void;
   onLoadMore: () => void;
   onQuickAssign?: (contactId: string) => void;
+  onQuickMarkAttended?: (contactId: string) => void;
   onQuickClose?: (contactId: string) => void;
   onQuickSnooze?: (contactId: string) => void;
   onBatchClose?: (contactIds: string[]) => void;
@@ -71,6 +72,7 @@ export function InboxSidebar({
   onRemoveFilterChip,
   onLoadMore,
   onQuickAssign,
+  onQuickMarkAttended,
   onQuickClose,
   onQuickSnooze,
   onBatchClose,
@@ -407,6 +409,7 @@ export function InboxSidebar({
                     onSelect={onSelectContact}
                     onToggleSelect={handleToggleSelect}
                     onQuickAssign={onQuickAssign ? (id, e) => onQuickAssign(id) : undefined}
+                    onQuickMarkAttended={onQuickMarkAttended ? (id, e) => onQuickMarkAttended(id) : undefined}
                     onQuickClose={onQuickClose ? (id, e) => onQuickClose(id) : undefined}
                     onQuickSnooze={onQuickSnooze ? (id, e) => onQuickSnooze(id) : undefined}
                   />

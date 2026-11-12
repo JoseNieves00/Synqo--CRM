@@ -22,10 +22,12 @@ import {
   PanelRightOpen,
   PanelRightClose,
   Search,
+  CheckCheck,
 } from 'lucide-react';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { getLeadWindowAnchor, PIPELINE_STAGES } from '@/services/contact.service';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
+import { contactNeedsHumanResponse } from '@/lib/inbox/buckets';
 
 interface TeamMember {
   id: string;
@@ -61,6 +63,7 @@ interface ChatHeaderProps {
   onSnoozeAi: (durationMinutes: 30 | 120 | 'tomorrow') => Promise<void>;
   onClaimLead: () => Promise<void>;
   onReassignLead: (agentId: string) => Promise<void>;
+  onMarkAttended?: () => Promise<void>;
   onCloseChat: () => void;
   onReopenChat?: () => void;
   onOpenScheduleReminder: () => void;
@@ -83,6 +86,7 @@ export function ChatHeader({
   onSnoozeAi,
   onClaimLead,
   onReassignLead,
+  onMarkAttended,
   onCloseChat,
   onReopenChat,
   onOpenScheduleReminder,
@@ -274,6 +278,19 @@ export function ChatHeader({
           initialIsAiActive={contact.is_ai_active}
           onToggle={onToggleAi}
         />
+
+        {/* Botón Intuitivo: 'Atendido' (solo visible si el chat requiere respuesta humana en 'Por responder') */}
+        {!isClosed && onMarkAttended && contactNeedsHumanResponse(contact) && (
+          <button
+            type="button"
+            onClick={onMarkAttended}
+            className="h-8 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Dar por atendido, detener alertas y reactivar la IA para futuros mensajes"
+          >
+            <CheckCheck className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Atendido</span>
+          </button>
+        )}
 
         {/* Botón Acción Cerrar Chat / Reabrir */}
         {isClosed ? (

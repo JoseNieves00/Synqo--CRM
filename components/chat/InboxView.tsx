@@ -20,6 +20,7 @@ import {
   getContactMessages,
   markContactAsRead,
   endContactConversation,
+  markContactAttended,
   snoozeContactAi,
   toggleContactAi,
 } from '@/app/actions/chat';
@@ -521,6 +522,36 @@ export function InboxView({
     [currentUserId, refreshCounts]
   );
 
+  const handleQuickMarkAttended = useCallback(
+    async (contactId: string) => {
+      try {
+        const existingCf = useInboxStore.getState().contactsById[contactId]?.custom_fields || {};
+        const nextCf = { ...existingCf };
+        nextCf.unattended_handoff = false;
+        nextCf.manual_ai_paused = false;
+        delete nextCf.ai_snooze_until;
+        delete nextCf.mobile_takeover_at;
+        delete nextCf.mobile_takeover_source;
+
+        useInboxStore.getState().upsertContact({
+          id: contactId,
+          is_ai_active: true,
+          conversation_status: 'waiting_customer',
+          waiting_since: null,
+          unread_count: 0,
+          ai_snooze_until: null,
+          custom_fields: nextCf,
+        });
+
+        await markContactAttended(contactId);
+        refreshCounts();
+      } catch (err) {
+        console.error('[InboxView] Error al marcar contacto como atendido:', err);
+      }
+    },
+    [refreshCounts]
+  );
+
   const handleQuickClose = useCallback(
     async (contactId: string) => {
       try {
@@ -711,6 +742,7 @@ export function InboxView({
           }}
           onLoadMore={() => loadContacts(contactList.length, true)}
           onQuickAssign={handleQuickAssign}
+          onQuickMarkAttended={handleQuickMarkAttended}
           onQuickClose={handleQuickClose}
           onQuickSnooze={handleQuickSnooze}
           onBatchClose={handleBatchClose}
