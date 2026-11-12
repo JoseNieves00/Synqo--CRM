@@ -27,6 +27,7 @@ import {
 import { submitAiFeedback } from '@/app/actions/chat';
 import { parseMessageContentFast } from '@/lib/media/message-parser';
 import { formatFullDateTime } from '@/lib/utils/inbox-date';
+import { formatWhatsAppRichText } from '@/lib/chat/rich-text';
 import { AudioMessagePlayer } from './AudioMessagePlayer';
 
 interface MessageBubbleProps {
@@ -148,6 +149,7 @@ export const MessageBubble = React.memo(
 
     if (senderType === 'system') {
       const isHandoff = content.includes('Relevo Silencioso') || content.includes('Relevo Solicitado') || content.includes('IA pausada');
+      const isFollowUp = content.includes('Seguimiento Agendado por IA') || content.includes('Recordatorio autónomo');
 
       if (isHandoff) {
         // Extraer motivo de forma limpia sin corchetes técnicos de log
@@ -166,6 +168,22 @@ export const MessageBubble = React.memo(
                 {reason || content.replace(/^\[Sistema:\s*/, '').replace(/\]$/, '') || 'Transferido a control humano'}
               </span>
               <span suppressHydrationWarning className="text-[10px] text-slate-500 font-mono ml-1 shrink-0">
+                {formattedTime}
+              </span>
+            </div>
+          </div>
+        );
+      }
+
+      if (isFollowUp) {
+        // Extraer texto limpio del seguimiento agendado
+        const cleanContent = content.replace(/^\[/, '').replace(/\]$/, '');
+        return (
+          <div className="flex items-center justify-center my-2.5">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50/80 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/40 text-[11px] shadow-2xs font-medium max-w-lg transition-colors">
+              <Clock className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 shrink-0" />
+              <span className="truncate">{cleanContent}</span>
+              <span suppressHydrationWarning className="text-[10px] text-blue-400 dark:text-blue-500 font-mono ml-1 shrink-0">
                 {formattedTime}
               </span>
             </div>
@@ -388,7 +406,7 @@ export const MessageBubble = React.memo(
                 </div>
                 {videoInfo.caption && (
                   <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
-                    {videoInfo.caption}
+                    {formatWhatsAppRichText(videoInfo.caption)}
                   </p>
                 )}
               </div>
@@ -414,7 +432,7 @@ export const MessageBubble = React.memo(
                 </div>
                 {imageInfo.caption && (
                   <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
-                    {imageInfo.caption}
+                    {formatWhatsAppRichText(imageInfo.caption)}
                   </p>
                 )}
               </div>
@@ -462,7 +480,7 @@ export const MessageBubble = React.memo(
                 </div>
                 {docInfo.caption && (
                   <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
-                    {docInfo.caption}
+                    {formatWhatsAppRichText(docInfo.caption)}
                   </p>
                 )}
               </div>
@@ -512,14 +530,14 @@ export const MessageBubble = React.memo(
 
                 {instagramPostInfo.clientMessage && (
                   <p className="whitespace-pre-wrap break-words leading-relaxed font-normal pt-0.5">
-                    {instagramPostInfo.clientMessage}
+                    {formatWhatsAppRichText(instagramPostInfo.clientMessage)}
                   </p>
                 )}
               </div>
             ) : (
               /* Contenido de texto regular */
               <p className="whitespace-pre-wrap break-words leading-relaxed font-normal">
-                {quoteInfo.actualText || content}
+                {formatWhatsAppRichText(quoteInfo.actualText || content)}
               </p>
             )}
 

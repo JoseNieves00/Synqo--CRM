@@ -563,8 +563,11 @@ export class InboundCoreService {
       console.warn('[INBOUND CORE CONFIRMATION CHECK WARN]', confErr);
     }
 
-    // 7.5. Manejo Elegante de Cortesía ("Ok gracias") -> Reacción 👍 solo si NO hay venta abierta ni producto de interés
-    const hasOpenSaleOrInterest = Boolean(
+    // 7.5. Manejo Elegante de Cortesía ("Ok", "Gracias", etc.)
+    // Si el mensaje es una cortesía o despedida simple, no debe dejar el chat atascado en "Por responder"
+    // exigiendo atención humana si no hay una pregunta o cotización explícita.
+    const isCourtesy = isCourtesyClosingMessage(sanitizedContent);
+    const hasPendingOrderOrQuote = Boolean(
       existingContact &&
         (existingContact.pipeline_stage === 'calificado' ||
           existingContact.deal_value ||
@@ -572,28 +575,31 @@ export class InboundCoreService {
           existingContact.custom_fields?.order)
     );
 
-    if (channel !== 'instagram' && !hasOpenSaleOrInterest && isCourtesyClosingMessage(sanitizedContent)) {
+    if (isCourtesy) {
       try {
-        await MessagingService.sendReactionMessage({
-          organization,
-          to: senderId,
-          messageId: channelMessageId,
-          emoji: '👍',
-        });
+        // En WhatsApp enviamos una reacción 🙏 como acuse de recibo amable y respetuoso
+        if (channel !== 'instagram') {
+          await MessagingService.sendReactionMessage({
+            organization,
+            to: senderId,
+            messageId: channelMessageId,
+            emoji: '🙏',
+          }).catch((err) => console.warn('[COURTESY REACTION SEND WARN]', err));
 
-        const reactionPayload = {
-          emoji: '👍',
-          from: 'agent',
-          reacted_at: new Date().toISOString(),
-        };
+          const reactionPayload = {
+            emoji: '🙏',
+            from: 'agent',
+            reacted_at: new Date().toISOString(),
+          };
 
-        if (messageId) {
-          await (supabaseAdmin.from('messages') as any)
-            .update({ reactions: reactionPayload })
-            .eq('id', messageId);
+          if (messageId) {
+            await (supabaseAdmin.from('messages') as any)
+              .update({ reactions: reactionPayload })
+              .eq('id', messageId);
+          }
         }
 
-        // Despejar espera/unread y asegurar clasificación inicial para no dejar el chat atascado en "Por responder"
+        // Despejar espera y unread para evitar falsos positivos en "Por responder"
         const { data: latestCourtesyContact } = await (supabaseAdmin.from('contacts') as any)
           .select('custom_fields')
           .eq('id', contactId)
@@ -612,7 +618,7 @@ export class InboundCoreService {
             unread_count: 0,
             conversation_status: 'waiting_customer',
             last_message_sender: 'ai',
-            last_message_preview: '👍',
+            last_message_preview: channel !== 'instagram' ? '🙏' : sanitizedContent.slice(0, 160),
             custom_fields: courtesyCf,
             updated_at: new Date().toISOString(),
           })
@@ -1120,11 +1126,13 @@ export class InboundCoreService {
           }
         }
 
-        // Limpiar el texto removiendo markdown y URLs
-        let cleanedAiText = aiResponseText          .replace(/!\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]+\s*\)/gi, '')
+        // Limpiar el texto removiendo imágenes markdown y normalizando formato para WhatsApp
+        let cleanedAiText = aiResponseText
+          .replace(/!\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]+\s*\)/gi, '')
           .replace(/\[[\s\S]*?\]\(\s*https?:\/\/[^\s\)]*(?:chat-media|[^\s\)]+\.(?:jpe?g|png|webp|gif|pdf))[^\s\)]*\s*\)/gi, '')
           .replace(/\[(?:foto|imagen):\s*https?:\/\/[^\s\]]+\]/gi, '')
           .replace(/https:\/\/[^\s\)]+\.supabase\.co\/storage\/v1\/object\/public\/[^\s\)]+(?:\.jpe?g|\.png|\.webp|\.gif|\b)/gi, '')
+          .replace(/\*\*([^*\n]+?)\*\*/g, '*$1*') // Convertir **negrita** de LLMs a *negrita* nativa de WhatsApp
           .split('\n')
           .map((line) => line.trim())
           .filter((line) => line && line !== '•' && line !== '*' && line !== '-' && !/^[•\-\*]?\s*\*?[^:\n]+\*?:\s*$/.test(line))

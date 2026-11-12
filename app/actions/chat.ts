@@ -1257,6 +1257,69 @@ export async function saveOrganizationQuickReplies(
 }
 
 /**
+ * Finaliza la intervención humana de forma rápida ('Marcar como Atendido')
+ * Reactiva la IA automáticamente, limpia el estado de espera, remueve alertas
+ * y saca el chat de la bandeja 'Por responder' sin archivar la conversación.
+ */
+export async function markContactAttended(contactId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, name, organization_id, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  const updatedCustom: Record<string, any> = {
+    ...currentCustom,
+    unattended_handoff: false,
+    manual_ai_paused: false,
+  };
+  delete updatedCustom.ai_snooze_until;
+  delete updatedCustom.mobile_takeover_at;
+  delete updatedCustom.mobile_takeover_source;
+
+  const nowIso = new Date().toISOString();
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update({
+      is_ai_active: true,
+      conversation_status: 'waiting_customer',
+      waiting_since: null,
+      unread_count: 0,
+      ai_snooze_until: null,
+      custom_fields: updatedCustom,
+      updated_at: nowIso,
+    })
+    .eq('id', contactId);
+
+  // Mensaje de auditoría en la conversación
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    sender_type: 'system',
+    content: `[✓ Intervención finalizada por ${profile.full_name || 'Asesor'} · IA reactivada para futuros mensajes]`,
+  });
+
+  await LeadScoreService.recompute(contactId);
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+  return { success: true };
+}
+
+/**
  * Finaliza la atención activa de un contacto ('Dar Fin').
  * Registra auditoría interna en el chat y actualiza el estado comercial si se indica.
  */

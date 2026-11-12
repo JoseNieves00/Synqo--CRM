@@ -16,6 +16,7 @@ import {
   sendAgentTemplate,
   toggleContactAi,
   endContactConversation,
+  markContactAttended,
   reopenContactConversation,
   markContactReactivationDismissed,
   generateReactivationAiSuggestion,
@@ -1157,6 +1158,35 @@ export const ChatWindow = React.memo(function ChatWindow({
     }
   };
 
+  const handleMarkAttended = async () => {
+    try {
+      const nextCf = { ...(contact.custom_fields || {}) };
+      nextCf.unattended_handoff = false;
+      nextCf.manual_ai_paused = false;
+      delete nextCf.ai_snooze_until;
+      delete nextCf.mobile_takeover_at;
+      delete nextCf.mobile_takeover_source;
+
+      onContactUpdate?.({
+        is_ai_active: true,
+        waiting_since: null,
+        unread_count: 0,
+        conversation_status: 'waiting_customer',
+        ai_snooze_until: null,
+        custom_fields: nextCf,
+      });
+
+      await markContactAttended(contact.id);
+
+      // Despachar evento para saltar automáticamente al siguiente chat en la cola (Inbox Zero)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('synqo-inbox-zero-next', { detail: { closedContactId: contact.id } }));
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error al marcar como atendido');
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -1198,6 +1228,7 @@ export const ChatWindow = React.memo(function ChatWindow({
           onSnoozeAi={handleSnoozeAi}
           onClaimLead={handleClaimLead}
           onReassignLead={handleAdminReassign}
+          onMarkAttended={handleMarkAttended}
           onCloseChat={() => setIsEndChatModalOpen(true)}
           onReopenChat={handleReopenChat}
           onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
