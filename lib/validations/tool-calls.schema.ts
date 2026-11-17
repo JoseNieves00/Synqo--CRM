@@ -79,6 +79,16 @@ export const UpdateLeadProfileToolSchema = z.object({
   objection: z.string().max(240).optional(),
   lost_reason: z.string().max(200).optional(),
   tags: z.array(z.string().min(1).max(40)).max(3).optional(),
+  shipping_data: z
+    .object({
+      recipient_name: z.string().max(160).optional(),
+      id_number: z.string().max(60).optional(),
+      phone: z.string().max(60).optional(),
+      destination_city: z.string().max(120).optional(),
+      address: z.string().max(240).optional(),
+      notes: z.string().max(240).optional(),
+    })
+    .optional(),
 });
 
 export const ScheduleFollowUpToolSchema = z

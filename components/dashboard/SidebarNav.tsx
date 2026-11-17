@@ -20,9 +20,10 @@ interface SidebarNavProps {
   isSuperAdmin: boolean;
   isAdmin: boolean;
   enabledModules?: EnabledModules;
+  isCollapsed?: boolean;
 }
 
-export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules }: SidebarNavProps) {
+export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules, isCollapsed = false }: SidebarNavProps) {
   const pathname = usePathname();
   const [unattendedCount, setUnattendedCount] = useState<number>(0);
 
@@ -125,14 +126,16 @@ export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules }: SidebarNav
           href="/admin"
           prefetch={true}
           title="Consola Super Admin"
-          className={`flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-3.5 py-2.5 rounded-xl text-sm font-semibold transition mb-2 border ${
+          className={`flex items-center ${
+            isCollapsed ? 'justify-center px-2' : 'justify-center lg:justify-start px-2 lg:px-3.5'
+          } gap-3 py-2.5 rounded-xl text-sm font-semibold transition mb-2 border ${
             pathname.startsWith('/admin')
               ? 'bg-[#0052FF] text-white border-[#0052FF]'
               : 'bg-slate-100 dark:bg-[#131722] text-[#0052FF] dark:text-[#00D2FF] hover:bg-slate-200 dark:hover:bg-[#1A1F2C] border-slate-200 dark:border-[#232A3B]'
           }`}
         >
           <ShieldCheck className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
-          <span className="hidden lg:inline">Consola Super Admin</span>
+          {!isCollapsed && <span className="hidden lg:inline">Consola Super Admin</span>}
         </Link>
       )}
 
@@ -149,21 +152,27 @@ export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules }: SidebarNav
             href={item.href}
             prefetch={true}
             title={item.label}
-            className={`relative flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-3.5 py-2 rounded-xl text-sm transition-all duration-150 cursor-pointer ${
+            className={`relative flex items-center ${
+              isCollapsed ? 'justify-center px-2' : 'justify-center lg:justify-start px-2 lg:px-3.5'
+            } gap-3 py-2 rounded-xl text-sm transition-all duration-150 cursor-pointer ${
               isActive
                 ? item.activeColor
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#131722]/60 font-medium'
             }`}
           >
             <Icon className={`w-4 h-4 shrink-0 transition-colors ${isActive ? item.iconColor : 'text-slate-400 dark:text-slate-400'}`} />
-            <span className="hidden lg:inline truncate">{item.label}</span>
+            {!isCollapsed && <span className="hidden lg:inline truncate">{item.label}</span>}
 
             {/* Badge de Relevos Pendientes en Inbox */}
             {isInbox && unattendedCount > 0 ? (
-              <span className="lg:ml-auto px-1.5 lg:px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
+              <span
+                className={`${
+                  isCollapsed ? 'absolute -top-1 -right-1' : 'lg:ml-auto'
+                } px-1.5 lg:px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30`}
+              >
                 {unattendedCount}
               </span>
-            ) : isActive ? (
+            ) : isActive && !isCollapsed ? (
               <span className="hidden lg:inline-block ml-auto w-1.5 h-1.5 rounded-full bg-[#0052FF] dark:bg-[#00D2FF]" />
             ) : null}
           </Link>

@@ -6,8 +6,7 @@ import {
   Building2,
 } from 'lucide-react';
 import nextDynamic from 'next/dynamic';
-import { SidebarNav } from '@/components/dashboard/SidebarNav';
-import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
+import { DashboardSidebar } from '@/components/dashboard/DashboardSidebar';
 import { MobileBottomNav } from '@/components/dashboard/MobileBottomNav';
 import { HandoffAlertNotifier } from '@/components/notifications/HandoffAlertNotifier';
 import { UserPresenceHeartbeat } from '@/components/presence/UserPresenceHeartbeat';
@@ -70,61 +69,17 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-slate-100 transition-colors">
-      {/* Sidebar Responsivo: Oculto en móvil (usa bottom bar), colapsado en tablet (md), expandido en desktop (lg) */}
-      <aside className="hidden md:flex md:w-20 lg:w-64 bg-white dark:bg-[#090A0F] text-slate-800 dark:text-slate-100 flex-col border-r border-slate-200 dark:border-[#1E2433] flex-shrink-0 h-full select-none transition-all">
-        {/* Brand Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-[#1E2433] flex items-center justify-center lg:justify-start gap-3">
-          <Image
-            src="/brand/isotipo-128w.png"
-            alt="Synqo"
-            width={32}
-            height={32}
-            className="w-8 h-8 object-contain shrink-0"
-          />
-          <div className="hidden lg:block">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-tight">synqo</span>
-              <span className="text-[10px] px-1.5 py-0.2 bg-[#0052FF]/10 text-[#0052FF] dark:bg-[#00D2FF]/10 dark:text-[#00D2FF] font-mono rounded border border-[#0052FF]/20 dark:border-[#00D2FF]/20 font-bold">.dev</span>
-            </div>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono tracking-wider">CRM Comercial</span>
-          </div>
-        </div>
-
-        {/* Menú de Navegación Principal Reactivo con Prefetching y Control de Módulos */}
-        <SidebarNav
-          isSuperAdmin={isSuperAdmin}
-          isAdmin={isAdmin}
-          enabledModules={current?.organization?.enabled_modules}
-        />
-
-        {/* Estado del Servicio & Suscripción */}
-        <div className="hidden lg:block p-3 mx-3 mb-2 rounded-xl bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Suscripción</span>
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
-                subStatus === 'active' || subStatus === 'trialing'
-                  ? 'bg-blue-50 dark:bg-[#0052FF]/20 text-[#0052FF] dark:text-[#00D2FF] border-blue-200 dark:border-[#00D2FF]/30'
-                  : 'bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30'
-              }`}
-            >
-              {subStatus === 'trialing' ? 'Prueba (14d)' : subStatus.toUpperCase()}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] flex-shrink-0" />
-            <span className="truncate">Seguridad Empresarial</span>
-          </div>
-        </div>
-
-        {/* Perfil del Usuario & Botón de Cerrar Sesión & Switcher de Tema */}
-        <SidebarUserCard
-          userFullName={userFullName}
-          userEmail={userEmail}
-          userRole={userRole}
-          signOutAction={signOut}
-        />
-      </aside>
+      {/* Sidebar Responsivo con Modo Colapsable / Achicado en 1 Clic */}
+      <DashboardSidebar
+        isSuperAdmin={isSuperAdmin}
+        isAdmin={isAdmin}
+        enabledModules={current?.organization?.enabled_modules}
+        subStatus={subStatus}
+        userFullName={userFullName}
+        userEmail={userEmail}
+        userRole={userRole}
+        signOutAction={signOut}
+      />
 
       {/* Sincronizador de Datos en Tiempo Real (Sync Engine Único) */}
       <InboxSyncProvider organizationId={orgId} currentUserId={current?.user?.id} />

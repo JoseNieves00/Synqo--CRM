@@ -48,6 +48,7 @@ import {
   type FollowUpCategory,
   type LeadTemperature,
   buildSynchronizedClassification,
+  clampToSafeBusinessHours,
   normalizeFollowUpSettings,
   resolveLeadTemperature,
   resolveProductInterest,
@@ -328,6 +329,19 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
           items: { type: 'string' },
           description:
             'Hasta 3 etiquetas CORTAS (1-3 palabras) y reutilizables para organizar al cliente en el CRM: preferencia o dato comercial útil (ej. "Pago contraentrega", "Talla 4", "Regalo", "Mayorista", "Bogotá"). Nunca datos sensibles. Omitir si no aporta nada nuevo.',
+        },
+        shipping_data: {
+          type: 'object',
+          description:
+            'Datos de guía de despacho compartidos por el cliente en el chat para el envío de su pedido (Nombre completo, Cédula/NIT, Teléfono, Ciudad/Municipio de destino, Dirección y notas). Si el cliente los comparte de forma parcial o completa, extráelos aquí.',
+          properties: {
+            recipient_name: { type: 'string', description: 'Nombre completo de quien recibe' },
+            id_number: { type: 'string', description: 'Cédula de ciudadanía, NIT o DNI' },
+            phone: { type: 'string', description: 'Celular o teléfono de contacto' },
+            destination_city: { type: 'string', description: 'Ciudad o municipio de destino' },
+            address: { type: 'string', description: 'Dirección completa (calle, carrera, barrio, apto)' },
+            notes: { type: 'string', description: 'Observaciones de entrega' },
+          },
         },
       },
       required: ['temperature'],
@@ -1006,6 +1020,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       const staticSystemPrompt = composePlaybookAndBusinessPrompt({
         businessPrompt: resolvedPromptConfig,
         hasCalendar,
+        paymentAccounts: orgData?.appointment_settings?.payment_accounts,
+        shippingSettings: orgData?.appointment_settings?.shipping_settings,
       });
 
       const conversationHistory: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -1450,7 +1466,22 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 followUpSettings: orgData?.appointment_settings?.follow_up_sequences
                   ? normalizeFollowUpSettings(orgData.appointment_settings.follow_up_sequences)
                   : null,
+                businessHours: orgData?.business_hours,
+                timezone: orgTimezone,
               });
+
+              if (validated.shipping_data) {
+                const existingShipping = syncRes.customFields.shipping_data || {};
+                syncRes.customFields.shipping_data = {
+                  ...existingShipping,
+                  ...(validated.shipping_data.recipient_name?.trim() ? { recipient_name: validated.shipping_data.recipient_name.trim() } : {}),
+                  ...(validated.shipping_data.id_number?.trim() ? { id_number: validated.shipping_data.id_number.trim() } : {}),
+                  ...(validated.shipping_data.phone?.trim() ? { phone: validated.shipping_data.phone.trim() } : {}),
+                  ...(validated.shipping_data.destination_city?.trim() ? { destination_city: validated.shipping_data.destination_city.trim() } : {}),
+                  ...(validated.shipping_data.address?.trim() ? { address: validated.shipping_data.address.trim() } : {}),
+                  ...(validated.shipping_data.notes?.trim() ? { notes: validated.shipping_data.notes.trim() } : {}),
+                };
+              }
 
               const updatePayload: Record<string, any> = {
                 custom_fields: syncRes.customFields,
@@ -1505,15 +1536,20 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               });
             } else if (functionName === 'schedule_follow_up') {
               const validated = ScheduleFollowUpToolSchema.parse(functionArgs);
-              const parsedDate = parseFollowUpScheduleDate({
+              const rawParsedDate = parseFollowUpScheduleDate({
                 date: validated.date,
                 timeLocal: validated.time_local,
                 delayHours: validated.delay_hours,
                 orgTimezone,
               });
-              if (!parsedDate) {
+              if (!rawParsedDate) {
                 toolResult = JSON.stringify({ error: 'Fecha u hora inválida. Usa YYYY-MM-DD o delay_hours.' });
               } else {
+                const parsedDate = clampToSafeBusinessHours(
+                  rawParsedDate,
+                  orgData?.business_hours,
+                  orgTimezone
+                );
                 const { data: remRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
                   .insert({
                     contact_id: contactId,
@@ -2151,10 +2187,15 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             });
 
             if (inferred) {
+              const safeScheduledFor = clampToSafeBusinessHours(
+                inferred.scheduledFor,
+                orgData?.business_hours,
+                orgTimezone
+              );
               const { data: remRow } = await (supabaseAdmin.from('scheduled_reminders') as any)
                 .insert({
                   contact_id: contactId,
-                  scheduled_for: inferred.scheduledFor.toISOString(),
+                  scheduled_for: safeScheduledFor.toISOString(),
                   reminder_type: 'reactivation',
                   status: 'pending',
                 })
@@ -2164,7 +2205,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               const activeReminderPayload = {
                 id: remRow?.id || `rem-${Date.now()}`,
                 reminderType: 'reactivation' as const,
-                scheduledFor: inferred.scheduledFor.toISOString(),
+                scheduledFor: safeScheduledFor.toISOString(),
                 note: inferred.reason,
                 suggestedMessage: inferred.suggestedMessage,
                 createdByName: 'Synqo IA',
@@ -2173,7 +2214,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
               followUpScheduledInfo = {
                 reminderId: remRow?.id || null,
-                scheduledForIso: inferred.scheduledFor.toISOString(),
+                scheduledForIso: safeScheduledFor.toISOString(),
                 reason: inferred.reason,
                 activeReminder: activeReminderPayload,
               };
@@ -2181,7 +2222,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               const nextCf = { ...latestCf, active_reminder: activeReminderPayload };
               nextCf.follow_up = {
                 ...(nextCf.follow_up || { category: 'warm', currentStepIndex: 0 }),
-                nextSendAt: inferred.scheduledFor.toISOString(),
+                nextSendAt: safeScheduledFor.toISOString(),
                 scheduledReminderId: remRow?.id || null,
                 completed: false,
                 paused: false,
@@ -3040,6 +3081,8 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       ? composePlaybookAndBusinessPrompt({
           businessPrompt: params.systemPrompt,
           hasCalendar: Boolean(params.enabledModules?.native_calendar),
+          paymentAccounts: params.organization?.appointment_settings?.payment_accounts,
+          shippingSettings: params.organization?.appointment_settings?.shipping_settings,
         })
       : params.systemPrompt;
 

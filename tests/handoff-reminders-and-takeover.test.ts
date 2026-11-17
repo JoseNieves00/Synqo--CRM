@@ -23,46 +23,54 @@ function assert(condition: boolean, msg: string) {
 async function runTests() {
   console.log('\n🧪 Iniciando Suite de Pruebas: Handoff, Takeover Móvil & Recordatorios...\n');
 
-  // 1. Obtener organización y usuario de prueba
-  console.log('1️⃣  Obteniendo organización y usuario de prueba...');
-  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+  // 1. Crear organización aislada efímera (cero impacto en producción / clientes reales)
+  console.log('1️⃣  Creando organización aislada efímera para pruebas (cero contaminación de producción)...');
+  const ephemeralOrgName = `__TEST_HANDOFF_ORG_${Date.now()}__`;
+  const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
+    .insert({
+      name: ephemeralOrgName,
+      company_code: `TEST${Math.floor(1000 + Math.random() * 9000)}`,
+      whatsapp_provider: 'meta',
+      is_active: false,
+    })
     .select('id, name')
-    .limit(1)
     .single();
 
-  assert(Boolean(org?.id), 'Debe existir al menos una organización en la BD');
+  assert(Boolean(org?.id), `Error creando organización efímera: ${orgErr?.message}`);
+  const tempOrgId = org.id;
 
   const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('id, full_name, email, organization_id')
-    .eq('organization_id', org.id)
+    .select('id, full_name, email')
     .limit(1)
     .single();
 
-  assert(Boolean(profile?.id), 'Debe existir un perfil en la organización de prueba');
-  console.log(`   ✅ Organización: "${org.name}", Asesor: "${profile.full_name}"`);
+  const advisorName = profile?.full_name || 'Asesor de Prueba';
+  const advisorId = profile?.id || null;
+  console.log(`   ✅ Org aislada: "${org.name}", Asesor simulado: "${advisorName}"`);
 
-  // 2. Crear contacto temporal para pruebas
-  console.log('\n2️⃣  Creando contacto temporal para pruebas...');
-  const testPhone = `+57300${Math.floor(1000000 + Math.random() * 9000000)}`;
-  const { data: contact, error: contactErr } = await (supabaseAdmin.from('contacts') as any)
-    .insert({
-      organization_id: org.id,
-      name: 'Contacto Test Handoff',
-      phone: testPhone,
-      pipeline_stage: 'nuevo',
-      is_ai_active: false,
-      assigned_to: profile.id,
-      last_interaction_at: new Date().toISOString(),
-      custom_fields: {},
-    })
-    .select()
-    .single();
-
-  assert(!contactErr && Boolean(contact?.id), 'Error al insertar contacto de prueba');
-  const contactId = contact.id;
-  console.log(`   ✅ Contacto creado con ID: ${contactId}`);
+  let contactId: string | null = null;
 
   try {
+    // 2. Crear contacto temporal para pruebas dentro de la org aislada
+    console.log('\n2️⃣  Creando contacto temporal para pruebas...');
+    const testPhone = `+57399${Math.floor(1000000 + Math.random() * 9000000)}`;
+    const { data: contact, error: contactErr } = await (supabaseAdmin.from('contacts') as any)
+      .insert({
+        organization_id: tempOrgId,
+        name: 'Contacto Test Aislado',
+        phone: testPhone,
+        pipeline_stage: 'nuevo',
+        is_ai_active: false,
+        assigned_to: advisorId,
+        last_interaction_at: new Date().toISOString(),
+        custom_fields: {},
+      })
+      .select()
+      .single();
+
+    assert(!contactErr && Boolean(contact?.id), 'Error al insertar contacto de prueba');
+    contactId = contact.id;
+    console.log(`   ✅ Contacto creado con ID: ${contactId}`);
     // 3. Probar lógica de Unattended Handoff (Takeover Móvil sin trailing system message)
     console.log('\n3️⃣  Probando detección y despeje de Unattended Handoffs...');
     
@@ -236,10 +244,16 @@ async function runTests() {
   } finally {
     // Limpieza de datos de prueba
     console.log('\n🧹 Limpiando datos de prueba...');
-    await (supabaseAdmin.from('messages') as any).delete().eq('contact_id', contactId);
-    await (supabaseAdmin.from('scheduled_reminders') as any).delete().eq('contact_id', contactId);
-    await (supabaseAdmin.from('contacts') as any).delete().eq('id', contactId);
-    console.log('   ✅ Datos de prueba eliminados correctamente.');
+    if (contactId) {
+      await (supabaseAdmin.from('messages') as any).delete().eq('contact_id', contactId);
+      await (supabaseAdmin.from('scheduled_reminders') as any).delete().eq('contact_id', contactId);
+      await (supabaseAdmin.from('contacts') as any).delete().eq('id', contactId);
+    }
+    if (tempOrgId) {
+      await (supabaseAdmin.from('contacts') as any).delete().eq('organization_id', tempOrgId);
+      await (supabaseAdmin.from('organizations') as any).delete().eq('id', tempOrgId);
+    }
+    console.log('   ✅ Datos de prueba y organización aislada eliminados correctamente.');
   }
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE HANDOFF, TAKEOVER MÓVIL Y RECORDATORIOS PASARON EXITOSAMENTE!\n');

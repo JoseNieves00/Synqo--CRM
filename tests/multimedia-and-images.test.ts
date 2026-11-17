@@ -298,8 +298,8 @@ Si tienes alguna duda o necesitas más información sobre algún modelo en parti
   const cleanedFallback = stripRedundantCatalogListAfterCards(onlyBullets);
   assert.strictEqual(
     cleanedFallback,
-    '¿Cuál de estos modelos se adapta mejor a tu espacio?',
-    'Si solo había viñetas podadas, debe devolver la pregunta de cierre limpia de respaldo'
+    '¿Cuál de estas opciones se adapta mejor a lo que buscas?',
+    'Si solo había viñetas podadas, debe devolver la pregunta de cierre limpia de respaldo multi-nicho'
   );
 
   const cleanClosing = '¿Cuál de estos tamaños se adapta mejor a tu espacio?';
@@ -307,6 +307,28 @@ Si tienes alguna duda o necesitas más información sobre algún modelo en parti
     stripRedundantCatalogListAfterCards(cleanClosing),
     cleanClosing,
     'Un mensaje que ya es pregunta de cierre limpia no debe ser alterado'
+  );
+
+  // Caso exacto de la captura: Lista numerada con precios, sub-viñetas de medidas y personalizaciones
+  const screenshotSample = `1. Cocina pequeña · $350.000
+- Medidas: 1,07 m alto x 52 cm ancho x 26 cm profundidad.
+- Personalizable con stickers.
+2. Cocina mediana · $410.000
+- Medidas: 1,20 m alto x 60 cm ancho x 26 cm profundidad.
+- Personalizable con stickers.
+3. Cocina + nevera · $550.000
+- Medidas: 1,02 m alto x 90 cm ancho x 27 cm profundidad.
+- Incluye nevera y personalizable con stickers.
+4. Casita de ensueños · $555.000
+- Medidas: 1,10 m alto x 72 cm ancho x 26 cm profundidad.
+- Personalizable con stickers.
+¿Hay algún modelo que te interese más o alguna pregunta que tengas?`;
+
+  const screenshotCleaned = stripRedundantCatalogListAfterCards(screenshotSample);
+  assert.strictEqual(
+    screenshotCleaned,
+    '¿Hay algún modelo que te interese más o alguna pregunta que tengas?',
+    'Debe podar toda lista numerada y sub-viñetas de medidas o stickers dejando exclusivamente la pregunta de cierre'
   );
   console.log('   ✅ Blindaje Determinístico Anti-Redundancia verificado al 100%.');
 

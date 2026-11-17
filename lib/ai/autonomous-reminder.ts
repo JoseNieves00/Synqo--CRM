@@ -1,4 +1,9 @@
-import { resolveLeadTemperature, type FollowUpCategory, type LeadTemperature } from '@/lib/ai/follow-up-types';
+import {
+  resolveLeadTemperature,
+  clampToSafeBusinessHours,
+  type FollowUpCategory,
+  type LeadTemperature,
+} from '@/lib/ai/follow-up-types';
 
 /**
  * Convierte partes locales (año, mes, día, hora, minuto) en la zona horaria del negocio a un Date UTC real.
@@ -81,28 +86,13 @@ function getLocalParts(date: Date, timeZone: string): {
 }
 
 /**
- * Evita programar mensajes en madrugada o noche tardía (ventana humana 08:00 - 20:30 hora local).
+ * Evita programar mensajes en madrugada, noche tardía o domingos (ventana humana segura).
+ * Delega en clampToSafeBusinessHours para garantizar cumplimiento estricto de horarios comerciales
+ * prudentes y evitar cualquier riesgo de ser reportado por spam.
  */
 export function adjustToHumanHours(targetDate: Date, orgTimezone: string, now: Date = new Date()): Date {
-  let candidate = new Date(Math.max(targetDate.getTime(), now.getTime() + 10 * 60 * 1000));
-  const local = getLocalParts(candidate, orgTimezone);
-  const mins = local.hour * 60 + local.minute;
-
-  if (mins < 8 * 60) {
-    candidate = buildDateInTimeZone(local.year, local.month, local.day, 8, 30, orgTimezone);
-  } else if (mins >= 20 * 60 + 30) {
-    const nextDay = new Date(Date.UTC(local.year, local.month - 1, local.day + 1));
-    candidate = buildDateInTimeZone(
-      nextDay.getUTCFullYear(),
-      nextDay.getUTCMonth() + 1,
-      nextDay.getUTCDate(),
-      9,
-      0,
-      orgTimezone
-    );
-  }
-
-  return candidate;
+  const minFuture = new Date(Math.max(targetDate.getTime(), now.getTime() + 10 * 60 * 1000));
+  return clampToSafeBusinessHours(minFuture, undefined, orgTimezone);
 }
 
 /**

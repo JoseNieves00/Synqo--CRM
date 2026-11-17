@@ -48,6 +48,7 @@ import {
   Save,
   DoorOpen,
   Smartphone,
+  Truck,
   Instagram,
   Video,
   Shield,
@@ -104,6 +105,13 @@ const FollowUpSequencesSettings = dynamic(() => import('./FollowUpSequencesSetti
   loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando seguimientos...</div>,
   ssr: false,
 });
+
+const ShippingSettings = dynamic(() => import('./ShippingSettings').then((m) => m.ShippingSettings), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando envíos y fletes...</div>,
+  ssr: false,
+});
+
+import { ShippingSettings as ShippingSettingsType } from '@/lib/types/shipping';
 
 const PromptAssistantPanel = dynamic(
   () => import('./prompt-assistant/PromptAssistantPanel').then((m) => m.PromptAssistantPanel),
@@ -175,6 +183,7 @@ interface SettingsFormProps {
   specialistsData?: any[];
   roomsData?: any[];
   paymentAccountsData?: CustomPaymentAccount[];
+  shippingSettingsData?: ShippingSettingsType | null;
   quickRepliesData?: QuickSnippet[];
   aiSuggestionsData?: QuickSnippet[];
   followUpSequencesData?: FollowUpSettingsConfig;
@@ -195,13 +204,14 @@ export function SettingsForm({
   specialistsData,
   roomsData,
   paymentAccountsData = [],
+  shippingSettingsData,
   quickRepliesData = [],
   aiSuggestionsData = [],
   followUpSequencesData,
   isSuperAdmin = false,
 }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments' | 'quick_replies' | 'follow_ups'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
   const activeWaEngine: 'meta' | 'evolution' =
     initialData.whatsappProvider === 'evolution' || initialData.evolutionInstanceName
       ? 'evolution'
@@ -1068,6 +1078,19 @@ export function SettingsForm({
 
         <button
           type="button"
+          onClick={() => setActiveTab('shipping')}
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+            activeTab === 'shipping'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <Truck className="w-4 h-4 text-blue-500" />
+          <span>Envíos & Fletes</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('quick_replies')}
           className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'quick_replies'
@@ -1106,6 +1129,8 @@ export function SettingsForm({
         />
       ) : activeTab === 'payments' ? (
         <PaymentAccountsSettings initialAccounts={paymentAccountsData || []} />
+      ) : activeTab === 'shipping' ? (
+        <ShippingSettings initialSettings={shippingSettingsData} />
       ) : activeTab === 'specialists' && enabledModules.staff_mobile_portal ? (
         <SpecialistsTab
           specialists={specialistsData || []}

@@ -4,26 +4,26 @@ import { AssignmentService } from '../services/assignment.service';
 async function runMultiAgentTests() {
   console.log('\n🧪 Iniciando Suite de Pruebas: Asignación Multi-Agente & Bloqueo Concurrente...\n');
 
-  // 1. Obtener una organización de prueba y perfiles existentes
-  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+  // 1. Crear organización efímera para pruebas (cero contaminación de producción)
+  const ephemeralOrgName = `__TEST_ASSIGN_ORG_${Date.now()}__`;
+  const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
+    .insert({
+      name: ephemeralOrgName,
+      company_code: `TEST${Math.floor(1000 + Math.random() * 9000)}`,
+      whatsapp_provider: 'meta',
+      is_active: false,
+    })
     .select('id, name')
-    .limit(1)
     .single();
 
-  if (!org) {
-    throw new Error('No se encontró una organización de prueba en la base de datos.');
+  if (orgErr || !org?.id) {
+    throw new Error(`Error creando org efímera de asignación: ${orgErr?.message}`);
   }
 
-  const { data: profiles } = await (supabaseAdmin.from('profiles') as any)
-    .select('id, full_name, email, role')
-    .eq('organization_id', org.id);
-
-  if (!profiles || profiles.length === 0) {
-    throw new Error('No hay perfiles para probar en la organización.');
-  }
-
-  const testUser = profiles[0];
-  console.log(`1️⃣  Organización de prueba: "${org.name}", Usuario: "${testUser.full_name}" (${testUser.role})`);
+  const tempOrgId = org.id;
+  const dummyAgent1 = '00000000-0000-0000-0000-000000000001';
+  const dummyAgent2 = '00000000-0000-0000-0000-000000000002';
+  console.log(`1️⃣  Organización aislada: "${org.name}"`);
 
   // 2. Probar AssignmentService cuando no hay agentes disponibles (debe retornar null para cola del Admin)
   console.log('\n2️⃣  Probando AssignmentService.findBestAvailableAgent...');
@@ -60,17 +60,16 @@ async function runMultiAgentTests() {
 
       // Simular dos peticiones atómicas concurrentes sobre el mismo lead
       const { data: attempt1 } = await (supabaseAdmin.from('contacts') as any)
-        .update({ assigned_to: testUser.id, updated_at: new Date().toISOString() })
+        .update({ assigned_to: dummyAgent1, updated_at: new Date().toISOString() })
         .eq('id', contact.id)
-        .eq('organization_id', org.id)
+        .eq('organization_id', tempOrgId)
         .is('assigned_to', null)
         .select('id, assigned_to');
 
-      const dummyAgentId = profiles.length > 1 ? profiles[1].id : testUser.id;
       const { data: attempt2 } = await (supabaseAdmin.from('contacts') as any)
-        .update({ assigned_to: dummyAgentId, updated_at: new Date().toISOString() })
+        .update({ assigned_to: dummyAgent2, updated_at: new Date().toISOString() })
         .eq('id', contact.id)
-        .eq('organization_id', org.id)
+        .eq('organization_id', tempOrgId)
         .is('assigned_to', null)
         .select('id, assigned_to');
 
@@ -82,13 +81,13 @@ async function runMultiAgentTests() {
         console.log(`   ✅ Intento 2 (Segundo Agente): Bloqueado atómicamente (0 filas modificadas).`);
         console.log(`   🛡️ ¡CERO REDUNDANCIA: Carrera concurrente prevenida a nivel de base de datos!`);
       }
-
-      // Limpieza
-      await (supabaseAdmin.from('contacts') as any).delete().eq('id', contact.id);
-      console.log('   ✅ Limpieza de datos completada.');
     }
   } catch (err: any) {
     console.warn('   ⚠️ Verificación de base de datos finalizada:', err.message);
+  } finally {
+    await (supabaseAdmin.from('contacts') as any).delete().eq('organization_id', tempOrgId);
+    await (supabaseAdmin.from('organizations') as any).delete().eq('id', tempOrgId);
+    console.log('   ✅ Limpieza de organización efímera completada.');
   }
 
   // 4. Probar lógica de ordenamiento y balanceo de carga en memoria

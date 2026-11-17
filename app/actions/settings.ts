@@ -20,6 +20,11 @@ import {
   normalizeFollowUpSettings,
 } from '@/lib/ai/follow-up-types';
 import { resolveFollowUpHoldReason } from '@/lib/leads/followup-gates';
+import {
+  ShippingSettings,
+  createDefaultShippingSettings,
+  ShippingCityRate,
+} from '@/lib/types/shipping';
 
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
@@ -850,6 +855,113 @@ export async function saveOrganizationPaymentAccounts(
   revalidatePath('/settings');
   revalidatePath('/inbox');
   return { success: true, accounts: cleanAccounts };
+}
+
+/**
+ * Obtiene la configuración de envíos y tarifas por ciudad/municipio de la organización
+ */
+export async function getOrganizationShippingSettings(): Promise<ShippingSettings> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return createDefaultShippingSettings();
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) return createDefaultShippingSettings();
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', profile.organization_id)
+    .single();
+
+  const settings = (org?.appointment_settings as any) || {};
+  if (settings.shipping_settings && typeof settings.shipping_settings === 'object') {
+    return {
+      ...createDefaultShippingSettings(),
+      ...settings.shipping_settings,
+      cityRates: Array.isArray(settings.shipping_settings.cityRates) ? settings.shipping_settings.cityRates : [],
+    };
+  }
+  return createDefaultShippingSettings();
+}
+
+/**
+ * Guarda o actualiza las políticas y tarifas de envío por ciudad/municipio de la organización
+ */
+export async function saveOrganizationShippingSettings(
+  settings: Partial<ShippingSettings>
+): Promise<{ success: boolean; error?: string; settings?: ShippingSettings }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: 'No autorizado' };
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    return { success: false, error: 'Solo administradores o supervisores pueden configurar políticas de envío.' };
+  }
+
+  const orgId = profile.organization_id;
+
+  const cleanCityRates: ShippingCityRate[] = Array.isArray(settings.cityRates)
+    ? settings.cityRates
+        .filter((c) => c && c.city && c.city.trim())
+        .map((c, idx) => ({
+          id: c.id || `city-${Date.now()}-${idx}`,
+          city: c.city.trim().slice(0, 100),
+          department: c.department?.trim().slice(0, 80) || undefined,
+          cost: Math.max(0, Number(c.cost) || 0),
+          isCashOnDelivery: Boolean(c.isCashOnDelivery),
+          deliveryTime: c.deliveryTime?.trim().slice(0, 100) || undefined,
+          notes: c.notes?.trim().slice(0, 200) || undefined,
+        }))
+    : [];
+
+  const cleanSettings: ShippingSettings = {
+    enabled: settings.enabled ?? true,
+    baseRate: Math.max(0, Number(settings.baseRate) || 0),
+    allowCashOnDelivery: Boolean(settings.allowCashOnDelivery),
+    freeShippingMinAmount: settings.freeShippingMinAmount ? Math.max(0, Number(settings.freeShippingMinAmount)) : null,
+    carrierNames: settings.carrierNames?.trim().slice(0, 160) || 'Coordinadora, Envía, Interrapidísimo',
+    generalPolicy: settings.generalPolicy?.trim().slice(0, 500) || undefined,
+    cityRates: cleanCityRates,
+  };
+
+  const { data: org, error: orgReadErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', orgId)
+    .single();
+
+  if (orgReadErr || !org) {
+    return { success: false, error: 'Organización no encontrada.' };
+  }
+
+  const currentSettings = (org.appointment_settings as any) || {};
+  const updatedSettings = {
+    ...currentSettings,
+    shipping_settings: cleanSettings,
+  };
+
+  const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: updatedSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateErr) {
+    return { success: false, error: `Error guardando configuración de envíos: ${updateErr.message}` };
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true, settings: cleanSettings };
 }
 
 /**

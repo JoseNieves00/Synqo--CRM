@@ -6,6 +6,9 @@
  * 3) Respaldo multi-nicho por defecto cuando la empresa no definió una regla específica.
  */
 
+import { formatAllPaymentAccountsText, CustomPaymentAccount } from '@/lib/types/payments';
+import { formatShippingPolicyPrompt, ShippingSettings } from '@/lib/types/shipping';
+
 export interface SalesPlaybookOptions {
   hasCalendar?: boolean;
 }
@@ -38,7 +41,7 @@ Agenda (módulo activo):
 - Usa send_product_card(product_name_or_id, details, image_role?) ante consultas de producto, servicio, tarifa o catálogo con foto en galería, O cuando <instrucciones_del_negocio> indique enviar fotos/modelos ante saludos o pedidos de información general.
 - Si un producto tiene varias fotos en galería (ej. principal, personalizada, de lado, accesorios), comprende que pertenecen al MISMO producto. Si el cliente pide ver detalles, otra vista o personalización, envía esa vista específica con image_role sin confundirlo con otro producto.
 - El servidor adjunta foto y precio oficial; en details pasa solo especificaciones reales del prompt sin inventar precios.
-- REGLA DE NO-REPETICIÓN EN TEXTO: Tras enviar tarjetas/fotos, tu mensaje de texto debe adaptarse exactamente a <instrucciones_del_negocio>. Si la empresa indica no repetir precios, medidas ni catálogos en texto, tu mensaje final debe ser ÚNICAMENTE una sola pregunta breve de cierre orientada a la venta.
+- REGLA ESTRICTA DE NO-DUPLICACIÓN: Cada vez que envíes tarjetas o fotos de productos con send_product_card o send_whatsapp_image (o si el cliente ya las recibió), queda TOTALMENTE PROHIBIDO volver a escribir o listar en tu mensaje de texto los nombres de los productos, precios, medidas, dimensiones o características que ya están en las tarjetas o fotos. Tu mensaje final de texto debe ser ÚNICAMENTE 1 sola pregunta o frase breve de cierre conversacional y consultiva orientada al cliente (ej: "¿Cuál de estas opciones se adapta mejor a tu espacio o te gustaría conocer más a fondo?"). Cero listas numeradas, cero viñetas de especificaciones y cero duplicaciones de información.
 - Si falta foto en galería, da precios/datos reales sin decir "no tengo fotos"; usa request_human_handoff solo si exigen imagen.
 
 4. Estilo y flujo consultivo (respaldo por defecto):
@@ -74,13 +77,38 @@ Agenda (módulo activo):
 export function composePlaybookAndBusinessPrompt(params: {
   businessPrompt: string | null | undefined;
   hasCalendar?: boolean;
+  paymentAccounts?: CustomPaymentAccount[] | null;
+  shippingSettings?: ShippingSettings | null;
 }): string {
   const withoutDuplicateGalleryTail = String(params.businessPrompt || '')
     .replace(GALLERY_TAIL_REGEX, '')
     .trim();
   const cleanBusiness = withoutDuplicateGalleryTail || 'Eres el asesor comercial de la empresa.';
+
+  const extraBusinessSections: string[] = [];
+
+  // 1. Cuentas y medios de pago oficiales configurados en Ajustes
+  if (Array.isArray(params.paymentAccounts) && params.paymentAccounts.length > 0) {
+    const formattedPayments = formatAllPaymentAccountsText(params.paymentAccounts);
+    if (formattedPayments) {
+      extraBusinessSections.push(
+        `<cuentas_de_pago_oficiales>\n${formattedPayments}\nUsa ÚNICAMENTE estos datos bancarios oficiales cuando el cliente solicite medios de pago, transferir o cancelar su pedido.\n</cuentas_de_pago_oficiales>`
+      );
+    }
+  }
+
+  // 2. Políticas y tarifas de envío por ciudad o municipio configuradas en Ajustes
+  if (params.shippingSettings && params.shippingSettings.enabled) {
+    const formattedShipping = formatShippingPolicyPrompt(params.shippingSettings);
+    if (formattedShipping) {
+      extraBusinessSections.push(formattedShipping);
+    }
+  }
+
+  const businessContent = [cleanBusiness, ...extraBusinessSections].join('\n\n');
+
   return [
     buildSalesPlaybook({ hasCalendar: params.hasCalendar }),
-    `<instrucciones_del_negocio prioridad="MAXIMA">\nEstas reglas fueron configuradas por la empresa cliente y MANDAN sobre estilo, brevedad, formato visual o cierre del playbook base (dentro de los guardrails de seguridad).\n\n${cleanBusiness}\n</instrucciones_del_negocio>`,
+    `<instrucciones_del_negocio prioridad="MAXIMA">\nEstas reglas fueron configuradas por la empresa cliente y MANDAN sobre estilo, brevedad, formato visual o cierre del playbook base (dentro de los guardrails de seguridad).\n\n${businessContent}\n</instrucciones_del_negocio>`,
   ].join('\n\n');
 }

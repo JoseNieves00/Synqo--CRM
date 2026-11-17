@@ -1,7 +1,7 @@
 'use client';
 
 import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   DollarSign,
@@ -28,7 +28,10 @@ import {
   ShoppingBag,
   UserRoundSearch,
   Plus,
+  Truck,
+  Copy,
 } from 'lucide-react';
+import { CustomerShippingData, formatShippingGuideText } from '@/lib/types/shipping';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import {
@@ -117,6 +120,74 @@ export function ContactPanel({
     notesCount: number;
   } | null>(null);
 
+  // Datos de Guía de Envío (Nombre, Identificación, Teléfono, Ciudad, Dirección)
+  const initialShipping = useMemo<CustomerShippingData>(() => {
+    const raw = contact.custom_fields?.shipping_data || {};
+    return {
+      recipient_name: raw.recipient_name || contact.name || '',
+      id_number: raw.id_number || contact.custom_fields?.id_number || '',
+      phone: raw.phone || contact.phone || '',
+      destination_city: raw.destination_city || contact.custom_fields?.city || '',
+      address: raw.address || contact.custom_fields?.address || '',
+      notes: raw.notes || '',
+    };
+  }, [contact]);
+
+  const [shippingData, setShippingData] = useState<CustomerShippingData>(initialShipping);
+  const [isEditingShipping, setIsEditingShipping] = useState(false);
+  const [isSavingShipping, setIsSavingShipping] = useState(false);
+  const [hasCopiedGuide, setHasCopiedGuide] = useState(false);
+  const [editShippingForm, setEditShippingForm] = useState<CustomerShippingData>(initialShipping);
+
+  const shippingCompletedFieldsCount = useMemo(() => {
+    let count = 0;
+    if (shippingData.recipient_name?.trim()) count++;
+    if (shippingData.id_number?.trim()) count++;
+    if (shippingData.phone?.trim()) count++;
+    if (shippingData.destination_city?.trim()) count++;
+    if (shippingData.address?.trim()) count++;
+    return count;
+  }, [shippingData]);
+
+  const handleCopyShippingGuide = () => {
+    const text = formatShippingGuideText(shippingData);
+    navigator.clipboard.writeText(text);
+    setHasCopiedGuide(true);
+    setTimeout(() => setHasCopiedGuide(false), 2200);
+  };
+
+  const handleSaveShippingData = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingShipping(true);
+    try {
+      const updatedCustom = {
+        ...(contact.custom_fields || {}),
+        shipping_data: editShippingForm,
+        id_number: editShippingForm.id_number || contact.custom_fields?.id_number,
+        city: editShippingForm.destination_city || contact.custom_fields?.city,
+        address: editShippingForm.address || contact.custom_fields?.address,
+      };
+
+      const newName = editShippingForm.recipient_name?.trim() || contact.name;
+
+      await updateContactDetails(contact.id, {
+        name: newName || undefined,
+        customFields: updatedCustom,
+      });
+
+      setShippingData(editShippingForm);
+      setIsEditingShipping(false);
+      onContactUpdate?.({
+        name: newName,
+        custom_fields: updatedCustom,
+      });
+    } catch (err) {
+      console.error('[ContactPanel] Error guardando datos de guía de envío:', err);
+    } finally {
+      setIsSavingShipping(false);
+    }
+  };
+
   const loadCrmMini = React.useCallback(async () => {
     try {
       const res = await getCustomer360Action(contact.id);
@@ -141,7 +212,9 @@ export function ContactPanel({
     setDealValue(contact.deal_value ? String(contact.deal_value) : contact.custom_fields?.deal_value ? String(contact.custom_fields?.deal_value) : '');
     setTemperature(resolveLeadTemperature(contact.custom_fields) || 'warm');
     setAiSummary(contact.custom_fields?.ai_summary || null);
-  }, [contact]);
+    setShippingData(initialShipping);
+    setEditShippingForm(initialShipping);
+  }, [contact, initialShipping]);
 
   // Cambiar etapa comercial
   const handleStageChange = async (newStage: string) => {
@@ -685,6 +758,236 @@ export function ContactPanel({
               Notas equipo ({crmMini?.notesCount ?? 0})
             </button>
           </div>
+        </div>
+
+        {/* Datos de Guía de Envío */}
+        <div className="p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]/60 space-y-2">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Truck className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
+              <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate">
+                Datos para Guía de Envío
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                  shippingCompletedFieldsCount === 5
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20'
+                }`}
+              >
+                {shippingCompletedFieldsCount === 5 ? '5/5 Completo' : `${shippingCompletedFieldsCount}/5 Datos`}
+              </span>
+              {!isEditingShipping && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingShipping(true)}
+                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition cursor-pointer"
+                  title="Editar datos de guía"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!isEditingShipping ? (
+            <div className="space-y-1.5 text-[11px]">
+              <div className="grid grid-cols-1 gap-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-slate-200/80 dark:border-[#232A3B]">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-slate-400 font-medium shrink-0">Nombre:</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-semibold text-right truncate">
+                    {shippingData.recipient_name || contact.name || (
+                      <span className="text-slate-400 italic font-normal">Pendiente</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-slate-400 font-medium shrink-0">Cédula / NIT:</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-mono text-right truncate">
+                    {shippingData.id_number || (
+                      <span className="text-slate-400 italic font-sans">Pendiente</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-slate-400 font-medium shrink-0">Teléfono:</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-mono text-right truncate">
+                    {shippingData.phone || contact.phone || (
+                      <span className="text-slate-400 italic font-sans">Pendiente</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-slate-400 font-medium shrink-0">Ciudad destino:</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-medium text-right truncate">
+                    {shippingData.destination_city || (
+                      <span className="text-slate-400 italic font-normal">Pendiente</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-slate-400 font-medium shrink-0">Dirección:</span>
+                  <span className="text-slate-800 dark:text-slate-200 text-right text-[10.5px] leading-tight max-w-[190px]">
+                    {shippingData.address || (
+                      <span className="text-slate-400 italic">Pendiente</span>
+                    )}
+                  </span>
+                </div>
+                {shippingData.notes && (
+                  <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-[#1F2637]">
+                    <span className="text-slate-400 font-medium shrink-0">Notas:</span>
+                    <span className="text-slate-600 dark:text-slate-400 text-right text-[10px] italic">
+                      {shippingData.notes}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyShippingGuide}
+                className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border shadow-2xs ${
+                  hasCopiedGuide
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 dark:bg-[#131722] dark:hover:bg-[#1A1F2C] dark:text-slate-200 dark:border-[#232A3B]'
+                }`}
+              >
+                {hasCopiedGuide ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>¡Copiado para Transportadora!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Copiar para Guía (1 Clic)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSaveShippingData} className="space-y-2 pt-1 animate-in fade-in">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+                  Nombre completo (quien recibe)
+                </label>
+                <input
+                  type="text"
+                  value={editShippingForm.recipient_name || ''}
+                  onChange={(e) =>
+                    setEditShippingForm({ ...editShippingForm, recipient_name: e.target.value })
+                  }
+                  placeholder="Ej: Carlos Mario Gómez"
+                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+                    Cédula / NIT / DNI
+                  </label>
+                  <input
+                    type="text"
+                    value={editShippingForm.id_number || ''}
+                    onChange={(e) =>
+                      setEditShippingForm({ ...editShippingForm, id_number: e.target.value })
+                    }
+                    placeholder="Ej: 1045892341"
+                    className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+                    Teléfono celular
+                  </label>
+                  <input
+                    type="text"
+                    value={editShippingForm.phone || ''}
+                    onChange={(e) =>
+                      setEditShippingForm({ ...editShippingForm, phone: e.target.value })
+                    }
+                    placeholder="Ej: 3001234567"
+                    className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+                  Ciudad o Municipio de destino
+                </label>
+                <input
+                  type="text"
+                  value={editShippingForm.destination_city || ''}
+                  onChange={(e) =>
+                    setEditShippingForm({ ...editShippingForm, destination_city: e.target.value })
+                  }
+                  placeholder="Ej: Barranquilla, Atlántico"
+                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+                  Dirección completa (calle, barrio, apto)
+                </label>
+                <input
+                  type="text"
+                  value={editShippingForm.address || ''}
+                  onChange={(e) =>
+                    setEditShippingForm({ ...editShippingForm, address: e.target.value })
+                  }
+                  placeholder="Ej: Cra 45 # 84-12 Apt 402, Barrio Riomar"
+                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+                  Indicaciones / Observaciones (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={editShippingForm.notes || ''}
+                  onChange={(e) =>
+                    setEditShippingForm({ ...editShippingForm, notes: e.target.value })
+                  }
+                  placeholder="Ej: Casa esquinera portón negro"
+                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditShippingForm(shippingData);
+                    setIsEditingShipping(false);
+                  }}
+                  className="flex-1 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingShipping}
+                  className="flex-1 py-1 rounded-lg text-xs font-semibold text-white bg-[#0052FF] hover:bg-[#0043D4] transition cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
+                >
+                  {isSavingShipping ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Guardar datos</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
         {/* Ficha / Notas Internas */}
