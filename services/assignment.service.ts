@@ -335,7 +335,7 @@ export class AssignmentService {
         contactId: contact.id,
         channel,
         strategy: 'regenerate',
-        maxAttempts: 2,
+        payload: { reason: 'auto_resume_staleness' },
       });
 
       console.log(`[ASSIGNMENT SERVICE] 🤖 IA retomó la atención del contacto ${contact.id} tras ${stalenessMinutes} min sin respuesta humana`);

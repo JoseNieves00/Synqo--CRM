@@ -23,6 +23,7 @@ export interface AiRetryPayload {
   text?: string | null;
   media?: Array<{ url: string; caption?: string }>;
   insertedMessageId?: string | null;
+  reason?: string | null;
 }
 
 export interface AiRetryEnqueueParams {

@@ -122,5 +122,4 @@ export function composePlaybookAndBusinessPrompt(params: {
     buildSalesPlaybook({ hasCalendar: params.hasCalendar }),
     `<instrucciones_del_negocio prioridad="MAXIMA">\nEstas reglas fueron configuradas por la empresa cliente y MANDAN sobre estilo, brevedad, formato visual o cierre del playbook base (dentro de los guardrails de seguridad).\n\n${businessContent}\n</instrucciones_del_negocio>${defensiveSuffix}`,
   ].join('\n\n');
-  ].join('\n\n');
 }
