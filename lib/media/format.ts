@@ -373,3 +373,45 @@ export function parseQuoteMessageContent(content: string | null | undefined): Pa
 
   return { hasQuote: false, actualText: content };
 }
+
+/**
+ * Blindaje Determinístico Anti-Redundancia tras Enviar Tarjetas de Producto.
+ *
+ * Cuando la IA despachó una o más tarjetas con fotos oficiales (que ya llevan
+ * nombre, precio y medidas en el caption de la imagen), este guardrail poda
+ * determinísticamente cualquier listado redundante de precios, medidas o alturas
+ * que el modelo intente emitir en el texto final, garantizando que el usuario
+ * reciba ÚNICAMENTE la pregunta de cierre o el mensaje conversacional limpio.
+ */
+export function stripRedundantCatalogListAfterCards(text: string): string {
+  if (!text || typeof text !== 'string') return text;
+
+  const lines = text.split('\n');
+  const cleanedLines: string[] = [];
+
+  // Patrones que identifican líneas de viñeta o lista con precios/medidas repetitivas
+  const bulletPattern = /^(\s*[-*•–—]|\s*\d+[.)])\s+/;
+  const catalogSignalPattern = /(precio|altura|ancho|profundidad|medida|\$\s*\d|\d+\s*(cm|m\b))/i;
+  const singleAttributePattern = /^(altura|precio|medidas?|dimensiones?)\s*:\s*.+/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      cleanedLines.push(line);
+      continue;
+    }
+    // Si es un ítem de viñeta con precio/medidas, podar
+    if (bulletPattern.test(trimmed) && catalogSignalPattern.test(trimmed)) {
+      continue;
+    }
+    // Si es un atributo suelto sin viñeta (ej. "Altura: 1,07 m")
+    if (singleAttributePattern.test(trimmed)) {
+      continue;
+    }
+    cleanedLines.push(line);
+  }
+
+  const result = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return result || '¿Cuál de estos modelos se adapta mejor a tu espacio?';
+}
+
