@@ -21,7 +21,7 @@ import {
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { HandoffService } from './handoff.service';
-import { formatImageMessageContent } from '@/lib/media/format';
+import { formatImageMessageContent, stripRedundantCatalogListAfterCards } from '@/lib/media/format';
 import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
 import { evaluatePromptReadiness } from '@/lib/ai/prompt-assistant/readiness';
 import { decryptSecret } from '@/lib/security/encryption';
@@ -1379,7 +1379,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     caption,
                     already_visible_in_card: true,
                     message:
-                      'Tarjeta visual enviada al cliente con foto oficial, precio y caption. No escribas enlaces en tu texto. Para tu mensaje final, sigue exactamente las reglas de <instrucciones_del_negocio>: si indican evitar redundancias o no repetir datos ya visibles en la imagen/caption, no vuelvas a listar esos mismos ítems y pasa directo a dudas pendientes o al cierre.',
+                      'Tarjeta visual enviada al cliente con foto oficial, precio y medidas en el pie de foto. TU MENSAJE FINAL DE TEXTO TIENE PROHIBIDO VOLVER A LISTAR PRECIOS, MEDIDAS O CARACTERÍSTICAS YA ENVIADAS EN LA TARJETA. Tu mensaje de texto debe ser ÚNICAMENTE 1 sola pregunta breve de cierre orientada a la venta (ej: "¿Cuál de estos modelos se adapta mejor a tu espacio?"). No escribas enlaces.',
                   });
                 }
               }
@@ -2274,6 +2274,13 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         } catch (sumErr) {
           console.warn('[AUTO SUMMARY WARN]', sumErr);
         }
+      }
+
+      // Blindaje Determinístico: Si la IA despachó tarjetas con foto/precio/medidas en este turno,
+      // se poda cualquier lista repetitiva de precios/medidas en el texto final, garantizando que el
+      // cliente solo reciba la pregunta limpia de cierre.
+      if (dispatchedUrlsThisTurn.size > 0 && finalResponseText) {
+        finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText);
       }
 
       return {

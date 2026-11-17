@@ -10,6 +10,7 @@ import {
   stripPhotoUrlsFromText,
   extractPhotoUrlsFromText,
   isPaymentReceiptHint,
+  stripRedundantCatalogListAfterCards,
 } from '../lib/media/format';
 import { isCourtesyClosingMessage } from '../services/inbound-core.service';
 import { MessagingService } from '../services/messaging.service';
@@ -272,6 +273,42 @@ Ubicación: Valledupar
   assert.strictEqual(isCourtesyClosingMessage('gracias, cuanto vale?'), false, 'Pregunta con gracias no debe cerrarse prematuramente');
   assert.strictEqual(typeof MessagingService.sendReactionMessage, 'function', 'sendReactionMessage debe estar expuesto');
   console.log('   ✅ Detección de cortesía y despacho de reacciones 👍 aprobado con 0 tokens de IA.');
+
+  // 8. Blindaje Determinístico Anti-Redundancia tras Enviar Fotos/Tarjetas
+  console.log('\n8️⃣  Probando Blindaje Determinístico Anti-Redundancia (stripRedundantCatalogListAfterCards)...');
+  const sampleRedundantResponse = `- Altura: 1,07 m
+- Precio: $350.000
+- Altura: 1,20 m
+- Precio: $410.000
+- Altura: 1,02 m
+- Precio: $550.000
+- Altura: 1,10 m
+- Precio: $555.000
+Si tienes alguna duda o necesitas más información sobre algún modelo en particular, ¡házmelo saber! 😊`;
+
+  const cleaned = stripRedundantCatalogListAfterCards(sampleRedundantResponse);
+  assert.strictEqual(
+    cleaned,
+    'Si tienes alguna duda o necesitas más información sobre algún modelo en particular, ¡házmelo saber! 😊',
+    'Las viñetas redundantes de altura y precio deben ser podadas determinísticamente'
+  );
+
+  const onlyBullets = `- Cocina pequeña: $350.000 (1,07 m alto)
+- Cocina mediana: $410.000 (1,20 m alto)`;
+  const cleanedFallback = stripRedundantCatalogListAfterCards(onlyBullets);
+  assert.strictEqual(
+    cleanedFallback,
+    '¿Cuál de estos modelos se adapta mejor a tu espacio?',
+    'Si solo había viñetas podadas, debe devolver la pregunta de cierre limpia de respaldo'
+  );
+
+  const cleanClosing = '¿Cuál de estos tamaños se adapta mejor a tu espacio?';
+  assert.strictEqual(
+    stripRedundantCatalogListAfterCards(cleanClosing),
+    cleanClosing,
+    'Un mensaje que ya es pregunta de cierre limpia no debe ser alterado'
+  );
+  console.log('   ✅ Blindaje Determinístico Anti-Redundancia verificado al 100%.');
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE MULTIMEDIA E IMÁGENES PASARON EXITOSAMENTE!\n');
 }
