@@ -188,6 +188,11 @@ async function runTests() {
   });
   assert.strictEqual(msgPhoneOnly, '¡Hola! Seguimos atentos.', 'No debe saludar con el teléfono');
 
+  const msgSpacePrimerNombre = interpolateFollowUpText('Hola {primer nombre}!, te recordamos...', {
+    contactName: 'Carlos Pérez',
+  });
+  assert.strictEqual(msgSpacePrimerNombre, 'Hola Carlos!, te recordamos...', 'Debe soportar {primer nombre} con espacio');
+
   assert.strictEqual(resolveLeadTemperature({ lead_temperature: 'hot', temperature: 'warm' }), 'hot');
   assert.strictEqual(resolveLeadTemperature({ temperature: 'warm' }), 'warm');
   assert.strictEqual(

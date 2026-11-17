@@ -530,21 +530,15 @@ export function ChatInput({
     if (!cleanFirstName) {
       // Sanitización limpia: convertir "¡Hola {primer_nombre}!" en "¡Hola!" sin repetir "¡Hola hola!" ni "estimado cliente"
       processed = processed
-        .replace(/¡?Hola\s+\{primer_nombre\}!?/gi, '¡Hola!')
-        .replace(/¡?Hola\s+\{nombre\}!?/gi, '¡Hola!')
-        .replace(/¡?Hola\s+\{first_name\}!?/gi, '¡Hola!')
-        .replace(/¡?Hola\s+\{name\}!?/gi, '¡Hola!')
-        .replace(/Hola\s+\{primer_nombre\},?/gi, 'Hola,')
-        .replace(/\{primer_nombre\}/gi, '')
-        .replace(/\{nombre\}/gi, '')
-        .replace(/\{first_name\}/gi, '')
-        .replace(/\{name\}/gi, '');
+        .replace(/¡?Hola\s+\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|first_name)\s*\}?\}!?/gi, '¡Hola!')
+        .replace(/¡?Hola\s+\{\{?\s*(nombre|name)\s*\}?\}!?/gi, '¡Hola!')
+        .replace(/Hola\s+\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|first_name)\s*\}?\},?/gi, 'Hola,')
+        .replace(/\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|first_name)\s*\}?\}/gi, '')
+        .replace(/\{\{?\s*(nombre|name)\s*\}?\}/gi, '');
     } else {
       processed = processed
-        .replace(/\{primer_nombre\}/gi, cleanFirstName)
-        .replace(/\{nombre\}/gi, cleanFullName)
-        .replace(/\{first_name\}/gi, cleanFirstName)
-        .replace(/\{name\}/gi, cleanFullName);
+        .replace(/\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|first_name)\s*\}?\}/gi, cleanFirstName)
+        .replace(/\{\{?\s*(nombre|name)\s*\}?\}/gi, cleanFullName);
     }
     processed = processed.replace(/\{telefono\}/gi, contactPhone || '').replace(/\s{2,}/g, ' ').trim();
 

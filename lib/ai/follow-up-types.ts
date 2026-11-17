@@ -422,12 +422,12 @@ export function interpolateFollowUpText(
     // Si no es un nombre real (ej: "Dios es amor", "🌵", "Life Goes On"),
     // convertimos limpiamente "¡Hola {primer_nombre}!" en "¡Hola!" sin sonar robóticos
     res = res
-      .replace(/¡?Hola\s+\{\{?\s*(primer_nombre|nombre)\s*\}?\}!?/gi, '¡Hola!')
-      .replace(/Hola\s+\{\{?\s*(primer_nombre|nombre)\s*\}?\},?/gi, 'Hola,')
-      .replace(/\{\{?\s*(primer_nombre|nombre)\s*\}?\}/gi, '');
+      .replace(/¡?Hola\s+\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|nombre)\s*\}?\}!?/gi, '¡Hola!')
+      .replace(/Hola\s+\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|nombre)\s*\}?\},?/gi, 'Hola,')
+      .replace(/\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre|nombre)\s*\}?\}/gi, '');
   } else {
     res = res
-      .replace(/\{\{?\s*primer_nombre\s*\}?\}/gi, firstName)
+      .replace(/\{\{?\s*(primer[\s_-]+nombre|primerNombre|primer_nombre)\s*\}?\}/gi, firstName)
       .replace(/\{\{?\s*nombre\s*\}?\}/gi, firstName || fullName);
   }
 
