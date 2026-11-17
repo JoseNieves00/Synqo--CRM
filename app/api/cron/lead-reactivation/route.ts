@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { LeadReactivationService } from '@/services/reactivation.service';
+import { AiRetryService } from '@/services/ai-retry.service';
 import { OpenAIService } from '@/services/openai.service';
 import { PlatformAlertService } from '@/services/platform-alert.service';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
@@ -76,6 +77,16 @@ async function handleCron(request: NextRequest) {
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
+    // 2a. Reintentos diferidos de IA (respuestas ya generadas que no pudieron despacharse,
+    //     o turnos de IA que fallaron antes de responder: 0 tokens de re-generación en resend)
+    const aiRetryResult =
+      remainingMs() > 12_000
+        ? await AiRetryService.processPendingRetries({
+            organizationId: orgId,
+            deadlineMs: Date.now() + Math.min(12_000, remainingMs() - 5_000),
+          }).catch((err: any) => ({ error: String(err?.message || err), processed: 0, sent: 0 }))
+        : { skipped: 'time_budget' };
+
     // 2b. Campañas IA a segmentos (comparten topes anti-ban con el recontacto)
     const campaignResult =
       remainingMs() > 10_000
@@ -108,6 +119,7 @@ async function handleCron(request: NextRequest) {
       durationMs: Date.now() - startedAt,
       ...reactivationResult,
       leadScore: leadScoreResult,
+      aiRetries: aiRetryResult,
       campaigns: campaignResult,
       autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,

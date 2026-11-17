@@ -24,7 +24,7 @@ import {
   type FollowUpStep,
   createEmptyFollowUpSettings,
 } from '@/lib/ai/follow-up-types';
-import { saveFollowUpSequences, suggestFollowUpSequences } from '@/app/actions/settings';
+import { saveFollowUpSequences, suggestFollowUpSequences, getFollowUpHealthAction } from '@/app/actions/settings';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { compressImageClient } from '@/lib/media/client-compression';
 
@@ -90,7 +90,21 @@ export function FollowUpSequencesSettings({
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [uploadingStepId, setUploadingStepId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [health, setHealth] = useState<Awaited<ReturnType<typeof getFollowUpHealthAction>> | null>(null);
   const lastExternalNonceRef = useRef<number>(0);
+
+  // Salud de seguimientos: visibilidad de por qué se envía o no (sin `continue` silenciosos)
+  useEffect(() => {
+    let alive = true;
+    getFollowUpHealthAction()
+      .then((h) => {
+        if (alive) setHealth(h);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setFeedback({ type, message });
@@ -279,6 +293,56 @@ export function FollowUpSequencesSettings({
             <span>Protección anti-spam activa (máx. {config.dailyCap || 40}/día)</span>
           </div>
         </div>
+
+        {/* Banner crítico: secuencias configuradas pero interruptor maestro APAGADO → nada se envía */}
+        {(() => {
+          const configuredSteps = Object.values(config.sequences || {}).filter(
+            (seq: any) => seq?.enabled && Array.isArray(seq.steps) && seq.steps.length > 0
+          );
+          if (config.enabled || configuredSteps.length === 0) return null;
+          return (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-200">
+              <AlertCircle className="w-4.5 h-4.5 shrink-0 mt-0.5" />
+              <div className="text-xs leading-relaxed">
+                <p className="font-bold">Tienes {configuredSteps.length} secuencia(s) con mensajes configurados, pero el envío automático está APAGADO.</p>
+                <p className="mt-0.5">Nada se está enviando a tus clientes. Activa el interruptor «Activar envío automático programado» de arriba y guarda los cambios.</p>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Salud de seguimientos: qué está pasando ahora mismo con la cola */}
+        {health && (
+          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-[#232A3B] text-[11px] font-medium">
+            <span className="text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wide">Salud hoy:</span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B]">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              {health.sentToday} enviados hoy (tope {health.dailyCap})
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B]">
+              <Clock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              {health.pendingReminders} programados pendientes
+            </span>
+            {health.heldReminders > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-200">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {health.heldReminders} en espera (chat esperando respuesta del asesor)
+              </span>
+            )}
+            {health.pausedFollowUps > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-200">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {health.pausedFollowUps} pausados (fuera de ventana Meta 24h — se reactivan cuando el cliente escriba)
+              </span>
+            )}
+            {health.minLeadScore > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B]">
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+                Score mínimo {health.minLeadScore} (los pasos configurados no se filtran)
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Priorización por score de propensión de compra */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-[#232A3B]">

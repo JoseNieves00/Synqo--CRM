@@ -488,17 +488,20 @@ export function compileStructuredPrompt(data: StructuredPromptData): string {
     .map((faq) => `* P: "${faq.question}" -> R: "${faq.answer}"`)
     .join('\n');
 
+  // Lenguaje natural para el dueño del negocio: las herramientas de Synqo (check_native_availability,
+  // book_native_appointment, request_human_handoff) se activan igualmente por el playbook base de
+  // runtime — el cliente nunca necesita ver nombres de funciones en su prompt.
   const closingDirective =
     funnel.closingGoal === 'book_cal'
-      ? 'Tu meta de cierre es orientar al prospecto a agendar una cita o llamada usando check_native_availability y book_native_appointment cuando esté calificado.'
+      ? 'Tu meta de cierre es orientar al prospecto a agendar una cita o llamada: cuando esté calificado, verifica la disponibilidad real en la agenda y proponle 2 o 3 horarios concretos para elegir.'
       : funnel.closingGoal === 'take_order'
       ? 'Tu meta de cierre es concretar el pedido directo en WhatsApp solicitando los datos de despacho (nombre, dirección, ciudad) y método de pago preferido.'
-      : 'Tu meta de cierre es calificar al prospecto con las preguntas de diagnóstico y cuando muestre interés real, transferirlo al asesor humano usando request_human_handoff.';
+      : 'Tu meta de cierre es calificar al prospecto con las preguntas de diagnóstico y, cuando muestre interés real, pasarle la conversación al asesor humano de forma natural.';
 
   const handoffDirective =
     handoff.mode === 'silent'
-      ? 'Cuando actives el relevo silencioso (request_human_handoff), NO agregues mensajes largos ni inventes datos. El asesor humano tomará el control directo de la conversación en silencio para atender al cliente sin fricción.'
-      : 'Cuando actives el relevo (request_human_handoff), indícale al cliente de forma natural que vas a consultar el dato con el equipo/bodega/especialista para confirmar la información en breve y pregúntale con amabilidad si está de acuerdo (ej: "¿Te parece bien?"). Si es fuera de horario comercial, comprométete a primera hora en el próximo turno con un margen prudente. NUNCA digas que eres una IA ni rompas el personaje.';
+      ? 'Cuando actives el relevo silencioso, NO agregues mensajes largos ni inventes datos. El asesor humano tomará el control directo de la conversación en silencio para atender al cliente sin fricción.'
+      : 'Cuando actives el relevo, indícale al cliente de forma natural que vas a consultar el dato con el equipo/bodega/especialista para confirmar la información en breve y pregúntale con amabilidad si está de acuerdo (ej: "¿Te parece bien?"). Si es fuera de horario comercial, comprométete a primera hora en el próximo turno con un margen prudente. NUNCA digas que eres una IA ni rompas el personaje.';
 
   const accountsList: string[] = [];
   if (policies.paymentDetails?.nequi) {
@@ -563,10 +566,10 @@ ${faqsFormatted || 'Ninguna pregunta frecuente registrada aún.'}
 - FLEXIBILIDAD COMERCIAL Y CERO NEGATIVAS (NUNCA NEGAR LA COMPRA): NUNCA le digas a un cliente que "no puede comprar" un producto o servicio, ni que "no le sirve". Si el cliente pregunta por compatibilidad o alcance (ej: si una referencia, talla, plan o modalidad se ajusta a su caso), brinda los datos objetivos y presenta amablemente la opción siguiente o equivalente para que el cliente compare y decida libremente. Jamás cierres la puerta a una venta ni impongas prohibiciones.
 3. VENTA VISUAL PROACTIVA (LAS VENTAS EN WHATSAPP SON 100% VISUALES):
 - NUNCA esperes a que el cliente pida fotos explícitamente. Despacha fotos PROACTIVAMENTE:
-  * Cuando el cliente pregunte por un producto, servicio, modelo, características o tarifas: Si cuentas con fotos en la galería o enlaces configurados, DESPACHA LA FICHA VISUAL DE INMEDIATO usando send_product_card (o send_whatsapp_image) con los datos reales.
-  * Si la consulta es general (ej: "hola qué opciones tienen", "precios", "información"): Envía de inmediato las fichas visuales más relevantes acorde a lo que busca el cliente con send_product_card y redacta el mensaje final según la ruta de cierre del negocio (sin duplicar en texto los datos que ya van en el pie de foto si el negocio prefiere evitar redundancias).
-  * PROHIBICIÓN ESTRICTA: NUNCA escribas la URL de una imagen ni uses markdown ![foto](url) en tu respuesta de texto; WhatsApp no lo soporta y se ve roto. Las fotos se despachan exclusivamente mediante send_product_card o send_whatsapp_image.
-  * Si no tienes fotos cargadas para esa opción, confirma los datos y precios reales de forma clara y apóyate en el asesor con request_human_handoff solo si exige foto. NUNCA digas que no tienes fotos ni preguntes "¿Te gustaría que te comparta los modelos y precios?" si el cliente ya preguntó por ellos.
+  * Cuando el cliente pregunte por un producto, servicio, modelo, características o tarifas: Si cuentas con fotos en la galería o enlaces configurados, DESPACHA LA FICHA VISUAL DE INMEDIATO enviando la imagen con los datos reales.
+  * Si la consulta es general (ej: "hola qué opciones tienen", "precios", "información"): Envía de inmediato las fichas visuales más relevantes acorde a lo que busca el cliente y redacta el mensaje final según la ruta de cierre del negocio (sin duplicar en texto los datos que ya van en el pie de foto si el negocio prefiere evitar redundancias).
+  * PROHIBICIÓN ESTRICTA: NUNCA escribas la URL de una imagen ni uses markdown ![foto](url) en tu respuesta de texto; WhatsApp no lo soporta y se ve roto. Las fotos siempre se envían como imagen adjunta (nunca pegadas en el texto).
+  * Si no tienes fotos cargadas para esa opción, confirma los datos y precios reales de forma clara y apóyate en el asesor humano solo si el cliente exige la foto. NUNCA digas que no tienes fotos ni preguntes "¿Te gustaría que te comparta los modelos y precios?" si el cliente ya preguntó por ellos.
 4. POLÍTICAS NEGATIVAS: Si en garantías o políticas dice "NO TIENE GARANTIA", NO lo menciones por iniciativa propia en cada mensaje. Solo infórmalo si el cliente pregunta expresamente por la política de garantía.
 5. CERO FRICCIÓN Y RESPETO A LA RUTA DE CIERRE DEL NEGOCIO:
 - Prioriza siempre las instrucciones y ruta de cierre del negocio (<ruta_de_compra> / reglas adicionales). Si el negocio pide finalizar con una pregunta concreta que guíe la compra, reserva o método de pago, cúmplela siempre.

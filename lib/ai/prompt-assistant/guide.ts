@@ -7,6 +7,13 @@ export interface GuideTopic {
 
 export const SYNQO_HELP_TOPICS: GuideTopic[] = [
   {
+    id: 'chat_behavior_diagnosis',
+    title: 'Algo pasó raro en un chat, ¿qué ajusto?',
+    keywords: ['raro', 'mal', 'fallo', 'problema', 'no funciono', 'error', 'no envio', 'no llamo', 'no hizo', 'caso', 'acabo de', 'diagnostico', 'repite', 'repetir', 'resumen', 'contradiccion'],
+    answer:
+      'Cuéntame qué dijo el cliente y qué respondió la IA. Con eso reviso tu prompt, detecto en cuál de tus secciones está el conflicto o vacío y te propongo el ajuste exacto en su lugar — sin agregar reglas al final que luego causen contradicciones.',
+  },
+  {
     id: 'lead_categories',
     title: 'Clasificación automática en 4 niveles',
     keywords: ['categoria', 'categorias', 'temperatura', 'hot', 'caliente', 'tibio', 'frio', 'dudas', 'calificado', 'clasifica'],
@@ -25,7 +32,7 @@ export const SYNQO_HELP_TOPICS: GuideTopic[] = [
     title: 'Relevo a asesor humano y alertas',
     keywords: ['relevo', 'humano', 'asesor', 'pausa', 'pausar', 'handoff', 'comprobante', 'audio'],
     answer:
-      'Cuando un cliente pide hablar con una persona, envía un comprobante de pago, hace un reclamo o manda un audio inaudible, la IA solicita relevo silencioso, mueve el chat a **Por Responder**, pausa sus respuestas y notifica al asesor disponible por WhatsApp.',
+      'Cuando un cliente pide hablar con una persona, envía un comprobante de pago, hace un reclamo o pide cotizar un envío especial, la IA solicita relevo silencioso, mueve el chat a **Por Responder**, pausa sus respuestas y notifica al asesor disponible por WhatsApp.',
   },
   {
     id: 'knowledge_gaps',
@@ -36,10 +43,10 @@ export const SYNQO_HELP_TOPICS: GuideTopic[] = [
   },
   {
     id: 'visual_gallery',
-    title: 'Galería visual y tarjetas de producto',
-    keywords: ['foto', 'fotos', 'imagen', 'imagenes', 'galeria', 'catalogo', 'tarjeta', 'send_product_card'],
+    title: 'Galería visual y fotos de productos',
+    keywords: ['foto', 'fotos', 'imagen', 'imagenes', 'galeria', 'catalogo', 'tarjeta'],
     answer:
-      'Sube las fotos de tus productos o servicios en **Fotos de Productos** con nombre, precio exacto y palabras clave. La IA enviará la imagen real al cliente por WhatsApp sin poner enlaces largos ni inventar precios.',
+      'Sube las fotos de tus productos o servicios en **Fotos de Productos** con nombre, precio exacto y palabras clave. La IA enviará la foto directamente al cliente por WhatsApp con su tarjeta de precio sin que tengas que poner enlaces largos ni inventar tarifas.',
   },
   {
     id: 'meta_templates',
@@ -65,10 +72,10 @@ export const SYNQO_HELP_TOPICS: GuideTopic[] = [
 ];
 
 export const COMMON_HELP_CHIPS = [
-  '¿Cómo clasifica la IA a mis clientes?',
-  '¿Cómo funciona Ventas a Medias y Seguimiento?',
-  '¿Qué pasa con los mensajes después de 24 horas en Meta?',
-  '¿Cómo subo fotos para que la IA las envíe?',
+  '¿Por qué la IA no le pasa el chat al asesor?',
+  '¿Cómo hago que la IA envíe fotos de productos?',
+  'Pasó algo raro en un chat, ¿qué ajusto?',
+  '¿Cómo funciona el seguimiento automático?',
 ];
 
 function normalizeSearch(s: string): string {

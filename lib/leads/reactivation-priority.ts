@@ -20,10 +20,13 @@ const CATEGORY_RANK: Record<string, number> = {
  *
  * - Post-pedido nunca se filtra por score (es fidelización, no venta).
  * - Contactos sin score aún (null) no se descartan; se ordenan con la base neutra de "sin clasificar".
+ * - `bypassMinScore`: los ítems que la callback aprueban nunca se filtran por score. Se usa
+ *   para pasos de secuencia explícitamente configurados por el negocio (`item.step`): si el
+ *   dueño programó ese mensaje, el score del lead no debe impedir el PRIMER contacto.
  */
 export function prioritizeReactivationQueue<T extends ReactivationQueueItem>(
   queue: T[],
-  opts: { prioritizeByScore: boolean; minLeadScore: number }
+  opts: { prioritizeByScore: boolean; minLeadScore: number; bypassMinScore?: (item: T) => boolean }
 ): T[] {
   const rank = (cat: FollowUpCategory) => CATEGORY_RANK[cat] ?? 5;
   const scoreOf = (item: T) =>
@@ -34,6 +37,7 @@ export function prioritizeReactivationQueue<T extends ReactivationQueueItem>(
   const filtered = opts.prioritizeByScore
     ? queue.filter((item) => {
         if (item.category === 'post_order') return true;
+        if (opts.bypassMinScore && opts.bypassMinScore(item)) return true;
         const score = scoreOf(item);
         return score === null || score >= opts.minLeadScore;
       })
