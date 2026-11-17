@@ -239,6 +239,8 @@ export function buildSynchronizedClassification(params: {
   lostReason?: string | null;
   daysInactive?: number;
   followUpSettings?: FollowUpSettingsConfig | null;
+  businessHours?: any;
+  timezone?: string;
 }): {
   customFields: Record<string, any>;
   nextStage: string | null;
@@ -321,7 +323,8 @@ export function buildSynchronizedClassification(params: {
       const step = catSeq?.enabled ? catSeq.steps[nextStepIndex] : undefined;
       if (step && !nextFu.nextSendAt) {
         const unitMs = step.delayUnit === 'days' ? 24 * 3600 * 1000 : 3600 * 1000;
-        nextFu.nextSendAt = new Date(Date.now() + Math.max(1, step.delayValue) * unitMs).toISOString();
+        const rawDate = new Date(Date.now() + Math.max(1, step.delayValue) * unitMs);
+        nextFu.nextSendAt = clampToSafeBusinessHours(rawDate, params.businessHours, params.timezone).toISOString();
       }
     }
     cf.follow_up = nextFu;
@@ -350,7 +353,56 @@ export function resolveProductInterest(customFields?: any, dealValue?: number | 
 }
 
 /**
- * Interpola variables {nombre}, {primer_nombre}, {producto}, {empresa} sanitizando teléfonos como nombre.
+ * Extrae y valida un primer nombre de pila auténtico a partir de nombres o pushNames de WhatsApp.
+ * Evita saludos robóticos como "¡Hola Dios!" o "¡Hola Life!" filtrando:
+ * - Teléfonos o identificadores numéricos.
+ * - Textos genéricos: "lead whatsapp", "usuario", "sin nombre", etc.
+ * - Frases religiosas: "Dios es mi pastor", "Dios es amor", "Hija del Rey", "Salmo 91", "Jesús", etc.
+ * - Frases en inglés o títulos: "Life goes on", "Stay humble", etc.
+ * - Apodos, emojis puros o saludos: "🌵", "Esqueleto", "Hola", "Robotina", "Te extraño...", etc.
+ * - Decora caracteres unicode especiales (ej: 𝑨𝒏𝒅𝒓𝒆𝒂 -> Andrea, 🄴🄼🄼🄰 -> Emma).
+ * Retorna el nombre si es un antropónimo válido, o "" si no parece un nombre de persona real.
+ */
+export function extractGenuineFirstName(rawName?: string | null): string {
+  if (!rawName) return '';
+  // 1. Normalizar estilos decorativos (𝑨𝒏𝒅𝒓𝒆𝒂 -> Andrea, 🄴🄼🄼🄰 -> EMMA) preservando tildes y caracteres hispanos
+  let s = rawName.normalize('NFKC');
+  // 2. Quitar emojis, símbolos, puntuación y caracteres de formato (ZWJ, variation selectors)
+  s = s.replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Symbol}\p{Punctuation}\uFE00-\uFE0F\u200D\u200B\u200C]/gu, ' ');
+  s = s.trim().replace(/\s+/g, ' ');
+  if (!s) return '';
+
+  // 3. Descartar si es solo número o teléfono
+  if (/^[+0-9\s()-]+$/.test(s)) return '';
+
+  const lower = s.toLowerCase();
+
+  // 4. Blacklist de frases religiosas, saludos, apodos no-nombres o frases comunes
+  const invalidPhrases = [
+    'dios', 'jesus', 'jesucristo', 'cristo', 'señor', 'senor', 'pastor', 'salmo', 'biblia',
+    'hija de', 'hijo de', 'rey de', 'vida mia', 'vida mía', 'te extrano', 'te extraño',
+    'hola', 'buenas', 'buenos', 'cliente', 'usuario', 'lead', 'sin nombre',
+    'esqueleto', 'robotina', 'life goes', 'stay', 'family', 'tienda', 'ventas',
+    'asesor', 'soporte', 'servicio', 'contacto', 'jym'
+  ];
+
+  for (const phrase of invalidPhrases) {
+    if (lower.startsWith(phrase) || lower.includes(phrase)) {
+      return '';
+    }
+  }
+
+  // 5. Tomar primera palabra
+  const firstWord = s.split(' ')[0].trim();
+  if (firstWord.length < 2 || firstWord.length > 20) return '';
+  if (!/[aeiouáéíóúy]/i.test(firstWord)) return '';
+
+  // 6. Capitalizar: primera letra mayúscula, resto minúsculas
+  return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+}
+
+/**
+ * Interpola variables {nombre}, {primer_nombre}, {producto}, {empresa} sanitizando teléfonos y nombres no genuinos.
  */
 export function interpolateFollowUpText(
   template: string,
@@ -361,16 +413,25 @@ export function interpolateFollowUpText(
   }
 ): string {
   const rawName = (params.contactName || '').trim();
-  const isPhoneOrGeneric =
-    !rawName ||
-    /^[+0-9\s()-]+$/.test(rawName) ||
-    /^(lead whatsapp|lead instagram|usuario instagram|sin nombre)/i.test(rawName);
-  const firstName = !isPhoneOrGeneric ? rawName.split(/\s+/)[0] : '';
-  const fullName = !isPhoneOrGeneric ? rawName : '';
+  const firstName = extractGenuineFirstName(rawName);
+  const fullName = firstName ? rawName : '';
 
-  return (template || '')
-    .replace(/\{\{?\s*primer_nombre\s*\}?\}/gi, firstName)
-    .replace(/\{\{?\s*nombre\s*\}?\}/gi, firstName || fullName)
+  let res = template || '';
+
+  if (!firstName) {
+    // Si no es un nombre real (ej: "Dios es amor", "🌵", "Life Goes On"),
+    // convertimos limpiamente "¡Hola {primer_nombre}!" en "¡Hola!" sin sonar robóticos
+    res = res
+      .replace(/¡?Hola\s+\{\{?\s*(primer_nombre|nombre)\s*\}?\}!?/gi, '¡Hola!')
+      .replace(/Hola\s+\{\{?\s*(primer_nombre|nombre)\s*\}?\},?/gi, 'Hola,')
+      .replace(/\{\{?\s*(primer_nombre|nombre)\s*\}?\}/gi, '');
+  } else {
+    res = res
+      .replace(/\{\{?\s*primer_nombre\s*\}?\}/gi, firstName)
+      .replace(/\{\{?\s*nombre\s*\}?\}/gi, firstName || fullName);
+  }
+
+  return res
     .replace(/\{\{?\s*producto\s*\}?\}/gi, params.productName?.trim() || 'tu consulta')
     .replace(/\{\{?\s*empresa\s*\}?\}/gi, params.companyName?.trim() || 'nuestro equipo')
     .replace(/¡Hola\s+([!¡?,.:])/gi, '¡Hola$1')
@@ -406,3 +467,150 @@ export function buildMetaTemplateBodyComponents(params: {
 
   return [{ type: 'body', parameters }];
 }
+
+/**
+ * Ajusta cualquier fecha programada (nextSendAt o scheduled_for) para que caiga
+ * estrictamente dentro de un horario comercial seguro y prudente, evitando cualquier
+ * riesgo de ser reportado por spam por enviar mensajes en noches, madrugadas o domingos.
+ *
+ * Reglas:
+ * - Días hábiles permitidos: Lunes a Sábado (Domingo prohibido).
+ * - Ventana segura por defecto: 09:15 a 18:00 (o el horario configurado en businessHours).
+ * - Si cae después del cierre (ej: 21:55) -> se rueda al siguiente día hábil a las 09:30 AM.
+ * - Si cae en Domingo -> se rueda al Lunes a las 09:30 AM.
+ * - Si cae en la madrugada (ej: 05:45 AM) -> se rueda a las 09:15 AM de ese mismo día hábil.
+ */
+export function clampToSafeBusinessHours(
+  targetDate: Date | string,
+  businessHours?: any,
+  timeZone: string = 'America/Bogota'
+): Date {
+  const tz = timeZone || 'America/Bogota';
+  const rawDate = typeof targetDate === 'string' ? new Date(targetDate) : targetDate;
+  const initial = isNaN(rawDate.getTime()) ? new Date() : rawDate;
+
+  const getParts = (d: Date) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'short',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+
+    const get = (type: string) => parts.find((p) => p.type === type)?.value;
+    const hh = Number(get('hour') ?? '12');
+    const mm = Number(get('minute') ?? '0');
+    const weekdayStr = get('weekday') || 'Mon';
+    const year = Number(get('year') ?? '2026');
+    const month = Number(get('month') ?? '11');
+    const day = Number(get('day') ?? '17');
+
+    const weekdayToIso: Record<string, number> = {
+      Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7,
+    };
+    const weekdayToKey: Record<string, string> = {
+      Sun: 'sunday', Mon: 'monday', Tue: 'tuesday', Wed: 'wednesday', Thu: 'thursday', Fri: 'friday', Sat: 'saturday',
+    };
+
+    return {
+      hh: hh === 24 ? 0 : hh,
+      mm,
+      weekdayStr,
+      isoDay: weekdayToIso[weekdayStr] || 1,
+      dayKey: weekdayToKey[weekdayStr] || 'monday',
+      year,
+      month,
+      day,
+    };
+  };
+
+  const constructTzDate = (year: number, month: number, day: number, hour: number, minute: number): Date => {
+    const yStr = String(year).padStart(4, '0');
+    const mStr = String(month).padStart(2, '0');
+    const dStr = String(day).padStart(2, '0');
+    const hStr = String(hour).padStart(2, '0');
+    const minStr = String(minute).padStart(2, '0');
+    const targetIso = `${yStr}-${mStr}-${dStr}T${hStr}:${minStr}:00`;
+
+    const temp = new Date(targetIso + 'Z');
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      timeZoneName: 'shortOffset',
+    }).formatToParts(temp);
+    const offsetStr = parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT-5';
+    const match = offsetStr.match(/GMT([+-]\d{1,2})(?::(\d{2}))?/i);
+    let sign = '-';
+    let hOffset = 5;
+    let mOffset = 0;
+    if (match) {
+      sign = match[1].startsWith('+') ? '+' : '-';
+      hOffset = Math.abs(parseInt(match[1], 10));
+      mOffset = match[2] ? parseInt(match[2], 10) : 0;
+    }
+    const offsetSign = sign === '+' ? -1 : 1;
+    const utcMs = Date.UTC(year, month - 1, day, hour, minute) + offsetSign * (hOffset * 3600000 + mOffset * 60000);
+    return new Date(utcMs);
+  };
+
+  let current = new Date(initial);
+
+  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+    const p = getParts(current);
+    let isDayAllowed = p.isoDay !== 7; // Domingo prohibido por defecto
+    let startHour = 9;
+    let startMinute = 15;
+    let endHour = 18; // 6:00 PM máximo
+    let endMinute = 0;
+
+    if (businessHours?.enabled) {
+      if (businessHours.schedule && businessHours.schedule[p.dayKey]) {
+        const dayCfg = businessHours.schedule[p.dayKey];
+        if (dayCfg?.active === false) {
+          isDayAllowed = false;
+        } else {
+          const s = (dayCfg.start || '09:00').split(':').map(Number);
+          const e = (dayCfg.end || '18:00').split(':').map(Number);
+          startHour = s[0] || 9;
+          startMinute = s[1] || 0;
+          endHour = e[0] || 18;
+          endMinute = e[1] || 0;
+        }
+      } else {
+        const daysAllowed: number[] = Array.isArray(businessHours.days) ? businessHours.days : [1, 2, 3, 4, 5, 6];
+        isDayAllowed = daysAllowed.includes(p.isoDay);
+        const s = (businessHours.start || '09:00').split(':').map(Number);
+        const e = (businessHours.end || '18:00').split(':').map(Number);
+        startHour = s[0] || 9;
+        startMinute = s[1] || 0;
+        endHour = e[0] || 18;
+        endMinute = e[1] || 0;
+      }
+    }
+
+    if (isDayAllowed) {
+      const currentHHMM = p.hh * 60 + p.mm;
+      const startHHMM = startHour * 60 + startMinute;
+      const endHHMM = endHour * 60 + endMinute;
+
+      // Si cae antes de la apertura (ej: 06:00 AM) -> programar para la apertura
+      if (currentHHMM < startHHMM) {
+        return constructTzDate(p.year, p.month, p.day, startHour, startMinute);
+      }
+
+      // Si cae dentro de la ventana comercial permitida -> mantener
+      if (currentHHMM <= endHHMM) {
+        return current;
+      }
+    }
+
+    // Rodar al día siguiente a las 09:30 AM
+    current = constructTzDate(p.year, p.month, p.day + 1, startHour, Math.max(startMinute, 30));
+  }
+
+  return current;
+}
+

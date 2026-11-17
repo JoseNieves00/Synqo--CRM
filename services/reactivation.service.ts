@@ -20,6 +20,7 @@ import {
   normalizeFollowUpSettings,
   resolveLeadTemperature,
   resolveProductInterest,
+  clampToSafeBusinessHours,
   DEFAULT_MIN_LEAD_SCORE,
 } from '@/lib/ai/follow-up-types';
 import { prioritizeReactivationQueue } from '@/lib/leads/reactivation-priority';
@@ -147,6 +148,104 @@ export class LeadReactivationService {
   }
 
   /**
+   * Deduce de forma inteligente y canónica el producto o servicio exacto de interés para el seguimiento.
+   * Cascada Multi-Nicho:
+   * 1. Si ya hay un producto en custom_fields o deal_value, lo normaliza frente al catálogo/galería oficial.
+   * 2. Si no hay o es genérico ("tu consulta"), analiza el historial reciente de mensajes:
+   *    - Tarjetas o fotos despachadas con caption (📷 [Imagen: ...]: Nombre · $Precio)
+   *    - Mensajes del cliente o asesor contra el catálogo oficial mediante findGalleryProductMatch.
+   * 3. Si se deduce un producto oficial, actualiza custom_fields en segundo plano de forma no bloqueante.
+   * 4. Si no hay señal alguna, devuelve una alternativa comercial cálida según la categoría ("tu pedido" / "lo que cotizaste").
+   */
+  public static async deduceCanonicalProductInterest(params: {
+    contact: any;
+    org: any;
+    cf?: Record<string, any>;
+    category?: FollowUpCategory;
+  }): Promise<string> {
+    const { contact, org, category } = params;
+    const cf = params.cf || (contact?.custom_fields as Record<string, any>) || {};
+
+    const rawInterest = resolveProductInterest(cf, contact?.deal_value);
+    const { items: galleryItems } = resolveOrganizationGallery(org, org?.system_prompt);
+
+    const isGeneric = (str?: string | null) =>
+      !str ||
+      /^(tu consulta|consulta|informaci[oó]n|general|n\/a|sin inter[eé]s)$/i.test(str.trim());
+
+    let canonical: string | null = null;
+
+    // 1. Validar si lo que ya tiene en custom_fields coincide con un producto oficial de galería
+    if (!isGeneric(rawInterest)) {
+      const match = findGalleryProductMatch(galleryItems, rawInterest!);
+      if (match) {
+        canonical = match.productName || match.name;
+      } else {
+        canonical = rawInterest!.trim();
+      }
+    }
+
+    // 2. Si no hay o es genérico, escanear mensajes recientes del contacto
+    if (!canonical && contact?.id) {
+      try {
+        const { data: recentMsgs } = await (supabaseAdmin.from('messages') as any)
+          .select('sender_type, content, created_at')
+          .eq('contact_id', contact.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        for (const m of recentMsgs || []) {
+          const text = String(m.content || '');
+
+          // Caso A: Mensaje con tarjeta de imagen oficial despachada (lleva el nombre y precio en el pie)
+          const imgMatch = text.match(/^📷\s*\[(?:Imagen|Foto):.*?\]:\s*([^\n·–—]+)/i);
+          if (imgMatch) {
+            const cand = imgMatch[1].trim();
+            const match = findGalleryProductMatch(galleryItems, cand);
+            if (match) {
+              canonical = match.productName || match.name;
+              break;
+            }
+          }
+
+          // Caso B: El cliente o el asesor mencionaron el modelo o variante
+          if (m.sender_type === 'lead' || m.sender_type === 'agent_manual') {
+            const textMatch = findGalleryProductMatch(galleryItems, text);
+            if (textMatch) {
+              canonical = textMatch.productName || textMatch.name;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[DEDUCE PRODUCT WARN]', e);
+      }
+    }
+
+    // 3. Si dedujimos un producto canónico y no estaba en custom_fields, persistir en segundo plano
+    if (canonical && contact?.id && (!cf.product_of_interest || cf.product_of_interest !== canonical)) {
+      (supabaseAdmin.from('contacts') as any)
+        .update({
+          custom_fields: {
+            ...cf,
+            product_of_interest: canonical,
+          },
+        })
+        .eq('id', contact.id)
+        .then(() => {})
+        .catch(() => {});
+    }
+
+    // 4. Si tras todo no hay producto específico, usar alternativa comercial cálida según la etapa
+    if (!canonical) {
+      if (category === 'hot_unclosed') return 'tu pedido';
+      return 'la opción que vimos';
+    }
+
+    return canonical;
+  }
+
+  /**
    * Cuenta mensajes automatizados de seguimiento enviados hoy en la organización para hacer cumplir tope diario.
    */
   private static async getTodayFollowUpsSentCount(orgId: string, timeZone: string): Promise<number> {
@@ -259,7 +358,12 @@ export class LeadReactivationService {
       if (!tplToUse) {
         return { sent: false, skippedReason: 'meta_outside_24h_no_template' };
       }
-      const productName = resolveProductInterest(custom, contact.deal_value);
+      const productName = await this.deduceCanonicalProductInterest({
+        contact,
+        org,
+        cf: custom,
+        category: params.category,
+      });
       const explicitComponents = buildMetaTemplateBodyComponents({
         templateParams: metaTemplateParams,
         contactName: contact.name,
@@ -382,7 +486,11 @@ export class LeadReactivationService {
       .order('created_at', { ascending: false })
       .limit(6);
 
-    const productInterest = resolveProductInterest(cf, contact.deal_value);
+    const productInterest = await this.deduceCanonicalProductInterest({
+      contact,
+      org,
+      cf,
+    });
     const aiDraft = await OpenAIService.generateAutonomousReminderMessage({
       organization: org,
       contactId: contact.id,
@@ -607,9 +715,15 @@ export class LeadReactivationService {
             resolvedImageUrls = payload.imageUrls;
           } else {
             const rawText = step?.text || this.buildReactivationMessage(contact.name, cf);
+            const deducedProduct = await this.deduceCanonicalProductInterest({
+              contact,
+              org,
+              cf,
+              category,
+            });
             bodyMessage = interpolateFollowUpText(rawText, {
               contactName: contact.name,
-              productName: resolveProductInterest(cf, contact.deal_value),
+              productName: deducedProduct,
               companyName: org.name,
             });
           }
@@ -668,6 +782,13 @@ export class LeadReactivationService {
 
             const nextIndex = currentStepIdx + 1;
             const nextStep = steps[nextIndex];
+            const nextSendDate = nextStep
+              ? clampToSafeBusinessHours(
+                  new Date(nowTime + this.stepDelayMs(nextStep)),
+                  org.business_hours,
+                  timeZone
+                )
+              : null;
             const updatedCf: Record<string, any> = {
               ...cf,
               follow_up: {
@@ -675,7 +796,7 @@ export class LeadReactivationService {
                 category,
                 currentStepIndex: nextIndex,
                 lastSentAt: nowIso,
-                ...(nextStep ? { nextSendAt: new Date(nowTime + this.stepDelayMs(nextStep)).toISOString() } : {}),
+                ...(nextSendDate ? { nextSendAt: nextSendDate.toISOString() } : {}),
                 completed: !nextStep,
               },
             };
@@ -837,9 +958,15 @@ export class LeadReactivationService {
         let resolvedImageUrls: string[] | undefined = step?.imageUrls;
 
         if (step) {
+          const deducedProduct = await this.deduceCanonicalProductInterest({
+            contact,
+            org,
+            cf,
+            category,
+          });
           bodyMessage = interpolateFollowUpText(step.text, {
             contactName: contact.name,
-            productName: resolveProductInterest(cf, contact.deal_value),
+            productName: deducedProduct,
             companyName: org.name,
           });
         } else if (!isMetaLocked) {
@@ -903,10 +1030,20 @@ export class LeadReactivationService {
           const isSequenceDone = step
             ? !nextStep
             : autonomousDecision?.nextTouchDelayHours == null;
-          const autonomousNextIso =
+          const rawAutonomousNext =
             !step && autonomousDecision?.nextTouchDelayHours
-              ? new Date(nowTime + autonomousDecision.nextTouchDelayHours * 3600 * 1000).toISOString()
+              ? new Date(nowTime + autonomousDecision.nextTouchDelayHours * 3600 * 1000)
               : null;
+          const autonomousNextIso = rawAutonomousNext
+            ? clampToSafeBusinessHours(rawAutonomousNext, org.business_hours, timeZone).toISOString()
+            : null;
+          const nextStepDate = nextStep
+            ? clampToSafeBusinessHours(
+                new Date(nowTime + this.stepDelayMs(nextStep)),
+                org.business_hours,
+                timeZone
+              )
+            : null;
 
           const updatedCustom: Record<string, any> = {
             ...cf,
@@ -917,9 +1054,7 @@ export class LeadReactivationService {
                     category,
                     currentStepIndex: nextIdx,
                     lastSentAt: nowIso,
-                    ...(nextStep
-                      ? { nextSendAt: new Date(nowTime + this.stepDelayMs(nextStep)).toISOString() }
-                      : {}),
+                    ...(nextStepDate ? { nextSendAt: nextStepDate.toISOString() } : {}),
                     completed: isSequenceDone,
                     completedAt: isSequenceDone ? nowIso : undefined,
                   },

@@ -57,7 +57,8 @@ async function runTests() {
 
   assert(Boolean(contact?.id), 'Contacto temporal creado');
 
-  // Lead envía mensaje a las 10:00
+  try {
+    // Lead envía mensaje a las 10:00
   const t1 = new Date(Date.now() - 60000).toISOString();
   await (supabaseAdmin.from('messages') as any).insert({
     contact_id: contact.id,
@@ -137,10 +138,13 @@ async function runTests() {
   console.log('   ✅ Respuesta de IA generada:', aiReply);
   console.log('   ✅ Metadatos de IA observados (Modelo real):', (aiReplyResult as any).modelUsed);
 
-  // 6. Limpieza de datos temporales
-  console.log('\n🧹 Limpiando contacto de prueba...');
-  await (supabaseAdmin.from('contacts') as any).delete().eq('id', contact.id);
-  console.log('   ✅ Datos de prueba limpiados exitosamente.');
+  } finally {
+    // 6. Limpieza de datos temporales
+    console.log('\n🧹 Limpiando contacto de prueba...');
+    await (supabaseAdmin.from('messages') as any).delete().eq('contact_id', contact.id);
+    await (supabaseAdmin.from('contacts') as any).delete().eq('id', contact.id);
+    console.log('   ✅ Datos de prueba limpiados exitosamente.');
+  }
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE AUDITORÍA IA, INSTAGRAM ADS Y DESPEJE PASARON EXITOSAMENTE!\n');
 }

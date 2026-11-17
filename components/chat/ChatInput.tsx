@@ -3,13 +3,14 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard, Camera, Pencil, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { Send, AlertTriangle, FileText, Zap, X, Settings2, Sparkles, Image as ImageIcon, Paperclip, Loader2, Mic, Trash2, CreditCard, Camera, Pencil, ChevronDown, ChevronUp, Layers, CheckSquare, Square, Check } from 'lucide-react';
 import { getOrganizationQuickReplies, uploadChatMedia, generateDraftAiReply } from '@/app/actions/chat';
 import { type QuickSnippet, BASE_DEFAULT_SNIPPETS } from '@/lib/chat/snippets';
 import { getOrganizationPaymentAccounts, getOrganizationCatalogGallery } from '@/app/actions/settings';
 import { CustomPaymentAccount, formatPaymentAccountText, formatAllPaymentAccountsText } from '@/lib/types/payments';
 import { GalleryPhotoItem } from '@/lib/media/format';
 import { groupGalleryIntoProducts, GroupedProductGallery } from '@/lib/ai/product-gallery';
+import { extractGenuineFirstName } from '@/lib/ai/follow-up-types';
 import { compressImageClient } from '@/lib/media/client-compression';
 import { useBootstrap, useInboxStore } from '@/lib/inbox/use-inbox-store';
 
@@ -99,6 +100,8 @@ export function ChatInput({
   const [showCatalogMenu, setShowCatalogMenu] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [isSendingCatalogPhoto, setIsSendingCatalogPhoto] = useState<string | null>(null);
+  const [selectedCatalogPhotoIds, setSelectedCatalogPhotoIds] = useState<string[]>([]);
+  const [batchSendProgress, setBatchSendProgress] = useState<{ current: number; total: number } | null>(null);
   const [expandedProductGroup, setExpandedProductGroup] = useState<string | null>(null);
   const catalogButtonRef = useRef<HTMLButtonElement>(null);
   const catalogMenuRef = useRef<HTMLDivElement>(null);
@@ -106,6 +109,19 @@ export function ChatInput({
   const groupedCatalog = useMemo(() => {
     return groupGalleryIntoProducts(catalogItems);
   }, [catalogItems]);
+
+  const filteredCatalog = useMemo(() => {
+    if (!catalogSearch.trim()) return groupedCatalog;
+    const q = catalogSearch.toLowerCase();
+    return groupedCatalog.filter((prod) => {
+      return (
+        prod.productName.toLowerCase().includes(q) ||
+        prod.price?.toLowerCase().includes(q) ||
+        prod.keywords?.some((k) => k.toLowerCase().includes(q)) ||
+        prod.allPhotos.some((p) => (p.imageRole || '').toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+      );
+    });
+  }, [groupedCatalog, catalogSearch]);
 
   // Estado para Copiloto IA de redacción de borradores para asesores
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
@@ -211,6 +227,34 @@ export function ChatInput({
       console.error('[ChatInput] Error enviando foto de catálogo:', err);
     } finally {
       setIsSendingCatalogPhoto(null);
+    }
+  };
+
+  const toggleSelectCatalogPhoto = (photoId: string) => {
+    setSelectedCatalogPhotoIds((prev) =>
+      prev.includes(photoId) ? prev.filter((id) => id !== photoId) : [...prev, photoId]
+    );
+  };
+
+  const handleSendBatchCatalog = async (photosToSend: GalleryPhotoItem[]) => {
+    if (!onSendMedia || photosToSend.length === 0 || batchSendProgress) return;
+    try {
+      setBatchSendProgress({ current: 0, total: photosToSend.length });
+      for (let i = 0; i < photosToSend.length; i++) {
+        const item = photosToSend[i];
+        setBatchSendProgress({ current: i + 1, total: photosToSend.length });
+        const caption = `${item.name}${item.price ? ` (${item.price})` : ''}`;
+        await onSendMedia(item.url, caption, undefined, false, false, false);
+        if (i < photosToSend.length - 1) {
+          await new Promise((r) => setTimeout(r, 700));
+        }
+      }
+      setSelectedCatalogPhotoIds([]);
+      setShowCatalogMenu(false);
+    } catch (err) {
+      console.error('[ChatInput] Error enviando lote de catálogo:', err);
+    } finally {
+      setBatchSendProgress(null);
     }
   };
 
@@ -478,29 +522,29 @@ export function ChatInput({
 
   const handleApplySnippet = (snippetText: string) => {
     // Sustitución de variables dinámicas: {nombre}, {primer_nombre}, {telefono}
-    const cleanName = (contactName || '').trim();
-    const isPhoneNumberOnly = !cleanName || /^[+0-9\s-]+$/.test(cleanName) || cleanName.startsWith('+');
-    const displayFullName = !isPhoneNumberOnly ? cleanName : '';
-    const displayFirstName = !isPhoneNumberOnly ? cleanName.split(' ')[0] : '';
+    // Deducción inteligente de nombre genuino (evita "Hola Dios", "Hola Life", etc.)
+    const cleanFirstName = extractGenuineFirstName(contactName);
+    const cleanFullName = cleanFirstName ? (contactName || '').trim() : '';
 
     let processed = snippetText;
-    if (!displayFirstName) {
+    if (!cleanFirstName) {
       // Sanitización limpia: convertir "¡Hola {primer_nombre}!" en "¡Hola!" sin repetir "¡Hola hola!" ni "estimado cliente"
       processed = processed
         .replace(/¡?Hola\s+\{primer_nombre\}!?/gi, '¡Hola!')
         .replace(/¡?Hola\s+\{nombre\}!?/gi, '¡Hola!')
         .replace(/¡?Hola\s+\{first_name\}!?/gi, '¡Hola!')
         .replace(/¡?Hola\s+\{name\}!?/gi, '¡Hola!')
+        .replace(/Hola\s+\{primer_nombre\},?/gi, 'Hola,')
         .replace(/\{primer_nombre\}/gi, '')
         .replace(/\{nombre\}/gi, '')
         .replace(/\{first_name\}/gi, '')
         .replace(/\{name\}/gi, '');
     } else {
       processed = processed
-        .replace(/\{primer_nombre\}/gi, displayFirstName)
-        .replace(/\{nombre\}/gi, displayFullName)
-        .replace(/\{first_name\}/gi, displayFirstName)
-        .replace(/\{name\}/gi, displayFullName);
+        .replace(/\{primer_nombre\}/gi, cleanFirstName)
+        .replace(/\{nombre\}/gi, cleanFullName)
+        .replace(/\{first_name\}/gi, cleanFirstName)
+        .replace(/\{name\}/gi, cleanFullName);
     }
     processed = processed.replace(/\{telefono\}/gi, contactPhone || '').replace(/\s{2,}/g, ' ').trim();
 
@@ -1018,6 +1062,90 @@ export function ChatInput({
             autoFocus
           />
 
+          {/* Barra de acciones en lote: Enviar todos o seleccionados */}
+          {groupedCatalog.length > 0 && (
+            <div className="flex items-center justify-between gap-1.5 px-2 py-1.5 bg-slate-50 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  const allHeroIds = filteredCatalog.map((p) => p.primaryPhoto.id);
+                  const allSelected = allHeroIds.length > 0 && allHeroIds.every((id) => selectedCatalogPhotoIds.includes(id));
+                  if (allSelected) {
+                    setSelectedCatalogPhotoIds([]);
+                  } else {
+                    setSelectedCatalogPhotoIds(allHeroIds);
+                  }
+                }}
+                disabled={Boolean(batchSendProgress) || Boolean(isSendingCatalogPhoto)}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:text-[#0052FF] dark:hover:text-[#00D2FF] transition cursor-pointer select-none"
+              >
+                {selectedCatalogPhotoIds.length > 0 &&
+                filteredCatalog.map((p) => p.primaryPhoto.id).every((id) => selectedCatalogPhotoIds.includes(id)) ? (
+                  <>
+                    <CheckSquare className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+                    <span>Deseleccionar</span>
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Seleccionar todos</span>
+                  </>
+                )}
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                {selectedCatalogPhotoIds.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selectedPhotos = catalogItems.filter((item) =>
+                        selectedCatalogPhotoIds.includes(item.id)
+                      );
+                      handleSendBatchCatalog(selectedPhotos);
+                    }}
+                    disabled={Boolean(batchSendProgress) || Boolean(isSendingCatalogPhoto)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0052FF] hover:bg-[#0047E0] text-white text-[11px] font-bold shadow-xs transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {batchSendProgress ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Enviando {batchSendProgress.current}/{batchSendProgress.total}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3 h-3" />
+                        <span>Enviar seleccionados ({selectedCatalogPhotoIds.length})</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allHeroPhotos = filteredCatalog.map((p) => p.primaryPhoto);
+                      handleSendBatchCatalog(allHeroPhotos);
+                    }}
+                    disabled={Boolean(batchSendProgress) || Boolean(isSendingCatalogPhoto) || filteredCatalog.length === 0}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-[#0052FF] dark:text-[#00D2FF] hover:bg-[#0052FF] hover:text-white border border-blue-200 dark:border-blue-900/60 text-[11px] font-bold transition disabled:opacity-50 cursor-pointer"
+                    title="Enviar todas las fotos principales del catálogo"
+                  >
+                    {batchSendProgress ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Enviando {batchSendProgress.current}/{batchSendProgress.total}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3 h-3" />
+                        <span>Enviar todos ({filteredCatalog.length})</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {groupedCatalog.length === 0 ? (
             <div className="py-5 px-3 text-center space-y-2">
               <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] flex items-center justify-center mx-auto text-slate-400">
@@ -1035,100 +1163,117 @@ export function ChatInput({
             </div>
           ) : (
             <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
-              {groupedCatalog
-                .filter((prod) => {
-                  if (!catalogSearch.trim()) return true;
-                  const q = catalogSearch.toLowerCase();
-                  return (
-                    prod.productName.toLowerCase().includes(q) ||
-                    prod.price?.toLowerCase().includes(q) ||
-                    prod.keywords?.some((k) => k.toLowerCase().includes(q)) ||
-                    prod.allPhotos.some((p) => (p.imageRole || '').toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
-                  );
-                })
-                .map((prod) => {
-                  const isExpanded = expandedProductGroup === prod.productName;
-                  const hasAlternates = prod.alternatePhotos.length > 0;
-                  const heroPhoto = prod.primaryPhoto;
+              {filteredCatalog.map((prod) => {
+                const isExpanded = expandedProductGroup === prod.productName;
+                const hasAlternates = prod.alternatePhotos.length > 0;
+                const heroPhoto = prod.primaryPhoto;
+                const isHeroSelected = selectedCatalogPhotoIds.includes(heroPhoto.id);
 
-                  return (
-                    <div
-                      key={prod.id}
-                      className="p-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#090A0F]/50 transition space-y-2"
-                    >
-                      {/* Fila principal del producto (siempre con la foto principal) */}
-                      <div className="flex items-center gap-2">
-                        <div className="relative shrink-0">
-                          <img
-                            src={heroPhoto.url}
-                            alt={prod.productName}
-                            className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-[#232A3B]"
-                          />
-                          <span
-                            className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-amber-400 text-amber-950 flex items-center justify-center text-[9px] font-black shadow-sm"
-                            title="Foto de Portada / Principal"
-                          >
-                            ★
-                          </span>
-                        </div>
+                return (
+                  <div
+                    key={prod.id}
+                    className="p-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#090A0F]/50 transition space-y-2"
+                  >
+                    {/* Fila principal del producto (siempre con la foto principal) */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectCatalogPhoto(heroPhoto.id)}
+                        className="text-slate-400 hover:text-[#0052FF] transition cursor-pointer p-0.5 shrink-0"
+                        title={isHeroSelected ? 'Deseleccionar' : 'Seleccionar foto'}
+                      >
+                        {isHeroSelected ? (
+                          <CheckSquare className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </button>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-[140px]" title={prod.productName}>
-                              {prod.productName}
-                            </span>
-                            {hasAlternates && (
-                              <button
-                                type="button"
-                                onClick={() => setExpandedProductGroup(isExpanded ? null : prod.productName)}
-                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 dark:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF] hover:bg-blue-200 transition"
-                                title="Ver ángulos alternos"
-                              >
-                                <Layers className="w-2.5 h-2.5" />
-                                <span>{prod.allPhotos.length} fotos</span>
-                                {isExpanded ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
-                              </button>
-                            )}
-                          </div>
-                          {prod.price && (
-                            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 block">
-                              {prod.price}
-                            </span>
-                          )}
-                          {prod.keywords && prod.keywords.length > 0 && (
-                            <p className="text-[9px] text-slate-400 truncate">
-                              {prod.keywords.slice(0, 2).map((k) => `#${k}`).join(' ')}
-                            </p>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleSendCatalogItem(heroPhoto)}
-                          disabled={Boolean(isSendingCatalogPhoto)}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#0052FF] hover:bg-[#0047E0] text-white text-[11px] font-bold shrink-0 transition cursor-pointer disabled:opacity-50 shadow-sm"
-                          title="Enviar foto principal por WhatsApp"
+                      <div className="relative shrink-0">
+                        <img
+                          src={heroPhoto.url}
+                          alt={prod.productName}
+                          className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-[#232A3B]"
+                        />
+                        <span
+                          className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-amber-400 text-amber-950 flex items-center justify-center text-[9px] font-black shadow-sm"
+                          title="Foto de Portada / Principal"
                         >
-                          {isSendingCatalogPhoto === heroPhoto.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            'Enviar'
-                          )}
-                        </button>
+                          ★
+                        </span>
                       </div>
 
-                      {/* Tira desplegable de fotos adicionales del mismo producto */}
-                      {hasAlternates && isExpanded && (
-                        <div className="pt-2 border-t border-slate-200/70 dark:border-[#232A3B]/70 space-y-1.5 animate-in fade-in duration-150">
-                          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block px-0.5">
-                            Fotos adicionales de este producto:
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-[130px]" title={prod.productName}>
+                            {prod.productName}
                           </span>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {prod.alternatePhotos.map((altPhoto, altIdx) => (
+                          {hasAlternates && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedProductGroup(isExpanded ? null : prod.productName)}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 dark:bg-blue-900/40 text-[#0052FF] dark:text-[#00D2FF] hover:bg-blue-200 transition"
+                              title="Ver ángulos alternos"
+                            >
+                              <Layers className="w-2.5 h-2.5" />
+                              <span>{prod.allPhotos.length} fotos</span>
+                              {isExpanded ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                            </button>
+                          )}
+                        </div>
+                        {prod.price && (
+                          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 block">
+                            {prod.price}
+                          </span>
+                        )}
+                        {prod.keywords && prod.keywords.length > 0 && (
+                          <p className="text-[9px] text-slate-400 truncate">
+                            {prod.keywords.slice(0, 2).map((k) => `#${k}`).join(' ')}
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSendCatalogItem(heroPhoto)}
+                        disabled={Boolean(isSendingCatalogPhoto) || Boolean(batchSendProgress)}
+                        className="px-2.5 py-1.5 rounded-lg bg-[#0052FF] hover:bg-[#0047E0] text-white text-[11px] font-bold shrink-0 transition cursor-pointer disabled:opacity-50 shadow-sm"
+                        title="Enviar foto principal por WhatsApp"
+                      >
+                        {isSendingCatalogPhoto === heroPhoto.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          'Enviar'
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Tira desplegable de fotos adicionales del mismo producto */}
+                    {hasAlternates && isExpanded && (
+                      <div className="pt-2 border-t border-slate-200/70 dark:border-[#232A3B]/70 space-y-1.5 animate-in fade-in duration-150">
+                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block px-0.5">
+                          Fotos adicionales de este producto:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {prod.alternatePhotos.map((altPhoto, altIdx) => {
+                            const isAltSelected = selectedCatalogPhotoIds.includes(altPhoto.id);
+                            return (
                               <div
                                 key={altPhoto.id}
                                 className="flex items-center gap-1.5 p-1 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B]"
                               >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSelectCatalogPhoto(altPhoto.id)}
+                                  className="text-slate-400 hover:text-[#0052FF] transition cursor-pointer shrink-0"
+                                  title={isAltSelected ? 'Deseleccionar' : 'Seleccionar foto'}
+                                >
+                                  {isAltSelected ? (
+                                    <CheckSquare className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+                                  ) : (
+                                    <Square className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600" />
+                                  )}
+                                </button>
                                 <img
                                   src={altPhoto.url}
                                   alt={`Foto ${altIdx + 2}`}
@@ -1142,7 +1287,7 @@ export function ChatInput({
                                 <button
                                   type="button"
                                   onClick={() => handleSendCatalogItem(altPhoto)}
-                                  disabled={Boolean(isSendingCatalogPhoto)}
+                                  disabled={Boolean(isSendingCatalogPhoto) || Boolean(batchSendProgress)}
                                   className="px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-700 dark:text-slate-200 text-[9px] font-bold transition shrink-0"
                                   title={`Enviar Foto ${altIdx + 2}`}
                                 >
@@ -1153,13 +1298,14 @@ export function ChatInput({
                                   )}
                                 </button>
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

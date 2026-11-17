@@ -1023,7 +1023,31 @@ export const ChatWindow = React.memo(function ChatWindow({
     contact.last_interaction_at,
   ]);
 
-  const isWaitingForResponse = Boolean(contact.waiting_since || (contact.unread_count && contact.unread_count > 0));
+  const isWaitingForResponse = React.useMemo(() => {
+    // Si el último mensaje fue enviado por la IA o por un asesor, el cliente NO está esperando respuesta
+    const lastMsg = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+    const isLastFromLead = lastMsg
+      ? lastMsg.sender_type === 'lead'
+      : contact.last_message_sender === 'lead';
+
+    if (!isLastFromLead) return false;
+    if (
+      contact.conversation_status === 'waiting_customer' ||
+      contact.conversation_status === 'closed' ||
+      contact.pipeline_stage === 'ganado'
+    ) {
+      return false;
+    }
+
+    return Boolean(contact.waiting_since || (contact.unread_count && contact.unread_count > 0));
+  }, [
+    messages,
+    contact.last_message_sender,
+    contact.conversation_status,
+    contact.pipeline_stage,
+    contact.waiting_since,
+    contact.unread_count,
+  ]);
 
   const handleApplyApologyMessage = () => {
     const cleanName = (contact.name || '').trim();

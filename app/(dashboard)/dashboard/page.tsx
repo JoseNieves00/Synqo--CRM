@@ -11,6 +11,7 @@ import { TopPropensityWidget } from '@/components/dashboard/TopPropensityWidget'
 import { getRecentAiActivity } from '@/app/actions/ai-activity';
 import { AiActivityFeed } from '@/components/dashboard/AiActivityFeed';
 import { ClassifyLeadsButton } from '@/components/dashboard/ClassifyLeadsButton';
+import { DashboardKpiInteractive } from '@/components/dashboard/DashboardKpiInteractive';
 import { redirect } from 'next/navigation';
 
 const NewLeadModal = nextDynamic(
@@ -188,95 +189,14 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {/* KPIs Principales de Negocio y IA */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-        <div className="bg-white dark:bg-[#131722] p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Cierres ({metrics?.periodLabel})</span>
-            <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
-          </div>
-          <div className="text-xl font-black text-slate-900 dark:text-white font-tabular truncate">
-            ${(metrics?.salesRevenueInPeriod || 0).toLocaleString('es-CO')}
-          </div>
-          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-            {metrics?.wonInPeriod || 0} {metrics?.isCalendarBusiness ? 'citas / cierres' : 'cierres'} · Ticket ${(metrics?.avgTicketUsdOrCop || 0).toLocaleString('es-CO')}
-          </span>
-        </div>
-
-        <div className="bg-white dark:bg-[#131722] p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Conversión</span>
-            <TrendingUp className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white font-tabular">
-            {metrics?.conversionRatePct ?? 0}%
-          </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            {metrics?.wonInPeriod || 0} ganados / {metrics?.newLeadsInPeriod || 0} nuevos ({totalLeads} total)
-          </span>
-        </div>
-
-        <div className="bg-white dark:bg-[#131722] p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Autonomía IA</span>
-            <Bot className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white font-tabular">
-            {metrics?.aiPerformance.autonomyPct ?? 100}%
-          </div>
-          <span className="text-[11px] text-[#0052FF] dark:text-[#00D2FF] font-medium">
-            {metrics?.aiPerformance.autonomousConversations || 0}/{metrics?.aiPerformance.totalActiveConversationsInPeriod || 0} chats sin humano
-          </span>
-        </div>
-
-        <div className="bg-white dark:bg-[#131722] p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider">IA vs Humano</span>
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white font-tabular">
-            {metrics?.aiPerformance.aiWonSalesCount || 0} <span className="text-sm text-slate-400 font-normal">/</span> {metrics?.aiPerformance.humanWonSalesCount || 0}
-          </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            Ventas IA vs Asesor · {aiActiveLeads} con IA activa
-          </span>
-        </div>
-
-        <div className="bg-white dark:bg-[#131722] p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Tokens IA ({metrics?.periodLabel})</span>
-            <Cpu className="w-3.5 h-3.5 text-emerald-500" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white font-tabular">
-            {(metrics?.costs.totalTokensPeriod || 0).toLocaleString('es-CO')}
-          </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-            {(metrics?.costs.tokensPerConversation || 0).toLocaleString('es-CO')} tok/chat · cuota {tokenUsage?.rawPercentage ?? tokenUsage?.percentage ?? 0}%
-          </span>
-        </div>
-
-        <Link
-          href="/inbox?view=por_responder"
-          className={`p-4 rounded-2xl border shadow-xs transition hover:opacity-95 ${
-            needsHumanCount > 0
-              ? 'bg-amber-50/70 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30'
-              : 'bg-white dark:bg-[#131722] border-slate-200 dark:border-[#232A3B]'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className={`text-[11px] font-medium uppercase tracking-wider ${needsHumanCount > 0 ? 'text-amber-800 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-              Requieren Humano
-            </span>
-            <AlertCircle className={`w-3.5 h-3.5 ${needsHumanCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-500'}`} />
-          </div>
-          <div className={`text-2xl font-black font-tabular ${needsHumanCount > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-900 dark:text-white'}`}>
-            {needsHumanCount}
-          </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            {needsHumanCount > 0 ? 'Relevos o espera sin IA' : `Al día · cuota ${tokenUsage?.percentage || 0}%`}
-          </span>
-        </Link>
-      </div>
+      {/* KPIs Principales Interactivos (con Vistas Detalladas y Gráfico de Tokenización) */}
+      <DashboardKpiInteractive
+        metrics={metrics}
+        tokenUsage={tokenUsage}
+        totalLeads={totalLeads}
+        aiActiveLeads={aiActiveLeads}
+        needsHumanCount={needsHumanCount}
+      />
 
       {/* SECCIÓN NUEVA: Calificación IA (4 grupos + Cierres) y Embudo */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -476,22 +396,25 @@ export default async function DashboardPage({
               <p className="text-xs text-slate-500">Sin pérdidas registradas en este periodo.</p>
             )}
 
-            {metrics?.costs.byModel && metrics.costs.byModel.length > 0 && (
-              <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] space-y-1">
+            {metrics?.costs && (
+              <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] space-y-1.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Tokens por modelo (p50: {(metrics.aiPerformance.p50LatencyMs / 1000).toFixed(1)}s · p90: {(metrics.aiPerformance.p90LatencyMs / 1000).toFixed(1)}s{metrics.costs.tokensPerSale > 0 ? ` · ${metrics.costs.tokensPerSale.toLocaleString('es-CO')} tok/cierre` : ''})
+                  Motor IA Activo (p50: {(metrics.aiPerformance.p50LatencyMs / 1000).toFixed(1)}s · p90: {(metrics.aiPerformance.p90LatencyMs / 1000).toFixed(1)}s{metrics.costs.tokensPerSale > 0 ? ` · ${metrics.costs.tokensPerSale.toLocaleString('es-CO')} tok/cierre` : ''})
                 </div>
-                {metrics.costs.byModel.slice(0, 4).map((m) => {
-                  const pct = Math.round((m.totalTokens / Math.max(1, metrics.costs.totalTokensPeriod)) * 100);
-                  return (
-                    <div key={`${m.provider}-${m.model}`} className="flex items-center justify-between text-[11px] font-mono">
-                      <span className="text-slate-600 dark:text-slate-300 truncate">{m.provider}:{m.model}</span>
-                      <span className="text-slate-900 dark:text-white shrink-0">
-                        {m.totalTokens.toLocaleString('es-CO')} tok ({pct}%)
-                      </span>
-                    </div>
-                  );
-                })}
+                <div className="flex items-center justify-between text-[11px] font-mono p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200/80 dark:border-[#232A3B]">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="text-slate-800 dark:text-slate-200 font-medium truncate">
+                      Synqo IA
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] font-sans font-bold">
+                      Motor Principal
+                    </span>
+                  </div>
+                  <span className="text-slate-900 dark:text-white font-bold shrink-0 ml-2">
+                    {(metrics.costs.totalTokensPeriod || 0).toLocaleString('es-CO')} tok
+                  </span>
+                </div>
               </div>
             )}
           </div>

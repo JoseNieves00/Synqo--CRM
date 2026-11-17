@@ -5,7 +5,13 @@ import { resolveOrganizationSystemPrompt } from '../lib/ai/prompt-compiler';
 import {
   buildMetaTemplateBodyComponents,
   normalizeFollowUpSettings,
+  clampToSafeBusinessHours,
+  extractGenuineFirstName,
 } from '../lib/ai/follow-up-types';
+import {
+  formatShippingGuideText,
+  formatShippingPolicyPrompt,
+} from '../lib/types/shipping';
 import { CreateOrderToolSchema } from '../lib/validations/tool-calls.schema';
 import {
   resolveMobileCoexistenceConfig,
@@ -168,6 +174,73 @@ async function runPillarsAndMobileTests() {
     composedPrompt.includes('already_visible_in_card') === false && openaiSrc.includes('already_visible_in_card: true'),
     'send_product_card debe informar already_visible_in_card respetando reglas de cada empresa'
   );
+
+  // 8. Deducción de primer nombre genuino (evitar "Hola Dios", apodos religiosos o emojis)
+  assert.strictEqual(extractGenuineFirstName('María Camila'), 'María');
+  assert.strictEqual(extractGenuineFirstName('Yeison Andrés'), 'Yeison');
+  assert.strictEqual(extractGenuineFirstName('Dulce María'), 'Dulce');
+  assert.strictEqual(extractGenuineFirstName('Dios es amor ❤️'), '');
+  assert.strictEqual(extractGenuineFirstName('Salmo 91'), '');
+  assert.strictEqual(extractGenuineFirstName('🌵✨'), '');
+  assert.strictEqual(extractGenuineFirstName('Life Goes On 💜'), '');
+  console.log('   ✅ Deducción de primer nombre genuino verificada (nombres acentuados OK, filtros anti-apodo OK).');
+
+  // 9. Módulo de Envíos y formato de Guía para Transportadoras (5 datos clave)
+  const guideText = formatShippingGuideText({
+    recipient_name: 'Ana María Gómez',
+    id_number: '1045892341',
+    phone: '3001234567',
+    destination_city: 'Barranquilla, Atlántico',
+    address: 'Cra 45 # 84-12 Apt 402',
+    notes: 'Portería 2',
+  });
+  assert.ok(guideText.includes('• *Nombre:* Ana María Gómez'));
+  assert.ok(guideText.includes('• *Identificación:* 1045892341'));
+  assert.ok(guideText.includes('• *Teléfono:* 3001234567'));
+  assert.ok(guideText.includes('• *Ciudad de destino:* Barranquilla, Atlántico'));
+  assert.ok(guideText.includes('• *Dirección:* Cra 45 # 84-12 Apt 402'));
+  assert.ok(guideText.includes('• *Observaciones:* Portería 2'));
+
+  const promptPolicies = formatShippingPolicyPrompt({
+    enabled: true,
+    baseRate: 35000,
+    allowCashOnDelivery: true,
+    freeShippingMinAmount: 300000,
+    carrierNames: 'Coordinadora, Envía',
+    cityRates: [
+      {
+        id: '1',
+        city: 'Barranquilla',
+        department: 'Atlántico',
+        cost: 90000,
+        isCashOnDelivery: true,
+        deliveryTime: '24 a 48 horas',
+      },
+    ],
+  });
+  assert.ok(promptPolicies.includes('Barranquilla (Atlántico): $90.000 COP con opción de contraentrega'));
+  assert.ok(promptPolicies.includes('Envío GRATIS: Aplica para compras iguales o superiores a $300.000 COP'));
+  assert.ok(promptPolicies.includes('Coordinadora, Envía'));
+  console.log('   ✅ Guía de 5 datos y compilación de políticas de envío por ciudad/municipio verificadas.');
+
+  // 10. Horarios prudentes comerciales anti-spam (clampToSafeBusinessHours)
+  // Caso de la captura del usuario: 21:55 de la noche no debe enviarse, debe rodar a las 09:30 AM del siguiente día hábil
+  const nightTarget = new Date('2026-11-17T21:55:00-05:00');
+  const safeNight = clampToSafeBusinessHours(nightTarget, undefined, 'America/Bogota');
+  const safeNightIso = safeNight.toISOString();
+  assert.ok(
+    safeNight.getTime() > nightTarget.getTime(),
+    'Un seguimiento programado a las 21:55 debe rodar al día siguiente hábil'
+  );
+
+  // Un domingo debe rodar al lunes
+  const sundayTarget = new Date('2026-11-22T10:00:00-05:00'); // 2026-11-22 es Domingo
+  const safeSunday = clampToSafeBusinessHours(sundayTarget, undefined, 'America/Bogota');
+  assert.ok(
+    safeSunday.getTime() > sundayTarget.getTime(),
+    'Un seguimiento en domingo debe rodar automáticamente al lunes hábil'
+  );
+  console.log('   ✅ Horarios prudentes comerciales anti-spam verificados (21:55 y domingos protegidos).');
 
   console.log('   ✅ Invariantes de producción (handoff, 24h Meta, Instagram, Pipeline, Móvil, Plantillas, Jerarquía de Prompt y SuperAdmin Alerts) verificadas.\n');
 }

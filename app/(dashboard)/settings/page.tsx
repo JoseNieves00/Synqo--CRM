@@ -33,6 +33,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const org = current.organization;
   const paymentAccounts = (org?.appointment_settings as any)?.payment_accounts || [];
+  const shippingSettings = (org?.appointment_settings as any)?.shipping_settings || null;
   const followUpSequences = normalizeFollowUpSettings((org?.appointment_settings as any)?.follow_up_sequences);
   const tokenPolicy = normalizeTokenPolicy((org?.appointment_settings as any)?.token_policy);
   const managerSecurity = normalizeManagerSecurity((org?.appointment_settings as any)?.manager_security);
@@ -136,6 +137,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       specialistsData={specialists}
       roomsData={rooms}
       paymentAccountsData={paymentAccounts}
+      shippingSettingsData={shippingSettings}
       quickRepliesData={quickReplies}
       aiSuggestionsData={aiSuggestions}
       followUpSequencesData={followUpSequences}

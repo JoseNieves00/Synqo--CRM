@@ -23,6 +23,31 @@ CREATE TABLE IF NOT EXISTS ai_retry_queue (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Si la tabla ya fue creada previamente con la columna 'next_retry_at', renombrarla a 'next_attempt_at'
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'ai_retry_queue' AND column_name = 'next_retry_at'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'ai_retry_queue' AND column_name = 'next_attempt_at'
+  ) THEN
+    ALTER TABLE ai_retry_queue RENAME COLUMN next_retry_at TO next_attempt_at;
+  END IF;
+END $$;
+
+-- Si la tabla existía pero carecía de 'next_attempt_at', agregarla de forma segura
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'ai_retry_queue' AND column_name = 'next_attempt_at'
+  ) THEN
+    ALTER TABLE ai_retry_queue ADD COLUMN next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_ai_retry_queue_due
   ON ai_retry_queue (next_attempt_at)
   WHERE status IN ('pending', 'processing');
@@ -30,9 +55,13 @@ CREATE INDEX IF NOT EXISTS idx_ai_retry_queue_due
 CREATE INDEX IF NOT EXISTS idx_ai_retry_queue_org_status
   ON ai_retry_queue (organization_id, status);
 
--- RLS: los miembros de la organización pueden ver la cola; el backend usa service role.
+-- RLS: los miembros de la organización pueden ver su propia cola; el backend opera vía service role.
 ALTER TABLE ai_retry_queue ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Org members view ai retry queue" ON ai_retry_queue;
 CREATE POLICY "Org members view ai retry queue" ON ai_retry_queue
-  FOR SELECT USING (organization_id = get_auth_org_id());
+  FOR SELECT USING (
+    organization_id IN (
+      SELECT organization_id FROM profiles WHERE id = auth.uid()
+    )
+  );

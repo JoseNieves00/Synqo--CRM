@@ -379,20 +379,30 @@ export function parseQuoteMessageContent(content: string | null | undefined): Pa
  *
  * Cuando la IA despachó una o más tarjetas con fotos oficiales (que ya llevan
  * nombre, precio y medidas en el caption de la imagen), este guardrail poda
- * determinísticamente cualquier listado redundante de precios, medidas o alturas
- * que el modelo intente emitir en el texto final, garantizando que el usuario
- * reciba ÚNICAMENTE la pregunta de cierre o el mensaje conversacional limpio.
+ * determinísticamente cualquier listado redundante de productos, precios, medidas,
+ * dimensiones o características que el modelo intente emitir en el texto final,
+ * garantizando que el usuario reciba ÚNICAMENTE la pregunta de cierre o el mensaje
+ * conversacional limpio sin duplicar información.
  */
-export function stripRedundantCatalogListAfterCards(text: string): string {
+export function stripRedundantCatalogListAfterCards(
+  text: string,
+  options?: {
+    allowRedundancy?: boolean;
+    customFallbackQuestion?: string;
+  }
+): string {
   if (!text || typeof text !== 'string') return text;
+  if (options?.allowRedundancy) return text;
 
   const lines = text.split('\n');
   const cleanedLines: string[] = [];
 
-  // Patrones que identifican líneas de viñeta o lista con precios/medidas repetitivas
-  const bulletPattern = /^(\s*[-*•–—]|\s*\d+[.)])\s+/;
-  const catalogSignalPattern = /(precio|altura|ancho|profundidad|medida|\$\s*\d|\d+\s*(cm|m\b))/i;
-  const singleAttributePattern = /^(altura|precio|medidas?|dimensiones?)\s*:\s*.+/i;
+  // Patrones que identifican listas numeradas o con viñetas
+  const listMarkerPattern = /^\s*(\d+[\.\)]|[-*•–—])\s+/;
+  // Patrones de atributos individuales de producto
+  const singleAttributePattern = /^\s*(medidas?|dimensiones?|precio|altura|ancho|profundidad|personalizable|incluye|especificaciones?|material|color)\b/i;
+  // Encabezados huérfanos que introducen listas de catálogo (ej. "Aquí te comparto los modelos:", "Opciones disponibles:")
+  const orphanCatalogIntroPattern = /^(?:aqu[ií]\s+(?:tienes|te\s+(?:comparto|dejo|muestro|presento))|estas?\s+son\s+las\s+opciones|modelos?\s+disponibles?|opciones?\s+disponibles?|te\s+detallo\s+las\s+opciones)[\s\S]*:$/i;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -400,18 +410,24 @@ export function stripRedundantCatalogListAfterCards(text: string): string {
       cleanedLines.push(line);
       continue;
     }
-    // Si es un ítem de viñeta con precio/medidas, podar
-    if (bulletPattern.test(trimmed) && catalogSignalPattern.test(trimmed)) {
+    // Si la línea empieza con un número de lista ("1.", "2)") o una viñeta ("-", "*", "•"),
+    // se poda por completo, eliminando nombres de productos, precios, medidas, dimensiones o viñetas de personalización.
+    if (listMarkerPattern.test(trimmed)) {
       continue;
     }
-    // Si es un atributo suelto sin viñeta (ej. "Altura: 1,07 m")
+    // Si es un atributo suelto de especificaciones (ej. "Medidas: 1,07 m...", "Personalizable...")
     if (singleAttributePattern.test(trimmed)) {
+      continue;
+    }
+    // Si era una introducción de lista que terminaba en ":" y ahora la lista fue podada
+    if (orphanCatalogIntroPattern.test(trimmed)) {
       continue;
     }
     cleanedLines.push(line);
   }
 
   const result = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  return result || '¿Cuál de estos modelos se adapta mejor a tu espacio?';
+  const fallbackQuestion = options?.customFallbackQuestion || '¿Cuál de estas opciones se adapta mejor a lo que buscas?';
+  return result || fallbackQuestion;
 }
 
