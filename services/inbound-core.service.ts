@@ -397,7 +397,9 @@ export class InboundCoreService {
         delete updatedCustomFields.temperature;
       }
 
-      // T2: Si el cliente responde, detener cualquier secuencia de seguimiento en curso y reactivar control normal
+      // T2: Si el cliente responde, detener cualquier secuencia de seguimiento en curso y reactivar control normal.
+      // Además, al volver a escribir el lead se reabre la ventana Meta 24h: despausar seguimientos
+      // pausados por falta de plantilla (meta_outside_24h_no_template) y limpiar el marcador de omisión.
       if (updatedCustomFields.follow_up) {
         const nextFu = {
           ...updatedCustomFields.follow_up,
@@ -405,6 +407,10 @@ export class InboundCoreService {
           lastInboundAt: new Date().toISOString(),
         };
         delete nextFu.nextSendAt;
+        if (!isOptOut) {
+          delete nextFu.pausedReason;
+          updatedCustomFields.follow_up_last_skipped = null;
+        }
         updatedCustomFields.follow_up = nextFu;
       }
       if (updatedCustomFields.active_reminder?.reminderType === 'reactivation') {

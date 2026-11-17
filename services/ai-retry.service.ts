@@ -1,521 +1,299 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { isConversationClosed } from '@/lib/crm/constants';
-import { MessagingService } from './messaging.service';
-import { InstagramService } from './instagram.service';
-import { PlatformAlertService } from './platform-alert.service';
-import { isLeadWindowOpen } from './contact.service';
-import { decryptSecret } from '@/lib/security/encryption';
+import { MessagingService } from '@/services/messaging.service';
+import { isLeadWindowOpen } from '@/services/contact.service';
 
 /**
- * ============================================================================
- * AiRetryService — Reintentos diferidos de IA (dead-letter con reintento real)
- * ============================================================================
- * Problema que resuelve: si `processLeadMessage` falla (caída de proveedor,
- * timeout, excepción) o si el despacho al canal falla, el cliente se quedaba
- * sin respuesta para siempre: el run se registraba en `ai_runs` pero nadie
- * reintentaba y nadie avisaba con urgencia al asesor.
+ * Reintentos diferidos de IA.
  *
- * Flujo:
- *  1. `InboundCoreService` encola un reintento cuando falla la generación
- *     (strategy 'regenerate') o el despacho (strategy 'resend').
- *  2. El cron de reactivación (`/api/cron/lead-reactivation`) procesa la cola
- *     con presupuesto de tiempo propio, antes de las campañas.
- *  3. Backoff exponencial corto (90s → 4min → 9min), máx. 2 reintentos.
- *  4. Si se agotan los intentos: mensaje de sistema en el chat, badge
- *     "Requiere atención" y alerta al SuperAdmin.
+ * Dos estrategias:
+ * - `resend`: la respuesta ya estaba generada pero el despacho al canal falló (transitorio).
+ *   Se reenvía el texto/media ya generados SIN volver a gastar tokens del LLM.
+ * - `regenerate`: el worker de IA falló antes de responder al lead. Se re-dispara el turno
+ *   de IA pendiente del contacto (con los candados de ventana y atención humana revalidados).
+ *
+ * Errores de credenciales del canal (token expirado, 401/403) NO se reintentan: ya disparan
+ * su propia alerta de plataforma y un reintento solo acumularía fallos.
  */
 
-/** Errores de credenciales del canal: no tienen remedio con reintento (ya disparan su propia alerta). */
-export function isChannelAuthError(message: string | null | undefined): boolean {
-  const m = String(message || '').toLowerCase();
-  return (
-    m.includes('190') ||
-    m.includes('oauthexception') ||
-    m.includes('token expir') ||
-    m.includes('credenciales del canal')
-  );
+export type AiRetryStrategy = 'resend' | 'regenerate';
+
+export interface AiRetryPayload {
+  messageId?: string | null;
+  recipientId?: string | null;
+  text?: string | null;
+  media?: Array<{ url: string; caption?: string }>;
+  insertedMessageId?: string | null;
 }
 
-/** Backoff exponencial corto: intento 1 → 90s, intento 2 → 4min, intento 3 → 9min. */
-export function computeNextRetryDelayMs(attempts: number): number {
-  const slot = Math.max(1, Math.floor(attempts));
-  return 90_000 * slot * slot;
-}
-
-export interface RetryQueueRow {
-  id: string;
-  organization_id: string;
-  contact_id: string;
+export interface AiRetryEnqueueParams {
+  organizationId: string;
+  contactId: string;
   channel: string;
-  strategy: 'regenerate' | 'resend';
-  payload: Record<string, any>;
-  attempts: number;
-  max_attempts: number;
-  status: 'pending' | 'in_progress' | 'done' | 'failed';
-  last_error: string | null;
-  next_retry_at: string;
-  created_at: string;
-  updated_at: string;
+  strategy: AiRetryStrategy;
+  payload: AiRetryPayload;
+}
+
+export interface AiRetryProcessResult {
+  processed: number;
+  sent: number;
+  failed: number;
+  cancelled: number;
+  deferred: number;
+}
+
+/** Backoff por intento (minutos): 2 → 10 → 30. */
+const RETRY_BACKOFF_MINUTES = [2, 10, 30];
+
+/**
+ * Detecta errores de autenticación/credenciales del canal: no vale la pena reintentarlos.
+ */
+export function isChannelAuthError(message: string): boolean {
+  const msg = String(message || '').toLowerCase();
+  return (
+    msg.includes('401') ||
+    msg.includes('403') ||
+    msg.includes('unauthorized') ||
+    msg.includes('forbidden') ||
+    msg.includes('authentication') ||
+    msg.includes('access token') ||
+    msg.includes('token expired') ||
+    (msg.includes('token') && (msg.includes('invalid') || msg.includes('expired') || msg.includes('revoked'))) ||
+    msg.includes('oauth') ||
+    msg.includes('bad credentials')
+  );
 }
 
 export class AiRetryService {
   /**
-   * Encola un reintento. Deduplica: si ya hay una fila pendiente del mismo
-   * contacto con la misma estrategia, no duplica.
+   * Encola un reintento diferido. Nunca lanza: los callers usan `.catch(() => {})`
+   * y un fallo de encolado no debe romper el turno de IA.
    */
-  static async enqueueRetry(params: {
-    organizationId: string;
-    contactId: string;
-    channel: string;
-    strategy: 'regenerate' | 'resend';
-    payload?: Record<string, any>;
-    maxAttempts?: number;
-  }): Promise<boolean> {
+  static async enqueueRetry(params: AiRetryEnqueueParams): Promise<{ queued: boolean; id?: string }> {
     try {
-      const { data: existing } = await (supabaseAdmin.from('ai_retry_queue') as any)
+      const { data, error } = await (supabaseAdmin.from('ai_retry_queue') as any)
+        .insert({
+          organization_id: params.organizationId,
+          contact_id: params.contactId,
+          channel: params.channel || 'whatsapp',
+          strategy: params.strategy,
+          payload: params.payload || {},
+          status: 'pending',
+          next_attempt_at: new Date(Date.now() + RETRY_BACKOFF_MINUTES[0] * 60 * 1000).toISOString(),
+        })
         .select('id')
-        .eq('organization_id', params.organizationId)
-        .eq('contact_id', params.contactId)
-        .eq('strategy', params.strategy)
-        .eq('status', 'pending')
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) return false;
-
-      const { error } = await (supabaseAdmin.from('ai_retry_queue') as any).insert({
-        organization_id: params.organizationId,
-        contact_id: params.contactId,
-        channel: params.channel,
-        strategy: params.strategy,
-        payload: params.payload || {},
-        max_attempts: params.maxAttempts ?? 2,
-        status: 'pending',
-      });
-
-      if (error) {
-        console.warn('[AI RETRY ENQUEUE WARN]', error);
-        return false;
-      }
-      console.log(`[AI RETRY] Reintento encolado (${params.strategy}) para contacto ${params.contactId}`);
-      return true;
-    } catch (err) {
-      console.warn('[AI RETRY ENQUEUE ERROR]', err);
-      return false;
+        .single();
+      if (error) throw error;
+      return { queued: true, id: data?.id };
+    } catch (err: any) {
+      console.warn('[AI RETRY ENQUEUE WARN]', err?.message || err);
+      return { queued: false };
     }
   }
 
   /**
-   * Procesa la cola de reintentos con presupuesto de tiempo (llamado desde el cron).
+   * Procesa la cola de reintentos vencidos. Diseñado para correr dentro del cron de
+   * reactivación con presupuesto de tiempo (deadlineMs).
    */
-  static async processRetryQueue(params: {
+  static async processPendingRetries(params?: {
     organizationId?: string;
+    limit?: number;
     deadlineMs?: number;
-    maxItems?: number;
-  }): Promise<{
-    processed: number;
-    succeeded: number;
-    rescheduled: number;
-    exhausted: number;
-    skipped: number;
-  }> {
-    const deadline = params.deadlineMs || Date.now() + 15_000;
-    const maxItems = params.maxItems || 12;
-    const summary = { processed: 0, succeeded: 0, rescheduled: 0, exhausted: 0, skipped: 0 };
+  }): Promise<AiRetryProcessResult> {
+    const result: AiRetryProcessResult = { processed: 0, sent: 0, failed: 0, cancelled: 0, deferred: 0 };
+    const limit = Math.min(Math.max(params?.limit ?? 25, 1), 100);
+    const deadline = params?.deadlineMs ?? Date.now() + 30_000;
 
     let query = (supabaseAdmin.from('ai_retry_queue') as any)
-      .select('*')
+      .select('id, organization_id, contact_id, channel, strategy, payload, attempts, max_attempts')
       .eq('status', 'pending')
-      .lte('next_retry_at', new Date().toISOString())
-      .order('created_at', { ascending: true })
-      .limit(maxItems);
+      .lte('next_attempt_at', new Date().toISOString())
+      .order('next_attempt_at', { ascending: true })
+      .limit(limit);
+    if (params?.organizationId) query = query.eq('organization_id', params.organizationId);
 
-    if (params.organizationId) query = query.eq('organization_id', params.organizationId);
+    const { data: jobs, error: jobsErr } = await query;
+    if (jobsErr || !jobs || jobs.length === 0) return result;
 
-    const { data: dueRows, error } = await query;
-    if (error) {
-      console.warn('[AI RETRY QUEUE FETCH WARN]', error);
-      return summary;
-    }
-    if (!dueRows || dueRows.length === 0) return summary;
+    // Cargar contactos de una vez para los candados
+    const contactIds = Array.from(new Set(jobs.map((j: any) => j.contact_id)));
+    const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
+      .select('id, organization_id, name, phone, channel, custom_fields, unread_count, waiting_since, conversation_status, pipeline_stage')
+      .in('id', contactIds)
+      .is('deleted_at', null);
+    const cMap = new Map<string, any>((contacts || []).map((c: any) => [c.id, c]));
 
-    for (const row of dueRows as RetryQueueRow[]) {
+    for (const job of jobs) {
       if (Date.now() >= deadline) break;
+      result.processed++;
 
-      // Claim atómico: solo una instancia puede tomar la fila (evita doble envío entre crons concurrentes)
-      const { data: claimed, error: claimError } = await (supabaseAdmin.from('ai_retry_queue') as any)
-        .update({ status: 'in_progress', updated_at: new Date().toISOString() })
-        .eq('id', row.id)
-        .eq('status', 'pending')
-        .select('id');
-      if (claimError || !claimed || claimed.length === 0) {
-        summary.skipped++;
+      const contact = cMap.get(job.contact_id);
+      await (supabaseAdmin.from('ai_retry_queue') as any)
+        .update({ status: 'processing', updated_at: new Date().toISOString() })
+        .eq('id', job.id);
+
+      // Guardas de validez: si el chat ya no es reintentable, cancelar.
+      if (!contact) {
+        await this.cancelJob(job.id, 'Contacto eliminado');
+        result.cancelled++;
         continue;
       }
-
-      const attempts = (row.attempts || 0) + 1;
-      let outcome: { success: boolean; error?: string; handoff?: boolean; skipped?: string };
+      const cf = (contact.custom_fields as Record<string, any>) || {};
+      if (
+        cf.opted_out === true ||
+        contact.conversation_status === 'closed' ||
+        cf.conversation_status === 'closed' ||
+        contact.pipeline_stage === 'ganado' ||
+        contact.pipeline_stage === 'perdido'
+      ) {
+        await this.cancelJob(job.id, 'Contacto cerrado u opt-out');
+        result.cancelled++;
+        continue;
+      }
+      // No interrumpir la atención humana: si el lead escribió y nadie respondió,
+      // el reintento de la IA NO debe pisar al asesor.
+      if ((contact.unread_count || 0) > 0 || contact.waiting_since || cf.unattended_handoff === true) {
+        await this.cancelJob(job.id, 'El chat está en atención humana');
+        result.cancelled++;
+        continue;
+      }
 
       try {
-        outcome = row.strategy === 'resend'
-          ? await this.attemptResend(row)
-          : await this.attemptRegenerate(row);
+        if (job.strategy === 'resend') {
+          // Fuera de ventana Meta 24h un texto libre no puede salir: cancelar (el
+          // seguimiento con plantilla corre por el motor de reactivación, no aquí).
+          const provider = (await this.getProvider(job.organization_id)) || 'meta';
+          if (provider === 'meta' && !isLeadWindowOpen(contact)) {
+            await this.cancelJob(job.id, 'Fuera de ventana Meta 24h');
+            result.cancelled++;
+            continue;
+          }
+          const sent = await this.executeResend(contact, job.payload);
+          if (sent) {
+            await this.markDone(job.id);
+            result.sent++;
+          } else {
+            await this.markFailed(job.id, job.attempts, job.max_attempts, 'El canal no confirmó el envío');
+            result.failed++;
+          }
+        } else {
+          // regenerate: re-disparar el turno de IA pendiente (import dinámico para
+          // evitar el ciclo estático inbound-core ⇄ ai-retry).
+          const mod = await import('./inbound-core.service');
+          const ok = await mod.InboundCoreService.triggerPendingAiForContact(job.contact_id);
+          if (ok) {
+            await this.markDone(job.id);
+            result.sent++;
+          } else {
+            await this.markFailed(job.id, job.attempts, job.max_attempts, 'El contacto ya no tiene mensaje pendiente de IA');
+            result.failed++;
+          }
+        }
       } catch (err: any) {
-        outcome = { success: false, error: err?.message || 'Error desconocido en reintento' };
+        const errMsg = String(err?.message || err);
+        if (isChannelAuthError(errMsg)) {
+          await this.cancelJob(job.id, `Error de credenciales del canal: ${errMsg.slice(0, 180)}`);
+          result.cancelled++;
+        } else {
+          await this.markFailed(job.id, job.attempts, job.max_attempts, errMsg.slice(0, 400));
+          result.failed++;
+        }
       }
-
-      if (outcome.success) {
-        summary.succeeded++;
-        await (supabaseAdmin.from('ai_retry_queue') as any)
-          .update({
-            status: 'done',
-            attempts,
-            // Si se omitió por conversación cerrada, queda rastro auditado sin escalar
-            last_error: outcome.skipped ? `skipped: ${outcome.skipped}` : null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', row.id);
-        continue;
-      }
-
-      if (attempts >= (row.max_attempts || 2)) {
-        summary.exhausted++;
-        // 🛡️ Anti-falsos-positivos: si la conversación se cerró mientras la fila
-        // esperaba, no escalar al asesor ni al SuperAdmin (no hay nada que atender).
-        const closed = await this.isContactClosed(row.contact_id);
-        await (supabaseAdmin.from('ai_retry_queue') as any)
-          .update({
-            status: closed ? 'done' : 'failed',
-            attempts,
-            last_error: closed
-              ? 'skipped: conversation closed'
-              : (outcome.error || '').slice(0, 400),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', row.id);
-        if (!closed) await this.escalateToAdvisor(row, outcome.error || 'Error desconocido');
-        continue;
-      }
-
-      summary.rescheduled++;
-      const nextAt = new Date(Date.now() + computeNextRetryDelayMs(attempts)).toISOString();
-      await (supabaseAdmin.from('ai_retry_queue') as any)
-        .update({
-          status: 'pending',
-          attempts,
-          last_error: (outcome.error || '').slice(0, 400),
-          next_retry_at: nextAt,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
     }
 
-    return summary;
+    return result;
   }
 
-  // -------------------------------------------------------------------------
-
-  /**
-   * Reintento de despacho: la respuesta YA fue generada pero el envío al canal falló.
-   * Reenvía el mismo texto (y las media que se hubieran extraído del texto) sin
-   * gastar tokens de nuevo en el LLM.
-   */
-  private static async attemptResend(row: RetryQueueRow): Promise<{ success: boolean; error?: string; skipped?: string }> {
-    const payload = row.payload || {};
-    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
-    const media: Array<{ url: string; caption?: string }> = Array.isArray(payload.media) ? payload.media : [];
-    const recipientId = payload.recipientId || null;
-    const messageRowId = payload.messageId || null;
-
-    if (!text && media.length === 0) {
-      return { success: false, error: 'Payload de resend sin texto ni media' };
-    }
-    if (!recipientId) {
-      return { success: false, error: 'Payload de resend sin destinatario' };
-    }
-
-    // Ventana Meta 24h: si el lead no escribió en 24h, Meta rechazaría el texto libre
-    if (row.channel !== 'instagram') {
-      const { data: contact } = await (supabaseAdmin.from('contacts') as any)
-        .select('last_lead_message_at, custom_fields, conversation_status, closed_at, pipeline_stage')
-        .eq('id', row.contact_id)
-        .maybeSingle();
-      // 🛡️ Anti-falsos-positivos: si la conversación se cerró, no reenviar al cliente
-      if (contact && isConversationClosed(contact)) {
-        return { success: true, skipped: 'conversation closed' };
-      }
-      const provider = (await this.getOrganizationProvider(row.organization_id)) || 'meta';
-      if (provider === 'meta' && !isLeadWindowOpen(contact || {})) {
-        return { success: false, error: 'meta_outside_24h_no_template' };
-      }
-    }
-
-    const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select(this.ORG_FIELDS)
-      .eq('id', row.organization_id)
-      .maybeSingle();
-    if (!org) return { success: false, error: 'Organización no encontrada' };
-
+  private static async getProvider(organizationId: string): Promise<string | null> {
     try {
-      for (const mediaItem of media) {
-        if (!mediaItem?.url) continue;
-        if (row.channel === 'instagram') {
-          let igToken = org.instagram_access_token || '';
-          try {
-            igToken = decryptSecret(igToken);
-          } catch {}
-          await InstagramService.sendMediaMessage({
-            instagramAccountId: org.instagram_account_id || '',
-            accessToken: igToken,
-            recipientId,
-            mediaUrl: mediaItem.url,
-          });
-        } else {
-          await MessagingService.sendMediaMessage({
-            organization: this.toMessagingOrg(org),
-            to: recipientId,
-            mediaUrl: mediaItem.url,
-            caption: mediaItem.caption || undefined,
-            mediaType: 'image',
-          });
-        }
-        await (supabaseAdmin.from('messages') as any).insert({
-          contact_id: row.contact_id,
-          organization_id: row.organization_id,
-          sender_type: 'ai',
-          content: mediaItem.caption ? `🖼️ ${mediaItem.caption}` : '[Imagen]',
-          status: 'sent',
-          channel: row.channel === 'instagram' ? 'instagram' : 'whatsapp',
-        });
-      }
-
-      let providerMessageId: string | null = null;
-      if (text) {
-        if (row.channel === 'instagram') {
-          let igToken = org.instagram_access_token || '';
-          try {
-            igToken = decryptSecret(igToken);
-          } catch {}
-          providerMessageId = await InstagramService.sendDirectMessage({
-            instagramAccountId: org.instagram_account_id || '',
-            accessToken: igToken,
-            recipientId,
-            text,
-          });
-        } else {
-          providerMessageId = await MessagingService.sendTextMessage({
-            organization: this.toMessagingOrg(org),
-            to: recipientId,
-            body: text,
-            simulateTyping: true,
-          });
-        }
-
-        if (messageRowId) {
-          await (supabaseAdmin.from('messages') as any)
-            .update({
-              status: 'sent',
-              meta_message_id: providerMessageId || null,
-              error_message: null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', messageRowId);
-        } else {
-          await (supabaseAdmin.from('messages') as any).insert({
-            contact_id: row.contact_id,
-            organization_id: row.organization_id,
-            sender_type: 'ai',
-            content: text,
-            status: 'sent',
-            channel: row.channel === 'instagram' ? 'instagram' : 'whatsapp',
-          });
-        }
-      }
-
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Error de despacho en reintento' };
-    }
-  }
-
-  /**
-   * Reintento de generación: la IA falló antes de producir respuesta. Reconstruye
-   * el payload desde la DB y re-ejecuta el worker completo (con sus defensas de
-   * debounce, anti-duplicados y lock atómico).
-   */
-  private static async attemptRegenerate(row: RetryQueueRow): Promise<{
-    success: boolean;
-    error?: string;
-    handoff?: boolean;
-    skipped?: string;
-  }> {
-    const { data: contact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, organization_id, phone, name, is_ai_active, custom_fields, last_lead_message_at, conversation_status, closed_at, pipeline_stage')
-      .eq('id', row.contact_id)
-      .maybeSingle();
-
-    if (!contact) return { success: false, error: 'Contacto no encontrado' };
-
-    // Si un asesor ya tomó el chat, no hay nada que regenerar
-    if (!contact.is_ai_active) return { success: true, handoff: true };
-
-    // 🛡️ Anti-falsos-positivos: conversación cerrada → no regenerar ni responder
-    if (isConversationClosed(contact)) {
-      return { success: true, skipped: 'conversation closed' };
-    }
-
-    const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select(this.ORG_FIELDS)
-      .eq('id', row.organization_id)
-      .maybeSingle();
-    if (!org) return { success: false, error: 'Organización no encontrada' };
-
-    const { data: lastLeadMsg } = await (supabaseAdmin.from('messages') as any)
-      .select('id, content, created_at')
-      .eq('contact_id', row.contact_id)
-      .eq('sender_type', 'lead')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!lastLeadMsg) return { success: false, error: 'Sin mensaje del lead para responder' };
-
-    // Ventana Meta 24h: fuera de ventana, regenerar produciría un envío rechazado
-    if (row.channel !== 'instagram') {
-      const provider = (org.whatsapp_provider as string) || 'meta';
-      if (provider === 'meta' && !isLeadWindowOpen(contact)) {
-        return { success: false, error: 'meta_outside_24h_no_template' };
-      }
-    }
-
-    const insertedMessageId = row.payload?.insertedMessageId || lastLeadMsg.id;
-
-    // Import dinámico para evitar dependencia circular (inbound-core ↔ ai-retry)
-    const { InboundCoreService } = await import('./inbound-core.service');
-    const retryStartIso = new Date().toISOString();
-
-    await InboundCoreService.runAiWorker({
-      payload: {
-        organization: org,
-        channel: row.channel as any,
-        channelMessageId: insertedMessageId,
-        senderId: contact.phone,
-        senderName: contact.name || 'Cliente',
-        rawContent: lastLeadMsg.content || '',
-        remoteJid: contact.custom_fields?.remote_jid || null,
-      },
-      contactId: row.contact_id,
-      insertedMessageId,
-    });
-
-    // Verificación: ¿la IA produjo un mensaje saliente después del reintento?
-    const { data: newOutbound } = await (supabaseAdmin.from('messages') as any)
-      .select('id, status')
-      .eq('contact_id', row.contact_id)
-      .in('sender_type', ['ai', 'agent_manual'])
-      .gte('created_at', retryStartIso)
-      .limit(1)
-      .maybeSingle();
-
-    if (newOutbound && newOutbound.status !== 'failed') return { success: true };
-
-    // El worker pudo abortar limpiamente (asesor tomó el chat durante la espera)
-    const { data: recheck } = await (supabaseAdmin.from('contacts') as any)
-      .select('is_ai_active')
-      .eq('id', row.contact_id)
-      .maybeSingle();
-    if (recheck && !recheck.is_ai_active) return { success: true, handoff: true };
-
-    return { success: false, error: 'El worker de IA no produjo respuesta en el reintento' };
-  }
-
-  /**
-   * Escalada tras agotar reintentos: mensaje de sistema en el chat, badge
-   * "Requiere atención" y alerta al SuperAdmin.
-   */
-  private static async escalateToAdvisor(row: RetryQueueRow, lastError: string): Promise<void> {
-    try {
-      // 🛡️ Nada que escalar si la conversación ya se cerró mientras se reintentaba
-      if (await this.isContactClosed(row.contact_id)) {
-        console.log(`[AI RETRY] Escalada omitida: conversación ${row.contact_id} cerrada`);
-        return;
-      }
-
-      await (supabaseAdmin.from('messages') as any).insert({
-        contact_id: row.contact_id,
-        organization_id: row.organization_id,
-        sender_type: 'system',
-        content: `⚠️ El asistente automático no pudo responder a este cliente tras varios intentos (${String(lastError).slice(0, 140)}). Revísalo y respóndele manualmente.`,
-      });
-
-      const { data: contact } = await (supabaseAdmin.from('contacts') as any)
-        .select('custom_fields')
-        .eq('id', row.contact_id)
-        .maybeSingle();
-      const cf = (contact?.custom_fields as Record<string, any>) || {};
-      await (supabaseAdmin.from('contacts') as any)
-        .update({
-          conversation_status: 'open',
-          waiting_since: new Date().toISOString(),
-          custom_fields: { ...cf, unattended_handoff: true },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.contact_id);
-
       const { data: org } = await (supabaseAdmin.from('organizations') as any)
-        .select('name')
-        .eq('id', row.organization_id)
-        .maybeSingle();
-
-      PlatformAlertService.notifySuperAdminEvent({
-        type: 'ai_retry_exhausted',
-        orgId: row.organization_id,
-        companyName: org?.name || 'Empresa Synqo',
-        title: 'IA sin respuesta tras reintentos',
-        details: `Contacto ${row.contact_id} (${row.strategy}). Último error: ${String(lastError).slice(0, 160)}`,
-        dedupeWindowMinutes: 30,
-      }).catch(() => {});
-    } catch (err) {
-      console.warn('[AI RETRY ESCALATE WARN]', err);
-    }
-  }
-
-  // -------------------------------------------------------------------------
-
-  private static async getOrganizationProvider(organizationId: string): Promise<string | null> {
-    const { data } = await (supabaseAdmin.from('organizations') as any)
-      .select('whatsapp_provider')
-      .eq('id', organizationId)
-      .maybeSingle();
-    return data?.whatsapp_provider || null;
-  }
-
-  /** 🛡️ Consulta el cierre de la conversación con la fuente única compartida. */
-  private static async isContactClosed(contactId: string): Promise<boolean> {
-    try {
-      const { data } = await (supabaseAdmin.from('contacts') as any)
-        .select('conversation_status, closed_at, pipeline_stage, custom_fields')
-        .eq('id', contactId)
-        .maybeSingle();
-      return isConversationClosed(data);
+        .select('whatsapp_provider')
+        .eq('id', organizationId)
+        .single();
+      return org?.whatsapp_provider || null;
     } catch {
-      return false;
+      return null;
     }
   }
 
-  private static toMessagingOrg(org: Record<string, any>) {
-    return {
-      id: org.id,
-      name: org.name,
-      whatsapp_provider: org.whatsapp_provider,
-      whatsapp_phone_number_id: org.whatsapp_phone_number_id,
-      whatsapp_access_token: org.whatsapp_access_token,
-      evolution_api_url: org.evolution_api_url,
-      evolution_api_key: org.evolution_api_key,
-      evolution_instance_name: org.evolution_instance_name,
-      evolution_anti_ban_mode: true,
-    };
+  /**
+   * Reenvía texto + media ya generados por la IA (0 tokens nuevos).
+   */
+  private static async executeResend(contact: any, payload: AiRetryPayload): Promise<boolean> {
+    const orgRes = await (supabaseAdmin.from('organizations') as any)
+      .select('*')
+      .eq('id', contact.organization_id)
+      .single();
+    const org = orgRes?.data;
+    if (!org) return false;
+
+    const cf = (contact.custom_fields as Record<string, any>) || {};
+    const targetRecipient = payload?.recipientId || cf.remote_jid || cf.whatsapp_jid || contact.phone;
+    const text = String(payload?.text || '').trim();
+    const media = Array.isArray(payload?.media) ? payload.media.slice(0, 3) : [];
+
+    let sentSomething = false;
+    if (text) {
+      const msgId = await MessagingService.sendTextMessage({
+        organization: org,
+        to: targetRecipient,
+        body: text,
+        simulateTyping: false,
+      });
+      sentSomething = Boolean(msgId);
+    }
+    for (const m of media) {
+      if (!m?.url) continue;
+      try {
+        const mediaId = await MessagingService.sendMediaMessage({
+          organization: org,
+          to: targetRecipient,
+          mediaUrl: m.url,
+          caption: m.caption || undefined,
+        });
+        if (mediaId) sentSomething = true;
+      } catch (err: any) {
+        console.warn('[AI RETRY MEDIA WARN]', err?.message || err);
+      }
+    }
+
+    // Marcar el mensaje original como entregado (estaba en 'sending'/'failed')
+    if (sentSomething && payload?.messageId) {
+      await (supabaseAdmin.from('messages') as any)
+        .update({ status: 'sent', updated_at: new Date().toISOString() })
+        .eq('id', payload.messageId);
+    }
+    return sentSomething;
   }
 
-  private static readonly ORG_FIELDS =
-    'id, name, is_active, subscription_status, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, whatsapp_app_secret, evolution_api_url, evolution_api_key, evolution_instance_name, instagram_account_id, instagram_access_token, system_prompt, structured_prompt_data, handoff_mode, after_hours_message, business_hours, ai_provider, enabled_modules, appointment_settings';
+  private static async markDone(jobId: string): Promise<void> {
+    await (supabaseAdmin.from('ai_retry_queue') as any)
+      .update({ status: 'sent', updated_at: new Date().toISOString() })
+      .eq('id', jobId);
+  }
+
+  private static async cancelJob(jobId: string, reason: string): Promise<void> {
+    await (supabaseAdmin.from('ai_retry_queue') as any)
+      .update({ status: 'cancelled', last_error: reason, updated_at: new Date().toISOString() })
+      .eq('id', jobId);
+  }
+
+  private static async markFailed(jobId: string, attempts: number, maxAttempts: number, error: string): Promise<void> {
+    const nextAttempts = (attempts || 0) + 1;
+    if (nextAttempts >= (maxAttempts || 3)) {
+      await (supabaseAdmin.from('ai_retry_queue') as any)
+        .update({ status: 'failed', attempts: nextAttempts, last_error: error, updated_at: new Date().toISOString() })
+        .eq('id', jobId);
+      return;
+    }
+    const backoffIdx = Math.min(nextAttempts - 1, RETRY_BACKOFF_MINUTES.length - 1);
+    await (supabaseAdmin.from('ai_retry_queue') as any)
+      .update({
+        status: 'pending',
+        attempts: nextAttempts,
+        last_error: error,
+        next_attempt_at: new Date(Date.now() + RETRY_BACKOFF_MINUTES[backoffIdx] * 60 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', jobId);
+  }
 }

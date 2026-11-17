@@ -1,13 +1,12 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { LeadReactivationService } from '@/services/reactivation.service';
+import { AiRetryService } from '@/services/ai-retry.service';
 import { OpenAIService } from '@/services/openai.service';
 import { PlatformAlertService } from '@/services/platform-alert.service';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import { LeadScoreService } from '@/services/lead-score.service';
 import { CampaignService } from '@/services/campaign.service';
-import { AiRetryService } from '@/services/ai-retry.service';
-import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -22,19 +21,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   return handleCron(request);
-}
-
-/** Registro de salud del cron en cron_job_log (visible en el panel SuperAdmin). */
-async function logCronRun(status: 'invoked' | 'error', detail: string): Promise<void> {
-  try {
-    await (supabaseAdmin.from('cron_job_log') as any).insert({
-      job_name: 'lead-reactivation',
-      status,
-      detail: String(detail).slice(0, 400),
-    });
-  } catch (e) {
-    console.warn('[CRON JOB LOG WARN]', e);
-  }
 }
 
 async function handleCron(request: NextRequest) {
@@ -91,17 +77,17 @@ async function handleCron(request: NextRequest) {
     const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
     const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
-    // 2b. Reintentos diferidos de IA (dead-letter): máxima prioridad tras el recontacto —
-    // un cliente esperando respuesta que falló no debe esperar detrás de campañas
-    const retryResult = await AiRetryService.processRetryQueue({
-      organizationId: orgId,
-      deadlineMs: Date.now() + Math.min(12_000, Math.max(3_000, remainingMs() - 15_000)),
-    }).catch((err: any) => {
-      console.warn('[CRON AI RETRY WARN]', err);
-      return { processed: 0, succeeded: 0, rescheduled: 0, exhausted: 0, skipped: 0, error: String(err?.message || err) };
-    });
+    // 2a. Reintentos diferidos de IA (respuestas ya generadas que no pudieron despacharse,
+    //     o turnos de IA que fallaron antes de responder: 0 tokens de re-generación en resend)
+    const aiRetryResult =
+      remainingMs() > 12_000
+        ? await AiRetryService.processPendingRetries({
+            organizationId: orgId,
+            deadlineMs: Date.now() + Math.min(12_000, remainingMs() - 5_000),
+          }).catch((err: any) => ({ error: String(err?.message || err), processed: 0, sent: 0 }))
+        : { skipped: 'time_budget' };
 
-    // 2c. Campañas IA a segmentos (comparten topes anti-ban con el recontacto)
+    // 2b. Campañas IA a segmentos (comparten topes anti-ban con el recontacto)
     const campaignResult =
       remainingMs() > 10_000
         ? await CampaignService.processRunningCampaigns({
@@ -127,15 +113,13 @@ async function handleCron(request: NextRequest) {
         ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
         : false;
 
-    await logCronRun('invoked', `lead-retries: ${retryResult.processed} procesados / ${retryResult.succeeded} OK / ${retryResult.exhausted} escalados`);
-
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
       durationMs: Date.now() - startedAt,
       ...reactivationResult,
       leadScore: leadScoreResult,
-      aiRetries: retryResult,
+      aiRetries: aiRetryResult,
       campaigns: campaignResult,
       autoClassified: autoClassifyResult,
       autoArchivedUnresponsive: archiveResult.autoArchivedCount,
@@ -144,7 +128,6 @@ async function handleCron(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('[CRON LEAD REACTIVATION ERROR]', err);
-    await logCronRun('error', err?.message || 'Error procesando reactivaciones autónomas de leads');
     return NextResponse.json(
       {
         success: false,

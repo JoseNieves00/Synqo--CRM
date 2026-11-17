@@ -49,26 +49,42 @@ export interface PromptFormatProfile {
 }
 
 const SECTION_HEADING_SYNONYMS: Record<string, string[]> = {
-  empresa: ['empresa', 'negocio', 'identidad', 'sobre nosotros', 'quienes somos', 'quiénes somos'],
+  empresa: [
+    'empresa', 'negocio', 'identidad', 'sobre nosotros', 'quienes somos', 'quiénes somos',
+    'nuestra empresa', 'presentacion', 'presentación', 'informacion general', 'información general',
+  ],
   catalogo: [
     'catalogo', 'catálogo', 'productos', 'servicios', 'portafolio', 'planes', 'precios',
     'catalogo oferta', 'productos servicios y precios', 'productos y precios', 'productos y servicios',
+    // encabezados informales reales de clientes (prosa de negocio)
+    'nuestros productos', 'lo que ofrecemos', 'que vendemos', 'qué vendemos', 'lista de precios',
+    'tarifas', 'oferta', 'nuestro catalogo', 'nuestro catálogo', 'servicios y tarifas',
   ],
   pagos: [
     'pagos', 'medios de pago', 'metodos de pago', 'métodos de pago', 'plan separe', 'cuentas', 'abonos',
     // secciones compuestas que incluyen pagos
     'politicas envios y pagos', 'politicas  envios y pagos', 'envios y pagos', 'politicas y pagos',
+    // encabezados informales reales de clientes
+    'como pagar', 'cómo pagar', 'formas de pago', 'forma de pago', 'informacion de pago',
+    'información de pago', 'datos de pago', 'pago', 'pagos y abonos', 'transferencias',
   ],
   envios: [
     'envios y cobertura', 'envíos y cobertura', 'envios', 'envíos', 'entregas', 'domicilios', 'cobertura',
     // secciones compuestas que incluyen envíos
     'politicas envios y pagos', 'politicas  envios y pagos', 'envios y pagos', 'politicas y envios',
+    // encabezados informales reales de clientes
+    'envios y entregas', 'envíos y entregas', 'tiempos de entrega', 'zona de cobertura',
+    'zonas de cobertura', 'domicilios y envios', 'domicilios y envíos', 'despacho', 'despachos',
+    'envio a domicilio', 'envío a domicilio', 'entrega', 'cobertura de envios', 'cobertura de envíos',
   ],
   politicas: [
     'politicas y garantias', 'políticas y garantías', 'politicas', 'políticas', 'garantia', 'garantía',
     'cambios', 'devoluciones',
     // secciones compuestas que incluyen políticas
     'politicas envios y pagos', 'politicas  envios y pagos', 'politicas y pagos', 'politicas y envios',
+    // encabezados informales reales de clientes
+    'nuestra política', 'nuestra politica', 'politicas de la empresa', 'politicas de la empresa',
+    'garantias y cambios', 'garantías y cambios', 'cambios y devoluciones', 'politicas internas',
   ],
   faq: ['preguntas frecuentes', 'faq', 'dudas frecuentes', 'preguntas y respuestas'],
   tono: ['tono y estilo', 'tono', 'estilo', 'personalidad', 'comunicacion', 'comunicación'],
@@ -76,14 +92,63 @@ const SECTION_HEADING_SYNONYMS: Record<string, string[]> = {
     'datos de cierre', 'cierre', 'cierre agil', 'cierre ágil', 'confirmacion', 'confirmación', 'pedido',
     'ruta de cierre', 'ruta de cierre agil', 'ruta de cierre ágil', 'datos de contacto y cierre',
   ],
-  relevo: ['relevo humano y horario', 'relevo', 'horario', 'atencion humana', 'atención humana', 'soporte'],
-  seguimiento: ['seguimiento', 'recontacto'],
+  relevo: [
+    'relevo humano y horario', 'relevo', 'horario', 'atencion humana', 'atención humana', 'soporte',
+    // encabezados informales reales de clientes
+    'horario de atencion', 'horario de atención', 'horarios', 'horarios de atencion', 'horarios de atención',
+    'asesor humano', 'asesores', 'cuando no estamos',
+  ],
+  seguimiento: [
+    'seguimiento', 'recontacto',
+    // encabezados informales reales de clientes
+    'seguimientos', 'recordatorios', 'seguimiento y recordatorios', 'recordatorios automaticos',
+    'recordatorios automáticos', 'seguimiento de clientes',
+  ],
   adicional: [
     'reglas adicionales', 'reglas operativas', 'instrucciones', 'reglas',
     // 'ruta de cierre agil' como instrucciones/flujo del bot (sinónimo de adicional en muchos clientes)
     'ruta de cierre', 'ruta de cierre agil', 'ruta de cierre ágil',
     'instrucciones generales', 'instrucciones clave',
+    // encabezados informales reales de clientes
+    'notas adicionales', 'notas', 'extra', 'consideraciones', 'importante',
   ],
+};
+
+/**
+ * Señales de tema en PROSA (sin encabezado): regex que detectan que el negocio ya habla
+ * del tema aunque nunca haya puesto un título de sección. Se usan para (a) insertar mejoras
+ * junto a su contenido relacionado en vez de al final, y (b) detectar solapamientos.
+ */
+const TOPIC_SIGNALS: Record<string, RegExp[]> = {
+  empresa: [/\b(somos|empresa|negocio|años de experiencia|trabajamos)\b/i],
+  catalogo: [
+    /\$\s?\d/, /\bd\s?e\s?\d/, /\bprecio[s]?\b/i, /\bcuesta\b/i, /\bvalor\b/i, /\btarifa[s]?\b/i,
+    /\b(desde|vale|cotiza)\b/i, /\b(producto|servicio)s?\s+(de|que)\b/i,
+  ],
+  pagos: [
+    /\bpago[s]?\b/i, /\b(transferencia|nequi|daviplata|bancolombia|efectivo|tarjeta|contraentrega)\b/i,
+    /\b(abono|anticipo|separe|dep[oó]sito|cuenta (bancaria|de ahorros))\b/i,
+  ],
+  envios: [
+    /\b(env[ií]o|env[ií]os|domicilio|entrega|despach)\w*\b/i, /\bcobertura\b/i, /\bciudad(es)?\b/i,
+    /\b(24|48|72)\s?(horas|h)\b/i, /\b(enviamos|llega|gu[ií]a)\b/i,
+  ],
+  politicas: [
+    /\bgarant[ií]a\b/i, /\b(cambio|cambios|devoluci[oó]n|devoluciones)\b/i, /\bpolid\w*\b/i,
+    /\b(no se acepta|no hay devoluci)\b/i,
+  ],
+  faq: [/\bpreguntas? frecuentes\b/i, /\bP:\s*["“]/],
+  tono: [/\b(tono|estilo|personalidad|trato)\b/i],
+  cierre: [
+    /\b(cierre|cerrar la venta|confirmaci[oó]n)\b/i, /\bdatos (de despacho|del pedido|de contacto)\b/i,
+    /\bagenda(r|mos)?\b/i,
+  ],
+  relevo: [
+    /\bhorario\b/i, /\b(fuera de horario|no estamos|despu[eé]s de las)\b/i, /\basesor(es)? humano/i,
+    /\brelevo\b/i,
+  ],
+  seguimiento: [/\bseguimiento(s)?\b/i, /\brecordatori\w*\b/i, /\b(recontactar|volver a escribir)\b/i],
+  adicional: [/\b(regla|instrucci[oó]n|nota)\b/i],
 };
 
 function normalizeHeadingKey(raw: string): string {
@@ -261,11 +326,103 @@ export function extractExistingSectionContent(
   };
 }
 
+export interface SectionOverlapInfo {
+  /** El negocio YA tiene un encabezado reconocido para esta sección (in-place). */
+  hasHeadingSection: boolean;
+  /** Título exacto del encabezado encontrado (normalizado al original del cliente). */
+  headingTitle: string | null;
+  /** El negocio ya menciona el tema en prosa aunque sin encabezado. */
+  topicMentioned: boolean;
+  /** Fragmento corto (≤120 chars) donde se menciona el tema. */
+  mentionExcerpt: string | null;
+}
+
+/**
+ * Detecta si una propuesta de mejora sobrepondría contenido que el cliente ya tiene,
+ * para avisarle "actualicé donde ya lo tenías, no agregué una sección duplicada al final".
+ */
+export function detectSectionOverlap(
+  prompt: string,
+  sectionId: string,
+  sectionTitle?: string
+): SectionOverlapInfo {
+  const { body } = splitGalleryTail(prompt);
+  if (!body.trim()) {
+    return { hasHeadingSection: false, headingTitle: null, topicMentioned: false, mentionExcerpt: null };
+  }
+
+  const matched = findMatchingSectionBlock(body, (sectionTitle || sectionId).trim(), sectionId);
+  if (matched) {
+    // Recuperar el título original (sin `#` ni `:`) tal como lo escribió el cliente
+    const originalTitle = matched.rawHeading
+      .replace(/^#+\s*/, '')
+      .replace(/:\s*$/, '')
+      .replace(/^<|>$/g, '')
+      .trim();
+    return {
+      hasHeadingSection: true,
+      headingTitle: originalTitle || matched.normalizedTitle,
+      topicMentioned: true,
+      mentionExcerpt: null,
+    };
+  }
+
+  // Sin encabezado: buscar señales del tema en prosa
+  const signals = TOPIC_SIGNALS[sectionId] || [];
+  for (const regex of signals) {
+    const m = body.match(regex);
+    if (m && typeof m.index === 'number') {
+      const start = Math.max(0, m.index - 50);
+      const end = Math.min(body.length, m.index + m[0].length + 70);
+      const excerpt = body
+        .slice(start, end)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+      return { hasHeadingSection: false, headingTitle: null, topicMentioned: true, mentionExcerpt: excerpt };
+    }
+  }
+
+  return { hasHeadingSection: false, headingTitle: null, topicMentioned: false, mentionExcerpt: null };
+}
+
+/**
+ * Encuentra el índice dentro del body donde conviene insertar una sección nueva:
+ * justo después del párrafo que más señales del tema contiene (contexto del cliente),
+ * o -1 si no hay ninguna señal y debe ir al final.
+ */
+function findContextualAnchor(body: string, sectionId?: string): number {
+  const signals = (sectionId && TOPIC_SIGNALS[sectionId]) || [];
+  if (signals.length === 0) return -1;
+
+  const paragraphs: Array<{ text: string; endIdx: number; score: number }> = [];
+  // Dividir por bloques separados por línea en blanco, preservando el índice del fin de cada bloque
+  const blockRegex = /(?:^|\n\n)((?:[^\n]|\n(?!\n))+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = blockRegex.exec(body)) !== null) {
+    const text = m[1];
+    const endIdx = m.index + m[0].length;
+    let score = 0;
+    for (const regex of signals) {
+      const found = text.match(new RegExp(regex.source, regex.flags.replace('g', '')));
+      if (found) score += 1;
+    }
+    if (score > 0) paragraphs.push({ text, endIdx, score });
+  }
+
+  if (paragraphs.length === 0) return -1;
+  const best = paragraphs.sort((a, b) => b.score - a.score || b.endIdx - a.endIdx)[0];
+  return best.endIdx;
+}
+
 /**
  * Parche NO destructivo y adaptable al formato del cliente:
  * - Si encuentra la sección existente (exacta o por sinónimo en `#`, `##` o `TÍTULO:`),
  *   actualiza su cuerpo manteniendo el encabezado original del cliente y su estilo de viñetas.
- * - Si no existe, la agrega al final adoptando el estilo dominante detectado en el prompt.
+ * - Si no existe pero el cliente ya habla del tema en prosa, inserta la sección JUNTO a ese
+ *   contenido (contextual), nunca al final — evita contradicciones tipo "pagos por Nequi" en
+ *   el medio y "Medios de pago: transferencia" duplicado al final.
+ * - Solo si el tema es totalmente nuevo, la agrega al final adoptando el estilo dominante.
  */
 export function patchSectionInPrompt(
   existingPrompt: string,
@@ -297,7 +454,17 @@ export function patchSectionInPrompt(
     nextBody = `${before}${replacement}${after}`.trimEnd();
   } else {
     const formattedSection = formatSectionWithProfile(cleanTitle, cleanBody, profile);
-    nextBody = `${body.trimEnd()}\n\n${formattedSection}`;
+    const anchorIdx = findContextualAnchor(body, sectionId);
+    if (anchorIdx >= 0 && anchorIdx < body.trimEnd().length) {
+      // Insertar contextualmente: después del párrafo con más señales del tema
+      const before = body.slice(0, anchorIdx).trimEnd();
+      const after = body.slice(anchorIdx).trim();
+      nextBody = after
+        ? `${before}\n\n${formattedSection}\n\n${after}`
+        : `${before}\n\n${formattedSection}`;
+    } else {
+      nextBody = `${body.trimEnd()}\n\n${formattedSection}`;
+    }
   }
 
   return galleryTail ? `${nextBody.trimEnd()}\n\n${galleryTail}` : nextBody.trimEnd();

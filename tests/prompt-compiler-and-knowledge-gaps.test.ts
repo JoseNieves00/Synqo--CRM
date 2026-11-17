@@ -62,7 +62,8 @@ async function runPromptAndKnowledgeGapTests() {
   const silentData = INDUSTRY_BLUEPRINTS.services('Agencia Synqo');
   silentData.handoff.mode = 'silent';
   const silentXml = compileStructuredPrompt(silentData);
-  assert.ok(silentXml.includes('relevo silencioso (request_human_handoff), NO agregues mensajes largos'), 'Debe incluir directriz de silencio');
+  assert.ok(silentXml.includes('relevo silencioso, NO agregues mensajes largos'), 'Debe incluir directriz de silencio');
+  assert.ok(!silentXml.includes('request_human_handoff'), 'El prompt del cliente no debe contener nombres de herramientas técnicas');
 
   const messageData = INDUSTRY_BLUEPRINTS.services('Agencia Synqo');
   messageData.handoff.mode = 'message';

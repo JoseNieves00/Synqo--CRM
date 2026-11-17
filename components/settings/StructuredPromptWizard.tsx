@@ -130,24 +130,14 @@ export function StructuredPromptWizard({
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  // Función unificada para compilar y propagar hacia el padre (SettingsForm)
+  // Función unificada para compilar y propagar hacia el padre (SettingsForm).
+  // La galería YA NO se incrusta como cola de texto (`=== CATÁLOGO VISUAL ===`) en el prompt
+  // editable: su fuente autoritativa es `structured_prompt_data.gallery`, que el runtime
+  // inyecta por el bloque dinámico en cada llamada (buildDynamicContextBlock). Así el dueño
+  // edita solo su texto, sin URLs crudas que pueda romper sin darse cuenta.
   const compileAndPropagate = (currentText: string, currentGallery: GalleryPhotoItem[]) => {
-    let clean = stripPhotoUrlsFromText(currentText).trim();
-    let compiled = clean;
-    if (currentGallery.length > 0) {
-      const galleryBlock =
-        '\n\n=== CATÁLOGO VISUAL DE PRODUCTOS (DISPATCH INTERNO) ===\n' +
-        currentGallery
-          .map((g) => {
-            const tags = g.keywords && g.keywords.length > 0 ? ` (Búsqueda/Sinónimos: ${g.keywords.join(', ')})` : '';
-            const priceStr = g.price ? ` - Precio: ${g.price}` : '';
-            const roleStr = g.imageRole ? ` [Vista: ${g.imageRole}]` : '';
-            const productRef = g.productName && g.productName !== g.name ? ` (Producto: ${g.productName})` : '';
-            return `- ${g.name}${productRef}${roleStr}${priceStr}${tags}: [foto: ${g.url}] (Despachar proactivamente con send_product_card cuando se consulte o mencione este modelo o sus precios; PROHIBIDO colocar la URL en el texto)`;
-          })
-          .join('\n');
-      compiled += galleryBlock;
-    }
+    const clean = stripPhotoUrlsFromText(currentText).trim();
+    const compiled = clean;
 
     const structuredData = {
       ...(initialStructuredData || {}),

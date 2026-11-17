@@ -19,6 +19,7 @@ import {
   type FollowUpSettingsConfig,
   normalizeFollowUpSettings,
 } from '@/lib/ai/follow-up-types';
+import { resolveFollowUpHoldReason } from '@/lib/leads/followup-gates';
 
 interface UpdateSettingsInput {
   whatsappPhoneNumberId?: string;
@@ -969,6 +970,108 @@ export async function saveFollowUpSequences(
   revalidatePath('/settings');
   revalidatePath('/inbox');
   return { success: true, config: cleanConfig };
+}
+
+/**
+ * T2: Salud de Seguimientos de la organización — por qué cosas se están enviando y por
+ * qué otras no (candados visibles en vez de `continue` silenciosos).
+ */
+export async function getFollowUpHealthAction(): Promise<{
+  masterEnabled: boolean;
+  hasConfiguredSequences: boolean;
+  minLeadScore: number;
+  dailyCap: number;
+  sentToday: number;
+  pendingReminders: number;
+  heldReminders: number;
+  pausedFollowUps: number;
+}> {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+  const orgId = profile.organization_id;
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings, whatsapp_provider')
+    .eq('id', orgId)
+    .single();
+
+  const seqConfig = normalizeFollowUpSettings((org?.appointment_settings as any)?.follow_up_sequences);
+  const hasConfiguredSequences = Object.values(seqConfig.sequences).some(
+    (s) => s.enabled && s.steps.length > 0
+  );
+
+  const nowIso = new Date().toISOString();
+
+  // Recordatorios programados pendientes (todos, no solo vencidos)
+  const { count: pendingReminders } = await (supabaseAdmin.from('scheduled_reminders') as any)
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+    .eq('reminder_type', 'reactivation')
+    .eq('status', 'pending');
+
+  // Recordatorios pendientes que hoy NO se enviarían porque el chat espera respuesta humana
+  // (unread sin responder, waiting_since o relevo activo) — aplicando los candados puros.
+  const { data: heldCandidates } = await (supabaseAdmin.from('scheduled_reminders') as any)
+    .select('id, contact_id')
+    .eq('organization_id', orgId)
+    .eq('reminder_type', 'reactivation')
+    .eq('status', 'pending')
+    .limit(500);
+
+  let heldReminders = 0;
+  if (heldCandidates && heldCandidates.length > 0) {
+    const contactIds = Array.from(new Set(heldCandidates.map((r: any) => r.contact_id)));
+    const { data: heldContacts } = await (supabaseAdmin.from('contacts') as any)
+      .select('id, custom_fields, unread_count, waiting_since, conversation_status, pipeline_stage')
+      .eq('organization_id', orgId)
+      .in('id', contactIds)
+      .is('deleted_at', null);
+    const cMap = new Map<string, any>((heldContacts || []).map((c: any) => [c.id, c]));
+    for (const rem of heldCandidates) {
+      const contact = cMap.get(rem.contact_id);
+      if (!contact) continue;
+      const hold = resolveFollowUpHoldReason(contact);
+      if (hold === 'waiting_for_advisor') heldReminders++;
+    }
+  }
+
+  // Contactos con seguimiento pausado (p.ej. ventana Meta 24h sin plantilla)
+  const { count: pausedFollowUps } = await (supabaseAdmin.from('contacts') as any)
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+    .is('deleted_at', null)
+    .contains('custom_fields', { follow_up: { paused: true } });
+
+  // Enviados hoy (follow-ups de IA marcados en los últimos 24h del mismo día local simplificado)
+  const { count: sentToday } = await (supabaseAdmin.from('messages') as any)
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+    .eq('sender_type', 'ai')
+    .or(
+      `content.ilike.%[Seguimiento %,content.ilike.%[Reactivación Autónoma%,content.ilike.%[Campaña%`
+    )
+    .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
+
+  return {
+    masterEnabled: seqConfig.enabled,
+    hasConfiguredSequences,
+    minLeadScore: seqConfig.minLeadScore ?? 25,
+    dailyCap: seqConfig.dailyCap || 40,
+    sentToday: sentToday || 0,
+    pendingReminders: pendingReminders || 0,
+    heldReminders,
+    pausedFollowUps: pausedFollowUps || 0,
+  };
 }
 
 /**

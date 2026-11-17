@@ -23,6 +23,7 @@ import {
   DEFAULT_MIN_LEAD_SCORE,
 } from '@/lib/ai/follow-up-types';
 import { prioritizeReactivationQueue } from '@/lib/leads/reactivation-priority';
+import { resolveFollowUpHoldReason } from '@/lib/leads/followup-gates';
 
 export interface ReactivationResult {
   processedCount: number;
@@ -31,6 +32,7 @@ export interface ReactivationResult {
   skippedCurfewCount: number;
   skippedNoTemplateCount: number;
   skippedLowScoreCount?: number;
+  heldRemindersCount?: number;
   errors: string[];
 }
 
@@ -417,6 +419,7 @@ export class LeadReactivationService {
       reactivationsSent: 0,
       scheduledRemindersSent: 0,
       skippedCurfewCount: 0,
+      heldRemindersCount: 0,
       skippedNoTemplateCount: 0,
       skippedLowScoreCount: 0,
       errors: [],
@@ -481,7 +484,10 @@ export class LeadReactivationService {
       }
 
       const hasMeta = Boolean(org.whatsapp_phone_number_id && org.whatsapp_access_token);
-      const hasEvolution = Boolean(org.evolution_api_url && org.evolution_api_key && org.evolution_instance_name);
+      const hasEvolution = Boolean(
+        org.evolution_instance_name &&
+        (org.evolution_api_key || process.env.EVOLUTION_API_KEY)
+      );
       if (!hasMeta && !hasEvolution) continue;
 
       // Coexistencia móvil y Snooze (Opción A): reactivar IA automáticamente cuando expira ai_snooze_until sin pausa manual definitiva
@@ -562,13 +568,18 @@ export class LeadReactivationService {
               .eq('id', rem.id);
             continue;
           }
-          if (contact.is_ai_active === false || contact.conversation_status === 'closed' || (contact.unread_count || 0) > 0 || contact.waiting_since) {
-            continue;
-          }
-          if (contact.pipeline_stage === 'ganado' || contact.pipeline_stage === 'perdido') {
+          // Candado unificado: cancelar en cerrado/ganado/perdido/opt-out, retener mientras
+          // el cliente espera respuesta humana y ENVIAR en el resto (aunque is_ai_active sea
+          // false porque un asesor respondió manualmente — su propio seguimiento sigue válido).
+          const holdReason = resolveFollowUpHoldReason(contact);
+          if (holdReason === 'conversation_closed' || holdReason === 'deal_closed') {
             await (supabaseAdmin.from('scheduled_reminders') as any)
               .update({ status: 'cancelled' })
               .eq('id', rem.id);
+            continue;
+          }
+          if (holdReason === 'waiting_for_advisor') {
+            result.heldRemindersCount = (result.heldRemindersCount || 0) + 1;
             continue;
           }
 
@@ -794,9 +805,12 @@ export class LeadReactivationService {
 
       // Priorización inteligente: primero los más propensos a comprar (lead_score),
       // con la categoría de temperatura como desempate / respaldo si aún no hay score.
+      // Los pasos de secuencia EXPLÍCITAMENTE configurados por el negocio (item.step) nunca
+      // se filtran por score: si el dueño programó ese primer mensaje, debe salir.
       const prioritizedQueue = prioritizeReactivationQueue(eligibleQueue, {
         prioritizeByScore: seqConfig.prioritizeByScore !== false,
         minLeadScore: seqConfig.minLeadScore ?? DEFAULT_MIN_LEAD_SCORE,
+        bypassMinScore: (item) => Boolean(item.step),
       });
       result.skippedLowScoreCount = (result.skippedLowScoreCount || 0) + (eligibleQueue.length - prioritizedQueue.length);
       eligibleQueue.length = 0;

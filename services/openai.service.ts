@@ -2408,6 +2408,19 @@ Reglas: responde directo y amable (1 a 3 líneas), usa precios/datos reales del 
 
     const rawBusinessPrompt = resolveOrganizationSystemPrompt(organization, 'Empresa comercial.');
     const promptDigest = extractRecontactPromptDigest(rawBusinessPrompt, 2200);
+    // La galería visual ya no vive dentro del prompt editable (es structured_prompt_data.gallery),
+    // así que se añade un resumen compacto de catálogo para que el recontacto cite precios/modelos reales.
+    const galleryForDigest = resolveOrganizationGallery(organization, null);
+    const galleryDigestLines = (galleryForDigest.items || [])
+      .slice(0, 10)
+      .map((item) => {
+        const price = formatGalleryPrice((item as any).price);
+        return `- ${item.name}${price ? ` (${price})` : ''}`;
+      })
+      .join('\n');
+    const galleryDigest = galleryDigestLines
+      ? `\nCatálogo disponible (envía fotos con send_product_card si el interés del cliente lo sugiere):\n${galleryDigestLines}`
+      : '';
 
     const conversationSnippet =
       history.length > 0
@@ -2440,7 +2453,7 @@ Aplica OBLIGATORIAMENTE lo que esta empresa indique sobre recontacto, cierres o 
 
 Empresa: ${organization?.name || 'Nuestro equipo'}
 Directrices del negocio (extracto relevante):
-${promptDigest}
+${promptDigest}${galleryDigest}
 
 Cliente: ${firstName || 'No especificado'}
 Motivo / contexto del recontacto: ${reminderNote || 'Seguimiento comercial autónomo'}

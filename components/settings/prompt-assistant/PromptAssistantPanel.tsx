@@ -283,7 +283,7 @@ export function PromptAssistantPanel({
         {
           id: `app-${Date.now()}`,
           role: 'assistant',
-          text: `Listo, apliqué el ajuste en **${proposal.sectionTitle}** respetando tu estructura actual (guardé respaldo previo en Historial).`,
+          text: `Listo, apliqué el ajuste en **${proposal.sectionTitle}** respetando tu estructura actual (guardé respaldo previo en Historial).${res.insertionNote ? `\n\nℹ️ ${res.insertionNote}` : ''}`,
         },
       ]);
       await refreshHealth(res.patchedPrompt);

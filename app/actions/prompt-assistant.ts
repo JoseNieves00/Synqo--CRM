@@ -32,6 +32,7 @@ import {
   extractExistingSectionContent,
   isMetaPromptCommentary,
   patchSectionInPrompt,
+  detectSectionOverlap,
   pushPromptVersion,
   renderPromptFromSlots,
   renderSectionBodyFromSlots,
@@ -346,21 +347,25 @@ export async function interpretAssistantAnswerAction(input: {
       : '';
 
     const systemMsg = isFreeMode
-      ? `Eres un editor quirúrgico de prompts comerciales multi-nicho.
-El administrador escribió o dictó libremente una instrucción, dato, producto o regla.
+      ? `Eres un editor quirúrgico de prompts comerciales multi-nicho para empresas en WhatsApp.
+El administrador escribió o dictó libremente una instrucción, dato, producto, corrección o regla de venta.
 Slots disponibles:
 ${allSlotsHint}
 ${existingContextHint}
 
 REGLAS CRÍTICAS:
 1. Identifica a qué slot(s) pertenece y devuelve el dato en "also_detected" (para "catalogo.items", array [{"name","price","specs","variants","includes"}]).
-2. Si ya existe un prompt arriba, en "merged_sections" escribe para el sectionId tocado (ej. "adicional", "catalogo", "pagos", "envios", "politicas", "faq", "tono", "cierre", "relevo", "seguimiento", "empresa") el cuerpo ACTUALIZADO de esa sección: FUSIONA lo que ya tenía esa sección con la nueva instrucción, EVITA duplicados o redundancias, y ADÁPTATE exactamente al estilo del cliente (${formatProfile.styleDescription}) sin borrar reglas previas vigentes.
-3. REGLA ANTI-DUPLICADOS DE SECCIÓN: Si el prompt del cliente ya tiene una sección compuesta que engloba el contenido (ej. la sección "${exactHeadings[0] || '## POLÍTICAS, ENVÍOS Y PAGOS:'}" ya cubre envíos Y pagos AND políticas), en "merged_sections" usa el sectionId del blueprint más relevante (ej. "envios", "pagos" o "politicas") — el sistema fusionará ese contenido en la sección compuesta existente automáticamente. NUNCA inventes una clave de sectionId que no esté en la lista de slots disponibles.
-4. Redacta SIEMPRE como instrucciones directas ejecutables por el bot (PROHIBIDO meta-consejos como "Es recomendable...").
-5. Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una pregunta breve en "follow_up_question", si no null.
+2. REGLA ESTRICTA DE MODIFICACIÓN IN-PLACE: Cuando el usuario pida corregir o agregar una regla (ej. no repetir precios tras enviar fotos, pasar al asesor al cotizar envíos a ciudades específicas, enviar fotos ante consultas generales), debes integrarla DIRECTAMENTE DENTRO de la sección existente correspondiente ('catalogo', 'envios', 'relevo', 'pagos', 'politicas', 'cierre', 'tono') mediante "merged_sections". NUNCA la envíes a "adicional" ni crees secciones al final si el tema ya tiene una sección en el prompt del cliente, para evitar contradicciones entre el inicio y el final del prompt.
+3. REGLA DE NO-TECNICISMOS (LENGUAJE 100% HUMANO Y COMERCIAL):
+   - PROHIBIDO usar nombres técnicos en inglés como "send_product_card", "request_human_handoff", "tools", "JSON" o "API".
+   - Redacta SIEMPRE en español comercial natural: "envía de inmediato las fotos de los productos con sus precios", "transfiere la conversación a un asesor humano", "no repitas en texto precios ni medidas si ya enviaste las fotos".
+4. Si ya existe un prompt arriba, en "merged_sections" escribe para el sectionId tocado el cuerpo ACTUALIZADO de esa sección: FUSIONA lo que ya tenía esa sección con la nueva instrucción, EVITA duplicados o redundancias, y ADÁPTATE exactamente al estilo del cliente (${formatProfile.styleDescription}) sin borrar reglas previas vigentes.
+5. REGLA ANTI-DUPLICADOS DE SECCIÓN: Si el prompt del cliente ya tiene una sección compuesta que engloba el contenido (ej. "${exactHeadings[0] || '## POLÍTICAS, ENVÍOS Y PAGOS:'}"), usa el sectionId más relevante — el sistema fusionará el contenido en su lugar automáticamente. NUNCA inventes una clave de sectionId fuera de los slots disponibles.
+6. Redacta SIEMPRE como instrucciones directas ejecutables por el bot (PROHIBIDO meta-consejos como "Es recomendable...").
+7. Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una pregunta breve en "follow_up_question", si no null.
 Responde ÚNICAMENTE JSON válido:
 { "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "follow_up_question": string | null }`
-      : `Eres un extractor estructurado para configurar un asistente comercial multi-nicho.
+      : `Eres un extractor estructurado para configurar un asistente comercial multi-nicho en lenguaje 100% natural y comercial (cero tecnicismos de programación ni nombres de herramientas en inglés).
 Sección actual: "${PROMPT_SECTIONS.find((s) => s.id === slot!.sectionId)?.title || slot!.sectionTitle}" (slot "${slot!.id}", tipo "${slot!.type}").
 Pregunta realizada: "${slot!.question}"
 ${existingContextHint}
@@ -849,6 +854,15 @@ export async function applySectionProposalAction(input: {
     input.sectionId
   );
 
+  // Detectar dónde cayó la mejora: in-place, contextual junto a contenido existente, o nueva al final.
+  // Sirve para que el cliente entienda que NO se duplicó su contenido.
+  const overlap = detectSectionOverlap(input.currentPrompt || '', input.sectionId, input.sectionTitle);
+  const insertionNote = overlap.hasHeadingSection
+    ? `Ya tenías "${overlap.headingTitle}" en tu prompt: actualicé esa sección en su lugar, no agregué nada duplicado.`
+    : overlap.topicMentioned
+    ? `Ya hablabas de este tema en tu prompt ("…${overlap.mentionExcerpt || ''}…"): coloqué la mejora justo ahí, no al final.`
+    : null;
+
   state.pendingProposals = state.pendingProposals.filter((p) => p.id !== input.proposalId);
   state.sectionStatus[input.sectionId] = 'complete';
   const savedStructured = await persistStructuredSafely({
@@ -863,6 +877,7 @@ export async function applySectionProposalAction(input: {
     versions,
     remainingProposals: state.pendingProposals,
     highlightedSection: input.sectionTitle,
+    insertionNote,
     structuredData: { ...savedStructured, assistant: { ...state, usageByDay: {}, totalAssistantTokens: 0 } },
   };
 }
@@ -1217,16 +1232,63 @@ export async function askAssistantHelpAction(input: { question: string }) {
   }
 
   const guideContext = closest.map((t) => `### ${t.title}\n${t.answer}`).join('\n\n');
+
+  // Contexto REAL del negocio: el asistente responde con lo que ESTE prompt tiene y le falta,
+  // no con respuestas genéricas de la guía.
+  const businessPrompt = typeof org.system_prompt === 'string' ? org.system_prompt : '';
+  const promptOutline = buildCompactPromptOutline(businessPrompt || '');
+  const promptCharCount = (businessPrompt || '').replace(/\s+/g, ' ').trim().length;
+  const galleryCount = Array.isArray(structured.gallery) ? structured.gallery.length : 0;
+  const followUpSeq = org.appointment_settings?.follow_up_sequences;
+  const followUpMasterEnabled = Boolean(followUpSeq?.enabled);
+  const followUpConfigured = Object.values(followUpSeq?.sequences || {}).some(
+    (cat: any) => cat?.enabled && Array.isArray(cat?.steps) && cat.steps.length > 0
+  );
+  const whatsappProvider = (org.whatsapp_provider || 'meta') as 'meta' | 'evolution';
+  const providerHint =
+    whatsappProvider === 'evolution'
+      ? 'La organización usa WhatsApp vía Evolution API (texto libre siempre permitido, la ventana de 24h de Meta no aplica).'
+      : 'La organización usa WhatsApp Cloud API de Meta (fuera de 24h del último mensaje del cliente solo se pueden enviar PLANTILLAS aprobadas).';
+
+  const businessContext = [
+    `Contexto del negocio de este usuario (útilo para personalizar tu respuesta):`,
+    `- Nombre: ${org.name}`,
+    `- Prompt del bot: ${promptCharCount > 0 ? `${promptCharCount} caracteres` : 'VACÍO (aún no lo ha creado)'}`,
+    promptOutline ? `- Estructura actual del prompt:\n${promptOutline}` : '- El prompt no tiene secciones reconocibles todavía.',
+    `- Catálogo visual: ${galleryCount} foto(s) en la galería de productos.`,
+    `- Seguimientos automáticos: interruptor maestro ${followUpMasterEnabled ? 'ACTIVADO' : 'APAGADO'}; ${followUpConfigured ? 'tiene secuencias con pasos configurados' : 'NO tiene secuencias con pasos todavía'}. ${followUpConfigured && !followUpMasterEnabled ? '⚠️ IMPORTANTE: tiene secuencias creadas pero el interruptor está apagado, así que NADA se está enviando; indícale activarlo en Ajustes → Seguimientos.' : ''}`,
+    `- Proveedor de WhatsApp: ${providerHint}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   const llmRes = await createChatCompletionWithFallback({
     messages: [
       {
         role: 'system',
-        content: `Eres el asistente de ayuda de Synqo CRM. Responde brevemente (máx 4 líneas) basándote únicamente en la guía oficial de Synqo:\n\n${guideContext}`,
+        content: `Eres el asistente experto de Synqo CRM para dueños de empresas y equipos comerciales.
+
+REGLAS DE COMUNICACIÓN Y DIAGNÓSTICO:
+1. LENGUAJE 100% COMERCIAL Y CLARO:
+   - Habla como un asesor comercial humano. CERO tecnicismos de código ni programación.
+   - PROHIBIDO mencionar nombres internos en inglés ("request_human_handoff", "send_product_card", "tools", "JSON", "APIs").
+   - Usa términos cotidianos: "pasar el chat a un asesor humano", "enviar las fotos oficiales con sus precios", "ajustar la sección de Catálogo".
+2. DIAGNÓSTICO DE COMPORTAMIENTOS EN CHATS:
+   - Si el usuario describe un problema que ocurrió en un chat (ej. "la IA repitió precios después de enviar fotos", "no pasó al asesor cuando preguntaron por una ciudad", "envió texto plano en vez de fotos", etc.):
+     a) Explica brevemente por qué ocurrió analizando su prompt actual (vacío, regla ambigua o contradicción entre secciones).
+     b) Propón la solución indicando la sección exacta donde se debe ajustar (ej. "En tu sección de Catálogo").
+     c) REGLA IN-PLACE: Enfatiza siempre que la mejora se debe ajustar directamente dentro de esa sección existente, NUNCA al final del prompt, para evitar que queden reglas contradictorias.
+3. CONCISO: Responde en máximo 4 a 5 líneas bien estructuradas con viñetas si es necesario.
+
+${businessContext}
+
+Guía oficial:
+${guideContext}`,
       },
       { role: 'user', content: cleanQ },
     ],
     temperature: 0.2,
-    maxTokens: 220,
+    maxTokens: 380,
     chainOverride: getAiUtilityChain(),
     aiProvider: org.ai_provider,
     organizationId: org.id,
