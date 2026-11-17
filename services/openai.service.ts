@@ -21,7 +21,12 @@ import {
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { HandoffService } from './handoff.service';
-import { formatImageMessageContent, stripRedundantCatalogListAfterCards } from '@/lib/media/format';
+import {
+  formatImageMessageContent,
+  stripRedundantCatalogListAfterCards,
+  extractSentInformationSummary,
+  parseImageMessageContent,
+} from '@/lib/media/format';
 import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
 import { evaluatePromptReadiness } from '@/lib/ai/prompt-assistant/readiness';
 import { decryptSecret } from '@/lib/security/encryption';
@@ -670,6 +675,7 @@ function buildDynamicContextBlock(params: {
   isAfterHours?: boolean;
   afterHoursMessage?: string | null;
   lastAssistantText?: string | null;
+  sentInformationSummary?: string[];
 }): string {
   const {
     orgTimezone,
@@ -681,6 +687,7 @@ function buildDynamicContextBlock(params: {
     isAfterHours = false,
     afterHoursMessage = null,
     lastAssistantText = null,
+    sentInformationSummary = [],
   } = params;
   let currentLocalTime = '';
   try {
@@ -758,6 +765,13 @@ function buildDynamicContextBlock(params: {
     ? `\n[VARIACIÓN CONVERSACIONAL OBLIGATORIA]: Tu último mensaje fue: "${lastAssistantText.slice(0, 160)}...". Si el cliente insiste, reafirma o responde afirmativamente a tu propuesta previa, NO repitas el mismo mensaje ni frases idénticas. Reconoce brevemente lo anterior de forma diferente y natural.`
     : '';
 
+  const sentInfoBlock =
+    sentInformationSummary.length > 0
+      ? `\n<memoria_interna_informacion_ya_enviada>\nInformación clave que la empresa YA entregó al cliente en este chat:\n${sentInformationSummary
+          .map((s) => `- ${s}`)
+          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla. Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados (precios, medidas, materiales o cuentas), a menos que el cliente haga una pregunta explícita y directa pidiendo una aclaración puntual sobre alguno de esos datos. Habla con fluidez natural, avanzando la conversación hacia el siguiente paso de la atención o venta sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
+      : '';
+
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <perfil_lead>
@@ -766,7 +780,7 @@ Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}
 Interés detectado: ${interest}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</perfil_lead>${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -1054,6 +1068,27 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         const msg = dbMessages[i];
         let contentText = msg.content || '';
 
+        if (msg.sender_type === 'ai' || msg.sender_type === 'agent_manual') {
+          // Extraer imagen y conservar el caption 100% íntegro reemplazando la URL técnica por un marcador limpio
+          let compactText = contentText;
+          const parsed = parseImageMessageContent(contentText);
+          if (parsed.isImage) {
+            compactText = parsed.caption
+              ? `[Foto oficial enviada]: ${parsed.caption}`
+              : '[Foto oficial enviada]';
+          } else {
+            compactText = compactText.replace(/\[IMAGEN:\s*https?:\/\/[^\]]+\]/gi, '[Imagen enviada]');
+          }
+
+          // Solo truncar mensajes de texto ultra-largos (> 350 caracteres) en turnos viejos
+          const isOldTurn = i < totalCount - 6;
+          if (isOldTurn && compactText.length > 350) {
+            compactText = compactText.slice(0, 320) + '... [resumido]';
+          }
+          conversationHistory.push({ role: 'assistant', content: compactText });
+          continue;
+        }
+
         const isOldTurn = i < totalCount - 4;
         if (isOldTurn && contentText.length > 220) {
           contentText = contentText.slice(0, 195) + '... [resumido]';
@@ -1117,13 +1152,6 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           } else {
             conversationHistory.push({ role: 'user', content: contentText });
           }
-        } else if (msg.sender_type === 'ai' || msg.sender_type === 'agent_manual') {
-          // Evitar gastar tokens re-enviando URLs largas de Storage en historial de fotos enviadas
-          const compactAssistantText = contentText.replace(
-            /\[IMAGEN:\s*https?:\/\/[^\]]+\]/gi,
-            '[Imagen enviada]'
-          );
-          conversationHistory.push({ role: 'assistant', content: compactAssistantText });
         }
       }
 
@@ -1211,6 +1239,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         ? orgData.structured_prompt_data.catalog
         : [];
       const overflowCatalog = rawStoredCatalog.length > 15 ? rawStoredCatalog.slice(15, 100) : [];
+      const sentInformationSummary = extractSentInformationSummary(dbMessages);
       conversationHistory.push({
         role: 'system',
         content: buildDynamicContextBlock({
@@ -1223,6 +1252,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           isAfterHours,
           afterHoursMessage,
           lastAssistantText,
+          sentInformationSummary,
         }),
       });
 

@@ -11,6 +11,7 @@ import {
   extractPhotoUrlsFromText,
   isPaymentReceiptHint,
   stripRedundantCatalogListAfterCards,
+  extractSentInformationSummary,
 } from '../lib/media/format';
 import { isCourtesyClosingMessage } from '../services/inbound-core.service';
 import { MessagingService } from '../services/messaging.service';
@@ -331,6 +332,34 @@ Si tienes alguna duda o necesitas más información sobre algún modelo en parti
     'Debe podar toda lista numerada y sub-viñetas de medidas o stickers dejando exclusivamente la pregunta de cierre'
   );
   console.log('   ✅ Blindaje Determinístico Anti-Redundancia verificado al 100%.');
+
+  // 9. Memoria Interna de Información ya Transmitida en el Chat
+  console.log('\n9️⃣  Probando Extracción de Memoria Interna de Información Transmitida...');
+  const sampleHistory: any[] = [
+    { sender_type: 'lead', content: 'Hola me interesa saber sobre las cocinitas' },
+    {
+      sender_type: 'ai',
+      content: formatImageMessageContent(
+        'https://supabase.co/storage/v1/object/public/chat-media/cocina.jpg',
+        'Cocina pequeña · $350.000\n1,07 m alto x 52 cm ancho x 26 cm profundidad. Elaborada en madera MDF.'
+      ),
+    },
+    { sender_type: 'ai', content: '¿Te gustaría saber más sobre algún otro modelo?' },
+    { sender_type: 'lead', content: 'Cómo se paga?' },
+    { sender_type: 'ai', content: 'Puedes pagar por transferencia a Bancolombia Ahorros 12345678 o Nequi 3001234567.' },
+  ];
+
+  const sentMemory = extractSentInformationSummary(sampleHistory);
+  assert.ok(sentMemory.length >= 2, 'Debe haber extraído al menos 2 resúmenes clave de memoria interna');
+  assert.ok(
+    sentMemory.some((s) => s.includes('Cocina pequeña') && s.includes('350.000')),
+    'Debe registrar la tarjeta enviada de Cocina pequeña con su precio y medidas'
+  );
+  assert.ok(
+    sentMemory.some((s) => s.toLowerCase().includes('cuentas') && s.toLowerCase().includes('pago')),
+    'Debe registrar que las cuentas de pago ya fueron comunicadas'
+  );
+  console.log('   ✅ Memoria Interna de Información Transmitida verificada al 100% (' + sentMemory.length + ' puntos identificados).');
 
   console.log('\n🎉 ¡TODAS LAS PRUEBAS DE MULTIMEDIA E IMÁGENES PASARON EXITOSAMENTE!\n');
 }

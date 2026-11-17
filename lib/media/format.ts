@@ -431,3 +431,60 @@ export function stripRedundantCatalogListAfterCards(
   return result || fallbackQuestion;
 }
 
+/**
+ * Extrae y sintetiza de forma ultra-ligera (15-40 tokens) los datos clave que la empresa
+ * ya transmitió al cliente en este chat (tarjetas con foto/precio/medidas enviadas, cuentas de pago,
+ * cotizaciones de envío), para que la IA tenga memoria interna perfecta y NUNCA duplique información.
+ */
+export function extractSentInformationSummary(
+  dbMessages: Array<{ sender_type: string; content?: string | null }>
+): string[] {
+  const sentSummaries: string[] = [];
+  const seenItems = new Set<string>();
+
+  for (const msg of dbMessages) {
+    if (msg.sender_type !== 'ai' && msg.sender_type !== 'agent_manual') continue;
+    const text = msg.content || '';
+
+    // 1. Tarjetas oficiales de producto enviadas con foto y caption
+    const parsedImg = parseImageMessageContent(text);
+    if (parsedImg.isImage && parsedImg.caption) {
+      const cleanCap = parsedImg.caption.trim();
+      const firstLine = cleanCap.split('\n')[0].trim();
+      const key = firstLine.toLowerCase();
+      if (!seenItems.has(key)) {
+        seenItems.add(key);
+        const detailsPreview =
+          cleanCap.length > firstLine.length
+            ? ` · ${cleanCap.slice(firstLine.length).replace(/\n+/g, ' ').trim().slice(0, 90)}`
+            : '';
+        sentSummaries.push(`Tarjeta visual enviada: "${firstLine}"${detailsPreview}`);
+      }
+    }
+
+    // 2. Cuentas bancarias o medios de pago ya entregados
+    if (
+      /(\bnequi\b|\bbancolombia\b|\bdaviplata\b|\bcuenta de ahorros\b|\bcuenta corriente\b|\bllave\b|\btransfiya\b)/i.test(text) &&
+      /\d{6,}/.test(text)
+    ) {
+      if (!seenItems.has('cuentas_pago')) {
+        seenItems.add('cuentas_pago');
+        sentSummaries.push('Datos y cuentas oficiales de pago ya entregados');
+      }
+    }
+
+    // 3. Cotizaciones o tarifas de envío ya acordadas o entregadas
+    if (
+      /(flete|costo de env[ií]o|valor del env[ií]o|contraentrega a|env[ií]o a)/i.test(text) &&
+      /(\$\s*\d+|\d+\s*mil)/i.test(text)
+    ) {
+      if (!seenItems.has('cotizacion_envio')) {
+        seenItems.add('cotizacion_envio');
+        sentSummaries.push('Tarifas o condiciones de envío/contraentrega ya comunicadas');
+      }
+    }
+  }
+
+  return sentSummaries;
+}
+
