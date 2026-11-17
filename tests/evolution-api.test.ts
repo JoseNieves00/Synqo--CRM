@@ -30,7 +30,16 @@ async function runEvolutionApiTests() {
 
   const defaultResolved = EvolutionService.resolveBaseUrl(null);
   assert(typeof defaultResolved === 'string' && defaultResolved.length > 0, 'Debe resolver una URL base por defecto');
-  console.log('   ✅ Sanitización de instancias y URLs base validadas.');
+
+  // Validación de Enrutamiento de Destinatarios (Teléfonos Normales vs WhatsApp LIDs de 14+ dígitos)
+  const normalColombianPhone = '573001234567';
+  assert(EvolutionService.formatRecipient(normalColombianPhone) === '573001234567', 'Teléfono móvil normal de 12 dígitos no debe llevar @lid');
+  const lidColombianId = '57600058064897';
+  assert(EvolutionService.formatRecipient(lidColombianId) === '57600058064897@lid', 'Identificador LID de 14 dígitos con prefijo 57 debe enrutarse a @lid');
+  const explicitLid = '57600058064897@lid';
+  assert(EvolutionService.formatRecipient(explicitLid) === '57600058064897@lid', 'LID explícito debe preservarse');
+
+  console.log('   ✅ Sanitización de instancias, URLs base y enrutamiento LID validados.');
 
   // 2. Verificación Criptográfica de Webhooks de Evolution API (HMAC y API Key)
   console.log('2️⃣  Probando Verificación Criptográfica de Webhooks de Evolution API...');

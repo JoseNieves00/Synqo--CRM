@@ -419,6 +419,27 @@ export class EvolutionService {
   }
 
   /**
+   * Formatea el destinatario para Evolution API.
+   * Si ya incluye un dominio (@lid, @s.whatsapp.net, @g.us), se preserva.
+   * Si es un identificador de 14 o más dígitos, se enruta a @lid (WhatsApp Linked Devices).
+   */
+  static formatRecipient(to: string): string {
+    const trimmed = (to || '').trim();
+    if (trimmed.includes('@')) {
+      return trimmed;
+    }
+    const digitsOnly = trimmed.replace(/[^0-9]/g, '');
+    // Soporte nativo para WhatsApp Linked Devices (LID):
+    // En WhatsApp, los identificadores de dispositivo privado (LID) tienen 14 o más dígitos.
+    // Ningún número móvil estándar de Colombia (12 dígitos con 57), México (12-13) o Brasil (13)
+    // alcanza 14 dígitos. Cualquier identificador de 14+ dígitos debe dirigirse al canal @lid.
+    if (digitsOnly.length >= 14) {
+      return `${digitsOnly}@lid`;
+    }
+    return digitsOnly;
+  }
+
+  /**
    * Envía presencia humana en WhatsApp ('composing' | 'recording' | 'available' | 'paused')
    * Endpoint oficial Evolution API v2: POST /chat/sendPresence/{instance}
    */
@@ -436,7 +457,7 @@ export class EvolutionService {
   }): Promise<boolean> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
-    const cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
+    const cleanTo = this.formatRecipient(to);
     const url = `${baseUrl}/chat/sendPresence/${cleanInstance}`;
 
     try {
@@ -473,11 +494,7 @@ export class EvolutionService {
   }): Promise<string> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
-    let cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
-    // Soporte nativo para WhatsApp Linked Devices (LID): si es un identificador de dispositivo privado de 14+ dígitos, dirigir al canal @lid
-    if (!cleanTo.includes('@') && cleanTo.length >= 14 && !cleanTo.startsWith('55') && !cleanTo.startsWith('52') && !cleanTo.startsWith('57')) {
-      cleanTo = `${cleanTo}@lid`;
-    }
+    const cleanTo = this.formatRecipient(to);
     const url = `${baseUrl}/message/sendText/${cleanInstance}`;
 
     let delayMs = 1000;
@@ -533,10 +550,7 @@ export class EvolutionService {
   }): Promise<string> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
-    let cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
-    if (!cleanTo.includes('@') && cleanTo.length >= 14 && !cleanTo.startsWith('55') && !cleanTo.startsWith('52') && !cleanTo.startsWith('57')) {
-      cleanTo = `${cleanTo}@lid`;
-    }
+    const cleanTo = this.formatRecipient(to);
     const url = `${baseUrl}/message/sendMedia/${cleanInstance}`;
 
     const payload: any = {
@@ -579,10 +593,7 @@ export class EvolutionService {
   }): Promise<string> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
-    let cleanTo = to.includes('@') ? to.trim() : to.replace(/[^0-9]/g, '');
-    if (!cleanTo.includes('@') && cleanTo.length >= 14 && !cleanTo.startsWith('55') && !cleanTo.startsWith('52') && !cleanTo.startsWith('57')) {
-      cleanTo = `${cleanTo}@lid`;
-    }
+    const cleanTo = this.formatRecipient(to);
     const url = `${baseUrl}/message/sendWhatsAppAudio/${cleanInstance}`;
 
     const response = await fetch(url, {
