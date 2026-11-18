@@ -5,7 +5,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { sanitizeCsvField } from '@/lib/security/sanitize';
 import { LeadScoreService } from '@/services/lead-score.service';
-import { TagService, TAG_COLORS, type TagColor, normalizeTagName } from '@/services/tag.service';
+import { TagService, TAG_COLORS, type TagColor, normalizeTagName, isAiExemptTag } from '@/services/tag.service';
 import { OrderService, ORDER_STATUSES, type OrderStatus, type OrderItemInput } from '@/services/order.service';
 import { CampaignService, buildCampaignAudienceQuery } from '@/services/campaign.service';
 import { isLeadWindowOpen } from '@/services/contact.service';
@@ -299,7 +299,7 @@ export async function assignTagsToContactsAction(input: { contactIds: string[]; 
   const validContactIds = (validContacts || []).map((c: any) => c.id);
 
   const { data: validTags } = await (supabaseAdmin.from('tags') as any)
-    .select('id')
+    .select('id, name')
     .eq('organization_id', orgId)
     .in('id', input.tagIds.slice(0, 20));
   const validTagIds = (validTags || []).map((t: any) => t.id);
@@ -310,6 +310,16 @@ export async function assignTagsToContactsAction(input: { contactIds: string[]; 
     tagIds: validTagIds,
     source: 'human',
   });
+
+  // Si se asignó alguna etiqueta exenta de IA (ej. Transportadora, Proveedor, Administrativo),
+  // pausar inmediatamente la IA para estos contactos y evitar respuestas automáticas indeseadas
+  const hasExemptTag = (validTags || []).some((t: any) => isAiExemptTag(t.name));
+  if (hasExemptTag && validContactIds.length > 0) {
+    await (supabaseAdmin.from('contacts') as any)
+      .update({ is_ai_active: false })
+      .in('id', validContactIds)
+      .eq('organization_id', orgId);
+  }
 
   revalidatePath('/clientes');
   revalidatePath('/inbox');

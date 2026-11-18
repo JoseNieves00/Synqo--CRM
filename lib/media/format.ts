@@ -426,7 +426,17 @@ export function stripRedundantCatalogListAfterCards(
     cleanedLines.push(line);
   }
 
-  const result = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  let result = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  // Poda determinística de frases meta-referenciales donde la IA anuncia que "envió" fotos o datos
+  // (ej. "He enviado la información sobre la cocina pequeña. ¿Cuál de estos modelos se adapta mejor a tu espacio?")
+  result = result
+    .replace(
+      /(?:^|\n)\s*(?:he\s+enviado\s+(?:la\s+informaci[oó]n|la\s+foto|el\s+cat[aá]logo|los\s+detalles|la\s+ficha|las\s+fotos|las\s+im[aá]genes|informaci[oó]n|todo|esto)[^.?!]*[.?!]\s*|te\s+(?:acabo\s+de\s+(?:enviar|compartir)|he\s+(?:enviado|compartido)|envi[eé]|compart[ií]|dej[eé])\s+[^.?!]*[.?!]\s*|ya\s+te\s+(?:envi[eé]|compart[ií]|dej[eé]|mand[eé]|he\s+enviado)\s+[^.?!]*[.?!]\s*|adjunto\s+te\s+[^.?!]*[.?!]\s*|listo,\s*ya\s+te\s+[^.?!]*[.?!]\s*)/gi,
+      ''
+    )
+    .trim();
+
   const fallbackQuestion = options?.customFallbackQuestion || '¿Cuál de estas opciones se adapta mejor a lo que buscas?';
   return result || fallbackQuestion;
 }

@@ -8,7 +8,7 @@ import {
   applyCustomerSort,
   describeCustomerFilters,
 } from '../lib/crm/customer-filters';
-import { normalizeTagName, TAG_COLORS, TagService } from '../services/tag.service';
+import { normalizeTagName, TAG_COLORS, TagService, isAiExemptTag } from '../services/tag.service';
 import { ORDER_STATUSES, OrderService } from '../services/order.service';
 import { MAX_CAMPAIGN_RECIPIENTS, CampaignService } from '../services/campaign.service';
 import * as crmActions from '../app/actions/crm';
@@ -108,6 +108,15 @@ async function runTests() {
   assert.ok(TAG_COLORS.includes('blue') && TAG_COLORS.includes('emerald'));
   assert.strictEqual(typeof TagService.ensureTags, 'function');
   assert.strictEqual(typeof TagService.applyAiTags, 'function');
+  assert.strictEqual(typeof TagService.isContactAiExempt, 'function');
+
+  // Validación de etiquetas exentas de IA (Transportadoras, Proveedores, Administrativo, Sin IA)
+  assert.strictEqual(isAiExemptTag('Transportadora Envía'), true, 'Transportadora debe ser exenta de IA');
+  assert.strictEqual(isAiExemptTag('Proveedor empaques'), true, 'Proveedor debe ser exento de IA');
+  assert.strictEqual(isAiExemptTag('Administrativo'), true, 'Administrativo debe ser exento de IA');
+  assert.strictEqual(isAiExemptTag('Sin IA'), true, 'Sin IA debe ser exento de IA');
+  assert.strictEqual(isAiExemptTag('Cliente frecuente'), false, 'Cliente frecuente no debe ser exento');
+  assert.strictEqual(isAiExemptTag('Mayorista Bogotá'), false, 'Mayorista no debe ser exento');
 
   assert.deepStrictEqual(ORDER_STATUSES, ['pending', 'confirmed', 'paid', 'delivered', 'cancelled']);
   assert.strictEqual(typeof OrderService.recordOrder, 'function');

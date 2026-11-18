@@ -7,6 +7,7 @@ import { AssignmentService } from './assignment.service';
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { OpenAIService } from './openai.service';
+import { TagService } from './tag.service';
 import { HandoffService } from './handoff.service';
 import { ManagerWhatsAppService } from './manager-whatsapp.service';
 import { PlatformAlertService } from './platform-alert.service';
@@ -377,10 +378,22 @@ export class InboundCoreService {
 
     const { data: existingContact } = await contactQuery.maybeSingle();
 
+    let isTagAiExempt = false;
+    let tagExemptReason: string | undefined = undefined;
+
     if (existingContact) {
       contactId = existingContact.id;
       assignedAgentId = existingContact.assigned_to;
-      isAiActive = isPaymentReceipt ? false : Boolean(existingContact.is_ai_active);
+
+      // Verificación de exención por etiquetas operativas (transportadoras, proveedores, etc.)
+      const exemptCheck = await TagService.isContactAiExempt(orgId, contactId, (existingContact as any)?.custom_fields);
+      if (exemptCheck.exempt) {
+        isTagAiExempt = true;
+        tagExemptReason = exemptCheck.tag || exemptCheck.reason;
+        isAiActive = false;
+      } else {
+        isAiActive = isPaymentReceipt ? false : Boolean(existingContact.is_ai_active);
+      }
 
       const existingCustom = (existingContact as any).custom_fields || {};
       const nowInboundIso = new Date().toISOString();
@@ -529,7 +542,7 @@ export class InboundCoreService {
     };
 
     const aiSnoozeUntil = (existingContact as any)?.ai_snooze_until || currentCustom.ai_snooze_until;
-    let effectiveAiActive = isAiActive;
+    let effectiveAiActive = isTagAiExempt ? false : isAiActive;
     let clearSnooze = false;
     const updatedSnoozeCustom: Record<string, any> = {
       ...currentCustom,
@@ -537,7 +550,7 @@ export class InboundCoreService {
     };
     if (aiSnoozeUntil) {
       if (new Date(aiSnoozeUntil).getTime() <= Date.now()) {
-        if (currentCustom.manual_ai_paused !== true && !isPaymentReceipt && !isOptOut) {
+        if (currentCustom.manual_ai_paused !== true && !isPaymentReceipt && !isOptOut && !isTagAiExempt) {
           effectiveAiActive = true;
         }
         clearSnooze = true;
@@ -760,6 +773,11 @@ export class InboundCoreService {
       return { status: 'subscription_inactive', contactId, messageId };
     }
 
+    if (isTagAiExempt) {
+      console.log(`[INBOUND CORE TAG EXEMPT] Contacto ${contactId} exento de IA (${tagExemptReason}). 0 tokens consumidos.`);
+      return { status: 'ai_disabled', contactId, messageId };
+    }
+
     if (!isAiActive) {
       return { status: 'ai_disabled', contactId, messageId };
     }
@@ -882,6 +900,13 @@ export class InboundCoreService {
 
       if (latestContact && !latestContact.is_ai_active) {
         console.log(`[INBOUND CORE AI ABORT] Asesor tomó el chat con ${senderId}. Respuesta cancelada.`);
+        return;
+      }
+
+      // Re-verificar si el contacto está exento de IA por etiqueta operativa (transportadoras/proveedores)
+      const exemptCheck = await TagService.isContactAiExempt(organization.id, contactId);
+      if (exemptCheck.exempt) {
+        console.log(`[INBOUND CORE AI ABORT] Contacto ${contactId} exento de IA por etiqueta ("${exemptCheck.tag || exemptCheck.reason}"). 0 tokens.`);
         return;
       }
 

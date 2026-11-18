@@ -331,7 +331,16 @@ Si tienes alguna duda o necesitas más información sobre algún modelo en parti
     '¿Hay algún modelo que te interese más o alguna pregunta que tengas?',
     'Debe podar toda lista numerada y sub-viñetas de medidas o stickers dejando exclusivamente la pregunta de cierre'
   );
-  console.log('   ✅ Blindaje Determinístico Anti-Redundancia verificado al 100%.');
+
+  // Caso exacto de la captura 2: Frase meta-referencial anunciando "He enviado la información..."
+  const metaAnnouncementSample = 'He enviado la información sobre la cocina pequeña. ¿Cuál de estos modelos se adapta mejor a tu espacio?';
+  const metaAnnouncementCleaned = stripRedundantCatalogListAfterCards(metaAnnouncementSample);
+  assert.strictEqual(
+    metaAnnouncementCleaned,
+    '¿Cuál de estos modelos se adapta mejor a tu espacio?',
+    'Debe podar frases meta-referenciales tipo "He enviado la información sobre..." dejando la pregunta de cierre conversacional limpia'
+  );
+  console.log('   ✅ Blindaje Determinístico Anti-Redundancia y Anti-Anuncios Meta verificado al 100%.');
 
   // 9. Memoria Interna de Información ya Transmitida en el Chat
   console.log('\n9️⃣  Probando Extracción de Memoria Interna de Información Transmitida...');

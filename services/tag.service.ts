@@ -6,6 +6,46 @@ export { TAG_COLORS, type TagColor };
 /** Máximo de etiquetas que la IA puede crear por organización (evita explosión de variantes). */
 const MAX_AI_CREATED_TAGS_PER_ORG = 40;
 
+/** Palabras clave determinísticas para identificar etiquetas que eximen al chat de la IA (0 tokens, no interrumpe administración) */
+export const AI_EXEMPT_TAG_KEYWORDS = [
+  'transportadora',
+  'transportadoras',
+  'envio',
+  'envios',
+  'envío',
+  'envíos',
+  'flete',
+  'fletes',
+  'logistica',
+  'logística',
+  'proveedor',
+  'proveedores',
+  'administrativo',
+  'administrativa',
+  'administracion',
+  'administración',
+  'sin_ia',
+  'sin ia',
+  'exento_ia',
+  'exento ia',
+  'no_ia',
+  'no ia',
+  'manual',
+  'interno',
+  'personal',
+  'colaborador',
+  'empleado',
+  'equipo',
+];
+
+export function isAiExemptTag(tagName: string): boolean {
+  if (!tagName || typeof tagName !== 'string') return false;
+  const clean = tagName.toLowerCase().trim();
+  return AI_EXEMPT_TAG_KEYWORDS.some((kw) => {
+    return clean === kw || clean.includes(kw);
+  });
+}
+
 export function normalizeTagName(raw: string): string {
   const clean = String(raw || '')
     .replace(/[#"'`<>]/g, '')
@@ -131,5 +171,47 @@ export class TagService {
       .order('created_at', { ascending: true })
       .limit(limit);
     return (data || []).map((t: any) => t.name);
+  }
+
+  /**
+   * Determina si un contacto tiene alguna etiqueta operativa que lo exima de la atención de la IA
+   * (ej. transportadoras, proveedores, asuntos administrativos o sin_ia).
+   * Consulta tanto la relación `contact_tags` como `custom_fields`.
+   */
+  static async isContactAiExempt(
+    organizationId: string,
+    contactId: string,
+    customFields?: Record<string, any> | null
+  ): Promise<{ exempt: boolean; tag?: string; reason?: string }> {
+    try {
+      if (customFields?.is_ai_exempt === true) {
+        return { exempt: true, reason: 'Exención directa por configuración' };
+      }
+
+      const { data: ctRows } = await (supabaseAdmin.from('contact_tags') as any)
+        .select('tag_id, tags(name)')
+        .eq('contact_id', contactId);
+
+      for (const row of ctRows || []) {
+        const tagName = String(row?.tags?.name || '').trim();
+        if (isAiExemptTag(tagName)) {
+          return { exempt: true, tag: tagName, reason: `Etiqueta operativa "${tagName}"` };
+        }
+      }
+
+      if (Array.isArray(customFields?.tags)) {
+        for (const t of customFields.tags) {
+          const tName = typeof t === 'string' ? t : t?.name;
+          if (tName && isAiExemptTag(tName)) {
+            return { exempt: true, tag: tName, reason: `Etiqueta operativa "${tName}"` };
+          }
+        }
+      }
+
+      return { exempt: false };
+    } catch (err: any) {
+      console.warn('[TAG SERVICE] isContactAiExempt check warn:', err?.message || err);
+      return { exempt: false };
+    }
   }
 }

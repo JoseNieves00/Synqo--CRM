@@ -769,7 +769,7 @@ function buildDynamicContextBlock(params: {
     sentInformationSummary.length > 0
       ? `\n<memoria_interna_informacion_ya_enviada>\nInformación clave que la empresa YA entregó al cliente en este chat:\n${sentInformationSummary
           .map((s) => `- ${s}`)
-          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla. Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados (precios, medidas, materiales o cuentas), a menos que el cliente haga una pregunta explícita y directa pidiendo una aclaración puntual sobre alguno de esos datos. Habla con fluidez natural, avanzando la conversación hacia el siguiente paso de la atención o venta sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
+          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla. Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados (precios, medidas, materiales o cuentas), así como usar frases meta-referenciales anunciando lo que enviaste (como "He enviado...", "Te envié...", "Ya te compartí..."). Habla con fluidez natural, avanzando la conversación hacia el siguiente paso de la atención o venta sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
       : '';
 
   return `<contexto_actual>
@@ -1425,7 +1425,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     caption,
                     already_visible_in_card: true,
                     message:
-                      'Tarjeta visual enviada al cliente con foto oficial, precio y medidas en el pie de foto. TU MENSAJE FINAL DE TEXTO TIENE PROHIBIDO VOLVER A LISTAR PRECIOS, MEDIDAS O CARACTERÍSTICAS YA ENVIADAS EN LA TARJETA. Tu mensaje de texto debe ser ÚNICAMENTE 1 sola pregunta breve de cierre orientada a la venta (ej: "¿Cuál de estos modelos se adapta mejor a tu espacio?"). No escribas enlaces.',
+                      'Tarjeta visual enviada al cliente con foto oficial, precio y medidas en el pie de foto. TU MENSAJE FINAL DE TEXTO TIENE PROHIBIDO VOLVER A LISTAR PRECIOS, MEDIDAS O CARACTERÍSTICAS YA ENVIADAS EN LA TARJETA, Y PROHIBIDO USAR FRASES META-REFERENCIALES ANUNCIANDO EL ENVÍO (ej: no digas "He enviado la información...", "Te comparto la foto..."). Tu mensaje de texto debe ser ÚNICAMENTE 1 sola pregunta breve de cierre orientada a la venta (ej: "¿Cuál de estos modelos se adapta mejor a tu espacio?"). No escribas enlaces.',
                   });
                 }
               }

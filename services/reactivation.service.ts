@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
 import { isLeadWindowOpen } from '@/services/contact.service';
 import { LeadScoreService } from '@/services/lead-score.service';
+import { TagService } from '@/services/tag.service';
 import { sleep } from '@/lib/anti-ban/cadence';
 import { formatImageMessageContent } from '@/lib/media/format';
 import { AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
@@ -670,7 +671,8 @@ export class LeadReactivationService {
           if (await this.hasRecentFollowUpForContact(contact.id, 0.75)) continue;
 
           const cf = (contact.custom_fields as Record<string, any>) || {};
-          if (cf.opted_out === true || cf.follow_up?.paused === true) {
+          const isExempt = await TagService.isContactAiExempt(org.id, contact.id, cf);
+          if (cf.opted_out === true || cf.follow_up?.paused === true || isExempt.exempt) {
             await (supabaseAdmin.from('scheduled_reminders') as any)
               .update({ status: 'cancelled' })
               .eq('id', rem.id);
