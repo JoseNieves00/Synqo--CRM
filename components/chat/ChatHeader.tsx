@@ -21,6 +21,8 @@ import {
   ChevronRight,
   PanelRightOpen,
   PanelRightClose,
+  PanelLeftOpen,
+  PanelLeftClose,
   Search,
   CheckCheck,
 } from 'lucide-react';
@@ -57,6 +59,8 @@ interface ChatHeaderProps {
   teamMembers?: TeamMember[];
   isRightPanelOpen: boolean;
   onToggleRightPanel: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
   isSearchOpen?: boolean;
   onToggleSearch?: () => void;
   onToggleAi: () => Promise<void>;
@@ -80,6 +84,8 @@ export function ChatHeader({
   teamMembers = [],
   isRightPanelOpen,
   onToggleRightPanel,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
   isSearchOpen = false,
   onToggleSearch,
   onToggleAi,
@@ -158,9 +164,24 @@ export function ChatHeader({
           <button
             type="button"
             onClick={onBack}
-            className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 rounded-lg shrink-0"
+            className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 rounded-lg shrink-0 cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5" />
+          </button>
+        )}
+
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="hidden md:flex p-1.5 -ml-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 rounded-lg shrink-0 transition cursor-pointer"
+            title={isSidebarCollapsed ? "Mostrar lista de conversaciones (⌘+\\)" : "Ocultar lista de conversaciones - Modo Focus (⌘+\\)"}
+          >
+            {isSidebarCollapsed ? (
+              <PanelLeftOpen className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+            ) : (
+              <PanelLeftClose className="w-5 h-5 text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200" />
+            )}
           </button>
         )}
 

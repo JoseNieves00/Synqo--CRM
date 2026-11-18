@@ -973,6 +973,7 @@ export async function simulateBotMessage(params: {
   userMessage: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   temporaryPrompt?: string;
+  targetOrganizationId?: string;
 }): Promise<{
   reply: string;
   latencyMs: number;
@@ -992,7 +993,9 @@ export async function simulateBotMessage(params: {
     throw new Error('Solo administradores pueden usar el simulador de IA.');
   }
 
-  const orgId = profile.organization_id;
+  const orgId = (profile.is_super_admin && params.targetOrganizationId)
+    ? params.targetOrganizationId
+    : profile.organization_id;
   const startTime = Date.now();
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)

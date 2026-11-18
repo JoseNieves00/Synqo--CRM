@@ -2,8 +2,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Send, User, RotateCcw, X, Sparkles, Clock, Zap, Loader2 } from 'lucide-react';
+import { Bot, Send, User, RotateCcw, X, Sparkles, Clock, Zap, Loader2, Pencil, CheckCircle2, Check } from 'lucide-react';
 import { simulateBotMessage } from '@/app/actions/settings';
+import { teachAgentFromSandboxAction } from '@/app/actions/prompt-assistant';
 
 interface BotSandboxModalProps {
   isOpen: boolean;
@@ -11,7 +12,9 @@ interface BotSandboxModalProps {
   temporaryPrompt?: string;
   botName?: string;
   suggestedQuestions?: string[];
+  targetOrganizationId?: string;
   onMessageSimulated?: () => void;
+  onPromptPatched?: (newPrompt: string) => void;
 }
 
 interface SimulatedMessage {
@@ -29,9 +32,12 @@ export function BotSandboxModal({
   temporaryPrompt,
   botName = 'Synqo AI',
   suggestedQuestions,
+  targetOrganizationId,
   onMessageSimulated,
+  onPromptPatched,
 }: BotSandboxModalProps) {
   const [mounted, setMounted] = useState(false);
+  const [workingPrompt, setWorkingPrompt] = useState(temporaryPrompt || '');
   const [messages, setMessages] = useState<SimulatedMessage[]>([
     {
       id: 'welcome',
@@ -42,7 +48,17 @@ export function BotSandboxModal({
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [teachingMessageId, setTeachingMessageId] = useState<string | null>(null);
+  const [teachInput, setTeachInput] = useState('');
+  const [isTeaching, setIsTeaching] = useState(false);
+  const [taughtFeedback, setTaughtFeedback] = useState<{ id: string; message: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (temporaryPrompt !== undefined) {
+      setWorkingPrompt(temporaryPrompt);
+    }
+  }, [temporaryPrompt]);
 
   useEffect(() => {
     setMounted(true);
@@ -83,7 +99,8 @@ export function BotSandboxModal({
       const res = await simulateBotMessage({
         userMessage: cleanInput,
         history: historyPayload,
-        temporaryPrompt,
+        temporaryPrompt: workingPrompt,
+        targetOrganizationId,
       });
 
       const assistantMsg: SimulatedMessage = {
@@ -107,6 +124,51 @@ export function BotSandboxModal({
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleTeachAgent = async (assistantMsg: SimulatedMessage) => {
+    const cleanRule = teachInput.trim();
+    if (!cleanRule || isTeaching) return;
+
+    setIsTeaching(true);
+    setTaughtFeedback(null);
+    try {
+      const msgIndex = messages.findIndex((m) => m.id === assistantMsg.id);
+      const prevUserMsg = msgIndex > 0 ? messages[msgIndex - 1] : undefined;
+
+      const res = await teachAgentFromSandboxAction({
+        userInstruction: cleanRule,
+        simulatedQuestion: prevUserMsg?.role === 'user' ? prevUserMsg.content : undefined,
+        simulatedAiReply: assistantMsg.content,
+        currentPrompt: workingPrompt,
+        targetOrganizationId,
+      });
+
+      if (res.success && res.patchedPrompt) {
+        setWorkingPrompt(res.patchedPrompt);
+        onPromptPatched?.(res.patchedPrompt);
+        setTaughtFeedback({
+          id: assistantMsg.id,
+          message: `¡Regla aprendida en "${res.sectionTitle || 'Instrucciones'}"! Tu agente ha sido actualizado.`,
+        });
+        setTeachInput('');
+        setTimeout(() => {
+          setTeachingMessageId(null);
+        }, 3000);
+      } else {
+        setTaughtFeedback({
+          id: assistantMsg.id,
+          message: res.error || 'No se pudo guardar la regla.',
+        });
+      }
+    } catch (err: any) {
+      setTaughtFeedback({
+        id: assistantMsg.id,
+        message: err?.message || 'Error de conexión al guardar regla.',
+      });
+    } finally {
+      setIsTeaching(false);
     }
   };
 
@@ -215,7 +277,85 @@ export function BotSandboxModal({
 
                   <p className="whitespace-pre-wrap leading-relaxed select-text">{m.content}</p>
 
-                  {!isUser && m.latencyMs && (
+                  {!isUser && m.id !== 'welcome' && (
+                    <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-[#1E2433] space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <div className="flex items-center gap-2 text-slate-400 font-mono">
+                          {m.latencyMs && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5" /> {m.latencyMs}ms
+                            </span>
+                          )}
+                          {m.model && (
+                            <span className="flex items-center gap-1 text-[9px]">
+                              <Zap className="w-2.5 h-2.5 text-amber-500" /> {m.model}
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTeachingMessageId(teachingMessageId === m.id ? null : m.id);
+                            setTeachInput('');
+                            setTaughtFeedback(null);
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:underline cursor-pointer"
+                        >
+                          <Pencil className="w-2.5 h-2.5" />
+                          <span>{teachingMessageId === m.id ? 'Cerrar' : 'Enseñar al Agente'}</span>
+                        </button>
+                      </div>
+
+                      {teachingMessageId === m.id && (
+                        <div className="p-2.5 rounded-xl bg-amber-50/90 dark:bg-amber-500/10 border border-amber-200/90 dark:border-amber-500/30 text-xs space-y-2 animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1 text-[11px]">
+                              <Sparkles className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                              Enseñar al Agente cómo responder
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+                            Escribe la regla comercial o respuesta correcta ante esta pregunta. Se incorporará de inmediato al cerebro de tu IA:
+                          </p>
+                          <textarea
+                            rows={2}
+                            value={teachInput}
+                            onChange={(e) => setTeachInput(e.target.value)}
+                            placeholder="Ej: Si preguntan por garantía, aclara que es de 1 año directo con la empresa..."
+                            className="w-full text-xs p-2 rounded-lg bg-white dark:bg-[#131722] border border-amber-300 dark:border-amber-500/40 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                          />
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setTeachingMessageId(null)}
+                              className="px-2 py-1 rounded text-[10px] font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isTeaching || !teachInput.trim()}
+                              onClick={() => handleTeachAgent(m)}
+                              className="px-2.5 py-1 rounded text-[10px] font-bold text-white bg-[#0052FF] hover:bg-[#0043D4] disabled:opacity-50 flex items-center gap-1 shadow-xs cursor-pointer"
+                            >
+                              {isTeaching ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Check className="w-2.5 h-2.5" />}
+                              <span>Guardar y Aplicar Regla</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {taughtFeedback?.id === m.id && (
+                        <div className="p-2 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40 text-[10px] font-medium flex items-center gap-1.5 animate-in fade-in">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>{taughtFeedback.message}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!isUser && m.id === 'welcome' && m.latencyMs && (
                     <div className="pt-1 border-t border-slate-100 dark:border-[#1E2433] flex items-center justify-between text-[10px] text-slate-400 font-mono">
                       <span className="flex items-center gap-1">
                         <Clock className="w-2.5 h-2.5" /> {m.latencyMs}ms

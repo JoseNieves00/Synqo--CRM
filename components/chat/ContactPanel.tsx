@@ -28,10 +28,12 @@ import {
   ShoppingBag,
   UserRoundSearch,
   Plus,
-  Truck,
-  Copy,
+  Target,
+  Lightbulb,
+  Wallet,
+  Zap,
+  UserCheck,
 } from 'lucide-react';
-import { CustomerShippingData, formatShippingGuideText } from '@/lib/types/shipping';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import {
@@ -120,73 +122,105 @@ export function ContactPanel({
     notesCount: number;
   } | null>(null);
 
-  // Datos de Guía de Envío (Nombre, Identificación, Teléfono, Ciudad, Dirección)
-  const initialShipping = useMemo<CustomerShippingData>(() => {
-    const raw = contact.custom_fields?.shipping_data || {};
-    return {
-      recipient_name: raw.recipient_name || contact.name || '',
-      id_number: raw.id_number || contact.custom_fields?.id_number || '',
-      phone: raw.phone || contact.phone || '',
-      destination_city: raw.destination_city || contact.custom_fields?.city || '',
-      address: raw.address || contact.custom_fields?.address || '',
-      notes: raw.notes || '',
-    };
-  }, [contact]);
+  // Radiografía Comercial del Lead
+  const painPoint =
+    contact.custom_fields?.pain_point ||
+    aiSummary?.pain_point ||
+    '';
+  const productInterest =
+    contact.custom_fields?.product_interest ||
+    contact.custom_fields?.last_quoted_product ||
+    aiSummary?.product_interest ||
+    aiSummary?.product_of_interest ||
+    '';
+  const purchasingPower = (
+    contact.custom_fields?.purchasing_power ||
+    aiSummary?.purchasing_power ||
+    null
+  ) as 'economico' | 'estandar' | 'premium' | null;
 
-  const [shippingData, setShippingData] = useState<CustomerShippingData>(initialShipping);
-  const [isEditingShipping, setIsEditingShipping] = useState(false);
-  const [isSavingShipping, setIsSavingShipping] = useState(false);
-  const [hasCopiedGuide, setHasCopiedGuide] = useState(false);
-  const [editShippingForm, setEditShippingForm] = useState<CustomerShippingData>(initialShipping);
+  const urgency =
+    contact.custom_fields?.urgency ||
+    aiSummary?.urgency ||
+    '';
+  const decisionMaker =
+    contact.custom_fields?.decision_maker ||
+    aiSummary?.decision_maker ||
+    '';
 
-  const shippingCompletedFieldsCount = useMemo(() => {
-    let count = 0;
-    if (shippingData.recipient_name?.trim()) count++;
-    if (shippingData.id_number?.trim()) count++;
-    if (shippingData.phone?.trim()) count++;
-    if (shippingData.destination_city?.trim()) count++;
-    if (shippingData.address?.trim()) count++;
-    return count;
-  }, [shippingData]);
-
-  const handleCopyShippingGuide = () => {
-    const text = formatShippingGuideText(shippingData);
-    navigator.clipboard.writeText(text);
-    setHasCopiedGuide(true);
-    setTimeout(() => setHasCopiedGuide(false), 2200);
-  };
-
-  const handleSaveShippingData = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    setIsSavingShipping(true);
-    try {
-      const updatedCustom = {
-        ...(contact.custom_fields || {}),
-        shipping_data: editShippingForm,
-        id_number: editShippingForm.id_number || contact.custom_fields?.id_number,
-        city: editShippingForm.destination_city || contact.custom_fields?.city,
-        address: editShippingForm.address || contact.custom_fields?.address,
-      };
-
-      const newName = editShippingForm.recipient_name?.trim() || contact.name;
-
-      await updateContactDetails(contact.id, {
-        name: newName || undefined,
-        customFields: updatedCustom,
-      });
-
-      setShippingData(editShippingForm);
-      setIsEditingShipping(false);
-      onContactUpdate?.({
-        name: newName,
-        custom_fields: updatedCustom,
-      });
-    } catch (err) {
-      console.error('[ContactPanel] Error guardando datos de guía de envío:', err);
-    } finally {
-      setIsSavingShipping(false);
+  // Semáforo de temperatura comercial (Caliente 80-100%, Tibio 40-79%, Frío 0-39%)
+  const tempScore = useMemo(() => {
+    if (typeof contact.lead_score === 'number') {
+      return Math.round(contact.lead_score);
     }
-  };
+    if (temperature === 'hot') return 90;
+    if (temperature === 'qualified_doubt') return 70;
+    if (temperature === 'warm') return 45;
+    return 15;
+  }, [contact.lead_score, temperature]);
+
+  const semaforoData = useMemo(() => {
+    if (tempScore >= 80 || temperature === 'hot') {
+      return {
+        label: '🔥 Caliente',
+        range: '80-100%',
+        desc: 'Alta probabilidad de cierre · Listo para comprar o agendar',
+        badgeClass:
+          'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30',
+        barClass: 'bg-gradient-to-r from-orange-500 via-rose-500 to-red-500',
+        dotClass: 'bg-rose-500 ring-4 ring-rose-500/20',
+      };
+    }
+    if (tempScore >= 40 || temperature === 'warm' || temperature === 'qualified_doubt') {
+      return {
+        label: temperature === 'qualified_doubt' ? '🟠 Duda Calificada' : '🟡 Tibio',
+        range: '40-79%',
+        desc: 'Evaluando opciones · Consultando características o precios',
+        badgeClass:
+          'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+        barClass: 'bg-gradient-to-r from-amber-400 to-amber-500',
+        dotClass: 'bg-amber-500 ring-4 ring-amber-500/20',
+      };
+    }
+    return {
+      label: '❄️ Frío',
+      range: '0-39%',
+      desc: 'Baja probabilidad actual · Descartado o sin interacción',
+      badgeClass:
+        'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/30',
+      barClass: 'bg-slate-300 dark:bg-slate-700',
+      dotClass: 'bg-sky-400 ring-4 ring-sky-400/20',
+    };
+  }, [tempScore, temperature]);
+
+  const purchasingPowerMeta = useMemo(() => {
+    if (purchasingPower === 'premium') {
+      return {
+        label: '💎 Premium / Alto',
+        class:
+          'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/30',
+      };
+    }
+    if (purchasingPower === 'economico') {
+      return {
+        label: '🏷️ Económico / Ajustado',
+        class:
+          'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+      };
+    }
+    if (purchasingPower === 'estandar') {
+      return {
+        label: '⚖️ Estándar / Medio',
+        class:
+          'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
+      };
+    }
+    return {
+      label: '⚪ Por detectar',
+      class:
+        'bg-slate-100 text-slate-500 border-slate-200 dark:bg-[#1A1F2C] dark:text-slate-400 dark:border-[#232A3B]',
+    };
+  }, [purchasingPower]);
 
   const loadCrmMini = React.useCallback(async () => {
     try {
@@ -212,9 +246,7 @@ export function ContactPanel({
     setDealValue(contact.deal_value ? String(contact.deal_value) : contact.custom_fields?.deal_value ? String(contact.custom_fields?.deal_value) : '');
     setTemperature(resolveLeadTemperature(contact.custom_fields) || 'warm');
     setAiSummary(contact.custom_fields?.ai_summary || null);
-    setShippingData(initialShipping);
-    setEditShippingForm(initialShipping);
-  }, [contact, initialShipping]);
+  }, [contact]);
 
   // Cambiar etapa comercial
   const handleStageChange = async (newStage: string) => {
@@ -422,56 +454,6 @@ export function ContactPanel({
       </div>
 
       <div className="p-3.5 space-y-4 flex-1">
-        {/* Tarjeta de Resumen Ejecutivo de IA */}
-        <div className="rounded-xl p-3 border border-blue-100 dark:border-blue-950/60 bg-gradient-to-br from-blue-50/50 via-white to-blue-50/20 dark:from-[#0052FF]/10 dark:via-[#131722] dark:to-[#0052FF]/5">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
-              <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
-              <span>Resumen comercial IA</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleGenerateSummary}
-              disabled={isGeneratingSummary}
-              className="text-[10px] text-[#0052FF] dark:text-[#00D2FF] font-semibold hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
-            >
-              {isGeneratingSummary ? (
-                <>
-                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                  <span>Actualizando...</span>
-                </>
-              ) : (
-                <span>Actualizar</span>
-              )}
-            </button>
-          </div>
-
-          {aiSummary ? (
-            <div className="space-y-1.5 text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
-              {Array.isArray(aiSummary.key_points) && aiSummary.key_points.length > 0 ? (
-                <ul className="list-disc pl-4 space-y-1">
-                  {aiSummary.key_points.map((pt: string, idx: number) => (
-                    <li key={idx}>{pt}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="whitespace-pre-line">{aiSummary.summary_text || aiSummary.summary || 'Resumen de conversación disponible.'}</p>
-              )}
-
-              {(aiSummary.next_step || aiSummary.recommended_action) && (
-                <div className="mt-2 pt-2 border-t border-blue-200/50 dark:border-[#232A3B] flex items-start gap-1.5 text-blue-900 dark:text-blue-200 font-medium">
-                  <ChevronRight className="w-3.5 h-3.5 text-[#0052FF] shrink-0 mt-0.5" />
-                  <span>Siguiente paso: {aiSummary.next_step || aiSummary.recommended_action}</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-[11px] text-slate-500 italic">
-              Aún no se ha generado un resumen de este prospecto. Haz clic en actualizar para que la IA extraiga los puntos clave.
-            </p>
-          )}
-        </div>
-
         {/* Etapa Comercial & Valor del Negocio */}
         <div className="space-y-2.5 pt-1">
           <div>
@@ -760,234 +742,161 @@ export function ContactPanel({
           </div>
         </div>
 
-        {/* Datos de Guía de Envío */}
-        <div className="p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]/60 space-y-2">
+        {/* Radiografía Comercial del Lead */}
+        <div className="p-3 rounded-xl border border-blue-200/80 dark:border-[#232A3B] bg-gradient-to-br from-slate-50 via-white to-blue-50/30 dark:from-[#090A0F] dark:via-[#131722] dark:to-[#0052FF]/5 space-y-2.5 shadow-2xs">
           <div className="flex items-center justify-between gap-1">
             <div className="flex items-center gap-1.5 min-w-0">
-              <Truck className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
-              <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate">
-                Datos para Guía de Envío
+              <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
+              <span className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                Radiografía del Prospecto
               </span>
             </div>
-            <div className="flex items-center gap-1">
-              <span
-                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                  shippingCompletedFieldsCount === 5
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20'
-                }`}
-              >
-                {shippingCompletedFieldsCount === 5 ? '5/5 Completo' : `${shippingCompletedFieldsCount}/5 Datos`}
-              </span>
-              {!isEditingShipping && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingShipping(true)}
-                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition cursor-pointer"
-                  title="Editar datos de guía"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
+            <button
+              type="button"
+              onClick={handleGenerateSummary}
+              disabled={isGeneratingSummary}
+              className="text-[10.5px] text-[#0052FF] dark:text-[#00D2FF] font-semibold hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              title="Actualizar análisis con IA"
+            >
+              {isGeneratingSummary ? (
+                <>
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  <span>Analizando...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Actualizar IA</span>
+                </>
               )}
-            </div>
+            </button>
           </div>
 
-          {!isEditingShipping ? (
-            <div className="space-y-1.5 text-[11px]">
-              <div className="grid grid-cols-1 gap-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-slate-200/80 dark:border-[#232A3B]">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-slate-400 font-medium shrink-0">Nombre:</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-semibold text-right truncate">
-                    {shippingData.recipient_name || contact.name || (
-                      <span className="text-slate-400 italic font-normal">Pendiente</span>
-                    )}
+          {/* Semáforo de Temperatura con Barra de Probabilidad */}
+          <div className="p-2.5 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B] space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${semaforoData.dotClass}`} />
+                Semáforo de Cierre
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${semaforoData.badgeClass}`}>
+                {semaforoData.label} ({semaforoData.range})
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-[#1A1F2C] overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${semaforoData.barClass}`}
+                style={{ width: `${Math.max(5, tempScore)}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+              {semaforoData.desc}
+            </p>
+          </div>
+
+          {/* Dolor Principal (Solo si fue extraído) */}
+          {painPoint?.trim() && (
+            <div className="p-2.5 rounded-lg bg-amber-50/70 dark:bg-amber-500/10 border border-amber-200/70 dark:border-amber-500/20 text-xs">
+              <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-200 mb-1 text-[11px]">
+                <Target className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Necesidad / Dolor Principal</span>
+              </div>
+              <p className="text-slate-800 dark:text-slate-200 text-[11px] leading-snug font-medium">
+                {painPoint.trim()}
+              </p>
+            </div>
+          )}
+
+          {/* Interés y Poder Adquisitivo (Solo si fueron extraídos) */}
+          {(productInterest?.trim() || purchasingPower) && (
+            <div className={`grid gap-1.5 text-[11px] ${productInterest?.trim() && purchasingPower ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {productInterest?.trim() && (
+                <div className="p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B]">
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">
+                    <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />
+                    <span className="font-semibold uppercase tracking-wider">Interés Detectado</span>
+                  </div>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={productInterest}>
+                    {productInterest.trim()}
+                  </p>
+                </div>
+              )}
+
+              {purchasingPower && (
+                <div className="p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B]">
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">
+                    <Wallet className="w-3 h-3 text-emerald-500 shrink-0" />
+                    <span className="font-semibold uppercase tracking-wider">Poder Adquisitivo</span>
+                  </div>
+                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${purchasingPowerMeta.class}`}>
+                    {purchasingPowerMeta.label}
                   </span>
                 </div>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-slate-400 font-medium shrink-0">Cédula / NIT:</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-mono text-right truncate">
-                    {shippingData.id_number || (
-                      <span className="text-slate-400 italic font-sans">Pendiente</span>
-                    )}
-                  </span>
+              )}
+            </div>
+          )}
+
+          {/* Decisor & Urgencia de Cierre (Solo si fueron extraídos) */}
+          {(decisionMaker?.trim() || urgency?.trim()) && (
+            <div className={`grid gap-1.5 text-[11px] ${decisionMaker?.trim() && urgency?.trim() ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {decisionMaker?.trim() && (
+                <div className="p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B]">
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">
+                    <UserCheck className="w-3 h-3 text-indigo-500 shrink-0" />
+                    <span className="font-semibold uppercase tracking-wider">Poder de Decisión</span>
+                  </div>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={decisionMaker}>
+                    {decisionMaker.trim()}
+                  </p>
                 </div>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-slate-400 font-medium shrink-0">Teléfono:</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-mono text-right truncate">
-                    {shippingData.phone || contact.phone || (
-                      <span className="text-slate-400 italic font-sans">Pendiente</span>
-                    )}
-                  </span>
+              )}
+
+              {urgency?.trim() && (
+                <div className="p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200/80 dark:border-[#232A3B]">
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400 mb-0.5">
+                    <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                    <span className="font-semibold uppercase tracking-wider">Urgencia / Plazo</span>
+                  </div>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={urgency}>
+                    {urgency.trim()}
+                  </p>
                 </div>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-slate-400 font-medium shrink-0">Ciudad destino:</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-medium text-right truncate">
-                    {shippingData.destination_city || (
-                      <span className="text-slate-400 italic font-normal">Pendiente</span>
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-slate-400 font-medium shrink-0">Dirección:</span>
-                  <span className="text-slate-800 dark:text-slate-200 text-right text-[10.5px] leading-tight max-w-[190px]">
-                    {shippingData.address || (
-                      <span className="text-slate-400 italic">Pendiente</span>
-                    )}
-                  </span>
-                </div>
-                {shippingData.notes && (
-                  <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-[#1F2637]">
-                    <span className="text-slate-400 font-medium shrink-0">Notas:</span>
-                    <span className="text-slate-600 dark:text-slate-400 text-right text-[10px] italic">
-                      {shippingData.notes}
-                    </span>
+              )}
+            </div>
+          )}
+
+          {/* ⚡ Resumen Ejecutivo / Puntos Clave */}
+          <div className="p-2.5 rounded-lg bg-blue-50/50 dark:bg-[#0052FF]/10 border border-blue-100 dark:border-blue-900/40 text-[11px] space-y-1.5">
+            <div className="flex items-center gap-1 font-bold text-blue-950 dark:text-blue-200 text-[11px]">
+              <Zap className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
+              <span>⚡ Resumen Ejecutivo & Próximo Paso</span>
+            </div>
+            {aiSummary ? (
+              <div className="space-y-1 text-slate-700 dark:text-slate-300">
+                {Array.isArray(aiSummary.key_points) && aiSummary.key_points.length > 0 ? (
+                  <ul className="list-disc pl-3.5 space-y-0.5 text-[10.5px]">
+                    {aiSummary.key_points.map((pt: string, idx: number) => (
+                      <li key={idx}>{pt}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="whitespace-pre-line text-[10.5px] leading-relaxed">
+                    {aiSummary.summary_text || aiSummary.summary || 'Resumen de conversación disponible.'}
+                  </p>
+                )}
+                {(aiSummary.next_step || aiSummary.recommended_action) && (
+                  <div className="pt-1.5 border-t border-blue-200/60 dark:border-blue-900/40 flex items-start gap-1 font-semibold text-blue-900 dark:text-blue-200 text-[10.5px]">
+                    <ChevronRight className="w-3 h-3 text-[#0052FF] shrink-0 mt-0.5" />
+                    <span>Paso: {aiSummary.next_step || aiSummary.recommended_action}</span>
                   </div>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={handleCopyShippingGuide}
-                className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border shadow-2xs ${
-                  hasCopiedGuide
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40'
-                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 dark:bg-[#131722] dark:hover:bg-[#1A1F2C] dark:text-slate-200 dark:border-[#232A3B]'
-                }`}
-              >
-                {hasCopiedGuide ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>¡Copiado para Transportadora!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Copiar para Guía (1 Clic)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleSaveShippingData} className="space-y-2 pt-1 animate-in fade-in">
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
-                  Nombre completo (quien recibe)
-                </label>
-                <input
-                  type="text"
-                  value={editShippingForm.recipient_name || ''}
-                  onChange={(e) =>
-                    setEditShippingForm({ ...editShippingForm, recipient_name: e.target.value })
-                  }
-                  placeholder="Ej: Carlos Mario Gómez"
-                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-1.5">
-                <div>
-                  <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
-                    Cédula / NIT / DNI
-                  </label>
-                  <input
-                    type="text"
-                    value={editShippingForm.id_number || ''}
-                    onChange={(e) =>
-                      setEditShippingForm({ ...editShippingForm, id_number: e.target.value })
-                    }
-                    placeholder="Ej: 1045892341"
-                    className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
-                    Teléfono celular
-                  </label>
-                  <input
-                    type="text"
-                    value={editShippingForm.phone || ''}
-                    onChange={(e) =>
-                      setEditShippingForm({ ...editShippingForm, phone: e.target.value })
-                    }
-                    placeholder="Ej: 3001234567"
-                    className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
-                  Ciudad o Municipio de destino
-                </label>
-                <input
-                  type="text"
-                  value={editShippingForm.destination_city || ''}
-                  onChange={(e) =>
-                    setEditShippingForm({ ...editShippingForm, destination_city: e.target.value })
-                  }
-                  placeholder="Ej: Barranquilla, Atlántico"
-                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
-                  Dirección completa (calle, barrio, apto)
-                </label>
-                <input
-                  type="text"
-                  value={editShippingForm.address || ''}
-                  onChange={(e) =>
-                    setEditShippingForm({ ...editShippingForm, address: e.target.value })
-                  }
-                  placeholder="Ej: Cra 45 # 84-12 Apt 402, Barrio Riomar"
-                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
-                  Indicaciones / Observaciones (opcional)
-                </label>
-                <input
-                  type="text"
-                  value={editShippingForm.notes || ''}
-                  onChange={(e) =>
-                    setEditShippingForm({ ...editShippingForm, notes: e.target.value })
-                  }
-                  placeholder="Ej: Casa esquinera portón negro"
-                  className="w-full bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
-                />
-              </div>
-
-              <div className="flex items-center gap-1.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditShippingForm(shippingData);
-                    setIsEditingShipping(false);
-                  }}
-                  className="flex-1 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingShipping}
-                  className="flex-1 py-1 rounded-lg text-xs font-semibold text-white bg-[#0052FF] hover:bg-[#0043D4] transition cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
-                >
-                  {isSavingShipping ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Guardando...</span>
-                    </>
-                  ) : (
-                    <span>Guardar datos</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          )}
+            ) : (
+              <p className="text-[10px] text-slate-500 italic">
+                Aún no hay puntos clave extraídos. Haz clic en &quot;Actualizar IA&quot; para sintetizar la conversación.
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Ficha / Notas Internas */}

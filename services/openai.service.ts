@@ -308,7 +308,7 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'update_lead_profile',
     description:
-      'Clasifica silenciosamente al prospecto en 4 grupos: hot (pide medios/datos de pago, enlace, contraentrega, agendar cita exacta o entrega datos), qualified_doubt (elige o pregunta por una opción específica con duda puntual de características, qué incluye, envío, garantía, disponibilidad o facilidades de pago; nunca por solo pedir lista general de precios ni si dice "lo pienso"), warm (consulta precios/info general o dice "lo pienso"), cold (rechaza explícitamente).',
+      'Clasifica silenciosamente al prospecto y extrae su radiografía comercial: hot (pide medios/datos de pago, enlace, contraentrega, agendar cita exacta o entrega datos), qualified_doubt (elige o pregunta por una opción específica con duda puntual de características, qué incluye, garantía, disponibilidad o facilidades de pago; nunca por solo pedir lista general de precios ni si dice "lo pienso"), warm (consulta precios/info general o dice "lo pienso"), cold (rechaza explícitamente). Extrae también el dolor principal (pain_point) y nivel de poder adquisitivo (purchasing_power).',
     parameters: {
       type: 'object',
       properties: {
@@ -321,6 +321,23 @@ const updateLeadProfileTool: OpenAI.Chat.Completions.ChatCompletionTool = {
         product_of_interest: {
           type: 'string',
           description: 'Nombre del producto o servicio específico elegido/consultado por el cliente (omitir si solo pidió precios generales).',
+        },
+        pain_point: {
+          type: 'string',
+          description: 'Dolor principal, problema urgente o necesidad comercial que el cliente busca resolver.',
+        },
+        purchasing_power: {
+          type: 'string',
+          enum: ['economico', 'estandar', 'premium'],
+          description: 'Nivel o gama presupuestaria inferida del cliente (economico, estandar o premium).',
+        },
+        decision_maker: {
+          type: 'string',
+          description: 'Poder de decisión (ej: "Tomador directo", "Consulta con socio/pareja", "Evaluando con junta").',
+        },
+        urgency: {
+          type: 'string',
+          description: 'Urgencia o plazo estimado de compra (ej: "Inmediata (< 48h)", "Esta semana", "Próximo mes", "Evaluación previa").',
         },
         objection: {
           type: 'string',
@@ -428,15 +445,16 @@ const updatePipelineStageTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'update_pipeline_stage',
-    description: 'Actualiza la etapa del prospecto en el pipeline comercial del CRM.',
+    description: 'Actualiza la etapa del prospecto en el pipeline comercial del CRM cuando el cliente cumple las condiciones conversacionales.',
     parameters: {
       type: 'object',
       properties: {
         new_stage: {
           type: 'string',
           enum: ['nuevo', 'calificado', 'cita_agendada', 'ganado', 'perdido'],
+          description: 'Nueva etapa comercial: nuevo, calificado (pidió precio/cotización/interés concreto), cita_agendada (reunión/demo coordinada), ganado (compra/cierre confirmado), perdido (rechazó o desistió).',
         },
-        reason: { type: 'string' },
+        reason: { type: 'string', description: 'Breve motivo conversacional del avance de etapa.' },
       },
       required: ['new_stage'],
     },
@@ -676,6 +694,8 @@ function buildDynamicContextBlock(params: {
   afterHoursMessage?: string | null;
   lastAssistantText?: string | null;
   sentInformationSummary?: string[];
+  stageLabels?: Record<string, string>;
+  stageCriteria?: Record<string, string>;
 }): string {
   const {
     orgTimezone,
@@ -688,6 +708,8 @@ function buildDynamicContextBlock(params: {
     afterHoursMessage = null,
     lastAssistantText = null,
     sentInformationSummary = [],
+    stageLabels = {},
+    stageCriteria = {},
   } = params;
   let currentLocalTime = '';
   try {
@@ -772,15 +794,38 @@ function buildDynamicContextBlock(params: {
           .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla. Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados (precios, medidas, materiales o cuentas), así como usar frases meta-referenciales anunciando lo que enviaste (como "He enviado...", "Te envié...", "Ya te compartí..."). Habla con fluidez natural, avanzando la conversación hacia el siguiente paso de la atención o venta sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
       : '';
 
+  const pipelineRules = `\n<etapas_pipeline_comercial>
+Regla de avance del embudo: Si en la conversación el cliente cumple la condición, ejecuta update_pipeline_stage(new_stage, reason):
+- nuevo ("${stageLabels.nuevo || 'Nuevo Lead'}"): ${stageCriteria.nuevo || 'Contacto inicial.'}
+- calificado ("${stageLabels.calificado || 'Calificado'}"): ${stageCriteria.calificado || 'El cliente mostró interés específico en un producto/servicio o pidió cotización/precios.'}
+- cita_agendada ("${stageLabels.cita_agendada || 'Cita Agendada'}"): ${stageCriteria.cita_agendada || 'Se coordinó una cita, demo o reunión.'}
+- ganado ("${stageLabels.ganado || 'Ganado / Cerrado'}"): ${stageCriteria.ganado || 'El cliente confirmó compra, pedido o pago.'}
+- perdido ("${stageLabels.perdido || 'Perdido'}"): ${stageCriteria.perdido || 'El cliente rechazó explícitamente o desistió.'}
+</etapas_pipeline_comercial>`;
+
+  const leadProfilingRules = `\n<radiografia_del_lead>
+En cada turno donde el cliente revele sus necesidades, intereses, presupuesto, urgencia o nivel de decisión, ejecuta silenciosamente update_lead_profile:
+- temperature: hot (listo para pagar o agendar), qualified_doubt (interés en opción concreta con duda puntual), warm (consulta general o evaluando), cold (rechazo explícito).
+- pain_point: Dolor principal o problema urgente a resolver (ej: "Pérdida de clientes por demora en cotizar", "Automatización de citas").
+- purchasing_power: Nivel presupuestario inferido (economico, estandar o premium).
+- decision_maker: Si es el tomador de decisión directo o consulta con socio/pareja.
+- urgency: Urgencia o plazo estimado (ej: "Inmediata (< 48h)", "Esta semana", "Próximo mes").
+- product_of_interest: Producto o servicio consultado.
+- objection: Objeción o duda pendiente.
+</radiografia_del_lead>`;
+
+  const painPointDisplay = contactData?.custom_fields?.pain_point ? `\nDolor/Necesidad: ${contactData.custom_fields.pain_point}` : '';
+  const purchasingPowerDisplay = contactData?.custom_fields?.purchasing_power ? `\nPoder adquisitivo: ${contactData.custom_fields.purchasing_power}` : '';
+
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <perfil_lead>
 Nombre: ${contactData?.name || leadName || 'No registrado'}
 Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}
-Interés detectado: ${interest}
+Interés detectado: ${interest}${painPointDisplay}${purchasingPowerDisplay}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</perfil_lead>${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -795,7 +840,14 @@ export interface EvalDryRunTrace {
   costUsd: number;
   toolCallsExecuted: Array<{ name: string; args: any; status: string }>;
   productCardsSent: Array<{ name: string; price?: string; caption: string; url: string }>;
-  leadProfileUpdate: { temperature: string; product_of_interest?: string; objection?: string; lost_reason?: string } | null;
+  leadProfileUpdate: {
+    temperature: string;
+    product_of_interest?: string;
+    pain_point?: string;
+    purchasing_power?: string;
+    objection?: string;
+    lost_reason?: string;
+  } | null;
   orderCreated: any | null;
   followUpScheduled: { date: string; reason?: string } | null;
   handoffRequested: { reason: string } | null;
@@ -893,16 +945,22 @@ export class OpenAIService {
     options?: { organizationId?: string; contactId?: string; aiProvider?: string | null }
   ): Promise<{
     product_interest: string;
+    pain_point?: string;
+    purchasing_power?: 'economico' | 'estandar' | 'premium';
     objections_doubts: string;
     next_step: string;
     summary_text: string;
+    key_points?: string[];
   }> {
     if (!messages || messages.length === 0) {
       return {
         product_interest: 'Sin mensajes suficientes para analizar',
+        pain_point: 'Por definir',
+        purchasing_power: 'estandar',
         objections_doubts: 'Ninguna detectada',
         next_step: 'Iniciar contacto comercial con el cliente',
         summary_text: 'El prospecto aún no cuenta con historial de mensajes.',
+        key_points: ['Sin mensajes suficientes para analizar'],
       };
     }
 
@@ -911,15 +969,17 @@ export class OpenAIService {
       .map((m) => `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor'}: ${m.content}`)
       .join('\n');
 
-    const prompt = `Analiza esta conversación comercial de WhatsApp:
+    const prompt = `Analiza esta conversación comercial:
 """
 ${conversationText}
 """
-Extrae un resumen ejecutivo JSON con estos campos exactos:
+Extrae la radiografía comercial del cliente en JSON con estos campos exactos:
 {
-  "product_interest": "Producto, modelo o servicio exacto que busca el cliente.",
+  "product_interest": "Producto, modelo o servicio exacto que busca el cliente (o 'Sin especificar').",
+  "pain_point": "Dolor principal, problema urgente o necesidad comercial que busca resolver (o 'Por definir').",
+  "purchasing_power": "economico | estandar | premium (gama presupuestaria inferida del cliente)",
   "objections_doubts": "Dudas u objeciones pendientes (o 'Ninguna detectada').",
-  "next_step": "Siguiente paso concreto para cerrar la venta."
+  "next_step": "Siguiente paso concreto para avanzar o cerrar."
 }
 Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
@@ -939,18 +999,39 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       const parsed = JSON.parse(cleanJson);
 
       const product_interest = parsed.product_interest || 'No especificado aún';
+      const pain_point = parsed.pain_point || 'Por definir según conversación';
+      const purchasing_power = (['economico', 'estandar', 'premium'].includes(parsed.purchasing_power)
+        ? parsed.purchasing_power
+        : 'estandar') as 'economico' | 'estandar' | 'premium';
       const objections_doubts = parsed.objections_doubts || 'Ninguna detectada';
       const next_step = parsed.next_step || 'Hacer seguimiento comercial';
-      const summary_text = `🎯 Interés: ${product_interest}\n⚠️ Duda/Objeción: ${objections_doubts}\n👉 Siguiente paso: ${next_step}`;
+      const key_points = [
+        `🎯 Interés: ${product_interest}`,
+        `🔥 Dolor: ${pain_point}`,
+        `💰 Presupuesto: ${purchasing_power.toUpperCase()}`,
+        `⚠️ Duda: ${objections_doubts}`,
+      ];
+      const summary_text = key_points.join('\n') + `\n👉 Siguiente paso: ${next_step}`;
 
-      return { product_interest, objections_doubts, next_step, summary_text };
+      return {
+        product_interest,
+        pain_point,
+        purchasing_power,
+        objections_doubts,
+        next_step,
+        summary_text,
+        key_points,
+      };
     } catch (e: any) {
       console.warn('[AI DEAL SUMMARY ERROR]', e?.message || e);
       return {
         product_interest: 'Revisar detalles en chat',
+        pain_point: 'No detectado automáticamente',
+        purchasing_power: 'estandar',
         objections_doubts: 'No detectadas automáticamente',
         next_step: 'Retomar conversación con el cliente',
         summary_text: 'Resumen temporal no disponible. Consulta los mensajes del chat.',
+        key_points: ['Revisar detalles en chat'],
       };
     }
   }
@@ -1253,6 +1334,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           afterHoursMessage,
           lastAssistantText,
           sentInformationSummary,
+          stageLabels: (orgData?.appointment_settings as any)?.stage_labels,
+          stageCriteria: (orgData?.appointment_settings as any)?.stage_criteria,
         }),
       });
 
@@ -1517,6 +1600,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 currentStage: latestC?.pipeline_stage,
                 temperature: effectiveTemp,
                 product: validated.product_of_interest,
+                painPoint: validated.pain_point,
+                purchasingPower: validated.purchasing_power,
                 objection: validated.objection,
                 lostReason: validated.lost_reason,
                 followUpSettings: orgData?.appointment_settings?.follow_up_sequences
@@ -1525,6 +1610,19 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 businessHours: orgData?.business_hours,
                 timezone: orgTimezone,
               });
+
+              if (validated.pain_point?.trim()) {
+                syncRes.customFields.pain_point = validated.pain_point.trim();
+              }
+              if (validated.purchasing_power) {
+                syncRes.customFields.purchasing_power = validated.purchasing_power;
+              }
+              if (validated.decision_maker?.trim()) {
+                syncRes.customFields.decision_maker = validated.decision_maker.trim();
+              }
+              if (validated.urgency?.trim()) {
+                syncRes.customFields.urgency = validated.urgency.trim();
+              }
 
               if (validated.shipping_data) {
                 const existingShipping = syncRes.customFields.shipping_data || {};
@@ -2339,6 +2437,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             msg_count: totalMessageCount,
             generated_at: new Date().toISOString(),
           };
+          if (summary.pain_point) cf.pain_point = summary.pain_point;
+          if (summary.purchasing_power) cf.purchasing_power = summary.purchasing_power;
+          if (summary.product_interest) cf.product_interest = summary.product_interest;
           await (supabaseAdmin.from('contacts') as any)
             .update({ custom_fields: cf })
             .eq('id', contactId);
@@ -2415,14 +2516,19 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       .map((m) => `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor/IA'}: ${m.content}`)
       .join('\n');
 
-    const prompt = `Propón un borrador corto de respuesta en WhatsApp para el cliente ${leadName ? `(${leadName})` : ''}.
-Contexto del negocio:
+    const prompt = `Genera un borrador comercial natural para continuar la conversación de WhatsApp con el cliente ${leadName ? `(${leadName})` : ''}.
+
+Contexto del negocio e instrucciones de cierre:
 ${basePrompt}
 
-Historial reciente:
+Historial reciente de la conversación:
 ${conversationSnippet}
 
-Reglas: responde directo y amable (1 a 3 líneas), usa precios/datos reales del contexto y devuelve únicamente el texto final sin comillas.`;
+Reglas obligatorias:
+- Eres el mismo asesor de la empresa que viene conversando. NUNCA digas "soy tu asesor asignado", ni "soy tu nuevo asesor", ni anuncies ningún cambio de guardia. La transición debe ser 100% invisible para el cliente.
+- Continúa la conversación con total fluidez, retomando con empatía y precisión exactamente lo último que el cliente preguntó o expresó.
+- Tu objetivo primordial es llevar al cliente al siguiente paso comercial concreto según las instrucciones del negocio (cerrar la venta, confirmar el medio de pago, agendar la cita/llamada o despejar la duda pendiente).
+- Responde directo, persuasivo y amable (1 a 3 líneas cortas), usa precios/datos reales del contexto y devuelve ÚNICAMENTE el texto final a enviar, sin comillas ni encabezados.`;
 
     const { response } = await createChatCompletionWithFallback({
       messages: [
@@ -3198,6 +3304,8 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
           },
           leadName: params.leadProfileContext?.name,
           galleryItems,
+          stageLabels: (params.organization?.appointment_settings as any)?.stage_labels,
+          stageCriteria: (params.organization?.appointment_settings as any)?.stage_criteria,
         }),
       });
     }

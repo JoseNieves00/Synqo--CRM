@@ -102,10 +102,13 @@ export async function updateLeadStage(contactId: string, newStage: PipelineStage
 }
 
 /**
- * Actualiza los alias visuales de las 5 columnas del Pipeline Kanban
- * sin alterar los enums de PostgreSQL ni romper el Tool Calling de la IA.
+ * Actualiza los alias visuales y los criterios semánticos de avance para la IA
+ * de las columnas del Pipeline Kanban sin alterar los enums de PostgreSQL ni romper el Tool Calling.
  */
-export async function updateCustomStageLabels(labels: Partial<Record<PipelineStage, string>>) {
+export async function updateCustomStageLabels(
+  labels: Partial<Record<PipelineStage, string>>,
+  criteria?: Partial<Record<PipelineStage, string>>
+) {
   const supabase = createServerSupabaseClient();
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -136,9 +139,12 @@ export async function updateCustomStageLabels(labels: Partial<Record<PipelineSta
 
   const currentSettings = (org?.appointment_settings as any) || {};
   const currentStageLabels = currentSettings.stage_labels || {};
+  const currentStageCriteria = currentSettings.stage_criteria || {};
 
   // Limpiar y sanitizar etiquetas
   const cleanedLabels: Record<string, string> = { ...currentStageLabels };
+  const cleanedCriteria: Record<string, string> = { ...currentStageCriteria };
+
   for (const stage of PIPELINE_STAGES) {
     const customVal = labels[stage.id];
     if (customVal && customVal.trim().length > 0) {
@@ -147,11 +153,21 @@ export async function updateCustomStageLabels(labels: Partial<Record<PipelineSta
       // Revertir a default si viene vacío
       delete cleanedLabels[stage.id];
     }
+
+    if (criteria) {
+      const customCrit = criteria[stage.id];
+      if (customCrit && customCrit.trim().length > 0) {
+        cleanedCriteria[stage.id] = customCrit.trim().slice(0, 150);
+      } else if (customCrit === '') {
+        delete cleanedCriteria[stage.id];
+      }
+    }
   }
 
   const updatedSettings = {
     ...currentSettings,
     stage_labels: cleanedLabels,
+    stage_criteria: cleanedCriteria,
   };
 
   const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
@@ -162,11 +178,11 @@ export async function updateCustomStageLabels(labels: Partial<Record<PipelineSta
     .eq('id', orgId);
 
   if (updateErr) {
-    throw new Error(`Error al guardar alias de etapas: ${updateErr.message}`);
+    throw new Error(`Error al guardar configuración de etapas: ${updateErr.message}`);
   }
 
   revalidatePath('/pipeline');
-  return { success: true, stageLabels: cleanedLabels };
+  return { success: true, stageLabels: cleanedLabels, stageCriteria: cleanedCriteria };
 }
 
 export interface ImportContactItem {

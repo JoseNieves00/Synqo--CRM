@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { MessageSquare, Instagram, Clock, CheckCircle2, UserCheck, Bot, User, Check, Pause, CheckCheck } from 'lucide-react';
+import { MessageSquare, Instagram, Clock, CheckCircle2, UserCheck, Bot, User, Check, Pause, CheckCheck, Flame } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
 import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
@@ -229,6 +229,11 @@ export const ConversationRow = React.memo(function ConversationRow({
           >
             {c.name || (c.channel === 'instagram' && c.instagram_username ? `@${c.instagram_username}` : c.phone)}
           </h3>
+          {(temperature === 'hot' || (typeof c.lead_score === 'number' && c.lead_score >= 80)) && (
+            <span title="Lead Caliente (Alta probabilidad de compra)">
+              <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0 animate-pulse" />
+            </span>
+          )}
           {!isClosed && <LeadScoreBadge score={c.lead_score} breakdown={c.lead_score_breakdown} />}
         </div>
 

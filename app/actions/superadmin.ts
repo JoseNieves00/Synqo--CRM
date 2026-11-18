@@ -11,6 +11,7 @@ import { encryptSecret } from '@/lib/security/encryption';
 import { normalizeAlertThresholds, normalizeTokenPolicy } from '@/lib/monitoring/token-policy';
 import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
 import { getAssistantBudgetStatus, normalizeAssistantState } from '@/lib/ai/prompt-assistant/state';
+import { normalizeFollowUpSettings, type FollowUpSettingsConfig } from '@/lib/ai/follow-up-types';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -475,14 +476,20 @@ export async function provisionCompany(input: {
     evolution_instance_name: validated.evolutionInstanceName?.trim() || null,
     evolution_anti_ban_mode: validated.evolutionAntiBanMode ?? true,
     evolution_max_outbound_per_hour: validated.evolutionMaxOutboundPerHour || 20,
-    specialist_label: validated.specialistLabel || 'Colaborador',
-    room_label: validated.roomLabel || 'Espacio',
+    specialist_label: validated.specialistLabel || 'Asesor Comercial',
+    room_label: validated.roomLabel || 'Reunión',
     ai_tokens_used: 0,
     ai_tokens_limit: 500000,
     ai_tokens_google_used: 0,
     ai_tokens_openai_used: 0,
     ai_tokens_openai_backup_limit: 25000,
-    system_prompt: `Eres el asesor comercial inteligente de ${validated.companyName}. Tu meta es resolver dudas con amabilidad, calificar al cliente y facilitarle agendar una cita en nuestro calendario.`,
+    system_prompt: `Eres el asesor comercial inteligente y ejecutivo de atención de ${validated.companyName}.
+Tu objetivo es brindar una atención inmediata, cordial y profesional a través de WhatsApp.
+Tus responsabilidades principales son:
+1. Resolver dudas sobre nuestros productos y servicios con precisión y calidez.
+2. Identificar el interés real del cliente y calificar sus necesidades.
+3. Brindar información de valor, cotizaciones y facilitar el agendamiento de citas o demostraciones comerciales.
+4. Cuando el cliente requiera atención personalizada o esté listo para cerrar una negociación, transfiere cordialmente la conversación a un asesor humano.`,
   };
 
   let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
@@ -1051,7 +1058,7 @@ export async function getCompanyFullConfigAction(organizationId: string) {
 
   const [orgRes, profilesRes] = await Promise.all([
     (supabaseAdmin.from('organizations') as any)
-      .select('id, name, slug, company_code, is_active, max_users, plan_type, whatsapp_provider, evolution_api_url, evolution_instance_name, whatsapp_phone_number_id, system_prompt, structured_prompt_data, custom_fields, appointment_settings, enabled_modules, ai_tokens_limit, ai_tokens_used')
+      .select('id, name, company_code, is_active, max_users, plan_type, whatsapp_provider, evolution_api_url, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, whatsapp_phone_number_id, system_prompt, structured_prompt_data, appointment_settings, enabled_modules, ai_tokens_limit, ai_tokens_used, ai_provider, ai_tokens_google_used, ai_tokens_openai_used')
       .eq('id', organizationId)
       .single(),
     (supabaseAdmin.from('profiles') as any)
@@ -1064,9 +1071,18 @@ export async function getCompanyFullConfigAction(organizationId: string) {
     throw new Error(`Error obteniendo empresa: ${orgRes.error?.message || 'No encontrada'}`);
   }
 
+  const org = orgRes.data;
+  const appSettings = (org.appointment_settings as Record<string, any>) || {};
+  const followUpSettings = normalizeFollowUpSettings(appSettings.follow_up_sequences);
+  const stageLabels = (appSettings.stage_labels || {}) as Record<string, string>;
+  const stageCriteria = (appSettings.stage_criteria || {}) as Record<string, string>;
+
   return {
-    organization: orgRes.data,
+    organization: org,
     profiles: profilesRes.data || [],
+    followUpSettings,
+    stageLabels,
+    stageCriteria,
   };
 }
 
@@ -1077,6 +1093,7 @@ export async function updateCompanyPromptAction(input: {
   organizationId: string;
   systemPrompt: string;
   structuredPromptData?: any;
+  aiProvider?: 'google' | 'openai';
 }) {
   await requireSuperAdmin();
 
@@ -1089,6 +1106,10 @@ export async function updateCompanyPromptAction(input: {
     updatePayload.structured_prompt_data = input.structuredPromptData;
   }
 
+  if (input.aiProvider) {
+    updatePayload.ai_provider = input.aiProvider;
+  }
+
   const { error } = await (supabaseAdmin.from('organizations') as any)
     .update(updatePayload)
     .eq('id', input.organizationId);
@@ -1097,34 +1118,47 @@ export async function updateCompanyPromptAction(input: {
     throw new Error(`Error actualizando prompt: ${error.message}`);
   }
 
-  revalidatePath('/admin');
-  revalidatePath('/settings');
+  safeRevalidate('/admin');
+  safeRevalidate('/settings');
   return { success: true };
 }
 
 /**
- * Actualizar Seguimientos de Embudo de una empresa como Super Admin
+ * Actualizar Seguimientos de Embudo de una empresa como Super Admin dentro de appointment_settings.follow_up_sequences
  */
 export async function updateCompanyFollowUpAction(input: {
   organizationId: string;
-  followUpSettings: any;
+  followUpSettings: Partial<FollowUpSettingsConfig> & { enabled?: boolean };
 }) {
   await requireSuperAdmin();
 
-  const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('custom_fields')
+  const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
     .eq('id', input.organizationId)
     .single();
 
-  const existingCf = (org?.custom_fields || {}) as Record<string, any>;
-  const updatedCf = {
-    ...existingCf,
-    follow_up_settings: input.followUpSettings,
+  if (fetchErr || !org) {
+    throw new Error(`Error obteniendo configuración: ${fetchErr?.message || 'Empresa no encontrada'}`);
+  }
+
+  const existingSettings = (org.appointment_settings as Record<string, any>) || {};
+  const currentFollowUp = normalizeFollowUpSettings(existingSettings.follow_up_sequences);
+
+  const merged = {
+    ...currentFollowUp,
+    ...input.followUpSettings,
+    enabled: input.followUpSettings.enabled !== undefined ? Boolean(input.followUpSettings.enabled) : currentFollowUp.enabled,
+  };
+  const cleanConfig = normalizeFollowUpSettings(merged);
+
+  const updatedSettings = {
+    ...existingSettings,
+    follow_up_sequences: cleanConfig,
   };
 
   const { error } = await (supabaseAdmin.from('organizations') as any)
     .update({
-      custom_fields: updatedCf,
+      appointment_settings: updatedSettings,
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.organizationId);
@@ -1133,9 +1167,78 @@ export async function updateCompanyFollowUpAction(input: {
     throw new Error(`Error actualizando seguimientos: ${error.message}`);
   }
 
-  revalidatePath('/admin');
-  revalidatePath('/settings');
-  return { success: true };
+  safeRevalidate('/admin');
+  safeRevalidate('/settings');
+  return { success: true, followUpSettings: cleanConfig };
+}
+
+/**
+ * Actualizar las Etapas Comerciales y Criterios Semánticos de IA como Super Admin
+ */
+export async function updateCompanyPipelineAction(input: {
+  organizationId: string;
+  stageLabels?: Record<string, string>;
+  stageCriteria?: Record<string, string>;
+}) {
+  await requireSuperAdmin();
+
+  const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', input.organizationId)
+    .single();
+
+  if (fetchErr || !org) {
+    throw new Error(`Error obteniendo configuración: ${fetchErr?.message || 'Empresa no encontrada'}`);
+  }
+
+  const existingSettings = (org.appointment_settings as Record<string, any>) || {};
+  const currentLabels = existingSettings.stage_labels || {};
+  const currentCriteria = existingSettings.stage_criteria || {};
+
+  const cleanedLabels = { ...currentLabels };
+  const cleanedCriteria = { ...currentCriteria };
+
+  if (input.stageLabels) {
+    for (const [k, v] of Object.entries(input.stageLabels)) {
+      if (typeof v === 'string' && v.trim().length > 0) {
+        cleanedLabels[k] = v.trim().slice(0, 40);
+      } else if (v === '') {
+        delete cleanedLabels[k];
+      }
+    }
+  }
+
+  if (input.stageCriteria) {
+    for (const [k, v] of Object.entries(input.stageCriteria)) {
+      if (typeof v === 'string' && v.trim().length > 0) {
+        cleanedCriteria[k] = v.trim().slice(0, 150);
+      } else if (v === '') {
+        delete cleanedCriteria[k];
+      }
+    }
+  }
+
+  const updatedSettings = {
+    ...existingSettings,
+    stage_labels: cleanedLabels,
+    stage_criteria: cleanedCriteria,
+  };
+
+  const { error } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: updatedSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.organizationId);
+
+  if (error) {
+    throw new Error(`Error actualizando pipeline: ${error.message}`);
+  }
+
+  safeRevalidate('/admin');
+  safeRevalidate('/pipeline');
+  safeRevalidate('/settings');
+  return { success: true, stageLabels: cleanedLabels, stageCriteria: cleanedCriteria };
 }
 
 /**

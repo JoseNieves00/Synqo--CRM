@@ -235,6 +235,8 @@ export function buildSynchronizedClassification(params: {
   currentStage?: string | null;
   temperature: LeadTemperature;
   product?: string | null;
+  painPoint?: string | null;
+  purchasingPower?: 'economico' | 'estandar' | 'premium' | null;
   objection?: string | null;
   lostReason?: string | null;
   daysInactive?: number;
@@ -261,6 +263,21 @@ export function buildSynchronizedClassification(params: {
       ...(cf.ai_summary || {}),
       product_of_interest: cleanProd,
       product_interest: cleanProd,
+    };
+  }
+  if (params.painPoint?.trim()) {
+    const cleanPain = params.painPoint.trim().slice(0, 300);
+    cf.pain_point = cleanPain;
+    cf.ai_summary = {
+      ...(cf.ai_summary || {}),
+      pain_point: cleanPain,
+    };
+  }
+  if (params.purchasingPower) {
+    cf.purchasing_power = params.purchasingPower;
+    cf.ai_summary = {
+      ...(cf.ai_summary || {}),
+      purchasing_power: params.purchasingPower,
     };
   }
   if (params.objection?.trim()) {

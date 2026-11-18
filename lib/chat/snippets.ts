@@ -14,6 +14,12 @@ export const BASE_DEFAULT_SNIPPETS: QuickSnippet[] = [
     text: '¡Hola {primer_nombre}! ¿Cómo estás? Con mucho gusto te atiendo el día de hoy. ¿En qué te podemos asesorar?',
   },
   {
+    id: 'default-pago',
+    shortcut: '/pago',
+    label: 'Medios de Pago',
+    text: '¡Hola {primer_nombre}! Te comparto nuestros medios de pago oficiales. Por favor envíanos la captura de tu comprobante una vez realizada la transferencia para validarla de inmediato.',
+  },
+  {
     id: 'default-cuenta',
     shortcut: '/cuenta',
     label: 'Cuentas Bancarias',
@@ -30,6 +36,12 @@ export const BASE_DEFAULT_SNIPPETS: QuickSnippet[] = [
     shortcut: '/agenda',
     label: 'Agendar Cita',
     text: '{primer_nombre}, ¿para qué día y hora te gustaría agendar tu servicio o cita? Con gusto te confirmo la disponibilidad de inmediato.',
+  },
+  {
+    id: 'default-cita',
+    shortcut: '/cita',
+    label: 'Coordinar Cita',
+    text: '{primer_nombre}, ¿para qué día y horario te gustaría coordinar tu cita? Con mucho gusto te confirmo la disponibilidad de inmediato.',
   },
   {
     id: 'default-catalogo',

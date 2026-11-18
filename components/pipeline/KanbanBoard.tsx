@@ -43,6 +43,7 @@ interface ContactItem {
 interface KanbanBoardProps {
   initialContacts: ContactItem[];
   customStageLabels?: Record<string, string>;
+  customStageCriteria?: Record<string, string>;
   userRole?: string;
   organizationId?: string;
   initialTempFilter?: 'all' | LeadTemperature | 'unclassified';
@@ -51,6 +52,7 @@ interface KanbanBoardProps {
 export function KanbanBoard({
   initialContacts,
   customStageLabels = {},
+  customStageCriteria = {},
   userRole = 'agent',
   organizationId,
   initialTempFilter = 'all',
@@ -62,6 +64,7 @@ export function KanbanBoard({
   const [sortMode, setSortMode] = useState<'recent' | 'score'>('score');
   const [tempFilter, setTempFilter] = useState<'all' | LeadTemperature | 'unclassified'>(initialTempFilter);
   const [stageLabels, setStageLabels] = useState<Record<string, string>>(customStageLabels);
+  const [stageCriteria, setStageCriteria] = useState<Record<string, string>>(customStageCriteria);
   const [isEditLabelsOpen, setIsEditLabelsOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
@@ -72,6 +75,10 @@ export function KanbanBoard({
   useEffect(() => {
     setStageLabels(customStageLabels);
   }, [customStageLabels]);
+
+  useEffect(() => {
+    setStageCriteria(customStageCriteria);
+  }, [customStageCriteria]);
 
   const isAdminOrSupervisor = userRole === 'admin' || userRole === 'supervisor';
   const isAdmin = userRole === 'admin';
@@ -367,7 +374,11 @@ export function KanbanBoard({
         isOpen={isEditLabelsOpen}
         onClose={() => setIsEditLabelsOpen(false)}
         currentLabels={stageLabels}
-        onLabelsUpdated={(newLabels) => setStageLabels(newLabels)}
+        currentCriteria={stageCriteria}
+        onLabelsUpdated={(newLabels, newCriteria) => {
+          setStageLabels(newLabels);
+          if (newCriteria) setStageCriteria(newCriteria);
+        }}
       />
 
       <ImportContactsModal

@@ -33,6 +33,7 @@ export default async function PipelinePage({
 
   const leadList = contacts || [];
   const stageLabels = (current.organization.appointment_settings as any)?.stage_labels || {};
+  const stageCriteria = (current.organization.appointment_settings as any)?.stage_criteria || {};
   const userRole = current.profile.role;
   const rawTemp = searchParams?.temp;
   const initialTempFilter =
@@ -74,6 +75,7 @@ export default async function PipelinePage({
         <KanbanBoard
           initialContacts={leadList}
           customStageLabels={stageLabels}
+          customStageCriteria={stageCriteria}
           userRole={userRole}
           organizationId={current.organization.id}
           initialTempFilter={initialTempFilter}

@@ -1845,12 +1845,17 @@ export async function generateContactAiSummary(contactId: string) {
   };
 
   const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  const updatedCustom = {
+    ...currentCustom,
+    ai_summary: summaryData,
+    ...(summary.product_interest ? { product_interest: summary.product_interest } : {}),
+    ...(summary.pain_point ? { pain_point: summary.pain_point } : {}),
+    ...(summary.purchasing_power ? { purchasing_power: summary.purchasing_power } : {}),
+  };
+
   await (supabaseAdmin.from('contacts') as any)
     .update({
-      custom_fields: {
-        ...currentCustom,
-        ai_summary: summaryData,
-      },
+      custom_fields: updatedCustom,
       updated_at: new Date().toISOString(),
     })
     .eq('id', contactId);

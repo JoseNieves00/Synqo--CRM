@@ -504,16 +504,68 @@ export function ChatInput({
   const isTypingShortcut = Boolean(shortcutMatch);
   const typingShortcutQuery = shortcutMatch ? `/${shortcutMatch[1].toLowerCase()}` : '';
 
+  // Lista enriquecida con atajos dinámicos de cuentas de pago y citas
+  const enrichedSnippets = useMemo(() => {
+    let list = [...activeSnippets];
+
+    // Si la organización tiene cuentas de pago configuradas, sincronizar /pago y /cuenta con los datos reales
+    if (paymentAccounts && paymentAccounts.length > 0) {
+      const paymentText = formatAllPaymentAccountsText(paymentAccounts);
+      list = list.map((s) => {
+        if (s.shortcut.toLowerCase() === '/pago' || s.shortcut.toLowerCase() === '/cuenta') {
+          return { ...s, text: paymentText };
+        }
+        return s;
+      });
+      if (!list.some((s) => s.shortcut.toLowerCase() === '/pago')) {
+        list.push({
+          id: 'dyn-pago',
+          shortcut: '/pago',
+          label: 'Cuentas de Pago',
+          text: paymentText,
+        });
+      }
+      if (!list.some((s) => s.shortcut.toLowerCase() === '/cuenta')) {
+        list.push({
+          id: 'dyn-cuenta',
+          shortcut: '/cuenta',
+          label: 'Cuentas Bancarias',
+          text: paymentText,
+        });
+      }
+    } else {
+      if (!list.some((s) => s.shortcut.toLowerCase() === '/pago')) {
+        list.push({
+          id: 'default-pago',
+          shortcut: '/pago',
+          label: 'Medios de Pago',
+          text: '¡Hola {primer_nombre}! Te comparto nuestros medios de pago oficiales. Por favor envíanos la captura de tu comprobante una vez realizada la transferencia para validarla de inmediato.',
+        });
+      }
+    }
+
+    if (!list.some((s) => s.shortcut.toLowerCase() === '/cita')) {
+      list.push({
+        id: 'default-cita',
+        shortcut: '/cita',
+        label: 'Coordinar Cita',
+        text: '{primer_nombre}, ¿para qué día y horario te gustaría coordinar tu cita? Con mucho gusto te confirmo la disponibilidad de inmediato.',
+      });
+    }
+
+    return list;
+  }, [activeSnippets, paymentAccounts]);
+
   const filteredSnippets = isTypingShortcut
-    ? activeSnippets.filter((s) => s.shortcut.toLowerCase().startsWith(typingShortcutQuery))
+    ? enrichedSnippets.filter((s) => s.shortcut.toLowerCase().startsWith(typingShortcutQuery))
     : snippetsSearch.trim()
-    ? activeSnippets.filter(
+    ? enrichedSnippets.filter(
         (s) =>
           s.shortcut.toLowerCase().includes(snippetsSearch.toLowerCase()) ||
           s.label.toLowerCase().includes(snippetsSearch.toLowerCase()) ||
           s.text.toLowerCase().includes(snippetsSearch.toLowerCase())
       )
-    : activeSnippets;
+    : enrichedSnippets;
 
   // Reiniciar cursor de selección rápida al cambiar el filtro
   useEffect(() => {
@@ -1760,7 +1812,7 @@ export function ChatInput({
             <button
               type="submit"
               disabled={loading || !message.trim()}
-              title="Enviar mensaje manual (Enter)"
+              title="Enviar (Enter) · ⌘+Enter para Enviar y pasar al siguiente"
               className="bg-[#0052FF] hover:bg-[#0043D4] text-white px-3.5 py-2 rounded-xl transition shadow-xs disabled:opacity-40 flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
             >
               <Send className="w-3.5 h-3.5" />

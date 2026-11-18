@@ -110,6 +110,9 @@ export function InboxView({
   const latestLoadReqRef = useRef(0);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
+  // Modo Enfoque / Vista Zen (Colapso del sidebar izquierdo en desktop)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   // 3. Estado local de carga y paginación
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [hasMore, setHasMore] = useState(
@@ -438,8 +441,8 @@ export function InboxView({
 
       if (nextContact && nextContact.id !== closedId) {
         openChat(nextContact.id);
-      } else if (!e.detail?.jumpOnly) {
-        // Si no hay más contactos y se cerró la conversación, limpiar selección
+      } else if (!e.detail?.jumpOnly || activeView === 'por_responder') {
+        // Si no hay más contactos y se cerró la conversación o se atendió el último pendiente, limpiar selección
         setSelectedContactId(null);
         useInboxStore.getState().setActiveContactId(null);
         if (typeof window !== 'undefined') {
@@ -634,6 +637,13 @@ export function InboxView({
         return;
       }
 
+      // Atajo global ⌘\ / Ctrl+\ para alternar Modo Enfoque (Zen View)
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault();
+        setIsSidebarCollapsed((prev) => !prev);
+        return;
+      }
+
       const activeEl = document.activeElement;
       const isTyping =
         activeEl?.tagName === 'INPUT' ||
@@ -666,7 +676,7 @@ export function InboxView({
   return (
     <div className="flex h-[calc(100dvh-132px)] md:h-[calc(100dvh-80px)] overflow-hidden rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] shadow-xs">
       {/* 1. Columna Izquierda: Sidebar de Conversaciones */}
-      <div className={`h-full ${selectedContactId ? 'hidden md:flex' : 'flex w-full'}`}>
+      <div className={`h-full transition-all duration-200 ${selectedContactId ? (isSidebarCollapsed ? 'hidden' : 'hidden md:flex') : 'flex w-full'}`}>
         <InboxSidebar
           contacts={contactList}
           counts={counts}
@@ -765,6 +775,8 @@ export function InboxView({
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             teamMembers={teamMembers}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
             onBack={handleBackFromChat}
           />
         ) : (

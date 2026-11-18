@@ -90,7 +90,7 @@ export function DashboardKpiInteractive({
         >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-[11px] font-medium uppercase tracking-wider">
-              Cierres ({metrics?.periodLabel || 'Mes'})
+              Ventas Ganadas ({metrics?.periodLabel || 'Mes'})
             </span>
             <DollarSign className="w-3.5 h-3.5 text-emerald-500 group-hover:scale-110 transition-transform" />
           </div>
@@ -99,7 +99,7 @@ export function DashboardKpiInteractive({
           </div>
           <div className="flex items-center justify-between mt-1">
             <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
-              {metrics?.wonInPeriod || 0} {metrics?.isCalendarBusiness ? 'citas / cierres' : 'cierres'} · Ticket ${(metrics?.avgTicketUsdOrCop || 0).toLocaleString('es-CO')}
+              {metrics?.wonInPeriod || 0} {metrics?.isCalendarBusiness ? 'citas / cierres' : 'ventas ganadas'} · Ticket ${(metrics?.avgTicketUsdOrCop || 0).toLocaleString('es-CO')}
             </span>
           </div>
           <span className="text-[9px] text-[#0052FF] dark:text-[#00D2FF] font-medium opacity-0 group-hover:opacity-100 transition-opacity block mt-1">
@@ -608,7 +608,7 @@ export function DashboardKpiInteractive({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B]">
-                      <span className="text-[10px] text-slate-500 uppercase font-semibold">Total Facturado</span>
+                      <span className="text-[10px] text-slate-500 uppercase font-semibold">Total Ventas Ganadas</span>
                       <p className="text-xl font-black text-slate-900 dark:text-white font-mono mt-0.5">
                         ${(metrics?.salesRevenueInPeriod || 0).toLocaleString('es-CO')}
                       </p>

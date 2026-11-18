@@ -78,6 +78,25 @@ export const UpdateLeadProfileToolSchema = z.object({
   product_of_interest: z.string().max(160).optional(),
   objection: z.string().max(240).optional(),
   lost_reason: z.string().max(200).optional(),
+  pain_point: z
+    .string()
+    .max(300)
+    .optional()
+    .describe('Dolor principal, problema urgente o necesidad comercial que busca resolver el cliente.'),
+  purchasing_power: z
+    .enum(['economico', 'estandar', 'premium'])
+    .optional()
+    .describe('Nivel de poder adquisitivo o gama presupuestaria inferida del cliente.'),
+  decision_maker: z
+    .string()
+    .max(160)
+    .optional()
+    .describe('Si el cliente es el tomador de decisión directo o consulta con socio/pareja.'),
+  urgency: z
+    .string()
+    .max(160)
+    .optional()
+    .describe('Urgencia o plazo estimado para resolver su necesidad (ej: inmediata, esta semana, este mes).'),
   tags: z.array(z.string().min(1).max(40)).max(3).optional(),
   shipping_data: z
     .object({

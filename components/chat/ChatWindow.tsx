@@ -20,6 +20,7 @@ import {
   reopenContactConversation,
   markContactReactivationDismissed,
   generateReactivationAiSuggestion,
+  generateDraftAiReply,
   snoozeContactAi,
   triggerSinglePendingAiAction,
   reactToMessage,
@@ -71,6 +72,7 @@ import {
   ChevronUp,
   Search,
   Smartphone,
+  Flame,
 } from 'lucide-react';
 import { updateLeadStage } from '@/app/actions/pipeline';
 import { PipelineStage } from '@/lib/supabase/types';
@@ -109,6 +111,8 @@ interface ChatWindowProps {
     conversation_status?: string;
     waiting_since?: string | null;
     deal_value?: number | null;
+    lead_score?: number | null;
+    lead_score_breakdown?: any;
     unread_count?: number;
     last_message?: any;
     last_message_sender?: string | null;
@@ -125,6 +129,8 @@ interface ChatWindowProps {
   currentUserId?: string;
   currentUserRole?: string;
   teamMembers?: TeamMember[];
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
   onBack?: () => void;
 }
 
@@ -140,6 +146,8 @@ export const ChatWindow = React.memo(function ChatWindow({
   currentUserId,
   currentUserRole = 'agent',
   teamMembers = [],
+  isSidebarCollapsed,
+  onToggleSidebar,
   onBack,
 }: ChatWindowProps) {
   const router = useRouter();
@@ -449,6 +457,51 @@ export const ChatWindow = React.memo(function ChatWindow({
   const isReadOnly = isAssignedToOther && !isAdminOrSupervisor && !canTakeoverInactive;
 
   const assignedMember = teamMembers.find((m) => m.id === contact.assigned_to);
+
+  // Detección de Lead Caliente (Probabilidad alta o etapa de cierre/negociación)
+  const isHotLead = useMemo(() => {
+    const temp = contact.custom_fields?.lead_temperature;
+    const score = typeof contact.lead_score === 'number' ? contact.lead_score : 0;
+    const stage = contact.pipeline_stage;
+    return temp === 'hot' || score >= 80 || stage === 'negociando' || Boolean(contact.custom_fields?.unattended_handoff);
+  }, [contact.custom_fields, contact.lead_score, contact.pipeline_stage]);
+
+  // Transición fluida con Copilot al Tomar Control
+  const [isTakingControl, setIsTakingControl] = useState(false);
+
+  const handleTakeControl = async () => {
+    if (isTakingControl) return;
+    setIsTakingControl(true);
+    try {
+      // 1. Silenciar la IA para evitar que responda automáticamente encima
+      await handleToggleAi(false);
+
+      // 2. Auto-asignar este chat al asesor en turno si no lo está
+      if (isUnassigned || isAssignedToOther) {
+        await handleClaimLead();
+      }
+
+      // 3. El Copilot genera una sugerencia contextual orientada a cerrar la venta o agendar cita
+      try {
+        const res = await generateDraftAiReply(contact.id);
+        if (res?.draft?.trim()) {
+          handleApplyDraftText(res.draft.trim());
+        }
+      } catch (err) {
+        console.warn('Error al generar borrador Copilot:', err);
+      }
+
+      // 4. Enfocar el input para que el asesor pueda revisar y enviar con Enter
+      if (typeof window !== 'undefined') {
+        const chatTextarea =
+          document.querySelector<HTMLTextAreaElement>('textarea[data-chat-input="true"]') ||
+          document.querySelector<HTMLTextAreaElement>('textarea');
+        chatTextarea?.focus();
+      }
+    } finally {
+      setIsTakingControl(false);
+    }
+  };
 
   // Edición Rápida del Nombre del Lead en Cabecera
   const [isEditingName, setIsEditingName] = useState(false);
@@ -802,14 +855,26 @@ export const ChatWindow = React.memo(function ChatWindow({
     });
     try {
       await sendAgentMessage(contact.id, finalContent, replyMeta?.id, clientMessageId);
-      if (isReactivationEligible) {
-        markContactReactivationDismissed(contact.id).catch(() => {});
-        onContactUpdate?.({
+      onContactUpdate?.({
+        waiting_since: null,
+        unread_count: 0,
+        conversation_status: 'waiting_customer',
+        last_message_sender: 'agent_manual',
+        last_message_preview: finalContent.slice(0, 160),
+        last_message: {
+          text: finalContent,
+          sender_type: 'agent_manual',
+          created_at: new Date().toISOString(),
+        },
+        ...(isReactivationEligible ? {
           custom_fields: {
             ...(contact.custom_fields || {}),
             reactivation_attempted: true,
           },
-        });
+        } : {}),
+      });
+      if (isReactivationEligible) {
+        markContactReactivationDismissed(contact.id).catch(() => {});
       }
     } catch (err: any) {
       console.error('[SEND MESSAGE ERROR]', err);
@@ -1246,6 +1311,8 @@ export const ChatWindow = React.memo(function ChatWindow({
           teamMembers={teamMembers}
           isRightPanelOpen={isRightPanelOpen}
           onToggleRightPanel={() => setIsRightPanelOpen((prev) => !prev)}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebar={onToggleSidebar}
           isSearchOpen={isSearchOpen}
           onToggleSearch={() => setIsSearchOpen((prev) => !prev)}
           onToggleAi={() => handleToggleAi(!contact.is_ai_active)}
@@ -1260,6 +1327,44 @@ export const ChatWindow = React.memo(function ChatWindow({
           onDeleteChat={() => setShowDeleteModal(true)}
           onBack={onBack}
         />
+
+        {/* Banner de Lead Caliente (Handoff Inmediato & Alta Prioridad de Cierre) */}
+        {isHotLead && (
+          <div className="px-3 sm:px-4 py-2 bg-gradient-to-r from-rose-600 via-orange-600 to-amber-600 text-white flex flex-wrap items-center justify-between gap-2 text-xs font-semibold shrink-0 shadow-xs animate-in slide-in-from-top-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <Flame className="w-4 h-4 text-yellow-300 fill-yellow-300 shrink-0 animate-pulse" />
+              <span className="truncate">
+                <strong>Lead con alta intención de cierre</strong>
+                {typeof contact.deal_value === 'number' && contact.deal_value > 0 ? ` · $${contact.deal_value.toLocaleString()} COP` : ''}
+                {contact.custom_fields?.pain_point?.trim() ? ` · "${contact.custom_fields.pain_point.trim()}"` : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {contact.is_ai_active ? (
+                <button
+                  type="button"
+                  onClick={handleTakeControl}
+                  disabled={isTakingControl}
+                  className="px-2.5 py-1 rounded-lg bg-white text-rose-700 hover:bg-rose-50 font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-xs transition disabled:opacity-60"
+                  title="Pausar la IA, auto-asignarse el chat y generar una sugerencia de cierre contextual con Copilot"
+                >
+                  {isTakingControl ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin text-rose-600" />
+                      <span>Sugerir con Copilot...</span>
+                    </>
+                  ) : (
+                    <span>Tomar control</span>
+                  )}
+                </button>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-black/20 text-[10px] font-bold text-white/95">
+                  Atención manual activa
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Banner de Coexistencia Móvil (Asesor escribió desde WhatsApp / Instagram en el celular) */}
         {!contact.is_ai_active && contact.custom_fields?.mobile_takeover_at && !isReadOnly && (

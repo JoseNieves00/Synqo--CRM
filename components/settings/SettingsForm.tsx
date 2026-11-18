@@ -1003,7 +1003,7 @@ export function SettingsForm({
         </p>
       </div>
 
-      {/* Navegación por Pestañas Segmentadas con Scroll Horizontal Móvil Touch */}
+      {/* Navegación por Pestañas Segmentadas del CRM Comercial */}
       <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl max-w-full overflow-x-auto no-scrollbar scroll-smooth touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"
@@ -1015,7 +1015,7 @@ export function SettingsForm({
           }`}
         >
           <Sliders className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
-          <span>Integraciones & IA</span>
+          <span>Canales & IA</span>
         </button>
 
         {teamData && (
@@ -1029,64 +1029,21 @@ export function SettingsForm({
             }`}
           >
             <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-            <span>Equipo & Usuarios ({teamData.members.length}/{teamData.organization.maxUsers})</span>
-          </button>
-        )}
-
-        {Boolean(enabledModules.staff_mobile_portal) && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('specialists')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-              activeTab === 'specialists'
-                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-            }`}
-          >
-            <Smartphone className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
-            <span>{initialData.specialistLabel ? `${initialData.specialistLabel}s` : 'Colaboradores'} ({specialistsData?.length || 0})</span>
-          </button>
-        )}
-
-        {Boolean(enabledModules.physical_rooms) && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('rooms')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-              activeTab === 'rooms'
-                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-            }`}
-          >
-            <DoorOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>{initialData.roomLabel ? `${initialData.roomLabel}s` : 'Espacios Físicos'} ({roomsData?.length || 0})</span>
+            <span>Equipo Comercial ({teamData.members.length}/{teamData.organization.maxUsers})</span>
           </button>
         )}
 
         <button
           type="button"
-          onClick={() => setActiveTab('payments')}
+          onClick={() => setActiveTab('follow_ups')}
           className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-            activeTab === 'payments'
+            activeTab === 'follow_ups'
               ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
           }`}
         >
-          <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span>Cuentas de Pago ({paymentAccountsData?.length || 0})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('shipping')}
-          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-            activeTab === 'shipping'
-              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-          }`}
-        >
-          <Truck className="w-4 h-4 text-blue-500" />
-          <span>Envíos & Fletes</span>
+          <Repeat className="w-4 h-4 text-purple-500" />
+          <span>Seguimientos Automáticos</span>
         </button>
 
         <button
@@ -1099,20 +1056,7 @@ export function SettingsForm({
           }`}
         >
           <Zap className="w-4 h-4 text-amber-500" />
-          <span>Atajos Rápidos (/) ({quickRepliesData?.length || 0})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('follow_ups')}
-          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-            activeTab === 'follow_ups'
-              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-          }`}
-        >
-          <Repeat className="w-4 h-4 text-purple-500" />
-          <span>Seguimientos</span>
+          <span>Atajos de Chat (/) ({quickRepliesData?.length || 0})</span>
         </button>
       </div>
 
@@ -2563,6 +2507,10 @@ export function SettingsForm({
             temporaryPrompt={systemPrompt}
             botName={initialData.orgName || 'Synqo AI'}
             suggestedQuestions={sandboxSuggestedQuestions}
+            onPromptPatched={(newPrompt) => {
+              setSystemPrompt(newPrompt);
+              setFeedback({ type: 'success', message: '¡Regla aprendida y prompt actualizado en tiempo real!' });
+            }}
             onMessageSimulated={() => {
               markAssistantSandboxTestedAction().catch(() => {});
             }}

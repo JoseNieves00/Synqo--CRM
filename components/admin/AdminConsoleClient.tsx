@@ -1232,51 +1232,6 @@ export default function AdminConsoleClient({
                     </p>
                   </div>
 
-                  {/* Nomenclatura Personalizada (Multi-Nicho - Condicionada por módulos) */}
-                  {(editModules.native_calendar || editModules.staff_mobile_portal || editModules.physical_rooms) ? (
-                    <div className="p-3.5 rounded-2xl bg-blue-50/50 border border-blue-100 space-y-3 animate-in fade-in">
-                      <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
-                        Nomenclatura y Roles Personalizados
-                      </span>
-                      <div className={`grid gap-3 ${(editModules.native_calendar || editModules.staff_mobile_portal) && editModules.physical_rooms ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                        {(editModules.native_calendar || editModules.staff_mobile_portal) && (
-                          <div>
-                            <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                              Nombre Colaboradores
-                            </label>
-                            <input
-                              type="text"
-                              value={editSpecialistLabel}
-                              onChange={(e) => setEditSpecialistLabel(e.target.value)}
-                              placeholder="Doctor, Barbero, etc."
-                              className="w-full h-9 px-3 text-xs rounded-xl border border-blue-200 bg-white focus:outline-none focus:border-[#0052FF] focus:ring-2 focus:ring-[#0052FF]/20 font-semibold text-slate-800 transition"
-                            />
-                          </div>
-                        )}
-                        {editModules.physical_rooms && (
-                          <div>
-                            <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                              Nombre Espacios
-                            </label>
-                            <input
-                              type="text"
-                              value={editRoomLabel}
-                              onChange={(e) => setEditRoomLabel(e.target.value)}
-                              placeholder="Consultorio, Cabina, etc."
-                              className="w-full h-9 px-3 text-xs rounded-xl border border-blue-200 bg-white focus:outline-none focus:border-[#0052FF] focus:ring-2 focus:ring-[#0052FF]/20 font-semibold text-slate-800 transition"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-[11px] text-slate-500 flex items-center gap-2">
-                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>Sin módulos de agenda o espacios activos. Nomenclatura no requerida.</span>
-                    </div>
-                  )}
-
                   {/* Tarjeta de Resumen Rápido / Cortesía de soporte */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
                     <span className="text-[11px] font-bold text-slate-700 block">
@@ -1505,72 +1460,9 @@ export default function AdminConsoleClient({
                     </div>
                   </label>
 
-                  {/* 2. Salones y Espacios Físicos */}
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    editModules.physical_rooms ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={editModules.physical_rooms}
-                      onChange={(e) => setEditModules(prev => ({ ...prev, physical_rooms: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                        <Building2 className="w-3.5 h-3.5 text-[#0052FF]" />
-                        Salones y Espacios Físicos
-                      </span>
-                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
-                        Control de cupos por sala, acústica y clases individuales o grupales.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* 3. Portal Móvil Colaboradores */}
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    editModules.staff_mobile_portal ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={editModules.staff_mobile_portal}
-                      onChange={(e) => setEditModules(prev => ({ ...prev, staff_mobile_portal: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5 text-[#0052FF]" />
-                        Portal Móvil Colaboradores
-                      </span>
-                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
-                        Acceso con PIN para barberos/profes: agenda de hoy, bloqueos y chat con sede.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* 4. Pagos Rápidos */}
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    editModules.quick_pay ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={editModules.quick_pay}
-                      onChange={(e) => setEditModules(prev => ({ ...prev, quick_pay: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                        <CreditCard className="w-3.5 h-3.5 text-[#0052FF]" />
-                        Pagos Rápidos y Cobro
-                      </span>
-                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
-                        Registro opcional de método de pago (Efectivo, Nequi, Datáfono).
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* 5. Protocolo Anti-No-Show (Solo si Calendario Nativo está activo) */}
+                  {/* Protocolo Anti-No-Show (Solo si Calendario Nativo está activo) */}
                   {editModules.native_calendar && (
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition sm:col-span-2 ${
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
                     editModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
                   }`}>
                     <input

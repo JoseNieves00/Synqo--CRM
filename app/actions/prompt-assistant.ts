@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import crypto from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -60,7 +61,7 @@ import {
 import { stripPhotoUrlsFromText } from '@/lib/media/format';
 import { getKnowledgeGapsCount } from '@/app/actions/knowledge-gaps';
 
-async function getAuthorizedOrgForAssistant() {
+async function getAuthorizedOrgForAssistant(targetOrgId?: string) {
   const supabase = createServerSupabaseClient();
   const {
     data: { user },
@@ -78,11 +79,13 @@ async function getAuthorizedOrgForAssistant() {
     throw new Error('Solo administradores o supervisores pueden usar el Asistente de Prompt.');
   }
 
+  const effectiveOrgId = (profile.is_super_admin && targetOrgId) ? targetOrgId : profile.organization_id;
+
   const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
     .select(
       'id, name, system_prompt, structured_prompt_data, industry_preset, ai_provider, whatsapp_provider, appointment_settings, business_hours, enabled_modules'
     )
-    .eq('id', profile.organization_id)
+    .eq('id', effectiveOrgId)
     .single();
 
   if (orgErr || !org) throw new Error('Organización no encontrada');
@@ -1393,4 +1396,110 @@ export async function refreshDailyConversationAuditAction(params?: { force?: boo
     pendingProposals: state.pendingProposals || [],
     state: { ...state, usageByDay: {}, totalAssistantTokens: 0 },
   };
+}
+
+/**
+ * Enseña al agente una nueva regla comercial o corrección desde el Sandbox en 1 clic.
+ * Sintetiza la regla y la inyecta limpiamente en la sección correspondiente del prompt.
+ */
+export async function teachAgentFromSandboxAction(input: {
+  userInstruction: string;
+  simulatedQuestion?: string;
+  simulatedAiReply?: string;
+  currentPrompt?: string;
+  targetOrganizationId?: string;
+}): Promise<{
+  success: boolean;
+  patchedPrompt?: string;
+  learnedRule?: string;
+  sectionTitle?: string;
+  error?: string;
+}> {
+  try {
+    const { org } = await getAuthorizedOrgForAssistant(input.targetOrganizationId);
+    const cleanInstruction = (input.userInstruction || '').trim();
+    if (!cleanInstruction) {
+      return { success: false, error: 'La instrucción no puede estar vacía.' };
+    }
+
+    const workingPrompt = input.currentPrompt || org.system_prompt || '';
+
+    // Sintetizar la regla con el modelo utilitario
+    let sectionId = 'instrucciones';
+    let sectionTitle = 'Instrucciones Comerciales';
+    let ruleText = `- ${cleanInstruction}`;
+
+    try {
+      const prompt = `El dueño de un negocio está entrenando a su agente de IA comercial en un simulador de chat.
+Instrucción dada por el dueño:
+"${cleanInstruction}"
+${input.simulatedQuestion ? `Pregunta del cliente que originó la corrección: "${input.simulatedQuestion}"` : ''}
+${input.simulatedAiReply ? `Respuesta previa de la IA que se desea corregir: "${input.simulatedAiReply}"` : ''}
+
+Determina la mejor sección del prompt para esta regla y redáctala de forma concisa, profesional e imperativa para el bot de ventas.
+Responde un JSON con:
+{
+  "section_id": "instrucciones" | "politicas" | "faq" | "objeciones" | "catalogo",
+  "section_title": "Nombre de la sección en español (ej: 'Políticas y Condiciones' o 'Instrucciones Comerciales')",
+  "rule_text": "Texto exacto de la regla en 1 o 2 viñetas concisas con guion al inicio (- Regla...)"
+}`;
+
+      const { response } = await createChatCompletionWithFallback({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        chainOverride: getAiUtilityChain(),
+        responseFormat: { type: 'json_object' },
+      });
+
+      const raw = response.choices[0]?.message?.content || '{}';
+      const cleanJson = raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      if (parsed.section_id) sectionId = parsed.section_id;
+      if (parsed.section_title) sectionTitle = parsed.section_title;
+      if (parsed.rule_text) ruleText = parsed.rule_text;
+    } catch (llmErr) {
+      console.warn('[TEACH AGENT SYNTHESIZE WARN]', llmErr);
+      ruleText = `- ${cleanInstruction}`;
+      sectionTitle = 'Instrucciones Comerciales';
+      sectionId = 'instrucciones';
+    }
+
+    const patchedPrompt = patchSectionInPrompt(
+      workingPrompt,
+      sectionTitle,
+      ruleText,
+      sectionId
+    );
+
+    const structured =
+      org.structured_prompt_data && typeof org.structured_prompt_data === 'object'
+        ? org.structured_prompt_data
+        : {};
+    const state = normalizeAssistantState(structured.assistant, 'improve');
+    const versions = pushPromptVersion(
+      structured.prompt_versions,
+      workingPrompt,
+      `Regla aprendida desde Sandbox: ${cleanInstruction.slice(0, 50)}...`
+    );
+
+    await persistStructuredSafely({
+      orgId: org.id,
+      state,
+      versions,
+      nextSystemPrompt: patchedPrompt,
+    });
+
+    revalidatePath('/settings');
+
+    return {
+      success: true,
+      patchedPrompt,
+      learnedRule: ruleText,
+      sectionTitle,
+    };
+  } catch (err: any) {
+    console.error('[TEACH AGENT SANDBOX ERROR]', err);
+    return { success: false, error: err?.message || 'Error al guardar la regla en el agente.' };
+  }
 }
