@@ -43,13 +43,19 @@ export interface AiRetryProcessResult {
 }
 
 /** Backoff por intento (minutos): 2 → 10 → 30. */
-const RETRY_BACKOFF_MINUTES = [2, 10, 30];
+export const RETRY_BACKOFF_MINUTES = [2, 10, 30];
+
+export function computeNextRetryDelayMs(attempt: number): number {
+  const n = Math.max(1, attempt || 1);
+  return 90_000 * n * n;
+}
 
 /**
  * Detecta errores de autenticación/credenciales del canal: no vale la pena reintentarlos.
  */
-export function isChannelAuthError(message: string): boolean {
-  const msg = String(message || '').toLowerCase();
+export function isChannelAuthError(message?: string | null): boolean {
+  if (!message) return false;
+  const msg = String(message).toLowerCase();
   return (
     msg.includes('401') ||
     msg.includes('403') ||
@@ -65,6 +71,8 @@ export function isChannelAuthError(message: string): boolean {
 }
 
 export class AiRetryService {
+  static processRetryQueue = (params?: { organizationId?: string; limit?: number; deadlineMs?: number; maxBatch?: number; force?: boolean }) =>
+    AiRetryService.processPendingRetries(params ? { organizationId: params.organizationId, limit: params.limit ?? params.maxBatch, deadlineMs: params.deadlineMs } : undefined);
   /**
    * Encola un reintento diferido. Nunca lanza: los callers usan `.catch(() => {})`
    * y un fallo de encolado no debe romper el turno de IA.

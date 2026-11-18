@@ -33,10 +33,15 @@ import {
   User,
   Mail,
   Loader2,
+  Sliders,
+  Bot,
+  Activity,
+  DollarSign,
 } from 'lucide-react';
 import { AdminTicketsTab } from './AdminTicketsTab';
 import { AdminCopilotTab } from './AdminCopilotTab';
 import { ProvisionWizard } from './ProvisionWizard';
+import { SuperAdminCompanyConfigModal } from './SuperAdminCompanyConfigModal';
 import {
   OrganizationRow,
   EnabledModules,
@@ -61,6 +66,23 @@ interface Metrics {
   totalMessages: number;
   totalProfiles: number;
   totalAiTokensUsed?: number;
+  totalGoogleTokens?: number;
+  totalOpenAiTokens?: number;
+  estimatedPlatformCostUsd?: number;
+  messageBreakdown?: {
+    inboundLeads: number;
+    outboundAi: number;
+    outboundHuman: number;
+    globalAutonomyPct: number;
+  };
+  whatsappConnections?: {
+    evolutionInstances: number;
+    metaNumbers: number;
+  };
+  salesSummary?: {
+    totalOrders: number;
+    confirmedRevenue: number;
+  };
   billingSummary?: {
     paidCount: number;
     pendingCount: number;
@@ -86,6 +108,8 @@ export default function AdminConsoleClient({
   const [searchQuery, setSearchQuery] = useState('');
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<OrganizationRow | null>(null);
+  const [selectedConfigOrg, setSelectedConfigOrg] = useState<OrganizationRow | null>(null);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [editName, setEditName] = useState<string>('');
   const [editSeats, setEditSeats] = useState<number>(2);
   const [editTokensLimit, setEditTokensLimit] = useState<number>(500000);
@@ -505,87 +529,139 @@ export default function AdminConsoleClient({
 
       {mainTab === 'companies' && (
         <>
-          {/* Tarjetas de Métricas de Plataforma */}
+          {/* Tarjetas de Métricas de Plataforma Enriquecidas */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5">
-        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2 sm:mb-3">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Total Empresas
-            </span>
-            <div className="p-2 sm:p-2.5 bg-blue-50 text-blue-600 rounded-xl">
-              <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Total Empresas
+                </span>
+                <div className="p-2 sm:p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                  <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-1.5 sm:gap-2">
+                <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalOrganizations}</span>
+                <span className="text-[10px] sm:text-xs text-emerald-600 font-semibold truncate">
+                  ({metrics.activeOrganizations} activas)
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                {metrics.totalProfiles} usuarios en equipo
+              </p>
             </div>
-          </div>
-          <div className="flex items-baseline gap-1.5 sm:gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalOrganizations}</span>
-            <span className="text-[10px] sm:text-xs text-emerald-600 font-semibold truncate">
-              ({metrics.activeOrganizations} activas)
-            </span>
-          </div>
-        </div>
 
-        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2 sm:mb-3">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Usuarios Equipo
-            </span>
-            <div className="p-2 sm:p-2.5 bg-purple-50 text-purple-600 rounded-xl">
-              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Autonomía Global IA
+                </span>
+                <div className="p-2 sm:p-2.5 bg-purple-50 text-purple-600 rounded-xl">
+                  <Bot className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-1.5 sm:gap-2">
+                <span className="text-2xl sm:text-3xl font-black text-purple-700">
+                  {metrics.messageBreakdown?.globalAutonomyPct ?? 100}%
+                </span>
+                <span className="text-[10px] sm:text-xs text-gray-500 truncate">
+                  automatizado
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1 truncate">
+                {metrics.messageBreakdown?.outboundAi ?? 0} IA · {metrics.messageBreakdown?.outboundHuman ?? 0} humanos
+              </p>
             </div>
-          </div>
-          <div className="flex items-baseline gap-1.5 sm:gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalProfiles}</span>
-            <span className="text-[10px] sm:text-xs text-gray-500 truncate">en plataforma</span>
-          </div>
-        </div>
 
-        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2 sm:mb-3">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Leads Totales
-            </span>
-            <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-              <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Leads WhatsApp
+                </span>
+                <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-1.5 sm:gap-2">
+                <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalContacts}</span>
+                <span className="text-[10px] sm:text-xs text-emerald-600 font-medium truncate">contactos</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1 truncate">
+                {metrics.messageBreakdown?.inboundLeads ?? 0} msgs entrantes
+              </p>
             </div>
-          </div>
-          <div className="flex items-baseline gap-1.5 sm:gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalContacts}</span>
-            <span className="text-[10px] sm:text-xs text-emerald-600 font-medium truncate">WhatsApp</span>
-          </div>
-        </div>
 
-        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2 sm:mb-3">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Mensajes
-            </span>
-            <div className="p-2 sm:p-2.5 bg-amber-50 text-amber-600 rounded-xl">
-              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Canales WhatsApp
+                </span>
+                <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-1.5 sm:gap-2">
+                <span className="text-2xl sm:text-3xl font-black text-gray-900">
+                  {(metrics.whatsappConnections?.evolutionInstances || 0) + (metrics.whatsappConnections?.metaNumbers || 0)}
+                </span>
+                <span className="text-[10px] sm:text-xs text-gray-500 truncate">instancias</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1 truncate">
+                {metrics.whatsappConnections?.evolutionInstances || 0} VPS · {metrics.whatsappConnections?.metaNumbers || 0} Meta
+              </p>
             </div>
-          </div>
-          <div className="flex items-baseline gap-1.5 sm:gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-gray-900">{metrics.totalMessages}</span>
-            <span className="text-[10px] sm:text-xs text-amber-600 font-medium truncate">IA & Agentes</span>
-          </div>
-        </div>
 
-        <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm col-span-2 lg:col-span-1">
-          <div className="flex items-center justify-between mb-2 sm:mb-3">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Tokens OpenAI
-            </span>
-            <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-              <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="p-3.5 sm:p-5 bg-white rounded-2xl border border-gray-200 shadow-sm col-span-2 lg:col-span-1">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Costo Infra IA Est.
+                </span>
+                <div className="p-2 sm:p-2.5 bg-amber-50 text-amber-600 rounded-xl">
+                  <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-1.5 sm:gap-2">
+                <span className="text-2xl sm:text-3xl font-black text-emerald-700">
+                  ${(metrics.estimatedPlatformCostUsd ?? 0).toFixed(2)}
+                </span>
+                <span className="text-[10px] sm:text-xs text-gray-500 truncate">USD</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1 truncate" title={`Google Gemini: ${metrics.totalGoogleTokens || 0} tokens | OpenAI: ${metrics.totalOpenAiTokens || 0} tokens`}>
+                G: {formatTokenQuota(metrics.totalGoogleTokens || 0)} · O: {formatTokenQuota(metrics.totalOpenAiTokens || 0)}
+              </p>
             </div>
           </div>
-          <div className="flex items-baseline gap-1.5 sm:gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-gray-900">
-              {metrics.totalAiTokensUsed ? (metrics.totalAiTokensUsed > 1000000 ? `${(metrics.totalAiTokensUsed / 1000000).toFixed(1)}M` : `${Math.round(metrics.totalAiTokensUsed / 1000)}k`) : '0'}
-            </span>
-            <span className="text-[10px] sm:text-xs text-emerald-600 font-medium truncate">Consumo Total</span>
-          </div>
-        </div>
-      </div>
+
+          {/* Resumen Comercial de la Plataforma */}
+          {metrics.salesSummary && metrics.salesSummary.totalOrders > 0 && (
+            <div className="p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 rounded-2xl border border-emerald-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold shadow-xs">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-900">
+                    Tracción Comercial Global en Synqo CRM
+                  </p>
+                  <p className="text-[11px] text-slate-600">
+                    Volumen de ventas canalizado a través de los carritos y seguimientos autónomos.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-xs font-bold">
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 font-normal block">Ventas Confirmadas</span>
+                  <span className="text-base text-emerald-700 font-mono">
+                    {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(metrics.salesSummary.confirmedRevenue)}
+                  </span>
+                </div>
+                <div className="text-right border-l border-emerald-300 pl-4">
+                  <span className="text-[11px] text-slate-500 font-normal block">Pedidos</span>
+                  <span className="text-base text-slate-900 font-mono">{metrics.salesSummary.totalOrders}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
       {/* Barra de Control de Cobranza Mensual & Alertas */}
       {metrics.billingSummary && (
@@ -994,6 +1070,19 @@ export default function AdminConsoleClient({
                             <MessageSquare className="w-4 h-4" />
                           </a>
                         )}
+
+                        {/* Modo Asistencia SuperAdmin: 1-clic para Prompt, Seguimientos, Equipo */}
+                        <button
+                          onClick={() => {
+                            setSelectedConfigOrg(org);
+                            setIsConfigModalOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          title="Modo Asistencia SuperAdmin: Gestionar Prompt, Seguimientos de Embudo y Equipo de Asesores"
+                        >
+                          <Sliders className="w-3.5 h-3.5 text-purple-600" />
+                          <span className="hidden sm:inline">Asistir</span>
+                        </button>
 
                         <button
                           onClick={() => handleOpenEditModal(org)}
@@ -1787,6 +1876,17 @@ export default function AdminConsoleClient({
             </form>
           </div>
         </div>
+      )}
+      {/* Modal: Modo Asistencia SuperAdmin (Prompt, Seguimientos, Equipo, WhatsApp) */}
+      {isConfigModalOpen && selectedConfigOrg && (
+        <SuperAdminCompanyConfigModal
+          organizationId={selectedConfigOrg.id}
+          isOpen={isConfigModalOpen}
+          onClose={() => {
+            setIsConfigModalOpen(false);
+            setSelectedConfigOrg(null);
+          }}
+        />
       )}
     </div>
   );

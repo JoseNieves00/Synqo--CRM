@@ -12,6 +12,7 @@ import { getRecentAiActivity } from '@/app/actions/ai-activity';
 import { AiActivityFeed } from '@/components/dashboard/AiActivityFeed';
 import { ClassifyLeadsButton } from '@/components/dashboard/ClassifyLeadsButton';
 import { DashboardKpiInteractive } from '@/components/dashboard/DashboardKpiInteractive';
+import { DashboardSmartTipsWidget } from '@/components/dashboard/DashboardSmartTipsWidget';
 import { redirect } from 'next/navigation';
 
 const NewLeadModal = nextDynamic(
@@ -197,6 +198,9 @@ export default async function DashboardPage({
         aiActiveLeads={aiActiveLeads}
         needsHumanCount={needsHumanCount}
       />
+
+      {/* Recomendaciones & Tips Clave del Copiloto (Fases 1 & 2 · 0 Tokens) */}
+      <DashboardSmartTipsWidget tips={metrics?.smartTips || []} />
 
       {/* SECCIÓN NUEVA: Calificación IA (4 grupos + Cierres) y Embudo */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

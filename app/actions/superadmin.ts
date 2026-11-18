@@ -72,20 +72,58 @@ export async function getSuperAdminMetrics() {
   await requireSuperAdmin();
 
   // Conteo y métricas en paralelo para máxima velocidad
-  const [orgsRes, contactsRes, messagesRes, profilesRes] = await Promise.all([
+  const [orgsRes, contactsRes, messagesRes, profilesRes, leadMsgsRes, aiMsgsRes, humanMsgsRes, ordersRes] = await Promise.all([
     (supabaseAdmin.from('organizations') as any)
-      .select('id, is_active, subscription_status, paid_until_month, past_due_since, ai_tokens_used', { count: 'exact' }),
+      .select('id, name, is_active, subscription_status, paid_until_month, past_due_since, ai_tokens_used, ai_tokens_google_used, ai_tokens_openai_used, whatsapp_provider, evolution_instance_name, whatsapp_phone_number_id', { count: 'exact' }),
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true }),
     (supabaseAdmin.from('messages') as any)
       .select('id', { count: 'exact', head: true }),
     (supabaseAdmin.from('profiles') as any)
       .select('id, organization_id, email, is_super_admin'),
+    (supabaseAdmin.from('messages') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_type', 'lead'),
+    (supabaseAdmin.from('messages') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_type', 'ai'),
+    (supabaseAdmin.from('messages') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('sender_type', 'agent_manual'),
+    (supabaseAdmin.from('orders') as any)
+      .select('id, total, status'),
   ]);
 
   const orgs = orgsRes.data || [];
   const totalOrgs = orgsRes.count || orgs.length;
   const profiles = profilesRes.data || [];
+  const orders = ordersRes.data || [];
+
+  const leadMsgsCount = leadMsgsRes.count || 0;
+  const aiMsgsCount = aiMsgsRes.count || 0;
+  const humanMsgsCount = humanMsgsRes.count || 0;
+  const totalOutbound = aiMsgsCount + humanMsgsCount;
+  const globalAutonomyPct = totalOutbound > 0 ? Math.round((aiMsgsCount / totalOutbound) * 100) : 100;
+
+  const totalGoogleTokens = orgs.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_google_used) || 0), 0);
+  const totalOpenAiTokens = orgs.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_openai_used) || 0), 0);
+  const totalTokens = orgs.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_used) || 0), 0);
+
+  // Estimación de costo real de infraestructura IA (Google Gemini 2.0 Flash ~0.10/M tokens, OpenAI mini ~0.30/M tokens)
+  const estimatedCostUsd = Number(
+    ((totalGoogleTokens / 1_000_000) * 0.10 + (totalOpenAiTokens / 1_000_000) * 0.30).toFixed(2)
+  );
+
+  const evolutionConnectedCount = orgs.filter(
+    (o: any) => (o.whatsapp_provider === 'evolution' || !o.whatsapp_provider) && Boolean(o.evolution_instance_name)
+  ).length;
+  const metaConnectedCount = orgs.filter(
+    (o: any) => o.whatsapp_provider === 'meta' && Boolean(o.whatsapp_phone_number_id)
+  ).length;
+
+  const confirmedRevenue = orders
+    .filter((o: any) => ['confirmed', 'paid', 'delivered'].includes(o.status))
+    .reduce((acc: number, o: any) => acc + (Number(o.total) || 0), 0);
 
   const exemptOrgIds = new Set(
     profiles
@@ -113,9 +151,6 @@ export async function getSuperAdminMetrics() {
     else if (bStatus.status === 'mora_preventiva' || bStatus.status === 'baja_definitiva') moraCount++;
   }
 
-  // Suma de consumo de tokens OpenAI en la plataforma
-  const totalTokens = orgs.reduce((acc: number, curr: any) => acc + (Number(curr.ai_tokens_used) || 0), 0);
-
   return {
     totalOrganizations: totalOrgs,
     activeOrganizations: activeOrgs,
@@ -123,6 +158,23 @@ export async function getSuperAdminMetrics() {
     totalMessages: messagesRes.count || 0,
     totalProfiles: profilesRes.count || 0,
     totalAiTokensUsed: totalTokens,
+    totalGoogleTokens,
+    totalOpenAiTokens,
+    estimatedPlatformCostUsd: estimatedCostUsd,
+    messageBreakdown: {
+      inboundLeads: leadMsgsCount,
+      outboundAi: aiMsgsCount,
+      outboundHuman: humanMsgsCount,
+      globalAutonomyPct,
+    },
+    whatsappConnections: {
+      evolutionInstances: evolutionConnectedCount,
+      metaNumbers: metaConnectedCount,
+    },
+    salesSummary: {
+      totalOrders: orders.length,
+      confirmedRevenue,
+    },
     billingSummary: {
       paidCount,
       pendingCount,
@@ -989,5 +1041,183 @@ export async function regenerateCompanyAdminPassword(organizationId: string) {
     fullName: adminProfile.full_name,
     tempPassword,
   };
+}
+
+/**
+ * Obtener configuración completa de una empresa para el Modo Asistencia del Super Admin
+ */
+export async function getCompanyFullConfigAction(organizationId: string) {
+  await requireSuperAdmin();
+
+  const [orgRes, profilesRes] = await Promise.all([
+    (supabaseAdmin.from('organizations') as any)
+      .select('id, name, slug, company_code, is_active, max_users, plan_type, whatsapp_provider, evolution_api_url, evolution_instance_name, whatsapp_phone_number_id, system_prompt, structured_prompt_data, custom_fields, appointment_settings, enabled_modules, ai_tokens_limit, ai_tokens_used')
+      .eq('id', organizationId)
+      .single(),
+    (supabaseAdmin.from('profiles') as any)
+      .select('id, email, full_name, role, is_active, created_at, is_super_admin')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: true }),
+  ]);
+
+  if (orgRes.error || !orgRes.data) {
+    throw new Error(`Error obteniendo empresa: ${orgRes.error?.message || 'No encontrada'}`);
+  }
+
+  return {
+    organization: orgRes.data,
+    profiles: profilesRes.data || [],
+  };
+}
+
+/**
+ * Actualizar el Prompt de Sistema / Prompt Estructurado de una empresa como Super Admin
+ */
+export async function updateCompanyPromptAction(input: {
+  organizationId: string;
+  systemPrompt: string;
+  structuredPromptData?: any;
+}) {
+  await requireSuperAdmin();
+
+  const updatePayload: Record<string, any> = {
+    system_prompt: input.systemPrompt,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.structuredPromptData !== undefined) {
+    updatePayload.structured_prompt_data = input.structuredPromptData;
+  }
+
+  const { error } = await (supabaseAdmin.from('organizations') as any)
+    .update(updatePayload)
+    .eq('id', input.organizationId);
+
+  if (error) {
+    throw new Error(`Error actualizando prompt: ${error.message}`);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/settings');
+  return { success: true };
+}
+
+/**
+ * Actualizar Seguimientos de Embudo de una empresa como Super Admin
+ */
+export async function updateCompanyFollowUpAction(input: {
+  organizationId: string;
+  followUpSettings: any;
+}) {
+  await requireSuperAdmin();
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('custom_fields')
+    .eq('id', input.organizationId)
+    .single();
+
+  const existingCf = (org?.custom_fields || {}) as Record<string, any>;
+  const updatedCf = {
+    ...existingCf,
+    follow_up_settings: input.followUpSettings,
+  };
+
+  const { error } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      custom_fields: updatedCf,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.organizationId);
+
+  if (error) {
+    throw new Error(`Error actualizando seguimientos: ${error.message}`);
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/settings');
+  return { success: true };
+}
+
+/**
+ * Crear un nuevo usuario / asesor en una empresa como Super Admin
+ */
+export async function createCompanyUserAction(input: {
+  organizationId: string;
+  email: string;
+  fullName: string;
+  role: 'admin' | 'supervisor' | 'agent';
+  tempPassword?: string;
+}) {
+  await requireSuperAdmin();
+
+  const cleanEmail = input.email.trim().toLowerCase();
+  const cleanName = input.fullName.trim();
+  const password = input.tempPassword?.trim() || `Synqo_${Math.random().toString(36).slice(-6)}!${Math.floor(10 + Math.random() * 90)}`;
+
+  // 1. Crear usuario en Auth de Supabase
+  const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+    email: cleanEmail,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: cleanName,
+      must_change_password: true,
+    },
+  });
+
+  if (authErr || !authData.user) {
+    throw new Error(`Error creando usuario en Auth: ${authErr?.message || 'Error desconocido'}`);
+  }
+
+  // 2. Crear o actualizar perfil en profiles
+  const { error: profileErr } = await (supabaseAdmin.from('profiles') as any).upsert({
+    id: authData.user.id,
+    organization_id: input.organizationId,
+    email: cleanEmail,
+    full_name: cleanName,
+    role: input.role,
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (profileErr) {
+    throw new Error(`Error vinculando perfil: ${profileErr.message}`);
+  }
+
+  revalidatePath('/admin');
+  return {
+    success: true,
+    userId: authData.user.id,
+    email: cleanEmail,
+    fullName: cleanName,
+    password,
+  };
+}
+
+/**
+ * Eliminar un usuario de una empresa como Super Admin
+ */
+export async function deleteCompanyUserAction(input: {
+  organizationId: string;
+  userId: string;
+}) {
+  await requireSuperAdmin();
+
+  // Verificar que el usuario no sea Super Admin
+  const { data: targetProfile } = await (supabaseAdmin.from('profiles') as any)
+    .select('is_super_admin, email')
+    .eq('id', input.userId)
+    .single();
+
+  if (targetProfile?.is_super_admin || targetProfile?.email?.toLowerCase() === 'admin@synqo.dev') {
+    throw new Error('No es posible eliminar la cuenta de Super Admin.');
+  }
+
+  // Eliminar de Auth y Profile en cascada
+  await supabaseAdmin.auth.admin.deleteUser(input.userId);
+  await (supabaseAdmin.from('profiles') as any).delete().eq('id', input.userId);
+
+  revalidatePath('/admin');
+  return { success: true };
 }
 
