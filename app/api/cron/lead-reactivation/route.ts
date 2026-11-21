@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 import { LeadReactivationService } from '@/services/reactivation.service';
 import { AiRetryService } from '@/services/ai-retry.service';
 import { OpenAIService } from '@/services/openai.service';
@@ -81,7 +82,7 @@ async function handleCron(request: NextRequest) {
     //     o turnos de IA que fallaron antes de responder: 0 tokens de re-generación en resend)
     const aiRetryResult =
       remainingMs() > 12_000
-        ? await AiRetryService.processPendingRetries({
+        ? await (AiRetryService.processRetryQueue || AiRetryService.processPendingRetries)({
             organizationId: orgId,
             deadlineMs: Date.now() + Math.min(12_000, remainingMs() - 5_000),
           }).catch((err: any) => ({ error: String(err?.message || err), processed: 0, sent: 0 }))
@@ -113,6 +114,11 @@ async function handleCron(request: NextRequest) {
         ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
         : false;
 
+    await logCronRun(
+      'invoked',
+      `reactivations: ${reactivationResult.reactivationsSent}, retries: ${(aiRetryResult as any)?.sent || 0}`
+    );
+
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
@@ -128,6 +134,7 @@ async function handleCron(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('[CRON LEAD REACTIVATION ERROR]', err);
+    await logCronRun('error', err?.message || 'Error procesando reactivaciones autónomas de leads');
     return NextResponse.json(
       {
         success: false,
@@ -135,5 +142,18 @@ async function handleCron(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+/** Registro de salud del cron en cron_job_log (visible en el panel SuperAdmin). */
+async function logCronRun(status: 'invoked' | 'error', detail: string): Promise<void> {
+  try {
+    await (supabaseAdmin.from('cron_job_log') as any).insert({
+      job_name: 'lead-reactivation',
+      status,
+      detail: String(detail).slice(0, 400),
+    });
+  } catch (e) {
+    console.warn('[CRON JOB LOG WARN]', e);
   }
 }

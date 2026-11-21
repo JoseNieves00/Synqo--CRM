@@ -101,6 +101,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       .maybeSingle();
     if (singleContact) {
       activeContact = singleContact;
+      contactList.unshift(singleContact);
     }
   }
 

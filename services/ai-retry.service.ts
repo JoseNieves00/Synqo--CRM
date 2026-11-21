@@ -66,7 +66,8 @@ export function isChannelAuthError(message?: string | null): boolean {
     msg.includes('token expired') ||
     (msg.includes('token') && (msg.includes('invalid') || msg.includes('expired') || msg.includes('revoked'))) ||
     msg.includes('oauth') ||
-    msg.includes('bad credentials')
+    msg.includes('bad credentials') ||
+    msg.includes('credenciales')
   );
 }
 
