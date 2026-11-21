@@ -297,6 +297,8 @@ export interface GroupedProductGallery {
   id: string;
   productName: string;
   price?: string;
+  description?: string;
+  isAvailable?: boolean;
   keywords: string[];
   primaryPhoto: GalleryPhotoItem; // ⭐ Siempre la primera (foto de portada / referencia visual)
   alternatePhotos: GalleryPhotoItem[];
@@ -323,6 +325,8 @@ export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedPr
       id: string;
       productName: string;
       price?: string;
+      description?: string;
+      isAvailable?: boolean;
       keywords: string[];
       photos: GalleryPhotoItem[];
     }
@@ -340,6 +344,8 @@ export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedPr
         id: item.id || `prod-${Date.now()}`,
         productName: rawName,
         price: item.price,
+        description: item.description,
+        isAvailable: item.isAvailable !== false,
         keywords: item.keywords || [],
         photos: [],
       });
@@ -347,6 +353,8 @@ export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedPr
 
     const group = groups.get(key)!;
     if (!group.price && item.price) group.price = item.price;
+    if (!group.description && item.description) group.description = item.description;
+    if (item.isAvailable !== undefined) group.isAvailable = item.isAvailable !== false;
     if (item.keywords && item.keywords.length > 0) {
       group.keywords = Array.from(new Set([...group.keywords, ...item.keywords]));
     }

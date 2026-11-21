@@ -738,14 +738,22 @@ function buildDynamicContextBlock(params: {
 
   // Agrupar items de galería por producto canónico para que la IA entienda claramente
   // qué fotos son del mismo producto y qué vista representan (ej: principal, de lado, personalizada).
-  const groupedGallery = new Map<string, { price?: string; views: string[] }>();
+  const groupedGallery = new Map<string, { price?: string; description?: string; isAvailable?: boolean; views: string[] }>();
   for (const g of galleryItems) {
     const canonicalName = (g.productName || g.name).trim();
-    const existing = groupedGallery.get(canonicalName) || {
+    const existing: { price?: string; description?: string; isAvailable?: boolean; views: string[] } = groupedGallery.get(canonicalName) || {
       price: g.price,
-      views: [],
+      description: (g as any).description || g.catalogDescription,
+      isAvailable: (g as any).isAvailable !== false,
+      views: [] as string[],
     };
     if (!existing.price && g.price) existing.price = g.price;
+    if (!existing.description && ((g as any).description || g.catalogDescription)) {
+      existing.description = (g as any).description || g.catalogDescription;
+    }
+    if ((g as any).isAvailable !== undefined) {
+      existing.isAvailable = (g as any).isAvailable !== false;
+    }
     const viewLabel = g.imageRole ? g.imageRole.trim() : (g.productName && g.name !== g.productName ? g.name.trim() : 'principal');
     if (!existing.views.includes(viewLabel)) {
       existing.views.push(viewLabel);
@@ -755,13 +763,15 @@ function buildDynamicContextBlock(params: {
 
   const gallerySummary =
     groupedGallery.size > 0
-      ? `\nProductos con foto oficial en galería para usar con send_product_card:\n${Array.from(groupedGallery.entries())
+      ? `\nProductos y servicios con foto oficial en galería para usar con send_product_card:\n${Array.from(groupedGallery.entries())
           .map(([prodName, data]) => {
             const priceStr = formatGalleryPrice(data.price) || 'precio en catálogo';
+            const statusStr = data.isAvailable === false ? ' · [ESTADO: AGOTADO / NO DISPONIBLE]' : ' · [ESTADO: DISPONIBLE]';
+            const descStr = data.description ? ` · [Detalles/Medidas: ${data.description}]` : '';
             const viewsDesc = data.views.length > 1 ? ` · [${data.views.length} vistas: ${data.views.join(', ')}]` : '';
-            return `- "${prodName}" (${priceStr})${viewsDesc}`;
+            return `- "${prodName}" (${priceStr})${statusStr}${descStr}${viewsDesc}`;
           })
-          .join('\n')}`
+          .join('\n')}\nREGLA ESTRICTA DE DISPONIBILIDAD: Si un producto o servicio está marcado como [ESTADO: AGOTADO / NO DISPONIBLE], NUNCA lo confirmes para despacho o entrega inmediata. Informa amablemente que está temporalmente agotado y ofrece alternativas disponibles del catálogo o pedido por encargo.`
       : '';
 
   const delayInstruction =

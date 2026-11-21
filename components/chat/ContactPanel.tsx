@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Loader2,
   Check,
+  Copy,
   ChevronRight,
   Pencil,
   X,
@@ -105,6 +106,7 @@ export function ContactPanel({
   const [aiSummary, setAiSummary] = useState(contact.custom_fields?.ai_summary || null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isTogglingFollowUp, setIsTogglingFollowUp] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
 
   // Cierre rápido modal state
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
@@ -422,10 +424,38 @@ export function ContactPanel({
                   <span>@{contact.instagram_username || contact.phone}</span>
                 </span>
               ) : (
-                <span className="flex items-center gap-1">
-                  <MessageSquare className="w-3 h-3 text-[#0052FF]" />
-                  <span>{contact.phone}</span>
-                </span>
+                <div className="flex items-center gap-1.5 my-0.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-mono font-semibold">
+                    <Phone className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>{contact.phone}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!contact.phone) return;
+                      navigator.clipboard.writeText(contact.phone);
+                      setCopiedPhone(true);
+                      setTimeout(() => setCopiedPhone(false), 2000);
+                    }}
+                    title="Copiar número"
+                    className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                  >
+                    {copiedPhone ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <a
+                    href={`https://wa.me/${(contact.phone || '').replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Abrir en WhatsApp"
+                    className="p-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
               )}
               {contact.last_interaction_at && (
                 <>

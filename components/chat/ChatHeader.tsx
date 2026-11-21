@@ -25,6 +25,9 @@ import {
   PanelLeftClose,
   Search,
   CheckCheck,
+  Copy,
+  Check,
+  Phone,
 } from 'lucide-react';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { getLeadWindowAnchor, PIPELINE_STAGES } from '@/services/contact.service';
@@ -103,7 +106,16 @@ export function ChatHeader({
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSnoozeSubmenu, setShowSnoozeSubmenu] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyPhone = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!contact.phone) return;
+    navigator.clipboard.writeText(contact.phone);
+    setCopiedPhone(true);
+    setTimeout(() => setCopiedPhone(false), 2000);
+  };
 
   const window24h = useMemo(() => {
     if (contact.channel === 'instagram') {
@@ -231,18 +243,33 @@ export function ChatHeader({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap overflow-hidden truncate">
-            <span className="font-mono text-[11px] truncate">
-              {contact.channel === 'instagram'
-                ? `@${contact.instagram_username || contact.phone}`
-                : contact.phone}
-            </span>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap overflow-hidden">
+            {contact.channel === 'instagram' ? (
+              <span className="font-mono text-[11px] text-pink-600 dark:text-pink-400 font-semibold truncate">
+                @{contact.instagram_username || contact.phone}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleCopyPhone}
+                title="Copiar número del cliente"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 font-mono text-[11px] font-semibold transition cursor-pointer shrink-0 border border-slate-200/80 dark:border-slate-700"
+              >
+                <Phone className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                <span>{contact.phone}</span>
+                {copiedPhone ? (
+                  <Check className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                ) : (
+                  <Copy className="w-2.5 h-2.5 text-slate-400 opacity-60 hover:opacity-100 shrink-0" />
+                )}
+              </button>
+            )}
             {contact.last_interaction_at && (
               <>
                 <span className="text-slate-300 dark:text-[#232A3B] shrink-0">·</span>
                 <span
                   title={formatInboxConversationDate(contact.last_interaction_at).tooltip}
-                  className="text-[11px] text-slate-400 dark:text-slate-500 font-sans shrink-0"
+                  className="text-[11px] text-slate-400 dark:text-slate-500 font-sans shrink-0 truncate"
                 >
                   {formatInboxConversationDate(contact.last_interaction_at).label}
                 </span>

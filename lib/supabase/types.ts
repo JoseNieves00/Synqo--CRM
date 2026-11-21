@@ -46,12 +46,15 @@ export type InternalChatSenderType = 'admin' | 'receptionist' | 'specialist';
 
 export interface EnabledModules {
   native_calendar: boolean;
+  orders?: boolean;
   physical_rooms: boolean;
   staff_mobile_portal: boolean;
   quick_pay: boolean;
   anti_no_show: boolean;
   ad_attribution?: boolean;
 }
+
+export type AppointmentCostPolicy = 'free' | 'first_free' | 'deposit' | 'paid_on_site';
 
 export interface AppointmentSettings {
   arrival_tolerance_minutes: number;
@@ -60,6 +63,14 @@ export interface AppointmentSettings {
   max_reschedules: number;
   slot_interval_minutes: number;
   buffer_minutes: number;
+  timezone?: string;
+  notification_phone?: string;
+  cost_policy?: AppointmentCostPolicy;
+  regular_price?: number;
+  deposit_amount?: number;
+  follow_up_sequences?: any;
+  stage_labels?: Record<string, string>;
+  stage_criteria?: Record<string, string>;
 }
 
 export interface Database {

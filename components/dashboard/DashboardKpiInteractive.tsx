@@ -227,6 +227,70 @@ export function DashboardKpiInteractive({
         </Link>
       </div>
 
+      {/* Widget Copiloto de Ventas & Oportunidades Comerciales */}
+      {metrics?.smartTips && metrics.smartTips.length > 0 && (
+        <div className="p-4 sm:p-5 rounded-2xl border border-blue-500/20 bg-gradient-to-r from-blue-50/60 via-indigo-50/30 to-purple-50/30 dark:from-[#0052FF]/10 dark:via-indigo-950/20 dark:to-purple-950/10 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF]">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Copiloto de Ventas & Oportunidades ({metrics.smartTips.length})
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Oportunidades comerciales y acciones prioritarias detectadas en tus chats para acelerar conversiones.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            {metrics.smartTips.slice(0, 4).map((tip) => (
+              <div
+                key={tip.id}
+                className="p-3.5 rounded-xl border border-slate-200/80 dark:border-[#232A3B] bg-white/90 dark:bg-[#131722]/90 backdrop-blur-xs flex flex-col justify-between gap-2 shadow-2xs hover:border-[#0052FF]/40 transition"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
+                      {tip.title}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase shrink-0 ${
+                        tip.impact === 'high'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                          : tip.impact === 'medium'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}
+                    >
+                      {tip.impact === 'high' ? 'Alta Prioridad' : tip.impact === 'medium' ? 'Oportunidad' : 'Informativo'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                    {tip.description}
+                  </p>
+                </div>
+
+                {tip.actionLabel && tip.actionHref && (
+                  <div className="pt-1.5 border-t border-slate-100 dark:border-[#1E2433] flex justify-end">
+                    <Link
+                      href={tip.actionHref}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0052FF] dark:text-[#00D2FF] hover:underline"
+                    >
+                      <span>{tip.actionLabel}</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Modal / Vista Detallada de KPIs (Drill-Down) */}
       {activeTab && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in">

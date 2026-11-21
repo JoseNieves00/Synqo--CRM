@@ -582,7 +582,155 @@ export async function updateOrderStatusAction(input: { orderId: string; status: 
   revalidatePath('/clientes');
   revalidatePath('/dashboard');
   revalidatePath('/inbox');
+  revalidatePath('/pedidos');
   return { success: true, ltv };
+}
+
+export interface OrderListItem {
+  id: string;
+  contact_id: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  items: OrderItemInput[];
+  total: number;
+  status: OrderStatus;
+  payment_method: string | null;
+  address: string | null;
+  city: string | null;
+  notes: string | null;
+  source: 'ai' | 'human' | 'import';
+  is_separe?: boolean;
+  deposit_paid?: number;
+  balance_due?: number;
+  created_at: string;
+  updated_at: string;
+  contact?: {
+    id: string;
+    full_name: string | null;
+    phone: string | null;
+    whatsapp_id: string | null;
+  } | null;
+}
+
+export async function listOrdersAction(params?: {
+  status?: OrderStatus | 'all';
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const { profile } = await requireOrgMember();
+  const orgId = profile.organization_id;
+
+  let query = (supabaseAdmin.from('orders') as any)
+    .select(
+      `
+      id,
+      contact_id,
+      customer_name,
+      customer_phone,
+      items,
+      total,
+      status,
+      payment_method,
+      address,
+      city,
+      notes,
+      source,
+      created_at,
+      updated_at,
+      contacts:contact_id (
+        id,
+        full_name,
+        phone,
+        whatsapp_id
+      )
+    `
+    )
+    .eq('organization_id', orgId)
+    .order('created_at', { ascending: false });
+
+  if (params?.status && params.status !== 'all') {
+    query = query.eq('status', params.status);
+  }
+
+  const limit = params?.limit || 100;
+  const offset = params?.offset || 0;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data: rawOrders, error } = await query;
+  if (error) {
+    console.warn('[listOrdersAction] Error:', error.message);
+    throw new Error(`Error cargando pedidos: ${error.message}`);
+  }
+
+  // Estadísticas globales de pedidos
+  const { data: allStats } = await (supabaseAdmin.from('orders') as any)
+    .select('id, total, status')
+    .eq('organization_id', orgId);
+
+  const stats = {
+    totalRevenue: (allStats || [])
+      .filter((o: any) => o.status === 'paid' || o.status === 'delivered')
+      .reduce((sum: number, o: any) => sum + Number(o.total || 0), 0),
+    totalOrders: allStats?.length || 0,
+    pendingValidation: (allStats || []).filter((o: any) => o.status === 'pending').length,
+    confirmedToShip: (allStats || []).filter((o: any) => o.status === 'confirmed').length,
+    paid: (allStats || []).filter((o: any) => o.status === 'paid').length,
+    delivered: (allStats || []).filter((o: any) => o.status === 'delivered').length,
+    cancelled: (allStats || []).filter((o: any) => o.status === 'cancelled').length,
+  };
+
+  const orders: OrderListItem[] = (rawOrders || []).map((o: any) => {
+    const isSepare = Boolean(o.is_separe) || (typeof o.notes === 'string' && o.notes.includes('[Plan Separe]'));
+    let depositPaid = Number(o.deposit_paid || 0);
+    let balanceDue = Number(o.balance_due || 0);
+
+    if (isSepare && !depositPaid && typeof o.notes === 'string') {
+      const depMatch = o.notes.match(/Abono(?:\s*inicial)?:\s*\$?([0-9.,]+)/i);
+      if (depMatch) depositPaid = Number(depMatch[1].replace(/[^0-9]/g, '')) || 0;
+      const balMatch = o.notes.match(/Saldo(?:\s*pendiente)?:\s*\$?([0-9.,]+)/i);
+      if (balMatch) balanceDue = Number(balMatch[1].replace(/[^0-9]/g, '')) || 0;
+    }
+
+    return {
+      id: o.id,
+      contact_id: o.contact_id,
+      customer_name: o.customer_name || o.contacts?.full_name || 'Cliente sin nombre',
+      customer_phone: o.customer_phone || o.contacts?.phone || o.contacts?.whatsapp_id || '',
+      items: Array.isArray(o.items) ? o.items : [],
+      total: Number(o.total || 0),
+      status: o.status as OrderStatus,
+      payment_method: o.payment_method,
+      address: o.address,
+      city: o.city,
+      notes: o.notes,
+      source: o.source,
+      is_separe: isSepare,
+      deposit_paid: depositPaid,
+      balance_due: balanceDue,
+      created_at: o.created_at,
+      updated_at: o.updated_at,
+      contact: o.contacts || null,
+    };
+  });
+
+  let filtered = orders;
+  if (params?.search && params.search.trim()) {
+    const q = params.search.toLowerCase().trim();
+    filtered = orders.filter(
+      (o) =>
+        o.customer_name?.toLowerCase().includes(q) ||
+        o.customer_phone?.toLowerCase().includes(q) ||
+        o.city?.toLowerCase().includes(q) ||
+        o.notes?.toLowerCase().includes(q) ||
+        o.items.some((it) => it.product_name?.toLowerCase().includes(q))
+    );
+  }
+
+  return {
+    orders: filtered,
+    stats,
+  };
 }
 
 export async function addContactNoteAction(input: { contactId: string; body: string }) {

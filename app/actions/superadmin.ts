@@ -446,12 +446,18 @@ export async function provisionCompany(input: {
   // Opción A: Días de cortesía si entra a mitad de mes. Por defecto cubre el mes actual.
   const paidUntilMonth = validated.firstBillingMonth || currentMonthStr;
 
+  const businessModel = validated.industryPreset || 'products';
+  const isProducts = businessModel === 'products';
+  const isServices = businessModel === 'services';
+  const isHybrid = businessModel === 'hybrid';
+
   const defaultModules: EnabledModules = validated.enabledModules || {
-    native_calendar: true,
+    native_calendar: isServices || isHybrid,
+    orders: isProducts || isHybrid,
     physical_rooms: false,
     staff_mobile_portal: false,
     quick_pay: false,
-    anti_no_show: true,
+    anti_no_show: isServices || isHybrid,
   };
 
   const generatedCode = validated.companyCode?.trim().toUpperCase() ||
@@ -649,6 +655,8 @@ export async function updateCompanyDetails(input: {
   roomLabel?: string;
   tokenAlertThresholds?: number[] | string;
   overagePricePer500kCop?: number | null;
+  businessModel?: 'products' | 'services' | 'hybrid';
+  isActive?: boolean;
 }) {
   await requireSuperAdmin();
 
@@ -680,6 +688,27 @@ export async function updateCompanyDetails(input: {
     ai_tokens_limit: tokensLimit,
     updated_at: new Date().toISOString(),
   };
+
+  if (input.isActive !== undefined) {
+    updateData.is_active = input.isActive;
+  }
+
+  if (input.businessModel) {
+    const isProducts = input.businessModel === 'products';
+    const isServices = input.businessModel === 'services';
+    const isHybrid = input.businessModel === 'hybrid';
+
+    updateData.industry_preset = input.businessModel;
+
+    const currentModules = (input.enabledModules || {}) as Record<string, boolean>;
+    updateData.enabled_modules = {
+      ...currentModules,
+      native_calendar: isServices || isHybrid,
+      orders: isProducts || isHybrid,
+    };
+  } else if (input.enabledModules) {
+    updateData.enabled_modules = input.enabledModules;
+  }
 
   if (input.planType) {
     updateData.plan_type = input.planType;
@@ -1056,15 +1085,18 @@ export async function regenerateCompanyAdminPassword(organizationId: string) {
 export async function getCompanyFullConfigAction(organizationId: string) {
   await requireSuperAdmin();
 
-  const [orgRes, profilesRes] = await Promise.all([
+  const [orgRes, profilesRes, contactsRes] = await Promise.all([
     (supabaseAdmin.from('organizations') as any)
-      .select('id, name, company_code, is_active, max_users, plan_type, whatsapp_provider, evolution_api_url, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, whatsapp_phone_number_id, system_prompt, structured_prompt_data, appointment_settings, enabled_modules, ai_tokens_limit, ai_tokens_used, ai_provider, ai_tokens_google_used, ai_tokens_openai_used')
+      .select('id, name, company_code, is_active, max_users, plan_type, subscription_status, paid_until_month, billing_due_day, past_due_since, whatsapp_provider, evolution_api_url, evolution_instance_name, evolution_status, evolution_phone_connected, evolution_anti_ban_mode, evolution_max_outbound_per_hour, whatsapp_phone_number_id, system_prompt, structured_prompt_data, appointment_settings, enabled_modules, ai_tokens_limit, ai_tokens_used, ai_provider, ai_tokens_google_used, ai_tokens_openai_used, industry_preset, created_at')
       .eq('id', organizationId)
       .single(),
     (supabaseAdmin.from('profiles') as any)
       .select('id, email, full_name, role, is_active, created_at, is_super_admin')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: true }),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, is_ai_active, conversation_status, deal_value, custom_fields')
+      .eq('organization_id', organizationId),
   ]);
 
   if (orgRes.error || !orgRes.data) {
@@ -1072,6 +1104,51 @@ export async function getCompanyFullConfigAction(organizationId: string) {
   }
 
   const org = orgRes.data;
+  const profiles = profilesRes.data || [];
+  const contacts = contactsRes.data || [];
+  const contactIds = contacts.map((c: any) => c.id);
+
+  let aiMessagesCount = 0;
+  let humanMessagesCount = 0;
+  let leadMessagesCount = 0;
+
+  if (contactIds.length > 0) {
+    const sampleIds = contactIds.slice(0, 300);
+    const [aiRes, humanRes, leadRes] = await Promise.all([
+      (supabaseAdmin.from('messages') as any)
+        .select('id', { count: 'exact', head: true })
+        .in('contact_id', sampleIds)
+        .eq('sender_type', 'ai'),
+      (supabaseAdmin.from('messages') as any)
+        .select('id', { count: 'exact', head: true })
+        .in('contact_id', sampleIds)
+        .eq('sender_type', 'agent_manual'),
+      (supabaseAdmin.from('messages') as any)
+        .select('id', { count: 'exact', head: true })
+        .in('contact_id', sampleIds)
+        .eq('sender_type', 'lead'),
+    ]);
+    aiMessagesCount = aiRes.count || 0;
+    humanMessagesCount = humanRes.count || 0;
+    leadMessagesCount = leadRes.count || 0;
+  }
+
+  const totalOutbound = aiMessagesCount + humanMessagesCount;
+  const autonomyPct = totalOutbound > 0 ? Math.round((aiMessagesCount / totalOutbound) * 100) : 100;
+  const aiActiveContactsCount = contacts.filter((c: any) => c.is_ai_active !== false).length;
+  const hotLeadsCount = contacts.filter((c: any) => {
+    const temp = c.custom_fields?.lead_temperature || c.custom_fields?.temperature;
+    return temp === 'hot' || (typeof c.deal_value === 'number' && c.deal_value > 0);
+  }).length;
+
+  const googleTokens = Number(org.ai_tokens_google_used || (org.ai_tokens_used ? Math.max(0, org.ai_tokens_used - (org.ai_tokens_openai_used || 0)) : 0));
+  const openAiTokens = Number(org.ai_tokens_openai_used || 0);
+  const estimatedCostUsd = Number(
+    ((googleTokens / 1_000_000) * 0.10 + (openAiTokens / 1_000_000) * 0.30).toFixed(2)
+  );
+
+  const adminProfile = profiles.find((p: any) => p.role === 'admin') || profiles[0] || null;
+
   const appSettings = (org.appointment_settings as Record<string, any>) || {};
   const followUpSettings = normalizeFollowUpSettings(appSettings.follow_up_sequences);
   const stageLabels = (appSettings.stage_labels || {}) as Record<string, string>;
@@ -1079,7 +1156,22 @@ export async function getCompanyFullConfigAction(organizationId: string) {
 
   return {
     organization: org,
-    profiles: profilesRes.data || [],
+    profiles,
+    adminProfile,
+    telemetry: {
+      contactsCount: contacts.length,
+      aiActiveContactsCount,
+      hotLeadsCount,
+      aiMessagesCount,
+      humanMessagesCount,
+      leadMessagesCount,
+      autonomyPct,
+      tokensUsed: Number(org.ai_tokens_used || 0),
+      tokensLimit: Number(org.ai_tokens_limit || 500000),
+      googleTokensUsed: googleTokens,
+      openAiTokensUsed: openAiTokens,
+      estimatedCostUsd,
+    },
     followUpSettings,
     stageLabels,
     stageCriteria,

@@ -780,6 +780,17 @@ export function Customer360Drawer({
                               </div>
                             </div>
 
+                            {o.is_plan_separe && (
+                              <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-800 dark:text-amber-300">
+                                <span className="font-bold">🏷️ Plan Separe:</span>
+                                <span>Abonado: {formatCop(o.deposit_amount || 0)}</span>
+                                <span>•</span>
+                                <span className="font-semibold text-rose-600 dark:text-rose-400">
+                                  Saldo: {formatCop(o.balance_amount || Math.max(0, Number(o.total || 0) - Number(o.deposit_amount || 0)))}
+                                </span>
+                              </div>
+                            )}
+
                             {items.length > 0 && (
                               <ul className="text-xs text-slate-700 dark:text-slate-200 space-y-0.5">
                                 {items.map((it, idx) => (

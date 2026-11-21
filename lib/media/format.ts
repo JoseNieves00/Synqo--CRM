@@ -146,6 +146,8 @@ export interface GalleryPhotoItem {
   url: string;
   keywords?: string[];
   price?: string;
+  description?: string;
+  isAvailable?: boolean;
   isHero?: boolean;
   /**
    * Identificador o nombre canónico del producto padre (para agrupar múltiples fotos bajo un mismo producto).

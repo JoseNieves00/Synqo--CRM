@@ -30,6 +30,14 @@ import {
   ShieldCheck,
   Zap,
   RotateCcw,
+  Building2,
+  Activity,
+  Crown,
+  TrendingUp,
+  DollarSign,
+  MessageSquare,
+  ShoppingBag,
+  Calendar,
 } from 'lucide-react';
 import {
   getCompanyFullConfigAction,
@@ -75,7 +83,7 @@ export function SuperAdminCompanyConfigModal({
   isOpen,
   onClose,
 }: SuperAdminCompanyConfigModalProps) {
-  const [activeTab, setActiveTab] = useState<'prompt' | 'pipeline' | 'follow_ups' | 'whatsapp' | 'users' | 'modules'>('prompt');
+  const [activeTab, setActiveTab] = useState<'company' | 'telemetry' | 'users' | 'prompt' | 'pipeline' | 'follow_ups' | 'whatsapp' | 'modules'>('company');
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -84,6 +92,13 @@ export function SuperAdminCompanyConfigModal({
   // Datos de la empresa
   const [company, setCompany] = useState<any>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
+  const [adminProfile, setAdminProfile] = useState<any>(null);
+  const [telemetry, setTelemetry] = useState<any>(null);
+
+  // 0. Tab Empresa & Perfil (Modelo comercial sin presets)
+  const [companyName, setCompanyName] = useState('');
+  const [businessModel, setBusinessModel] = useState<'products' | 'services' | 'hybrid'>('products');
+  const [isActive, setIsActive] = useState(true);
 
   // 1. Tab Prompt & Cerebro IA
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -135,6 +150,23 @@ export function SuperAdminCompanyConfigModal({
       const org = data.organization;
       setCompany(org);
       setProfiles(data.profiles);
+      setAdminProfile(data.adminProfile);
+      setTelemetry(data.telemetry);
+
+      // Empresa & Perfil
+      setCompanyName(org.name || '');
+      const preset = org.industry_preset;
+      const modules = (org.enabled_modules || {}) as Record<string, boolean>;
+      if (preset === 'products' || preset === 'services' || preset === 'hybrid') {
+        setBusinessModel(preset);
+      } else if (modules.native_calendar && modules.orders) {
+        setBusinessModel('hybrid');
+      } else if (modules.native_calendar) {
+        setBusinessModel('services');
+      } else {
+        setBusinessModel('products');
+      }
+      setIsActive(org.is_active !== false);
 
       // Prompt & Cerebro
       setSystemPrompt(org.system_prompt || '');
@@ -160,13 +192,38 @@ export function SuperAdminCompanyConfigModal({
       setPlanType((org.plan_type as any) || 'starter');
       setMaxUsers(Number(org.max_users) || 2);
       setCompanyCode(org.company_code || '');
-      const modules = (org.enabled_modules || {}) as Record<string, boolean>;
       setModuleNativeCalendar(modules.native_calendar !== false);
       setModuleAntiNoShow(Boolean(modules.anti_no_show));
     } catch (err: any) {
       setErrorMsg(err.message || 'Error cargando datos de la empresa');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Guardar Empresa & Modelo Comercial
+  const handleSaveCompanyInfo = async () => {
+    if (!organizationId) return;
+    setIsSaving(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await updateCompanyDetails({
+        organizationId,
+        name: companyName,
+        businessModel,
+        isActive,
+        companyCode,
+        maxUsers,
+        planType,
+      });
+      setSuccessMsg('Información de la empresa y modelo comercial actualizados exitosamente');
+      await loadCompanyData();
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error guardando datos de la empresa');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -425,6 +482,42 @@ export function SuperAdminCompanyConfigModal({
           <div className="flex items-center gap-1 px-5 pt-3 border-b border-slate-200 dark:border-[#232A3B] shrink-0 bg-slate-50/50 dark:bg-[#0E121B] overflow-x-auto [scrollbar-width:none]">
             <button
               type="button"
+              onClick={() => setActiveTab('company')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition flex items-center gap-1.5 border-b-2 whitespace-nowrap cursor-pointer ${
+                activeTab === 'company'
+                  ? 'border-[#0052FF] text-[#0052FF] dark:text-[#00D2FF] bg-white dark:bg-[#131722]'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Empresa & Perfil</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('telemetry')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition flex items-center gap-1.5 border-b-2 whitespace-nowrap cursor-pointer ${
+                activeTab === 'telemetry'
+                  ? 'border-[#0052FF] text-[#0052FF] dark:text-[#00D2FF] bg-white dark:bg-[#131722]'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-amber-500" />
+              <span>Telemetría & IA</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('users')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition flex items-center gap-1.5 border-b-2 whitespace-nowrap cursor-pointer ${
+                activeTab === 'users'
+                  ? 'border-[#0052FF] text-[#0052FF] dark:text-[#00D2FF] bg-white dark:bg-[#131722]'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Equipo ({profiles.length})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('prompt')}
               className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition flex items-center gap-1.5 border-b-2 whitespace-nowrap cursor-pointer ${
                 activeTab === 'prompt'
@@ -433,7 +526,7 @@ export function SuperAdminCompanyConfigModal({
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Prompt & Cerebro IA</span>
+              <span>Prompt & Cerebro</span>
             </button>
             <button
               type="button"
@@ -469,19 +562,7 @@ export function SuperAdminCompanyConfigModal({
               }`}
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span>WhatsApp & Tokens</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('users')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-t-xl transition flex items-center gap-1.5 border-b-2 whitespace-nowrap cursor-pointer ${
-                activeTab === 'users'
-                  ? 'border-[#0052FF] text-[#0052FF] dark:text-[#00D2FF] bg-white dark:bg-[#131722]'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Equipo ({profiles.length})</span>
+              <span>WhatsApp & VPS</span>
             </button>
             <button
               type="button"
@@ -493,7 +574,7 @@ export function SuperAdminCompanyConfigModal({
               }`}
             >
               <Settings2 className="w-3.5 h-3.5" />
-              <span>Plan & Capacidades</span>
+              <span>Plan & Cupos</span>
             </button>
           </div>
 
@@ -503,6 +584,297 @@ export function SuperAdminCompanyConfigModal({
               <div className="py-16 flex flex-col items-center justify-center text-slate-400 gap-2">
                 <Loader2 className="w-6 h-6 animate-spin text-[#0052FF]" />
                 <p className="text-xs">Cargando configuración remota de la empresa...</p>
+              </div>
+            ) : activeTab === 'company' ? (
+              /* Pestaña 0: Empresa & Perfil (Modelo comercial sin presets) */
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-[#0052FF]" />
+                      Información General & Perfil Comercial
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Configura la identidad del negocio y selecciona el modelo comercial puro sin presets rígidos.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveCompanyInfo}
+                    disabled={isSaving}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    <span>Guardar Empresa</span>
+                  </button>
+                </div>
+
+                {/* Identidad de la Empresa */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B] sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Nombre de la Empresa
+                    </label>
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="Nombre comercial"
+                      className="w-full h-9 px-3 text-xs rounded-xl border border-slate-300 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                  </div>
+
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B]">
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Estado de la Cuenta
+                    </label>
+                    <select
+                      value={isActive ? 'active' : 'inactive'}
+                      onChange={(e) => setIsActive(e.target.value === 'active')}
+                      className="w-full h-9 px-3 text-xs rounded-xl border border-slate-300 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 font-semibold cursor-pointer"
+                    >
+                      <option value="active">Activa (Acceso Total)</option>
+                      <option value="inactive">Suspendida / Desactivada</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Selector de Modelo Comercial Puro (Sin Presets) */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B] space-y-3">
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                      Modelo de Operación Comercial (Sin Presets)
+                    </h5>
+                    <p className="text-[11px] text-slate-500">
+                      Define automáticamente qué herramientas operativas tendrá la empresa sin forzar categorías artificiales.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <label
+                      onClick={() => setBusinessModel('products')}
+                      className={`p-3.5 rounded-xl border-2 flex flex-col justify-between gap-2 cursor-pointer transition ${
+                        businessModel === 'products'
+                          ? 'border-[#0052FF] bg-blue-50/60 dark:bg-[#0052FF]/10 text-slate-900 dark:text-white'
+                          : 'border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-[#0052FF] dark:text-[#00D2FF]">
+                          <ShoppingBag className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="radio"
+                          name="business_model"
+                          checked={businessModel === 'products'}
+                          onChange={() => setBusinessModel('products')}
+                          className="accent-[#0052FF]"
+                        />
+                      </div>
+                      <div>
+                        <p className="font-bold text-xs text-slate-900 dark:text-white">Vende Productos</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          Habilita catálogo, gestión y despacho de pedidos. Oculta citas y salas.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      onClick={() => setBusinessModel('services')}
+                      className={`p-3.5 rounded-xl border-2 flex flex-col justify-between gap-2 cursor-pointer transition ${
+                        businessModel === 'services'
+                          ? 'border-[#0052FF] bg-blue-50/60 dark:bg-[#0052FF]/10 text-slate-900 dark:text-white'
+                          : 'border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="radio"
+                          name="business_model"
+                          checked={businessModel === 'services'}
+                          onChange={() => setBusinessModel('services')}
+                          className="accent-[#0052FF]"
+                        />
+                      </div>
+                      <div>
+                        <p className="font-bold text-xs text-slate-900 dark:text-white">Vende Servicios</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          Habilita citas nativas y especialistas. Oculta despachos de productos.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      onClick={() => setBusinessModel('hybrid')}
+                      className={`p-3.5 rounded-xl border-2 flex flex-col justify-between gap-2 cursor-pointer transition ${
+                        businessModel === 'hybrid'
+                          ? 'border-[#0052FF] bg-blue-50/60 dark:bg-[#0052FF]/10 text-slate-900 dark:text-white'
+                          : 'border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="radio"
+                          name="business_model"
+                          checked={businessModel === 'hybrid'}
+                          onChange={() => setBusinessModel('hybrid')}
+                          className="accent-[#0052FF]"
+                        />
+                      </div>
+                      <div>
+                        <p className="font-bold text-xs text-slate-900 dark:text-white">Modelo Híbrido</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          Combina Citas + Pedidos unificados bajo el mismo cliente (Ficha 360).
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Resumen de Conexión & Suscripción */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      Canal WhatsApp Activo
+                    </span>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>{company?.whatsapp_provider === 'meta' ? 'Meta Cloud API' : 'Evolution API VPS'}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
+                      {company?.evolution_instance_name || company?.whatsapp_phone_number_id || 'Sin instancia'}
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      Suscripción & Plan
+                    </span>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white capitalize flex items-center gap-1.5">
+                      <Crown className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Plan {company?.plan_type || 'Starter'}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Día de corte: {company?.billing_due_day || 5} de cada mes
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      Código de Equipo
+                    </span>
+                    <p className="text-xs font-mono font-bold text-[#0052FF] dark:text-[#00D2FF]">
+                      {company?.company_code || 'SIN CÓDIGO'}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Creada: {company?.created_at ? new Date(company.created_at).toLocaleDateString() : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : activeTab === 'telemetry' ? (
+              /* Pestaña Telemetría & Rendimiento de la IA */
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-amber-500" />
+                    Telemetría & Desempeño Real de la IA en esta Empresa
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Métricas operativas del negocio: volumen de mensajes, autonomía, leads calientes y consumo de tokens.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  {/* Tarjeta 1: Autonomía IA */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-gradient-to-br from-blue-50/50 to-indigo-50/20 dark:from-[#0052FF]/10 dark:to-transparent">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      <span>Autonomía IA</span>
+                      <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                    </div>
+                    <p className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                      {telemetry?.autonomyPct ?? 100}%
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Mensajes salientes resueltos 100% por la IA sin humanos.
+                    </p>
+                  </div>
+
+                  {/* Tarjeta 2: Volumen de Mensajes */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      <span>Mensajes IA</span>
+                      <MessageSquare className="w-4 h-4 text-[#0052FF]" />
+                    </div>
+                    <p className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                      {(telemetry?.aiMessagesCount ?? 0).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      vs {(telemetry?.humanMessagesCount ?? 0).toLocaleString()} de asesores humanos.
+                    </p>
+                  </div>
+
+                  {/* Tarjeta 3: Leads Calientes */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      <span>Leads Calientes</span>
+                      <Flame className="w-4 h-4 text-rose-500 fill-rose-500" />
+                    </div>
+                    <p className="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono">
+                      {telemetry?.hotLeadsCount ?? 0}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Con alta intención detectada de {telemetry?.contactsCount ?? 0} contactos.
+                    </p>
+                  </div>
+
+                  {/* Tarjeta 4: Costo Estimado IA */}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      <span>Costo API (USD)</span>
+                      <DollarSign className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                      ${telemetry?.estimatedCostUsd ?? '0.00'}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Costo real de infraestructura consumido este mes.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Desglose de Tokens */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B] space-y-3">
+                  <h5 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                    Desglose de Capacidad y Cuota de Tokens
+                  </h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="p-3 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+                      <span className="text-slate-400 block text-[11px]">Tokens Totales Usados</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-sm">
+                        {(telemetry?.tokensUsed ?? 0).toLocaleString()} / {(telemetry?.tokensLimit ?? 500000).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+                      <span className="text-slate-400 block text-[11px]">Google Gemini 2.5 Flash</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-sm">
+                        {(telemetry?.googleTokensUsed ?? 0).toLocaleString()} tokens
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+                      <span className="text-slate-400 block text-[11px]">OpenAI Mini</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-sm">
+                        {(telemetry?.openAiTokensUsed ?? 0).toLocaleString()} tokens
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : activeTab === 'prompt' ? (
               <div className="space-y-4">
@@ -1018,6 +1390,46 @@ export function SuperAdminCompanyConfigModal({
               </div>
             ) : activeTab === 'users' ? (
               <div className="space-y-5">
+                {/* Administrador Titular VIP Card */}
+                {adminProfile ? (
+                  <div className="p-4 rounded-xl border border-blue-500/30 bg-gradient-to-r from-blue-50/80 to-indigo-50/50 dark:from-[#0052FF]/10 dark:to-indigo-950/20 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-[#0052FF] dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                        <Crown className="w-5 h-5 text-amber-500" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">
+                            {adminProfile.full_name || 'Administrador Titular'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-blue-100 dark:bg-blue-900/50 text-[#0052FF] dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            Admin Titular
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                          {adminProfile.email}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleResetAdminPassword}
+                        className="px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                        title="Generar nueva clave temporal"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Regenerar Contraseña</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/20 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>Esta empresa aún no tiene un usuario con rol de Administrador asignado.</span>
+                  </div>
+                )}
+
                 {/* Formulario Crear Usuario */}
                 <form
                   onSubmit={handleCreateUser}

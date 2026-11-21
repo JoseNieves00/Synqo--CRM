@@ -2,7 +2,7 @@ import { resolveOrganizationGallery } from '@/lib/ai/product-gallery';
 
 export interface DashboardSmartTip {
   id: string;
-  category: 'prompt' | 'shipping' | 'payments' | 'follow_ups' | 'gallery' | 'friction' | 'operational';
+  category: 'prompt' | 'shipping' | 'payments' | 'follow_ups' | 'gallery' | 'friction' | 'operational' | 'campaign';
   impact: 'high' | 'medium' | 'info';
   title: string;
   description: string;
@@ -12,8 +12,8 @@ export interface DashboardSmartTip {
 
 export class DashboardTipsService {
   /**
-   * Genera recomendaciones inteligentes determinísticas (Fases 1 y 2 · 0 Tokens)
-   * analizando la configuración real de la empresa y las métricas del periodo actual.
+   * Genera recomendaciones inteligentes determinísticas y altamente contextuales (0 Tokens)
+   * analizando la configuración real de la empresa y el comportamiento de sus clientes.
    */
   static generateTips(params: {
     organization: any;
@@ -22,6 +22,9 @@ export class DashboardTipsService {
       followUp?: { sentInPeriod?: number; responseRatePct?: number };
       aiPerformance?: { handoffReasons?: Array<{ reason: string; count: number }>; autonomyPct?: number };
       needsHumanCount?: number;
+      wonCount?: number;
+      avgTicket?: number;
+      totalContacts?: number;
     };
     exemptContactCount?: number;
   }): DashboardSmartTip[] {
@@ -32,27 +35,59 @@ export class DashboardTipsService {
     const cf = (organization.custom_fields || {}) as Record<string, any>;
     const spd = organization.structured_prompt_data || {};
     const promptText = String(organization.system_prompt || '');
+    const hotCount = Number(metrics?.categories?.hot || 0);
+    const warmCount = Number(metrics?.categories?.warm || 0);
+    const qualifiedDoubtCount = Number(metrics?.categories?.qualifiedDoubt || 0);
 
     // ==========================================
-    // FASE 1: HEURÍSTICA DE CONFIGURACIÓN Y REGLAS (0 TOKENS)
+    // FASE 1: OPORTUNIDADES COMERCIALES BASADAS EN DATOS REALES (0 TOKENS)
     // ==========================================
 
-    // 1. Cuentas de Pago
+    // 1. Oportunidad de Campaña de Reactivación a Prospectos Tibios / Interesados
+    const potentialReactivationCount = warmCount + qualifiedDoubtCount;
+    if (potentialReactivationCount >= 3) {
+      tips.push({
+        id: 'launch_reactivation_campaign',
+        category: 'campaign',
+        impact: 'high',
+        title: `Reactivación: ${potentialReactivationCount} prospectos interesados listos para recontactar`,
+        description:
+          `Tienes ${potentialReactivationCount} clientes que mostraron interés en tus productos o servicios pero aún no compraron. Lanza una campaña con una oferta de Plan Separe o flete preferencial para rescatar esas ventas.`,
+        actionLabel: 'Crear Campaña en 1 Clic',
+        actionHref: '/campanas',
+      });
+    }
+
+    // 2. Oportunidad de Plan Separe para Acelerar Cierres
+    if (!/separe|abono|separar|cuotas/i.test(promptText)) {
+      tips.push({
+        id: 'suggest_plan_separe',
+        category: 'prompt',
+        impact: 'high',
+        title: 'Acelera cierres incorporando Plan Separe en tu atención',
+        description:
+          'Permitir que el cliente reserve o aparte su producto o cita con un abono inicial (ej: 20% al 30%) reduce drásticamente el abandono de prospectos que no cuentan con la totalidad del dinero en el momento.',
+        actionLabel: 'Añadir al Prompt',
+        actionHref: '/settings',
+      });
+    }
+
+    // 3. Cuentas de Pago
     const paymentAccounts = Array.isArray(cf.payment_accounts) ? cf.payment_accounts : [];
     if (paymentAccounts.length === 0) {
       tips.push({
         id: 'setup_payment_accounts',
         category: 'payments',
         impact: 'high',
-        title: 'Agrega cuentas bancarias oficiales para cobros',
+        title: 'Agrega cuentas bancarias oficiales para cobros inmediatos',
         description:
-          'Tu IA podrá entregar cuentas y llaves exactas (Nequi, Bancolombia, etc.) cuando los clientes pidan datos de pago, acelerando el cierre.',
+          'Cuando un prospecto diga "¿a dónde transfiero?", la IA entregará las llaves oficiales (Nequi, Bancolombia, etc.) al instante (<3s) sin hacer esperar al comprador.',
         actionLabel: 'Configurar cuentas',
         actionHref: '/settings',
       });
     }
 
-    // 2. Políticas de Envío y Fletes por Ciudad
+    // 4. Políticas de Envío y Fletes por Ciudad
     const hasShippingConfig =
       Boolean(spd.shipping_policy) ||
       /(flete|env[ií]o|contraentrega|cobertura|municipio|ciudad)/i.test(promptText);
@@ -61,30 +96,30 @@ export class DashboardTipsService {
         id: 'setup_shipping_policy',
         category: 'shipping',
         impact: 'high',
-        title: 'Configura tarifas y cobertura de fletes por ciudad',
+        title: 'Configura tarifas claras o subsidios de flete por ciudad',
         description:
-          'Evita que la IA transfiera chats por dudas de fletes y costos de envío en ciudades o municipios específicos.',
+          'El costo imprevisto de envío es una de las principales causas de abandono. Configura tarifas fijas o condiciones de envío gratis a partir de cierto monto.',
         actionLabel: 'Ajustar políticas de envío',
         actionHref: '/settings',
       });
     }
 
-    // 3. Galería Visual y Fotos Oficiales
+    // 5. Galería Visual y Fotos Oficiales
     const galleryRes = resolveOrganizationGallery(organization, promptText);
     if (!galleryRes || !galleryRes.items || galleryRes.items.length === 0) {
       tips.push({
         id: 'setup_product_gallery',
         category: 'gallery',
         impact: 'medium',
-        title: 'Sube fotos oficiales a tu catálogo de productos',
+        title: 'Sube fotos oficiales y medidas a tu catálogo visual',
         description:
-          'Las tarjetas con fotos oficiales en WhatsApp aumentan un 40% la respuesta de clientes frente a mensajes de texto plano.',
-        actionLabel: 'Subir fotos a galería',
+          'Los clientes compran por los ojos. Cargar fotos con sus medidas y especificaciones aumenta hasta un 40% la tasa de respuesta en WhatsApp.',
+        actionLabel: 'Ir al Catálogo',
         actionHref: '/settings',
       });
     }
 
-    // 4. Seguimientos de Embudo Inactivos
+    // 6. Seguimientos de Embudo Inactivos
     const followUpConfig = cf.follow_up_settings;
     const isFollowUpEnabled = Boolean(followUpConfig?.enabled);
     if (!isFollowUpEnabled) {
@@ -94,18 +129,17 @@ export class DashboardTipsService {
         impact: 'high',
         title: 'Activa los seguimientos de embudo para rescatar ventas',
         description:
-          'Envía recordatorios amables con contraentrega a prospectos tibios o indecisos sin requerir intervención manual.',
+          'Envía recordatorios amables a prospectos indecisos o que dejaron en visto para recuperar hasta un 25% de ventas perdidas.',
         actionLabel: 'Activar seguimientos',
         actionHref: '/settings',
       });
     }
 
     // ==========================================
-    // FASE 2: FRICCIONES REALES & CONTEXTO (0 TOKENS)
+    // FASE 2: FRICCIONES OPERATIVAS Y CONTEXTUALES (0 TOKENS)
     // ==========================================
 
-    // 5. Clientes Calificados con Dudas Puntuales
-    const qualifiedDoubtCount = Number(metrics?.categories?.qualifiedDoubt || 0);
+    // 7. Clientes Calificados con Dudas Puntuales
     if (qualifiedDoubtCount >= 2) {
       tips.push({
         id: 'qualified_doubt_attention',
@@ -113,13 +147,13 @@ export class DashboardTipsService {
         impact: 'medium',
         title: `Tienes ${qualifiedDoubtCount} clientes con dudas puntuales por resolver`,
         description:
-          'Son prospectos calificados que dudan en medidas o material antes de comprar. Usa los atajos rápidos del Inbox para cerrar.',
+          'Son prospectos calificados que dudan sobre medidas, colores o fechas antes de pagar. Respóndeles en el Inbox para asegurar el cierre.',
         actionLabel: 'Ver clientes con dudas',
         actionHref: '/inbox?view=ia_atendiendo&temp=qualified_doubt',
       });
     }
 
-    // 6. Causa Principal de Relevo Humano (Knowledge Gap / Handoff)
+    // 8. Causa Principal de Relevo Humano (Knowledge Gap / Handoff)
     const handoffs = metrics?.aiPerformance?.handoffReasons || [];
     if (handoffs.length > 0 && handoffs[0].count >= 2) {
       const topReason = handoffs[0].reason;
@@ -129,13 +163,13 @@ export class DashboardTipsService {
         impact: 'high',
         title: `Causa #1 de relevo a asesor: "${topReason}"`,
         description:
-          'Resuelve este tema en tus preguntas frecuentes o reglas de negocio para que la IA responda sola sin requerir asesor.',
+          'Resuelve este tema en tus instrucciones de negocio para que la IA responda sola sin requerir asesor.',
         actionLabel: 'Resolver en Prompt',
         actionHref: '/settings',
       });
     }
 
-    // 7. Contactos Exentos de IA (Transportadoras / Proveedores)
+    // 9. Contactos Exentos de IA (Transportadoras / Proveedores)
     if (exemptContactCount > 0) {
       tips.push({
         id: 'tag_exempt_status',

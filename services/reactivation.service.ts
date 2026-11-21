@@ -728,6 +728,15 @@ export class LeadReactivationService {
               productName: deducedProduct,
               companyName: org.name,
             });
+
+            // Si el paso no traía imágenes fijas y hay un producto deducido, adjuntar la foto del producto de interés
+            if ((!resolvedImageUrls || resolvedImageUrls.length === 0) && deducedProduct) {
+              const { items } = resolveOrganizationGallery(org, org.system_prompt);
+              const matched = findGalleryProductMatch(items, deducedProduct);
+              if (matched?.url) {
+                resolvedImageUrls = [matched.url];
+              }
+            }
           }
 
           const dispatch = await this.dispatchFollowUpStep({
@@ -971,6 +980,15 @@ export class LeadReactivationService {
             productName: deducedProduct,
             companyName: org.name,
           });
+
+          // Si el paso no traía imágenes fijas y hay un producto deducido, adjuntar la foto del producto de interés
+          if ((!resolvedImageUrls || resolvedImageUrls.length === 0) && deducedProduct) {
+            const { items } = resolveOrganizationGallery(org, org.system_prompt);
+            const matched = findGalleryProductMatch(items, deducedProduct);
+            if (matched?.url) {
+              resolvedImageUrls = [matched.url];
+            }
+          }
         } else if (!isMetaLocked) {
           const payload = await this.resolveAutonomousFollowUpPayload({
             org,

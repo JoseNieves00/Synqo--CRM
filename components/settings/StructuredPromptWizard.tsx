@@ -95,6 +95,8 @@ export function StructuredPromptWizard({
   const [isAddPhotoModalOpen, setIsAddPhotoModalOpen] = useState(false);
   const [photoName, setPhotoName] = useState('');
   const [photoPrice, setPhotoPrice] = useState('');
+  const [photoDescription, setPhotoDescription] = useState('');
+  const [photoIsAvailable, setPhotoIsAvailable] = useState(true);
   const [photoRole, setPhotoRole] = useState('principal');
   const [photoKeywords, setPhotoKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
@@ -112,6 +114,8 @@ export function StructuredPromptWizard({
   const [targetProductForAlternate, setTargetProductForAlternate] = useState<{
     name: string;
     price?: string;
+    description?: string;
+    isAvailable?: boolean;
     keywords?: string[];
   } | null>(null);
   const [activePhotoByProduct, setActivePhotoByProduct] = useState<Record<string, string>>({});
@@ -124,6 +128,8 @@ export function StructuredPromptWizard({
   const [editingPreviewPhotoId, setEditingPreviewPhotoId] = useState<string | null>(null);
   const [editProductName, setEditProductName] = useState('');
   const [editProductPrice, setEditProductPrice] = useState('');
+  const [editProductDescription, setEditProductDescription] = useState('');
+  const [editProductIsAvailable, setEditProductIsAvailable] = useState(true);
   const [editProductKeywords, setEditProductKeywords] = useState<string[]>([]);
   const [editKeywordInput, setEditKeywordInput] = useState('');
   const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
@@ -169,17 +175,27 @@ export function StructuredPromptWizard({
 
   const estimatedPromptTokens = estimatePromptTokens(textPrompt);
 
-  const handleOpenAddModal = (targetProduct?: { name: string; price?: string; keywords?: string[] }) => {
+  const handleOpenAddModal = (targetProduct?: {
+    name: string;
+    price?: string;
+    description?: string;
+    isAvailable?: boolean;
+    keywords?: string[];
+  }) => {
     if (targetProduct) {
       setTargetProductForAlternate(targetProduct);
       setPhotoName(targetProduct.name);
       setPhotoPrice(targetProduct.price || '');
+      setPhotoDescription(targetProduct.description || '');
+      setPhotoIsAvailable(targetProduct.isAvailable !== false);
       setPhotoKeywords(targetProduct.keywords || []);
       setPhotoRole('alterna');
     } else {
       setTargetProductForAlternate(null);
       setPhotoName('');
       setPhotoPrice('');
+      setPhotoDescription('');
+      setPhotoIsAvailable(true);
       setPhotoKeywords([]);
       setPhotoRole('principal');
     }
@@ -199,6 +215,8 @@ export function StructuredPromptWizard({
     setPhotoPreviewUrl(null);
     setPhotoName('');
     setPhotoPrice('');
+    setPhotoDescription('');
+    setPhotoIsAvailable(true);
     setPhotoKeywords([]);
     setKeywordInput('');
     setPhotoUploadError(null);
@@ -272,6 +290,8 @@ export function StructuredPromptWizard({
     setEditingPreviewPhotoId(product.primaryPhoto.id);
     setEditProductName(product.productName);
     setEditProductPrice(product.price || '');
+    setEditProductDescription(product.description || '');
+    setEditProductIsAvailable(product.isAvailable !== false);
     setEditProductKeywords(product.keywords || []);
     setEditKeywordInput('');
     setEditError(null);
@@ -282,6 +302,8 @@ export function StructuredPromptWizard({
     setEditingPreviewPhotoId(null);
     setEditProductName('');
     setEditProductPrice('');
+    setEditProductDescription('');
+    setEditProductIsAvailable(true);
     setEditProductKeywords([]);
     setEditKeywordInput('');
     setEditError(null);
@@ -312,6 +334,8 @@ export function StructuredPromptWizard({
             name: newProdName,
             productName: newProdName,
             price: editProductPrice.trim() || undefined,
+            description: editProductDescription.trim() || undefined,
+            isAvailable: editProductIsAvailable,
             keywords: editProductKeywords.length > 0 ? editProductKeywords : undefined,
           };
         }
@@ -469,6 +493,8 @@ export function StructuredPromptWizard({
         imageRole: cleanRole,
         url: result.url,
         price: photoPrice.trim() || undefined,
+        description: photoDescription.trim() || undefined,
+        isAvailable: photoIsAvailable,
         keywords: photoKeywords.length > 0 ? photoKeywords : undefined,
         isHero,
       };
@@ -991,11 +1017,20 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                           {product.productName}
                         </span>
                         <div className="flex items-center gap-1 shrink-0">
+                          {product.isAvailable === false ? (
+                            <span className="px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 text-[9px] font-bold border border-rose-200 dark:border-rose-900">
+                              Agotado
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[9px] font-bold border border-emerald-200 dark:border-emerald-900">
+                              Disponible
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleOpenEditProductModal(product)}
                             className="p-1 text-slate-400 hover:text-[#0052FF] dark:hover:text-[#00D2FF] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-md transition cursor-pointer"
-                            title="Editar datos del producto, precio y palabras clave"
+                            title="Editar datos del producto, precio, descripción y disponibilidad"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -1012,8 +1047,14 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                         </div>
                       </div>
 
+                      {product.description && (
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 leading-snug">
+                          {product.description}
+                        </p>
+                      )}
+
                       {product.keywords && product.keywords.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
+                        <div className="flex flex-wrap gap-1 mt-1.5">
                           {product.keywords.slice(0, 3).map((k, i) => (
                             <span
                               key={i}
@@ -1258,6 +1299,49 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                       disabled={isUploadingPhoto}
                       className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                     />
+                  </div>
+                )}
+
+                {!targetProductForAlternate && (
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B]">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                        Disponibilidad
+                      </span>
+                      <p className="text-[10px] text-slate-500">
+                        {photoIsAvailable ? '✓ Disponible para entrega o agendamiento' : '⚠ Agotado / No disponible temporalmente'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoIsAvailable(!photoIsAvailable)}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                        photoIsAvailable
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                          : 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                      }`}
+                    >
+                      {photoIsAvailable ? 'Disponible' : 'Agotado'}
+                    </button>
+                  </div>
+                )}
+
+                {!targetProductForAlternate && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Descripción, Medidas y Alcance (Libre)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Medidas (ej: 105x85x35cm), materiales, qué incluye, qué no incluye o alcance..."
+                      value={photoDescription}
+                      onChange={(e) => setPhotoDescription(e.target.value)}
+                      disabled={isUploadingPhoto}
+                      className="w-full text-xs p-2.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      La IA usará estos detalles para resolver dudas sin inventar especificaciones.
+                    </p>
                   </div>
                 )}
 
@@ -1581,6 +1665,47 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                   disabled={isSavingEdit}
                   className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
                 />
+              </div>
+
+              {/* Disponibilidad */}
+              <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#090A0F]">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                    Disponibilidad
+                  </span>
+                  <p className="text-[10px] text-slate-500">
+                    {editProductIsAvailable ? '✓ Disponible para cotizar y entrega' : '⚠ Marcado como Agotado (la IA no prometerá entrega inmediata)'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditProductIsAvailable(!editProductIsAvailable)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                    editProductIsAvailable
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                      : 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                  }`}
+                >
+                  {editProductIsAvailable ? 'Disponible' : 'Agotado'}
+                </button>
+              </div>
+
+              {/* Descripción, Medidas y Alcance */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Descripción, Medidas y Alcance (Libre)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Medidas (ej: 105x85x35cm), qué incluye, qué no incluye, materiales o alcance..."
+                  value={editProductDescription}
+                  onChange={(e) => setEditProductDescription(e.target.value)}
+                  disabled={isSavingEdit}
+                  className="w-full text-xs p-2.5 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  La IA usará estos datos para responder con precisión y cerrar la venta sin alucinar.
+                </p>
               </div>
 
               {/* Palabras clave / Sinónimos para WhatsApp */}

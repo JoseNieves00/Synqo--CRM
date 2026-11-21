@@ -14,6 +14,7 @@ import { formatImageMessageContent, formatDocumentMessageContent, formatAudioMes
 import { OpenAIService } from '@/services/openai.service';
 import { InboundCoreService } from '@/services/inbound-core.service';
 import { isLeadWindowOpen } from '@/services/contact.service';
+import { teachAgentFromSandboxAction } from '@/app/actions/prompt-assistant';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -2081,7 +2082,7 @@ export async function submitAiFeedback(params: {
     })
     .eq('id', messageId);
 
-  // 3. Si necesita mejora o incluye corrección, crear entrada en ai_knowledge_gaps
+  // 3. Si necesita mejora o incluye corrección, crear entrada en ai_knowledge_gaps y auto-parchar el prompt de la empresa
   if (feedback === 'needs_improvement' || correctAnswer) {
     const { data: previousLeadMsgs } = await (supabaseAdmin.from('messages') as any)
       .select('content')
@@ -2102,6 +2103,22 @@ export async function submitAiFeedback(params: {
       ai_category: 'correccion_chat',
       occurrences: 1,
     });
+
+    // In-Chat Learning: Si el asesor brindó la respuesta correcta o el motivo, parchar el prompt de inmediato
+    if (correctAnswer || feedbackText) {
+      try {
+        await teachAgentFromSandboxAction({
+          userInstruction: correctAnswer
+            ? `Cuando el cliente pregunte algo similar a esto, responde o incluye: "${correctAnswer}". ${feedbackText ? `Motivo/Regla: ${feedbackText}` : ''}`
+            : `Regla comercial dada por el asesor: ${feedbackText}`,
+          simulatedQuestion: questionText,
+          simulatedAiReply: msg.content,
+          targetOrganizationId: orgId,
+        });
+      } catch (teachErr) {
+        console.warn('[submitAiFeedback] No se pudo auto-parchar el prompt:', teachErr);
+      }
+    }
   }
 
   return { success: true };

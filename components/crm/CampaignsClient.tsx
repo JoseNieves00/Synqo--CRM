@@ -310,6 +310,123 @@ export function CampaignsClient({
             </button>
           </div>
 
+          {/* Plantillas Creativas 1-Clic para Nichos (Productos & Servicios) */}
+          <div className="rounded-xl border border-[#0052FF]/20 bg-[#0052FF]/5 p-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[#0052FF] dark:text-[#00D2FF]">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Plantillas Rápidas con 1 Clic (Creatividad Comercial para tu Nicho)</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setName('Reactivación Plan Separe / Apartado');
+                  setObjective(
+                    'Recontacta al cliente con calidez recordando el modelo o producto que le interesó. Ofrécele la facilidad de apartarlo hoy con un abono inicial mínimo mediante Plan Separe, asegurando su disponibilidad y pagando el saldo a su propio ritmo.'
+                  );
+                  setFilters(normalizeCustomerFilters({ temperature: 'warm', inactiveDays: 3 }));
+                  setIncludeProductPhoto(true);
+                  setDailyCap(40);
+                }}
+                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-base">🏷️</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
+                    Productos
+                  </span>
+                </div>
+                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
+                  Plan Separe / Abono
+                </div>
+                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                  Apartar con abono inicial y pagar saldo a su ritmo.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setName('Bono Especial en Flete / Despacho');
+                  setObjective(
+                    'Saluda con calidez y resuélvele la duda del costo de despacho ofreciéndole un beneficio especial o flete preferencial si confirma su compra esta semana sin demoras.'
+                  );
+                  setFilters(normalizeCustomerFilters({ temperature: 'qualified_doubt' }));
+                  setIncludeProductPhoto(true);
+                  setDailyCap(40);
+                }}
+                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-base">🚚</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300">
+                    Productos
+                  </span>
+                </div>
+                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
+                  Romper Objeción de Flete
+                </div>
+                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                  Beneficio especial en el valor o tiempo de envío.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setName('Cupos de Diagnóstico o Valoración');
+                  setObjective(
+                    'Invita amablemente al cliente a agendar una cita o valoración personalizada sin costo o con cupo prioritario esta semana para analizar su caso directamente con un especialista.'
+                  );
+                  setFilters(normalizeCustomerFilters({ temperature: 'warm', inactiveDays: 2 }));
+                  setIncludeProductPhoto(false);
+                  setDailyCap(35);
+                }}
+                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-base">🩺</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
+                    Servicios
+                  </span>
+                </div>
+                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
+                  Valoración / Cita Gratis
+                </div>
+                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                  Agendamiento de diagnóstico o cupo prioritario.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setName('Reactivación Inactivos +15 Días');
+                  setObjective(
+                    'Saluda con afecto recordando su consulta previa, menciónale que estamos organizando las entregas y cupos de la semana y pregúntale de forma sencilla si aún desea concretar su pedido o cita.'
+                  );
+                  setFilters(normalizeCustomerFilters({ inactiveDays: 15 }));
+                  setIncludeProductPhoto(true);
+                  setDailyCap(30);
+                }}
+                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="text-base">✨</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300">
+                    General
+                  </span>
+                </div>
+                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
+                  Reactivar Inactivos
+                </div>
+                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                  Recuperar clientes de más de 15 días en frío.
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Preset Saved Segments */}
           {meta.segments.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">

@@ -143,8 +143,19 @@ export class HandoffService {
       const lastContentSnippet = lastMsg?.content ? `"${lastMsg.content.slice(0, 140)}"` : 'Consulta entrante';
       const advisorFirstName = (agentProfile.full_name || 'Asesor').split(' ')[0];
 
+      // Detección de intención de compra
+      const isBuyingIntent =
+        contact.custom_fields?.lead_temperature === 'hot' ||
+        /pago|transfer|cuenta|comprar|nequi|bancolombia|consign|separar|separe|pedido/i.test(reason) ||
+        (typeof contact.deal_value === 'number' && contact.deal_value > 0);
+
+      const alertHeading = isBuyingIntent ? '🔔 *¡Posible prospecto a comprar!*' : '🚨 *Nuevo Lead Asignado*';
+      const valueLine = contact.deal_value && Number(contact.deal_value) > 0
+        ? `\n• *Monto estimado:* $${Number(contact.deal_value).toLocaleString('es-CO')} COP`
+        : '';
+
       // Formato profesional y accionable para WhatsApp
-      const alertBody = `🚨 *Nuevo Lead Asignado*\n\nHola *${advisorFirstName}*, se te ha asignado un prospecto que requiere tu atención:\n• *Cliente:* ${leadDisplayName} (${leadContactInfo})\n• *Motivo:* ${reason}\n• *Último mensaje:* ${lastContentSnippet}\n\n👉 *Abrir en CRM:* https://crm.synqo.dev/inbox/${contactId}\n\n_Tip: Responde citando este mensaje para escribirle directamente al cliente desde tu WhatsApp, o responde *1* para confirmar que lo tomaste._`;
+      const alertBody = `${alertHeading}\n\nHola *${advisorFirstName}*, el prospecto *${leadDisplayName}* (${leadContactInfo}) requiere atención comercial:\n• *Motivo:* ${reason}${valueLine}\n• *Último mensaje:* ${lastContentSnippet}\n\n👉 *Abrir en CRM:* https://crm.synqo.dev/inbox/${contactId}\n\n_Tip: Responde citando este mensaje para escribirle directamente al cliente desde tu WhatsApp, o responde *1* para confirmar que lo tomaste._`;
 
       // 7. Despacho autónomo por la línea de WhatsApp de la empresa
       let outboundMessageId: string | null = null;

@@ -9,6 +9,7 @@ import {
   Kanban,
   Users,
   Calendar,
+  ShoppingBag,
   Settings,
   ShieldCheck,
 } from 'lucide-react';
@@ -53,6 +54,9 @@ export function MobileBottomNav({ isAdmin, isSuperAdmin = false, enabledModules 
     { href: '/clientes', label: 'Clientes', icon: Users, exact: false },
     ...(enabledModules?.native_calendar !== false
       ? [{ href: '/calendar', label: 'Agenda', icon: Calendar, exact: false }]
+      : []),
+    ...(enabledModules?.orders !== false
+      ? [{ href: '/pedidos', label: 'Pedidos', icon: ShoppingBag, exact: false }]
       : []),
     ...(isAdmin ? [{ href: '/settings', label: 'Ajustes', icon: Settings, exact: false }] : []),
     ...(isSuperAdmin

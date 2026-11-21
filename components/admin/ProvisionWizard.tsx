@@ -15,6 +15,9 @@ import {
   Smartphone,
   ShieldCheck,
   Users,
+  ShoppingBag,
+  Calendar,
+  Layers,
 } from 'lucide-react';
 import { provisionCompany } from '@/app/actions/superadmin';
 
@@ -26,6 +29,7 @@ interface Props {
 export function ProvisionWizard({ onSuccess, onCancel }: Props) {
   // Datos de la empresa
   const [companyName, setCompanyName] = useState('');
+  const [businessModel, setBusinessModel] = useState<'products' | 'services' | 'hybrid'>('products');
   const [planType, setPlanType] = useState<'starter' | 'core' | 'pro' | 'enterprise'>('core');
   const [maxUsers, setMaxUsers] = useState<number>(3);
 
@@ -73,6 +77,7 @@ export function ProvisionWizard({ onSuccess, onCancel }: Props) {
         adminPassword,
         planType,
         maxUsers,
+        industryPreset: businessModel,
         whatsappProvider,
       });
 
@@ -186,6 +191,68 @@ Por seguridad te sugerimos cambiar tu contraseña una vez ingreses al sistema. �
                     placeholder="Ej. Distribuidora del Valle, Asesorías Pro, Clínica Dental…"
                     className="w-full h-10 px-3.5 rounded-xl bg-white border border-gray-200 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 transition font-medium shadow-xs"
                   />
+                </div>
+
+                {/* Modelo Comercial Puro */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Modelo de Operación *
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setBusinessModel('products')}
+                      className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
+                        businessModel === 'products'
+                          ? 'border-[#0052FF] bg-blue-50/70 shadow-xs ring-1 ring-[#0052FF]'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                        <ShoppingBag className="w-3.5 h-3.5 text-[#0052FF]" />
+                        <span>Vende Productos</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        E-commerce, tiendas, catálogo físico. Habilita Pedidos.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBusinessModel('services')}
+                      className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
+                        businessModel === 'services'
+                          ? 'border-[#0052FF] bg-blue-50/70 shadow-xs ring-1 ring-[#0052FF]'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                        <Calendar className="w-3.5 h-3.5 text-[#0052FF]" />
+                        <span>Vende Servicios</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        Consultorías, citas, salud. Habilita Agenda Google Calendar.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBusinessModel('hybrid')}
+                      className={`p-3 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
+                        businessModel === 'hybrid'
+                          ? 'border-[#0052FF] bg-blue-50/70 shadow-xs ring-1 ring-[#0052FF]'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                        <Layers className="w-3.5 h-3.5 text-[#0052FF]" />
+                        <span>Modelo Híbrido</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        Spas, clínicas, talleres. Habilita Citas + Pedidos unificados.
+                      </p>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
