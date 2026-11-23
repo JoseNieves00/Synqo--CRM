@@ -46,6 +46,8 @@ export interface ReactivationResult {
  * - Evolution: aplica cadencia anti-ban y tope diario configurable.
  */
 export class LeadReactivationService {
+  private static inFlightContacts = new Set<string>();
+
   static getLocalScheduleState(businessHours: any, timeZone: string): { isAllowed: boolean } {
     try {
       const now = new Date();
@@ -347,127 +349,177 @@ export class LeadReactivationService {
       category,
       stepIndex,
     } = params;
-    const provider = org.whatsapp_provider || 'meta';
-    const custom = (contact.custom_fields as Record<string, any>) || {};
-    const is24hOpen = isLeadWindowOpen(contact);
-    const targetRecipient = custom.remote_jid || custom.whatsapp_jid || contact.phone;
 
-    let metaMessageId: string | null = null;
+    // 1. Candado en memoria del proceso (evita ejecuciones paralelas en el mismo hilo)
+    if (this.inFlightContacts.has(contact.id)) {
+      console.warn(`[FOLLOWUP MUTEX] Contacto ${contact.id} ya está en procesamiento en este hilo. Omitiendo.`);
+      return { sent: false, skippedReason: 'already_in_flight' };
+    }
+    this.inFlightContacts.add(contact.id);
 
-    if (provider === 'meta' && !is24hOpen) {
-      const tplToUse = (metaTemplateName || '').trim();
-      if (!tplToUse) {
-        return { sent: false, skippedReason: 'meta_outside_24h_no_template' };
+    try {
+      const provider = org.whatsapp_provider || 'meta';
+      const custom = (contact.custom_fields as Record<string, any>) || {};
+
+      // 2. Candado Atómico de Idempotencia:
+      // Validar si el contacto ya recibió un mensaje saliente (IA, asesor o sistema) en los últimos 30 minutos
+      // (Elimina de raíz los envíos duplicados de 400ms provocados por invocaciones concurrentes del cron)
+      const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: recentOutbound } = await (supabaseAdmin.from('messages') as any)
+        .select('id')
+        .eq('contact_id', contact.id)
+        .in('sender_type', ['ai', 'agent', 'agent_manual', 'system'])
+        .gte('created_at', thirtyMinsAgo)
+        .limit(1)
+        .maybeSingle();
+
+      if (recentOutbound) {
+        console.warn(`[FOLLOWUP IDEMPOTENCY] Abortando envío: Contacto ${contact.id} ya recibió mensaje saliente en los últimos 30 minutos.`);
+        return { sent: false, skippedReason: 'already_messaged_recently' };
       }
-      const productName = await this.deduceCanonicalProductInterest({
-        contact,
-        org,
-        cf: custom,
-        category: params.category,
-      });
-      const explicitComponents = buildMetaTemplateBodyComponents({
-        templateParams: metaTemplateParams,
-        contactName: contact.name,
-        productName,
-        companyName: org.name,
-      });
 
-      try {
-        metaMessageId = await MessagingService.sendTemplateMessage({
-          organization: org,
-          to: contact.phone,
-          templateKey: tplToUse,
-          templateName: tplToUse,
-          ...(metaTemplateLanguage ? { languageCode: metaTemplateLanguage } : {}),
-          ...(explicitComponents.length > 0 ? { components: explicitComponents } : {}),
+      // 3. Comprobar timestamp de intento reciente en custom_fields (< 5 minutos)
+      const lastAttempt = custom.last_followup_attempt_at;
+      if (lastAttempt) {
+        const lastAttemptMs = new Date(lastAttempt).getTime();
+        if (Date.now() - lastAttemptMs < 5 * 60 * 1000) {
+          console.warn(`[FOLLOWUP IDEMPOTENCY] Contacto ${contact.id} tuvo intento de seguimiento hace < 5 minutos. Omitiendo.`);
+          return { sent: false, skippedReason: 'recent_attempt_lock' };
+        }
+      }
+
+      // Marcar intento en base de datos antes de disparar llamadas a APIs externas
+      await (supabaseAdmin.from('contacts') as any)
+        .update({
+          custom_fields: {
+            ...custom,
+            last_followup_attempt_at: new Date().toISOString(),
+          },
+        })
+        .eq('id', contact.id);
+
+      const is24hOpen = isLeadWindowOpen(contact);
+      const targetRecipient = custom.remote_jid || custom.whatsapp_jid || contact.phone;
+
+      let metaMessageId: string | null = null;
+
+      if (provider === 'meta' && !is24hOpen) {
+        const tplToUse = (metaTemplateName || '').trim();
+        if (!tplToUse) {
+          return { sent: false, skippedReason: 'meta_outside_24h_no_template' };
+        }
+        const productName = await this.deduceCanonicalProductInterest({
+          contact,
+          org,
+          cf: custom,
+          category: params.category,
         });
-      } catch (tplErr: any) {
-        const msg = String(tplErr?.message || '');
-        const isParamMismatch = /(132000|parameter|parameters|variable|variables)/i.test(msg);
-        if (isParamMismatch && explicitComponents.length === 0) {
-          const fallbackParamPresets: string[][] = [
-            ['{nombre}'],
-            ['{nombre}', '{producto}'],
-            ['{nombre}', '{producto}', '{empresa}'],
-          ];
-          let recovered = false;
-          for (const preset of fallbackParamPresets) {
-            try {
-              const comps = buildMetaTemplateBodyComponents({
-                templateParams: preset,
-                contactName: contact.name,
-                productName,
-                companyName: org.name,
-              });
-              metaMessageId = await MessagingService.sendTemplateMessage({
-                organization: org,
-                to: contact.phone,
-                templateKey: tplToUse,
-                templateName: tplToUse,
-                ...(metaTemplateLanguage ? { languageCode: metaTemplateLanguage } : {}),
-                components: comps,
-              });
-              recovered = true;
-              break;
-            } catch {}
-          }
-          if (!recovered) {
+        const explicitComponents = buildMetaTemplateBodyComponents({
+          templateParams: metaTemplateParams,
+          contactName: contact.name,
+          productName,
+          companyName: org.name,
+        });
+
+        try {
+          metaMessageId = await MessagingService.sendTemplateMessage({
+            organization: org,
+            to: contact.phone,
+            templateKey: tplToUse,
+            templateName: tplToUse,
+            ...(metaTemplateLanguage ? { languageCode: metaTemplateLanguage } : {}),
+            ...(explicitComponents.length > 0 ? { components: explicitComponents } : {}),
+          });
+        } catch (tplErr: any) {
+          const msg = String(tplErr?.message || '');
+          const isParamMismatch = /(132000|parameter|parameters|variable|variables)/i.test(msg);
+          if (isParamMismatch && explicitComponents.length === 0) {
+            const fallbackParamPresets: string[][] = [
+              ['{nombre}'],
+              ['{nombre}', '{producto}'],
+              ['{nombre}', '{producto}', '{empresa}'],
+            ];
+            let recovered = false;
+            for (const preset of fallbackParamPresets) {
+              try {
+                const comps = buildMetaTemplateBodyComponents({
+                  templateParams: preset,
+                  contactName: contact.name,
+                  productName,
+                  companyName: org.name,
+                });
+                metaMessageId = await MessagingService.sendTemplateMessage({
+                  organization: org,
+                  to: contact.phone,
+                  templateKey: tplToUse,
+                  templateName: tplToUse,
+                  ...(metaTemplateLanguage ? { languageCode: metaTemplateLanguage } : {}),
+                  components: comps,
+                });
+                recovered = true;
+                break;
+              } catch {}
+            }
+            if (!recovered) {
+              return { sent: false, error: `Fallo plantilla Meta (${tplToUse}) a ${contact.phone}: ${msg}` };
+            }
+          } else {
             return { sent: false, error: `Fallo plantilla Meta (${tplToUse}) a ${contact.phone}: ${msg}` };
           }
-        } else {
-          return { sent: false, error: `Fallo plantilla Meta (${tplToUse}) a ${contact.phone}: ${msg}` };
         }
-      }
-    } else {
-      try {
-        metaMessageId = await MessagingService.sendTextMessage({
-          organization: org,
-          to: targetRecipient,
-          body: bodyMessage,
-          simulateTyping: false,
-          isColdOutbound: true,
-        });
+      } else {
+        try {
+          metaMessageId = await MessagingService.sendTextMessage({
+            organization: org,
+            to: targetRecipient,
+            body: bodyMessage,
+            simulateTyping: false,
+            isColdOutbound: true,
+          });
 
-        for (const imgUrl of imageUrls.slice(0, 3)) {
-          try {
-            if (provider === 'evolution') {
-              await sleep(1200 + Math.floor(Math.random() * 1000));
+          for (const imgUrl of imageUrls.slice(0, 3)) {
+            try {
+              if (provider === 'evolution') {
+                await sleep(1200 + Math.floor(Math.random() * 1000));
+              }
+              const imgId = await MessagingService.sendMediaMessage({
+                organization: org,
+                to: targetRecipient,
+                mediaUrl: imgUrl,
+                mediaType: 'image',
+              });
+              await (supabaseAdmin.from('messages') as any).insert({
+                contact_id: contact.id,
+                organization_id: org.id,
+                sender_type: 'ai',
+                content: formatImageMessageContent(imgUrl, ''),
+                status: 'sent',
+                channel: 'whatsapp',
+                meta_message_id: imgId || null,
+              });
+            } catch (imgErr: any) {
+              console.warn('[FOLLOWUP IMAGE SEND WARN]', imgErr?.message || imgErr);
             }
-            const imgId = await MessagingService.sendMediaMessage({
-              organization: org,
-              to: targetRecipient,
-              mediaUrl: imgUrl,
-              mediaType: 'image',
-            });
-            await (supabaseAdmin.from('messages') as any).insert({
-              contact_id: contact.id,
-              organization_id: org.id,
-              sender_type: 'ai',
-              content: formatImageMessageContent(imgUrl, ''),
-              status: 'sent',
-              channel: 'whatsapp',
-              meta_message_id: imgId || null,
-            });
-          } catch (imgErr: any) {
-            console.warn('[FOLLOWUP IMAGE SEND WARN]', imgErr?.message || imgErr);
           }
+        } catch (msgErr: any) {
+          return { sent: false, error: `Fallo envío a ${contact.phone}: ${msgErr?.message}` };
         }
-      } catch (msgErr: any) {
-        return { sent: false, error: `Fallo envío a ${contact.phone}: ${msgErr?.message}` };
       }
+
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contact.id,
+        organization_id: org.id,
+        sender_type: 'ai',
+        content: `🤖 [${stepLabel}${category ? ` · ${category}` : ''}${stepIndex !== undefined ? ` #${stepIndex + 1}` : ''}]: "${bodyMessage}"`,
+        status: 'sent',
+        channel: 'whatsapp',
+        meta_message_id: metaMessageId || null,
+      });
+
+      return { sent: true };
+    } finally {
+      this.inFlightContacts.delete(contact.id);
     }
-
-    await (supabaseAdmin.from('messages') as any).insert({
-      contact_id: contact.id,
-      organization_id: org.id,
-      sender_type: 'ai',
-      content: `🤖 [${stepLabel}${category ? ` · ${category}` : ''}${stepIndex !== undefined ? ` #${stepIndex + 1}` : ''}]: "${bodyMessage}"`,
-      status: 'sent',
-      channel: 'whatsapp',
-      meta_message_id: metaMessageId || null,
-    });
-
-    return { sent: true };
   }
 
   /**

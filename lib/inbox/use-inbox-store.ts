@@ -7,7 +7,7 @@ import {
   type InboxSortMode,
 } from './buckets';
 
-export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
+export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados' | 'todos';
 
 export interface ContactItem {
   id: string;
@@ -54,6 +54,7 @@ export interface InboxCounts {
   ia_atendiendo: number;
   seguimiento: number;
   cerrados: number;
+  todos: number;
 }
 
 export interface InboxFilters {
@@ -166,6 +167,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     ia_atendiendo: [],
     seguimiento: [],
     cerrados: [],
+    todos: [],
   },
   messagesByContact: {},
 
@@ -185,6 +187,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     ia_atendiendo: 0,
     seguimiento: 0,
     cerrados: 0,
+    todos: 0,
   },
 
   bootstrap: null,

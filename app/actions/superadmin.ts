@@ -12,6 +12,7 @@ import { normalizeAlertThresholds, normalizeTokenPolicy } from '@/lib/monitoring
 import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
 import { getAssistantBudgetStatus, normalizeAssistantState } from '@/lib/ai/prompt-assistant/state';
 import { normalizeFollowUpSettings, type FollowUpSettingsConfig } from '@/lib/ai/follow-up-types';
+import { generateStarterPromptFromName } from '@/lib/ai/prompt-assistant/starter';
 
 const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'admin@synqo.dev').toLowerCase();
 
@@ -489,13 +490,7 @@ export async function provisionCompany(input: {
     ai_tokens_google_used: 0,
     ai_tokens_openai_used: 0,
     ai_tokens_openai_backup_limit: 25000,
-    system_prompt: `Eres el asesor comercial inteligente y ejecutivo de atención de ${validated.companyName}.
-Tu objetivo es brindar una atención inmediata, cordial y profesional a través de WhatsApp.
-Tus responsabilidades principales son:
-1. Resolver dudas sobre nuestros productos y servicios con precisión y calidez.
-2. Identificar el interés real del cliente y calificar sus necesidades.
-3. Brindar información de valor, cotizaciones y facilitar el agendamiento de citas o demostraciones comerciales.
-4. Cuando el cliente requiera atención personalizada o esté listo para cerrar una negociación, transfiere cordialmente la conversación a un asesor humano.`,
+    system_prompt: generateStarterPromptFromName(validated.companyName),
   };
 
   let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)

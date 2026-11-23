@@ -1432,13 +1432,22 @@ export async function endContactConversation(
   return { success: true };
 }
 
-export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados';
+export type InboxViewType = 'por_responder' | 'mis_abiertos' | 'ia_atendiendo' | 'seguimiento' | 'cerrados' | 'todos';
 export type SeguimientoFilterType = 'all' | 'ventas_a_medias' | 'compromisos' | 'por_reactivar';
 
 export interface SeguimientoSubCounts {
   ventas_a_medias: number;
   compromisos: number;
   por_reactivar: number;
+}
+
+export interface InboxCounts {
+  por_responder: number;
+  mis_abiertos: number;
+  ia_atendiendo: number;
+  seguimiento: number;
+  cerrados: number;
+  todos: number;
 }
 
 export interface ListInboxParams {
@@ -1547,49 +1556,63 @@ export async function listInbox({
     query = query.order('last_interaction_at', { ascending: true, nullsFirst: false });
   }
 
+  // 6. Búsqueda por texto (nombre, teléfono, instagram) sanitizada para sintaxis PostgREST
+  const cleanSearch = (search || '').trim().replace(/[%_(),]/g, '');
+  const cleanDigits = cleanSearch.replace(/\D/g, '');
+
   // 1. Filtros por Vista / Bandeja Principal (alineados 1:1 con getInboxCounts y lib/inbox/buckets.ts)
-  if (view === 'por_responder') {
-    // Solo chats abiertos que requieren atención humana real (nunca chats recién respondidos o atendidos normalmente por IA)
-    query = query
-      .neq('conversation_status', 'closed')
-      .or(buildPorResponderOrFilter(staleAiIso))
-      .order('waiting_since', { ascending: true, nullsFirst: false })
-      .order('last_interaction_at', { ascending: true, nullsFirst: false });
-  } else if (view === 'mis_abiertos') {
-    // Chats asignados a mí que no están cerrados (orden estilo WhatsApp Web: más reciente arriba)
-    query = query
-      .eq('assigned_to', user.id)
-      .neq('conversation_status', 'closed')
-      .order('last_interaction_at', { ascending: false, nullsFirst: false })
-      .order('updated_at', { ascending: false });
-  } else if (view === 'ia_atendiendo') {
-    // Chats activos donde la IA tiene el control (excluyendo relevos humanos; orden WhatsApp Web: más reciente arriba)
-    query = query
-      .eq('is_ai_active', true)
-      .neq('conversation_status', 'closed')
-      .or('custom_fields->>unattended_handoff.is.null,custom_fields->>unattended_handoff.neq.true')
-      .order('last_interaction_at', { ascending: false, nullsFirst: false })
-      .order('updated_at', { ascending: false });
-  } else if (view === 'seguimiento') {
-    // Chats con pausa de IA (snooze), recordatorio activo, o prospectos en silencio (>24h y <10d) para reactivar
-    const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
-    query = query
-      .neq('conversation_status', 'closed')
-      .is('waiting_since', null)
-      .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
-      .or(SEGUIMIENTO_EXCLUDE_COLD_OR)
-      .or(SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR)
-      .or(buildSeguimientoOrFilter(d24h, d10d))
-      .order('last_interaction_at', { ascending: false, nullsFirst: false })
-      .order('updated_at', { ascending: false });
-  } else if (view === 'cerrados') {
-    // Historial archivado de chats finalizados
-    query = query
-      .eq('conversation_status', 'closed')
-      .order('last_interaction_at', { ascending: false, nullsFirst: false })
-      .order('updated_at', { ascending: false });
+  // REGLA FUNDAMENTAL: Si el usuario escribe una búsqueda, esta es INDEPENDIENTE DEL FILTRO:
+  // busca en todos los contactos de la organización sin importar su estado.
+  if (!cleanSearch) {
+    if (view === 'por_responder') {
+      // Solo chats abiertos que requieren atención humana real (nunca chats recién respondidos o atendidos normalmente por IA)
+      query = query
+        .neq('conversation_status', 'closed')
+        .or(buildPorResponderOrFilter(staleAiIso))
+        .order('waiting_since', { ascending: true, nullsFirst: false })
+        .order('last_interaction_at', { ascending: true, nullsFirst: false });
+    } else if (view === 'mis_abiertos') {
+      // Chats asignados a mí que no están cerrados (orden estilo WhatsApp Web: más reciente arriba)
+      query = query
+        .eq('assigned_to', user.id)
+        .neq('conversation_status', 'closed')
+        .order('last_interaction_at', { ascending: false, nullsFirst: false })
+        .order('updated_at', { ascending: false });
+    } else if (view === 'ia_atendiendo') {
+      // Chats activos donde la IA tiene el control (excluyendo relevos humanos; orden WhatsApp Web: más reciente arriba)
+      query = query
+        .eq('is_ai_active', true)
+        .neq('conversation_status', 'closed')
+        .or('custom_fields->>unattended_handoff.is.null,custom_fields->>unattended_handoff.neq.true')
+        .order('last_interaction_at', { ascending: false, nullsFirst: false })
+        .order('updated_at', { ascending: false });
+    } else if (view === 'seguimiento') {
+      // Chats con pausa de IA (snooze), recordatorio activo, o prospectos en silencio (>24h y <10d) para reactivar
+      const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
+      query = query
+        .neq('conversation_status', 'closed')
+        .is('waiting_since', null)
+        .not('pipeline_stage', 'in', '("ganado","perdido","cita_agendada")')
+        .or(SEGUIMIENTO_EXCLUDE_COLD_OR)
+        .or(SEGUIMIENTO_EXCLUDE_LEGACY_COLD_OR)
+        .or(buildSeguimientoOrFilter(d24h, d10d))
+        .order('last_interaction_at', { ascending: false, nullsFirst: false })
+        .order('updated_at', { ascending: false });
+    } else if (view === 'cerrados') {
+      // Historial archivado de chats finalizados
+      query = query
+        .eq('conversation_status', 'closed')
+        .order('last_interaction_at', { ascending: false, nullsFirst: false })
+        .order('updated_at', { ascending: false });
+    } else {
+      // view === 'todos' u otros: sin restricción de estado
+      query = query
+        .order('last_interaction_at', { ascending: false, nullsFirst: false })
+        .order('updated_at', { ascending: false });
+    }
   } else {
+    // Si hay búsqueda activa, ordenamos por interacción más reciente en toda la organización
     query = query
       .order('last_interaction_at', { ascending: false, nullsFirst: false })
       .order('updated_at', { ascending: false });
@@ -1618,18 +1641,19 @@ export async function listInbox({
   }
 
   // 5. Filtro de Temperatura del Lead (compatible con lead_temperature, clave legada temperature y sin clasificar)
-  // Usa la columna indexada lead_temperature (sincronizada por trigger desde custom_fields).
-  // Se valida contra la lista blanca para no interpolar valores arbitrarios en el filtro.
   if (temperature === 'unclassified') {
     query = query.is('lead_temperature', null);
   } else if (temperature && ['hot', 'qualified_doubt', 'warm', 'cold'].includes(temperature)) {
     query = query.eq('lead_temperature', temperature);
   }
 
-  // 6. Búsqueda por texto (nombre, teléfono, instagram) sanitizada para sintaxis PostgREST
-  const cleanSearch = (search || '').trim().replace(/[%_(),]/g, '');
+  // 6. Búsqueda por texto (nombre, teléfono higienizado por dígitos, instagram)
   if (cleanSearch) {
-    query = query.or(`name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%,instagram_username.ilike.%${cleanSearch}%`);
+    if (cleanDigits.length >= 3) {
+      query = query.or(`name.ilike.%${cleanSearch}%,phone.ilike.%${cleanDigits}%,instagram_username.ilike.%${cleanSearch}%`);
+    } else {
+      query = query.or(`name.ilike.%${cleanSearch}%,instagram_username.ilike.%${cleanSearch}%`);
+    }
   }
 
   // Para Seguimiento, evaluamos el universo filtrado completo (excluyente entre sub-bandejas) para evitar pérdida por paginación
@@ -1701,7 +1725,7 @@ export async function getInboxCounts(): Promise<InboxCounts> {
   const d24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const d10d = new Date(Date.now() - 240 * 3600 * 1000).toISOString();
 
-  const [resPorResponder, resMisAbiertos, resIa, resSeguimiento, resCerrados] = await Promise.all([
+  const [resPorResponder, resMisAbiertos, resIa, resSeguimiento, resCerrados, resTodos] = await Promise.all([
     (supabaseAdmin.from('contacts') as any)
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
@@ -1737,6 +1761,10 @@ export async function getInboxCounts(): Promise<InboxCounts> {
       .eq('organization_id', orgId)
       .is('deleted_at', null)
       .eq('conversation_status', 'closed'),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .is('deleted_at', null),
   ]);
 
   const nowMs = Date.now();
@@ -1751,6 +1779,7 @@ export async function getInboxCounts(): Promise<InboxCounts> {
     ia_atendiendo: resIa.count || 0,
     seguimiento: validSeguimientoCount,
     cerrados: resCerrados.count || 0,
+    todos: resTodos?.count || 0,
   };
 }
 
@@ -1802,6 +1831,65 @@ export async function reopenContactConversation(contactId: string) {
   });
 
   return { success: true };
+}
+
+/**
+ * Marca o desmarca un contacto como Exento de IA (atención exclusivamente humana).
+ * Ahorro del 100% de tokens y evita que la IA responda a proveedores, transportadoras o personales.
+ */
+export async function toggleContactAiExempt(contactId: string, exempt: boolean) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('id, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!contact) throw new Error('Contacto no encontrado');
+
+  const currentCustom = (contact.custom_fields as Record<string, any>) || {};
+  const updatedCustom = {
+    ...currentCustom,
+    is_ai_exempt: exempt,
+    ai_exempt: exempt,
+  };
+
+  const updatePayload: Record<string, any> = {
+    custom_fields: updatedCustom,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (exempt) {
+    updatePayload.is_ai_active = false;
+  }
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update(updatePayload)
+    .eq('id', contactId);
+
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: contactId,
+    organization_id: profile.organization_id,
+    sender_type: 'system',
+    content: exempt
+      ? `[🛡️ Contacto marcado como Exento de IA por ${profile.full_name || 'Asesor'} (Atención 100% humana, 0 tokens)]`
+      : `[🤖 Contacto habilitado para atención con IA por ${profile.full_name || 'Asesor'}]`,
+  });
+
+  revalidatePath('/inbox');
+  revalidatePath(`/inbox/${contactId}`);
+
+  return { success: true, exempt };
 }
 
 

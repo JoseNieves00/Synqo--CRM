@@ -17,7 +17,8 @@ export type CanonicalInboxView =
   | 'mis_abiertos'
   | 'ia_atendiendo'
   | 'seguimiento'
-  | 'cerrados';
+  | 'cerrados'
+  | 'todos';
 
 function resolveLastSender(c: any): string | null {
   return (
@@ -187,6 +188,8 @@ export function contactMatchesInboxView(
       return contactNeedsFollowUp(c, nowMs);
     case 'cerrados':
       return contactIsClosed(c);
+    case 'todos':
+      return true;
     default:
       return false;
   }

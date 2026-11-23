@@ -29,6 +29,7 @@ import {
   Star,
   ImagePlus,
   Layers,
+  Search,
 } from 'lucide-react';
 import { stripXmlToCleanText } from '@/lib/ai/prompt-compiler';
 import { estimatePromptTokens } from '@/lib/ai/prompt-assistant/versions';
@@ -135,6 +136,29 @@ export function StructuredPromptWizard({
   const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Estados para vista y modal "Ver todo" con paginación
+  const [isVerTodoOpen, setIsVerTodoOpen] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogPage, setCatalogPage] = useState(1);
+  const ITEMS_PER_PAGE = 12;
+
+  const filteredCatalogProducts = React.useMemo(() => {
+    if (!catalogSearch.trim()) return groupedProducts;
+    const q = catalogSearch.toLowerCase().trim();
+    return groupedProducts.filter(
+      (p) =>
+        p.productName.toLowerCase().includes(q) ||
+        (p.price && p.price.toLowerCase().includes(q)) ||
+        (p.description && p.description.toLowerCase().includes(q))
+    );
+  }, [groupedProducts, catalogSearch]);
+
+  const totalCatalogPages = Math.max(1, Math.ceil(filteredCatalogProducts.length / ITEMS_PER_PAGE));
+  const paginatedCatalogProducts = filteredCatalogProducts.slice(
+    (catalogPage - 1) * ITEMS_PER_PAGE,
+    catalogPage * ITEMS_PER_PAGE
+  );
 
   // Función unificada para compilar y propagar hacia el padre (SettingsForm).
   // La galería YA NO se incrusta como cola de texto (`=== CATÁLOGO VISUAL ===`) en el prompt
@@ -777,25 +801,41 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 <ImageIcon className="w-4 h-4" />
               </div>
               <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                Catálogo Visual de Productos (WhatsApp)
+                Catálogo de Productos y Servicios (WhatsApp)
               </h4>
               <span className="text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">
-                {groupedProducts.length} {groupedProducts.length === 1 ? 'producto' : 'productos'} · {gallery.length} {gallery.length === 1 ? 'foto' : 'fotos'}
+                {groupedProducts.length} {groupedProducts.length === 1 ? 'ítem' : 'ítems'} · {gallery.length} {gallery.length === 1 ? 'foto' : 'fotos'}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Organiza tus productos y agrega fotos alternas (ángulos, detalles o variantes) a cada uno. La IA y los asesores podrán despacharlas por WhatsApp sin duplicar productos.
+              Organiza tus productos y servicios, edita precios y agrega fotos oficiales. La IA y los asesores podrán despacharlas por WhatsApp en 1 clic.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => handleOpenAddModal()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-xs font-semibold hover:bg-slate-800 dark:hover:bg-slate-100 transition cursor-pointer shadow-xs self-start sm:self-auto shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Nuevo Producto</span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            {groupedProducts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCatalogPage(1);
+                  setCatalogSearch('');
+                  setIsVerTodoOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer shadow-2xs"
+              >
+                <span>Ver todo</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => handleOpenAddModal()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-xs font-semibold hover:bg-slate-800 dark:hover:bg-slate-100 transition cursor-pointer shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Nuevo Ítem</span>
+            </button>
+          </div>
         </div>
 
         {/* Notificación de Sincronización en Base de Datos */}
@@ -1891,6 +1931,149 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                 Insertar Esta Plantilla en el Asistente
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal Portaled "Ver todo" (Catálogo Completo Paginado con CRUD) */}
+      {isVerTodoOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Cabecera */}
+            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#1E2433]">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Catálogo de Productos y Servicios
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {filteredCatalogProducts.length} ítems encontrados · Página {catalogPage} de {totalCatalogPages}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVerTodoOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Buscador y Acciones */}
+            <div className="shrink-0 px-6 py-3 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/50 dark:bg-[#090A0F]/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={catalogSearch}
+                  onChange={(e) => {
+                    setCatalogSearch(e.target.value);
+                    setCatalogPage(1);
+                  }}
+                  placeholder="Buscar por nombre, precio o descripción..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsVerTodoOpen(false);
+                  handleOpenAddModal();
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 text-xs font-semibold hover:bg-slate-800 dark:hover:bg-slate-100 transition cursor-pointer shadow-xs self-start sm:self-auto shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nuevo Ítem</span>
+              </button>
+            </div>
+
+            {/* Contenido Grid Paginado */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-6 [scrollbar-width:thin]">
+              {paginatedCatalogProducts.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    No se encontraron productos o servicios que coincidan con &quot;{catalogSearch}&quot;.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                  {paginatedCatalogProducts.map((product) => {
+                    const primary = product.primaryPhoto;
+                    return (
+                      <div
+                        key={product.id}
+                        className="rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] overflow-hidden flex flex-col justify-between shadow-xs hover:border-blue-400 transition"
+                      >
+                        <div className="relative aspect-video w-full bg-slate-100 dark:bg-slate-900 overflow-hidden">
+                          <img
+                            src={primary.url}
+                            alt={product.productName}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          {product.price && (
+                            <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-md bg-slate-900/85 text-emerald-300 text-[10px] font-bold">
+                              {product.price}
+                            </span>
+                          )}
+                        </div>
+                        <div className="p-2.5 flex-1 flex flex-col justify-between">
+                          <h5 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-1">
+                            {product.productName}
+                          </h5>
+                          {product.description && (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
+                              {product.description}
+                            </p>
+                          )}
+                          <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-[#1E2433] flex items-center justify-between">
+                            <span className="text-[10px] text-slate-400">
+                              {product.allPhotos.length} {product.allPhotos.length === 1 ? 'foto' : 'fotos'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsVerTodoOpen(false);
+                                handleOpenEditProductModal(product);
+                              }}
+                              className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                            >
+                              Editar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Paginación en Footer */}
+            {totalCatalogPages > 1 && (
+              <div className="shrink-0 flex items-center justify-between px-6 py-3 border-t border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#0E131F]">
+                <button
+                  type="button"
+                  disabled={catalogPage <= 1}
+                  onClick={() => setCatalogPage((p) => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-white/5 cursor-pointer"
+                >
+                  Anterior
+                </button>
+                <span className="text-xs text-slate-500 font-medium">
+                  Página {catalogPage} de {totalCatalogPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={catalogPage >= totalCatalogPages}
+                  onClick={() => setCatalogPage((p) => Math.min(totalCatalogPages, p + 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-white/5 cursor-pointer"
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
           </div>
         </div>,
         document.body

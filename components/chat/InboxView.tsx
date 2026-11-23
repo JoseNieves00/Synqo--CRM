@@ -139,6 +139,7 @@ export function InboxView({
       currentUserRole: currentUserRole || 'agent',
       initialContacts: initialContacts || [],
       initialCounts: initialCounts || {
+        todos: 0,
         por_responder: 0,
         mis_abiertos: 0,
         ia_atendiendo: 0,
@@ -249,7 +250,7 @@ export function InboxView({
     const agentParam = params.get('agent');
     const sortParam = params.get('sort');
 
-    if (viewParam && ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'].includes(viewParam)) {
+    if (viewParam && ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados', 'todos'].includes(viewParam)) {
       setActiveView(viewParam);
       useInboxStore.getState().setActiveView(viewParam);
     }

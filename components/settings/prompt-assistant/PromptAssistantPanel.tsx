@@ -598,10 +598,10 @@ export function PromptAssistantPanel({
             onClick={() => setShowVersionsMenu((v) => !v)}
             disabled={versions.length === 0}
             className="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0E121B] text-[11px] font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer disabled:opacity-40"
-            title="Restaurar una versión anterior del prompt"
+            title="Restaurar una versión anterior del prompt (últimas 3 versiones)"
           >
             <History className="w-3 h-3" />
-            <span>Historial ({versions.length})</span>
+            <span>Historial ({Math.min(versions.length, 3)})</span>
           </button>
 
           <button
@@ -632,9 +632,9 @@ export function PromptAssistantPanel({
           {showVersionsMenu && versions.length > 0 && (
             <div className="absolute top-8 left-0 z-20 w-72 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] shadow-xl p-1.5 space-y-1">
               <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Restaurar versión previa
+                Restaurar versión previa (últimas 3)
               </div>
-              {versions.map((ver) => (
+              {versions.slice(0, 3).map((ver) => (
                 <button
                   key={ver.id}
                   type="button"

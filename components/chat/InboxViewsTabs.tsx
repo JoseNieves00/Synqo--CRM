@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { InboxViewType, InboxCounts } from '@/app/actions/chat';
-import { Clock, UserCheck, Bot, CalendarCheck, Archive } from 'lucide-react';
+import { Clock, UserCheck, Bot, CalendarCheck, Archive, Users } from 'lucide-react';
 
 interface InboxViewsTabsProps {
   activeView: InboxViewType;
@@ -57,6 +57,15 @@ export function InboxViewsTabs({ activeView, counts, onChangeView }: InboxViewsT
       color: 'text-slate-500 dark:text-slate-400',
       badgeBg: 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700',
       tooltip: 'Historial de conversaciones finalizadas o archivadas',
+    },
+    {
+      id: 'todos' as InboxViewType,
+      label: 'Todos',
+      icon: Users,
+      count: counts.todos ?? 0,
+      color: 'text-indigo-600 dark:text-indigo-400',
+      badgeBg: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
+      tooltip: 'Todos los contactos y conversaciones de la organización',
     },
   ];
 

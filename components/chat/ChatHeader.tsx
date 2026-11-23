@@ -28,8 +28,10 @@ import {
   Copy,
   Check,
   Phone,
+  ShieldAlert,
 } from 'lucide-react';
 import { AiToggleSwitch } from './AiToggleSwitch';
+import { toggleContactAiExempt } from '@/app/actions/chat';
 import { getLeadWindowAnchor, PIPELINE_STAGES } from '@/services/contact.service';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
 import { contactNeedsHumanResponse } from '@/lib/inbox/buckets';
@@ -142,6 +144,26 @@ export function ChatHeader({
   const assignedMember = teamMembers.find((m) => m.id === contact.assigned_to);
 
   const isClosed = contact.conversation_status === 'closed' || contact.custom_fields?.conversation_status === 'closed';
+
+  const isAiExempt = Boolean(contact.custom_fields?.is_ai_exempt || contact.custom_fields?.ai_exempt);
+  const [isExemptLoading, setIsExemptLoading] = useState(false);
+  const [localExempt, setLocalExempt] = useState(isAiExempt);
+
+  useEffect(() => {
+    setLocalExempt(Boolean(contact.custom_fields?.is_ai_exempt || contact.custom_fields?.ai_exempt));
+  }, [contact.custom_fields]);
+
+  const handleToggleExempt = async () => {
+    setIsExemptLoading(true);
+    try {
+      const res = await toggleContactAiExempt(contact.id, !localExempt);
+      setLocalExempt(res.exempt);
+    } catch (err) {
+      console.error('Error al cambiar exención de IA:', err);
+    } finally {
+      setIsExemptLoading(false);
+    }
+  };
 
   // Cerrar dropdown al hacer click fuera
   useEffect(() => {
@@ -326,6 +348,26 @@ export function ChatHeader({
           initialIsAiActive={contact.is_ai_active}
           onToggle={onToggleAi}
         />
+
+        {/* Botón 1-Clic: Exento de IA (0 tokens, proveedores/amigos) */}
+        <button
+          type="button"
+          onClick={handleToggleExempt}
+          disabled={isExemptLoading}
+          className={`h-8 px-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+            localExempt
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300'
+              : 'border-slate-200 dark:border-[#232A3B] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5'
+          }`}
+          title={localExempt ? 'Contacto Exento de IA (0 tokens consumidos, atención humana exclusiva). Clic para reactivar IA.' : 'Eximir este contacto de IA (ideal para proveedores, transportadoras o personales)'}
+        >
+          {isExemptLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <ShieldAlert className={`w-3.5 h-3.5 ${localExempt ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
+          )}
+          <span className="hidden md:inline">{localExempt ? 'Exento IA' : 'Eximir IA'}</span>
+        </button>
 
         {/* Botón Intuitivo: 'Atendido' (solo visible si el chat requiere respuesta humana en 'Por responder') */}
         {!isClosed && onMarkAttended && contactNeedsHumanResponse(contact) && (

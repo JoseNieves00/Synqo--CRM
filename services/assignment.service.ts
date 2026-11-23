@@ -86,15 +86,20 @@ export class AssignmentService {
       }
 
       // Filtrar candidatos activos (no en modo 'busy' u 'offline')
-      const availableAgents = candidates.filter((agent: any) => {
+      let availableAgents = candidates.filter((agent: any) => {
         const isNotBusyOrOffline = !agent.availability_status || agent.availability_status === 'available';
         const isRecentlyActive = agent.last_seen_at && new Date(agent.last_seen_at) >= new Date(fiveMinutesAgo);
-        // Si tiene estado explícito 'available', lo consideramos disponible aunque su último heartbeat haya sido hace unos minutos
         return isNotBusyOrOffline && (agent.availability_status === 'available' || isRecentlyActive);
       });
 
+      // Si ningún agente tiene la pestaña abierta en este instante, hacer fallback a los asesores
+      // disponibles para que reciban la asignación y la alerta correspondiente por WhatsApp
       if (availableAgents.length === 0) {
-        return null;
+        availableAgents = candidates.filter((agent: any) => agent.availability_status !== 'busy' && agent.availability_status !== 'offline');
+      }
+
+      if (availableAgents.length === 0) {
+        availableAgents = candidates;
       }
 
       const agentIds = availableAgents.map((a: any) => a.id);

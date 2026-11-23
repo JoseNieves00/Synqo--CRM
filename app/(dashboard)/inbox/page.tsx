@@ -40,7 +40,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
     return <InboxMobileDisabledCard forceVisible />;
   }
 
-  const validViews: InboxViewType[] = ['por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'];
+  const validViews: InboxViewType[] = ['todos', 'por_responder', 'mis_abiertos', 'ia_atendiendo', 'seguimiento', 'cerrados'];
   const activeView: InboxViewType =
     searchParams?.view && validViews.includes(searchParams.view as InboxViewType)
       ? (searchParams.view as InboxViewType)
@@ -71,6 +71,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
       limit: 30,
     }).catch(() => ({ contacts: [], totalCount: 0 })),
     getInboxCounts().catch(() => ({
+      todos: 0,
       por_responder: 0,
       mis_abiertos: 0,
       ia_atendiendo: 0,

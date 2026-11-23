@@ -422,8 +422,9 @@ export function evaluateAutonomousCadenceSlot(params: {
       : 'unresponsive';
 
   if (attemptIndex === 0) {
+    // Recordatorio rápido de inactividad para leads calientes (48 min ~ 0.8h) para rescatar la venta
     const minFirstHours =
-      category === 'hot_unclosed' ? 3.5 : category === 'qualified_doubt' ? 6 : 24;
+      category === 'hot_unclosed' ? 0.8 : category === 'qualified_doubt' ? 4 : 24;
     if (hoursSinceInteraction < minFirstHours) return null;
 
     // Segundo toque: dentro de la ventana de 24h de Meta para calientes/dudas; 48h después para tibios

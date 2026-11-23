@@ -255,6 +255,37 @@ export function SettingsForm({
     initialData.mobileCoexistence || { enabled: true, autoResumeHours: 2 }
   );
 
+  const isPromptInitialMountRef = useRef(true);
+  const [promptAutosaveStatus, setPromptAutosaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [promptLastSavedAt, setPromptLastSavedAt] = useState<string | null>(null);
+
+  // Guardado automático debounced (1500ms) de prompt y configuración comercial
+  useEffect(() => {
+    if (isPromptInitialMountRef.current) {
+      isPromptInitialMountRef.current = false;
+      return;
+    }
+
+    setPromptAutosaveStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        await updateOrganizationSettings({
+          systemPrompt: systemPrompt || undefined,
+          structuredPromptData: structuredPromptData || undefined,
+          mobileCoexistence,
+        });
+        setPromptAutosaveStatus('saved');
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setPromptLastSavedAt(timeStr);
+      } catch (err) {
+        console.error('[Autosave Prompt Error]', err);
+        setPromptAutosaveStatus('idle');
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [systemPrompt, structuredPromptData, mobileCoexistence]);
+
   // Google Calendar & Google Meet state
   const [gcalId, setGcalId] = useState(initialData.googleCalendarId || '');
   const [gcalToken, setGcalToken] = useState('');
@@ -2456,14 +2487,29 @@ export function SettingsForm({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsSandboxOpen(true)}
-              className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Probar Bot en Sandbox</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {promptAutosaveStatus === 'saving' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20 text-[11px] font-medium">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Guardando...</span>
+                </span>
+              )}
+              {promptAutosaveStatus === 'saved' && promptLastSavedAt && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20 text-[11px] font-medium">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Guardado autom. ({promptLastSavedAt})</span>
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsSandboxOpen(true)}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Probar Bot en Sandbox</span>
+              </button>
+            </div>
           </div>
 
           {/* Wizard Visual Guiado */}

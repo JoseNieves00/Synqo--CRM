@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
+import { HandoffService } from '@/services/handoff.service';
 
 /**
  * Reclama un lead que se encuentra sin asignar.
@@ -141,6 +142,19 @@ export async function assignLeadByAdmin(contactId: string, targetAgentId: string
     sender_type: 'system',
     content: auditContent,
   });
+
+  // Notificar al asesor asignado de inmediato por WhatsApp y push web
+  if (targetAgentId) {
+    try {
+      await HandoffService.notifyHandoff({
+        organizationId: profile.organization_id,
+        contactId,
+        reason: `Lead asignado por ${profile.full_name || 'administrador'}`,
+      });
+    } catch (notifyErr) {
+      console.warn('[ASSIGNMENT NOTIFY WARN]', notifyErr);
+    }
+  }
 
   revalidatePath('/inbox');
   revalidatePath(`/inbox/${contactId}`);

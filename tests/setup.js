@@ -8,3 +8,10 @@ try {
     exports: {},
   };
 } catch {}
+
+try {
+  const React = require('react');
+  if (React && !React.cache) {
+    React.cache = (fn) => fn;
+  }
+} catch {}

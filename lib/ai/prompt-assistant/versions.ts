@@ -448,7 +448,18 @@ export function patchSectionInPrompt(
     nextBody = `## ${cleanTitle}\n${cleanBody}`;
   } else if (existingBlock) {
     const adapted = adaptBulletStyle(cleanBody, profile.bulletStyle);
-    const replacement = `${existingBlock.rawHeading}\n${adapted}\n\n`;
+    const existingContent = existingBlock.body.trim();
+    let mergedContent = adapted;
+    if (existingContent) {
+      // Evitar duplicar viñetas si la regla ya existe en la sección
+      const normAdapted = adapted.replace(/^[-*•]\s*/, '').toLowerCase().trim();
+      if (!existingContent.toLowerCase().includes(normAdapted)) {
+        mergedContent = `${existingContent}\n${adapted}`;
+      } else {
+        mergedContent = existingContent;
+      }
+    }
+    const replacement = `${existingBlock.rawHeading}\n${mergedContent}\n\n`;
     const before = body.slice(0, existingBlock.startIdx);
     const after = body.slice(existingBlock.endIdx).replace(/^\n+/, '');
     nextBody = `${before}${replacement}${after}`.trimEnd();
@@ -566,7 +577,7 @@ export function pushPromptVersion(
   existingVersions: unknown,
   previousPrompt: string,
   reason: string,
-  maxVersions = 8
+  maxVersions = 3
 ): PromptVersionEntry[] {
   const list: PromptVersionEntry[] = Array.isArray(existingVersions)
     ? existingVersions.filter(

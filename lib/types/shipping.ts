@@ -88,7 +88,7 @@ export function formatShippingPolicyPrompt(settings?: ShippingSettings | null): 
       const notesStr = cr.notes ? ` — ${cr.notes}` : '';
       lines.push(`  * ${cr.city}${cr.department ? ` (${cr.department})` : ''}: ${costStr} ${codStr}${timeStr}${notesStr}`);
     }
-    lines.push('Si el cliente pregunta por una ciudad no listada en las tarifas específicas, indícale la tarifa base o que se liquida según peso y volumen con la transportadora.');
+    lines.push('REGLA ESTRICTA DE CIUDAD: Jamás asumas que el cliente se encuentra en una ciudad específica (como Barranquilla u otra) a menos que el cliente la haya nombrado explícitamente. Ante preguntas generales como "¿hacen envíos?", confirma despachos nacionales desde la sede oficial y pregunta a qué ciudad necesita la entrega.');
   }
 
   if (settings.generalPolicy?.trim()) {

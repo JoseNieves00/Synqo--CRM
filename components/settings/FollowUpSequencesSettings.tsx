@@ -91,7 +91,37 @@ export function FollowUpSequencesSettings({
   const [uploadingStepId, setUploadingStepId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [health, setHealth] = useState<Awaited<ReturnType<typeof getFollowUpHealthAction>> | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string | null>(null);
+  const isInitialMountRef = useRef(true);
   const lastExternalNonceRef = useRef<number>(0);
+
+  // Guardado automático debounced (1200ms) al editar secuencias
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+
+    setAutoSaveStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const res = await saveFollowUpSequences(config);
+        if (res.success) {
+          setAutoSaveStatus('saved');
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          setLastAutoSavedAt(timeStr);
+        } else {
+          setAutoSaveStatus('idle');
+        }
+      } catch (err) {
+        console.error('[Autosave FollowUps Error]', err);
+        setAutoSaveStatus('idle');
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [config]);
 
   // Salud de seguimientos: visibilidad de por qué se envía o no (sin `continue` silenciosos)
   useEffect(() => {
@@ -252,6 +282,19 @@ export function FollowUpSequencesSettings({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {autoSaveStatus === 'saving' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20 text-[11px] font-medium">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Guardando...</span>
+              </span>
+            )}
+            {autoSaveStatus === 'saved' && lastAutoSavedAt && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20 text-[11px] font-medium">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Guardado autom. ({lastAutoSavedAt})</span>
+              </span>
+            )}
+
             <button
               type="button"
               onClick={handleSuggestWithAi}

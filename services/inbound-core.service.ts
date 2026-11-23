@@ -94,6 +94,7 @@ export const HUMAN_HANDOFF_PATTERNS = [
 
 const OPT_OUT_PATTERNS = [
   /\b(no me escriba(?:s|n)?(?:\s+m[aá]s)?|no me vuelva(?:s|n)? a escribir|dej(?:a|en|ar) de escribir(?:me|nos)?|no me contacte(?:s|n)?|no quiero\s+(?:recibir\s+)?m[aá]s mensajes|cancelar mensajes|dejar de recibir)\b/i,
+  /\b(no me interesa|ya no me interesa|ya no estoy interesad[oa]|no estoy interesad[oa]|no me sirve|ya compr[eé]|ya lo compr[eé]|ya adquir[ií]|no lo quiero|no voy a comprar|no deseo comprar|no deseo el producto)\b/i,
 ];
 
 export function isOptOutMessage(text: string | null | undefined): boolean {
@@ -367,7 +368,7 @@ export class InboundCoreService {
     let assignedAgentId: string | null = null;
 
     let contactQuery = (supabaseAdmin.from('contacts') as any)
-      .select('id, is_ai_active, pipeline_stage, deal_value, custom_fields, unread_count, ai_snooze_until, assigned_to')
+      .select('id, is_ai_active, pipeline_stage, deal_value, custom_fields, unread_count, ai_snooze_until, assigned_to, conversation_status, closed_at')
       .eq('organization_id', orgId);
 
     if (channel === 'instagram') {
@@ -410,6 +411,22 @@ export class InboundCoreService {
         delete updatedCustomFields.temperature;
       }
 
+      // Reapertura limpia si un lead cerrado o en etapa perdido vuelve a escribir por su cuenta
+      const isClosed =
+        existingContact.conversation_status === 'closed' ||
+        Boolean(existingContact.closed_at) ||
+        existingCustom.conversation_status === 'closed';
+
+      if (isClosed && !isOptOut) {
+        updatedCustomFields.conversation_status = 'open';
+        delete updatedCustomFields.closed_at;
+        delete updatedCustomFields.close_resolution;
+        delete updatedCustomFields.close_reason;
+        if (!isPaymentReceipt && !isTagAiExempt && existingCustom.manual_ai_paused !== true) {
+          isAiActive = true;
+        }
+      }
+
       // T2: Si el cliente responde, detener cualquier secuencia de seguimiento en curso y reactivar control normal.
       // Además, al volver a escribir el lead se reabre la ventana Meta 24h: despausar seguimientos
       // pausados por falta de plantilla (meta_outside_24h_no_template) y limpiar el marcador de omisión.
@@ -438,6 +455,15 @@ export class InboundCoreService {
           custom_fields: updatedCustomFields,
           ...(isPaymentReceipt || isOptOut ? { is_ai_active: false } : {}),
           ...(isOptOut ? { pipeline_stage: 'perdido', close_reason: 'opt_out_cliente' } : {}),
+          ...(isClosed && !isOptOut
+            ? {
+                conversation_status: 'open',
+                closed_at: null,
+                close_reason: null,
+                is_ai_active: isAiActive,
+                ...(existingContact.pipeline_stage === 'perdido' ? { pipeline_stage: 'calificado' } : {}),
+              }
+            : {}),
         })
         .eq('id', contactId);
 

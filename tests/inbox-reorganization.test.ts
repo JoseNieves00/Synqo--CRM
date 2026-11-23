@@ -655,9 +655,9 @@ async function runInboxTests() {
     last_interaction_at: new Date(nowEpoch - 4 * 3600 * 1000).toISOString(),
     custom_fields: { lead_temperature: 'hot' },
   };
-  const hot1hAgo = {
+  const hot20minAgo = {
     pipeline_stage: 'calificado',
-    last_interaction_at: new Date(nowEpoch - 1.5 * 3600 * 1000).toISOString(),
+    last_interaction_at: new Date(nowEpoch - 0.33 * 3600 * 1000).toISOString(),
     custom_fields: { lead_temperature: 'hot' },
   };
   const qd7hAgo = {
@@ -692,7 +692,7 @@ async function runInboxTests() {
     },
   };
 
-  assert.strictEqual(evaluateAutonomousCadenceSlot({ contact: hot1hAgo, nowTime: nowEpoch }), null, 'Hot <3.5h no debe enviarse aún');
+  assert.strictEqual(evaluateAutonomousCadenceSlot({ contact: hot20minAgo, nowTime: nowEpoch }), null, 'Hot <0.8h no debe enviarse aún');
   const hotSlot = evaluateAutonomousCadenceSlot({ contact: hot3hAgo, nowTime: nowEpoch });
   assert.strictEqual(hotSlot?.category, 'hot_unclosed');
   assert.strictEqual(hotSlot?.attemptIndex, 0);

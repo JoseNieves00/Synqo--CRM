@@ -2642,8 +2642,13 @@ Reglas obligatorias:
           } o si te ayudo a confirmarlo hoy 😊`);
 
     try {
-      const prompt = `Genera UN mensaje corto y natural por WhatsApp (máximo 2-3 líneas, tuteando, tono humano) para recontactar automáticamente a este cliente.
-Aplica OBLIGATORIAMENTE lo que esta empresa indique sobre recontacto, cierres o facilidades (ej. abonos, reservas, cuotas, envíos, promos o envío de fotos si aplica).
+      const prompt = `Genera UN mensaje corto y natural por WhatsApp (máximo 2-3 líneas, tuteando, tono humano) para recontactar automáticamente a este cliente por inactividad.
+
+CRITERIO CLAVE DE PERSONALIZACIÓN Y NECESIDAD REAL:
+- Analiza la necesidad específica y duda concreta del cliente a partir de los últimos mensajes (prenda puntual, talla, modelo, costo de envío a su ciudad, medio de pago o reserva).
+- Reanuda abordando directamente esa necesidad en lugar de emitir un saludo genérico o vacío ("¿pudiste revisar la info?").
+- Aplica OBLIGATORIAMENTE lo que esta empresa indique sobre recontacto, cierres o facilidades (ej. abonos, reservas, cuotas, envíos, promos o envío de fotos si aplica).
+- Si el cliente tenía una duda u objeción previa, resuélvela brevemente y dale una opción concreta para avanzar.
 
 Empresa: ${organization?.name || 'Nuestro equipo'}
 Directrices del negocio (extracto relevante):
