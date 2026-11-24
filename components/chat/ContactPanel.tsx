@@ -1,6 +1,7 @@
 'use client';
 
 import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
+import { resolveRecommendedCommercialAction } from '@/lib/leads/lead-score';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
@@ -151,6 +152,16 @@ export function ContactPanel({
     '';
 
   // Semáforo de temperatura comercial (Caliente 80-100%, Tibio 40-79%, Frío 0-39%)
+  const recAction = useMemo(() => {
+    if (typeof contact.lead_score !== 'number') return null;
+    return resolveRecommendedCommercialAction({
+      score: contact.lead_score,
+      stage: contact.pipeline_stage,
+      customFields: contact.custom_fields,
+      dealValue: contact.deal_value,
+    });
+  }, [contact.lead_score, contact.pipeline_stage, contact.custom_fields, contact.deal_value]);
+
   const tempScore = useMemo(() => {
     if (typeof contact.lead_score === 'number') {
       return Math.round(contact.lead_score);
@@ -534,7 +545,13 @@ export function ContactPanel({
                   <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                     Probabilidad de compra
                   </span>
-                  <LeadScoreBadge score={contact.lead_score} breakdown={contact.lead_score_breakdown} size="sm" showLabel />
+                  <LeadScoreBadge
+                    score={contact.lead_score}
+                    breakdown={contact.lead_score_breakdown}
+                    actionLabel={recAction?.label}
+                    size="sm"
+                    showLabel
+                  />
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-[#232A3B] overflow-hidden">
                   <div
@@ -554,6 +571,14 @@ export function ContactPanel({
                       </li>
                     ))}
                   </ul>
+                )}
+                {recAction && (
+                  <div className="mt-2 pt-1.5 border-t border-slate-200/60 dark:border-slate-800 flex items-start gap-1.5">
+                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 shrink-0">🎯 Siguiente paso:</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 font-medium leading-tight">
+                      {recAction.label}
+                    </span>
+                  </div>
                 )}
               </div>
             )}

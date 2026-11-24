@@ -7,20 +7,27 @@ import { getLeadScoreBand, LEAD_SCORE_BAND_META, type LeadScoreFactor } from '@/
 interface LeadScoreBadgeProps {
   score?: number | null;
   breakdown?: LeadScoreFactor[] | null;
+  actionLabel?: string | null;
   size?: 'xs' | 'sm';
   showLabel?: boolean;
   className?: string;
 }
 
 /** Formatea el desglose del score para tooltip nativo ("por qué 82"). */
-export function formatLeadScoreBreakdown(score: number, breakdown?: LeadScoreFactor[] | null): string {
+export function formatLeadScoreBreakdown(
+  score: number,
+  breakdown?: LeadScoreFactor[] | null,
+  actionLabel?: string | null
+): string {
   const lines = (breakdown || []).map((f) => `${f.points > 0 ? '+' : ''}${f.points}  ${f.label}`);
-  return [`Probabilidad de compra: ${score}/100`, ...lines].join('\n');
+  const actionLine = actionLabel ? `\n🎯 Siguiente paso: ${actionLabel}` : '';
+  return [`Probabilidad de compra: ${score}/100`, ...lines].join('\n') + actionLine;
 }
 
 export const LeadScoreBadge = React.memo(function LeadScoreBadge({
   score,
   breakdown,
+  actionLabel,
   size = 'xs',
   showLabel = false,
   className = '',
@@ -32,7 +39,7 @@ export const LeadScoreBadge = React.memo(function LeadScoreBadge({
 
   return (
     <span
-      title={formatLeadScoreBreakdown(score, breakdown)}
+      title={formatLeadScoreBreakdown(score, breakdown, actionLabel)}
       className={`inline-flex items-center rounded-md border font-bold tabular-nums leading-none shrink-0 ${sizeClass} ${meta.className} ${className}`}
       aria-label={`Probabilidad de compra ${score} de 100 (${meta.label})`}
     >

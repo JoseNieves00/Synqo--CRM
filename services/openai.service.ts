@@ -60,6 +60,11 @@ import {
   resolveProductInterest,
 } from '@/lib/ai/follow-up-types';
 import {
+  resolveRecommendedCommercialAction,
+  getLeadScoreBand,
+  LEAD_SCORE_BAND_META,
+} from '@/lib/leads/lead-score';
+import {
   extractRecontactPromptDigest,
   inferAutonomousReminderFromLeadMessage,
   parseFollowUpScheduleDate,
@@ -732,6 +737,15 @@ function buildDynamicContextBlock(params: {
   const cf = (contactData?.custom_fields as Record<string, any>) || {};
   const temp = resolveLeadTemperature(cf) || 'sin clasificar';
   const interest = resolveProductInterest(cf, contactData?.deal_value) || 'por identificar';
+  const leadScoreNum = typeof contactData?.lead_score === 'number' ? contactData.lead_score : null;
+  const leadScoreBand = getLeadScoreBand(leadScoreNum);
+  const bandMeta = leadScoreBand ? LEAD_SCORE_BAND_META[leadScoreBand] : null;
+  const recAction = resolveRecommendedCommercialAction({
+    score: leadScoreNum ?? 30,
+    stage: contactData?.pipeline_stage,
+    customFields: cf,
+    dealValue: contactData?.deal_value,
+  });
   const summaryText = cf.ai_summary?.summary_text
     ? String(cf.ai_summary.summary_text).replace(/\n/g, ' | ')
     : '';
@@ -834,8 +848,10 @@ En cada turno donde el cliente revele sus necesidades, intereses, presupuesto, u
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <perfil_lead>
 Nombre: ${contactData?.name || leadName || 'No registrado'}
-Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}
+Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}${leadScoreNum !== null ? ` | Score de compra: ${leadScoreNum}/100 (${bandMeta?.label || ''})` : ''}
 Interés detectado: ${interest}${painPointDisplay}${purchasingPowerDisplay}
+Objetivo comercial actual: ${recAction.label}
+Directriz de cierre: ${recAction.playbookTip}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
 </perfil_lead>${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}

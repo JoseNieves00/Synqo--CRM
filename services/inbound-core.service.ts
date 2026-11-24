@@ -427,6 +427,64 @@ export class InboundCoreService {
         }
       }
 
+      // Detección automática de señales de alta intención de compra en el texto entrante
+      const lowerInbound = (sanitizedContent || '').toLowerCase();
+      const paymentKeywords = [
+        'cuenta',
+        'nequi',
+        'daviplata',
+        'bancolombia',
+        'como pago',
+        'cómo pago',
+        'donde consigno',
+        'dónde consigno',
+        'donde pago',
+        'dónde pago',
+        'transferir',
+        'transferencia',
+        'contraentrega',
+        'contra entrega',
+        'pago al recibir',
+        'abono',
+        'separar',
+        'plan separe',
+      ];
+      const shippingKeywords = [
+        'envio a',
+        'envío a',
+        'cuanto vale el envio',
+        'cuánto vale el envío',
+        'cuanto el flete',
+        'cuánto el flete',
+        'hacen envios',
+        'hacen envíos',
+        'llega a',
+        'cuanto tarda',
+        'cuánto tarda',
+        'tiempo de entrega',
+      ];
+      const availabilityKeywords = [
+        'tienen disponible',
+        'hay disponible',
+        'tienen talla',
+        'tienen color',
+        'hay stock',
+        'tienen en stock',
+        'tienen entrega inmediata',
+        'en qué colores',
+        'en que colores',
+      ];
+
+      if (paymentKeywords.some((k) => lowerInbound.includes(k))) {
+        updatedCustomFields.requested_payment_info = true;
+      }
+      if (shippingKeywords.some((k) => lowerInbound.includes(k))) {
+        updatedCustomFields.requested_shipping_quote = true;
+      }
+      if (availabilityKeywords.some((k) => lowerInbound.includes(k))) {
+        updatedCustomFields.verified_availability = true;
+      }
+
       // T2: Si el cliente responde, detener cualquier secuencia de seguimiento en curso y reactivar control normal.
       // Además, al volver a escribir el lead se reabre la ventana Meta 24h: despausar seguimientos
       // pausados por falta de plantilla (meta_outside_24h_no_template) y limpiar el marcador de omisión.

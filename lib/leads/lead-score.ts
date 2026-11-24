@@ -25,9 +25,22 @@ export interface LeadScoreFactor {
   points: number;
 }
 
+export interface RecommendedCommercialAction {
+  actionKey:
+    | 'confirm_closing_and_receipt'
+    | 'offer_payment_or_separe'
+    | 'clarify_and_quote'
+    | 'qualify_needs'
+    | 'post_sale_service';
+  label: string;
+  urgency: 'immediate' | 'high' | 'medium' | 'low';
+  playbookTip: string;
+}
+
 export interface LeadScoreResult {
   score: number | null;
   breakdown: LeadScoreFactor[];
+  recommendedAction?: RecommendedCommercialAction | null;
 }
 
 export const LEAD_SCORE_TEMPERATURE_BASE: Record<LeadTemperature, number> = {
@@ -129,9 +142,141 @@ export function computeLeadScore(signals: LeadScoreSignals): LeadScoreResult {
   if (resolveProductInterest(cf, signals.dealValue)) add('product', 'Producto de interés identificado', 5);
   if (cf.last_objection || cf.ai_summary?.objections_doubts) add('objection', 'Objeción detectada', -5);
 
+  // 7. Señal de alta conversión: Comprobante de pago o Plan Separe (+20)
+  const hasReceipt = cf.has_pending_receipt === true;
+  const isSepare =
+    cf.is_separe === true ||
+    (cf.deposit_paid && Number(cf.deposit_paid) > 0) ||
+    cf.order?.is_separe === true;
+  if (hasReceipt || isSepare) {
+    add('receipt_or_deposit', hasReceipt ? 'Comprobante de pago enviado' : 'Abono / Plan Separe acordado', 20);
+  }
+
+  // 8. Señales explícitas de intención de compra (+12)
+  const hasPaymentInquiry = cf.requested_payment_info === true;
+  const hasShippingQuote = cf.requested_shipping_quote === true || Boolean(cf.shipping_data?.destination_city);
+  const hasStockVerified = cf.verified_availability === true;
+  if (hasPaymentInquiry || hasShippingQuote || hasStockVerified) {
+    const label = hasPaymentInquiry
+      ? 'Pidió cuentas de pago / contraentrega'
+      : hasShippingQuote
+      ? 'Cotizó flete / ciudad de envío'
+      : 'Verificó stock / disponibilidad';
+    add('buying_intent', label, 12);
+  }
+
+  // 9. Cotización formal activa o deal_value definido (+8)
+  const val = Number(signals.dealValue || cf.order?.total || cf.active_quote_value || 0);
+  if (val > 0) {
+    add('quoted_value', `Cotización definida ($${val.toLocaleString('es-CO')})`, 8);
+  }
+
+  // 10. Urgencia inmediata (+6)
+  const urgencyStr = String(cf.urgency || '').toLowerCase();
+  if (
+    urgencyStr.includes('inmediata') ||
+    urgencyStr.includes('hoy') ||
+    urgencyStr.includes('48h') ||
+    urgencyStr.includes('urgente') ||
+    urgencyStr.includes('semana')
+  ) {
+    add('high_urgency', 'Urgencia alta de compra', 6);
+  }
+
+  // 11. Tomador de decisión directo (+4)
+  const dmStr = String(cf.decision_maker || '').toLowerCase();
+  if (dmStr.includes('directo') || cf.decision_maker === true) {
+    add('decision_maker', 'Tomador de decisión directo', 4);
+  }
+
+  // 12. Poder adquisitivo confirmado (+4)
+  if (cf.purchasing_power === 'premium' || cf.purchasing_power === 'estandar') {
+    add('purchasing_power', 'Poder adquisitivo confirmado', 4);
+  }
+
+  // 13. Respuesta a campaña comercial (+8)
+  if (cf.replied_to_campaign === true || cf.campaign_replied_at) {
+    add('campaign_reply', 'Respondió a campaña comercial', 8);
+  }
+
   const raw = breakdown.reduce((acc, f) => acc + f.points, 0);
   const score = Math.max(0, Math.min(100, Math.round(raw)));
-  return { score, breakdown };
+  const recommendedAction = resolveRecommendedCommercialAction({
+    score,
+    stage,
+    customFields: cf,
+    dealValue: signals.dealValue,
+  });
+  return { score, breakdown, recommendedAction };
+}
+
+export function resolveRecommendedCommercialAction(params: {
+  score: number;
+  stage?: string | null;
+  customFields?: Record<string, any> | null;
+  dealValue?: number | null;
+}): RecommendedCommercialAction {
+  const { score, stage, customFields } = params;
+  const cf = customFields || {};
+
+  if (stage === 'ganado') {
+    return {
+      actionKey: 'post_sale_service',
+      label: 'Post-venta: Agradecer y fidelizar',
+      urgency: 'low',
+      playbookTip:
+        'Venta cerrada. Confirma satisfacción, comparte guía de envío si aplica y deja la puerta abierta para recompra.',
+    };
+  }
+
+  const hasReceipt = cf.has_pending_receipt === true;
+  const isSepare = cf.is_separe === true || (cf.deposit_paid && Number(cf.deposit_paid) > 0);
+
+  if (hasReceipt || isSepare || score >= 80) {
+    return {
+      actionKey: 'confirm_closing_and_receipt',
+      label: 'Cierre inmediato: Confirmar comprobante o pedir datos de envío',
+      urgency: 'immediate',
+      playbookTip:
+        'El cliente está en la meta. No des rodeos ni agregues preguntas abiertas: confirma el comprobante, o solicita nombre, cédula, dirección y ciudad para despachar.',
+    };
+  }
+
+  const hasPaymentInquiry = cf.requested_payment_info === true;
+  const hasShippingQuote = cf.requested_shipping_quote === true || Boolean(cf.shipping_data?.destination_city);
+
+  if (
+    score >= 60 ||
+    hasPaymentInquiry ||
+    hasShippingQuote ||
+    resolveLeadTemperature(cf) === 'qualified_doubt'
+  ) {
+    return {
+      actionKey: 'offer_payment_or_separe',
+      label: 'Cierre asistido: Ofrecer cuentas de pago o Plan Separe',
+      urgency: 'high',
+      playbookTip:
+        'El cliente está altamente interesado pero necesita un empuje fácil: presenta Bancolombia/Nequi/Daviplata o pago contraentrega, o sugiérele apartar su cupo con un abono mínimo.',
+    };
+  }
+
+  if (score >= 40 || resolveProductInterest(cf, params.dealValue)) {
+    return {
+      actionKey: 'clarify_and_quote',
+      label: 'Presentar catálogo, fotos oficiales y disponibilidad',
+      urgency: 'medium',
+      playbookTip:
+        'Envía tarjeta o foto oficial del producto consultado, valida disponibilidad de talla/modelo y menciona que el cupo se reserva por un par de horas.',
+    };
+  }
+
+  return {
+    actionKey: 'qualify_needs',
+    label: 'Indagar necesidad o interés comercial',
+    urgency: 'medium',
+    playbookTip:
+      'Pregunta qué modelo busca, para quién es o qué necesidad prioritaria desea resolver antes de enviar tarifas o cotizaciones frías.',
+  };
 }
 
 export type LeadScoreBand = 'very_high' | 'high' | 'medium' | 'low';

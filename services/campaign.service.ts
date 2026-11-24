@@ -111,13 +111,27 @@ export class CampaignService {
   /** Marca respuesta del cliente a una campaña reciente (llamado en cada mensaje entrante). */
   static async markReplied(contactId: string): Promise<void> {
     try {
+      const nowIso = new Date().toISOString();
       const sinceIso = new Date(Date.now() - REPLY_ATTRIBUTION_DAYS * 24 * 3600 * 1000).toISOString();
-      await (supabaseAdmin.from('campaign_recipients') as any)
-        .update({ replied_at: new Date().toISOString() })
+      const { data: updatedRecs } = await (supabaseAdmin.from('campaign_recipients') as any)
+        .update({ replied_at: nowIso })
         .eq('contact_id', contactId)
         .eq('status', 'sent')
         .is('replied_at', null)
-        .gte('sent_at', sinceIso);
+        .gte('sent_at', sinceIso)
+        .select('id');
+
+      if (updatedRecs && updatedRecs.length > 0) {
+        // Enriquecer custom_fields para elevar inmediatamente el score de propensión
+        const { data: c } = await (supabaseAdmin.from('contacts') as any)
+          .select('custom_fields')
+          .eq('id', contactId)
+          .maybeSingle();
+        const nextCf = { ...(c?.custom_fields || {}), replied_to_campaign: true, campaign_replied_at: nowIso };
+        await (supabaseAdmin.from('contacts') as any)
+          .update({ custom_fields: nextCf })
+          .eq('id', contactId);
+      }
     } catch (err: any) {
       console.warn('[CAMPAIGN] markReplied falló', err?.message || err);
     }
