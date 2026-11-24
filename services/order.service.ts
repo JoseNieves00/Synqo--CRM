@@ -31,6 +31,10 @@ export class OrderService {
     notes?: string | null;
     source: 'ai' | 'human';
     createdBy?: string | null;
+    isSepare?: boolean;
+    depositPaid?: number;
+    balanceDue?: number;
+    separeDueDate?: string | null;
   }): Promise<{ id: string; campaignId: string | null } | null> {
     try {
       const sinceIso = new Date(Date.now() - CAMPAIGN_ATTRIBUTION_DAYS * 24 * 3600 * 1000).toISOString();
@@ -60,6 +64,10 @@ export class OrderService {
           source: params.source,
           campaign_id: recipient?.campaign_id || null,
           created_by: params.createdBy || null,
+          is_separe: Boolean(params.isSepare),
+          deposit_paid: params.depositPaid ? Number(params.depositPaid) : 0,
+          balance_due: params.balanceDue ? Number(params.balanceDue) : 0,
+          separe_due_date: params.separeDueDate || null,
         })
         .select('id')
         .single();

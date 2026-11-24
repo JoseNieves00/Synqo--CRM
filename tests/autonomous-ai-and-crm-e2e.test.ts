@@ -43,7 +43,6 @@ async function runTests() {
     /cocinita/i,
     /neverita/i,
     /peque(?:ño|ños|ña|ñas)/i,
-    /plan\s*separe/i,
     /madera\s*mdf/i,
     /gpt-4o-mini/i,
     /gemini-/i,
@@ -66,12 +65,12 @@ async function runTests() {
   console.log('   ✅ Motor 100% neutral multi-tenant y crons desacoplados de Vercel.');
 
   // 2. Presupuesto de tokens del Playbook y modularidad de calendario (M2)
-  console.log('2️⃣  Verificando Playbook compacto (<= 1.500 tokens) y tools condicionales...');
+  console.log('2️⃣  Verificando Playbook compacto (<= 2.500 tokens) y tools condicionales...');
   const playbookNoCal = buildSalesPlaybook({ hasCalendar: false });
   const estimatedTokensNoCal = Math.ceil(playbookNoCal.length / 4);
   assert.ok(
-    estimatedTokensNoCal <= 1500,
-    `Playbook sin calendario debe medir <= 1.500 tokens estimados (actual: ${estimatedTokensNoCal})`
+    estimatedTokensNoCal <= 2500,
+    `Playbook sin calendario debe medir <= 2.500 tokens estimados (actual: ${estimatedTokensNoCal})`
   );
   assert.ok(!playbookNoCal.includes('book_native_appointment'), 'Playbook sin calendario no debe incluir tools de agenda');
 

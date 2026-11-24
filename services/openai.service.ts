@@ -435,6 +435,9 @@ const createOrderTool: OpenAI.Chat.Completions.ChatCompletionTool = {
         ciudad: { type: 'string', description: 'Ciudad o municipio de entrega (si aplica).' },
         metodo_pago: { type: 'string', description: 'Método de pago acordado.' },
         notas: { type: 'string', description: 'Indicaciones adicionales del pedido.' },
+        is_separe: { type: 'boolean', description: 'True si el pedido es mediante Plan Separe con abono inicial.' },
+        deposit_paid: { type: 'number', description: 'Monto del abono inicial pagado o acordado en Plan Separe.' },
+        balance_due: { type: 'number', description: 'Saldo restante por pagar en Plan Separe.' },
       },
       required: ['items', 'total', 'nombre', 'telefono'],
     },
@@ -1832,22 +1835,28 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 items: validated.items,
                 total: validated.total,
                 status: 'confirmed',
-                paymentMethod: validated.metodo_pago || null,
+                paymentMethod: validated.metodo_pago || (validated.is_separe ? 'Plan Separe' : null),
                 customerName: validated.nombre,
                 customerPhone: validated.telefono,
                 address: validated.direccion || null,
                 city: validated.ciudad || null,
                 notes: validated.notas || null,
                 source: 'ai',
+                isSepare: validated.is_separe,
+                depositPaid: validated.deposit_paid,
+                balanceDue: validated.balance_due,
               });
 
               const deliveryLabel = [validated.ciudad, validated.direccion].filter(Boolean).join(' - ');
               const itemsStr = validated.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');
+              const separeSuffix = validated.is_separe
+                ? ` · [Plan Separe] Abono: $${Number(validated.deposit_paid || 0).toLocaleString('es-CO')} | Saldo: $${Number(validated.balance_due || 0).toLocaleString('es-CO')}`
+                : '';
               await supabaseAdmin.from('messages').insert({
                 contact_id: contactId,
                 organization_id: organizationId,
                 sender_type: 'system',
-                content: `[🛒 Pedido registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')}${deliveryLabel ? ` · ${deliveryLabel}` : ''} · Cliente: ${validated.nombre}]`,
+                content: `[🛒 ${validated.is_separe ? 'Plan Separe' : 'Pedido'} registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')}${separeSuffix}${deliveryLabel ? ` · ${deliveryLabel}` : ''} · Cliente: ${validated.nombre}]`,
               });
 
               // Notificar al equipo para despacho sin pausar la IA

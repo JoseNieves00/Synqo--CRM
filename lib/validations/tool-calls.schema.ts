@@ -157,6 +157,9 @@ export const CreateOrderToolSchema = z.object({
   ciudad: z.string().max(100).optional().default(''),
   metodo_pago: z.string().max(80).optional(),
   notas: z.string().max(400).optional(),
+  is_separe: z.boolean().optional().default(false),
+  deposit_paid: z.number().nonnegative().optional().default(0),
+  balance_due: z.number().nonnegative().optional().default(0),
 });
 
 export type UpdateStageToolInput = z.infer<typeof UpdateStageToolSchema>;
