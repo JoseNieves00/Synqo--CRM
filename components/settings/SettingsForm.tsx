@@ -212,6 +212,42 @@ export function SettingsForm({
 }: SettingsFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
+
+  // Estado multi-acordeón: permite abrir o plegar múltiples secciones en simultáneo
+  const [openSections, setOpenSections] = useState<Set<string>>(
+    () => new Set(['capacity', 'whatsapp', 'assistant'])
+  );
+  const [showAllModules, setShowAllModules] = useState(false);
+
+  const toggleSection = (sectionId: string) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
+  };
+
+  const expandAllSections = () => {
+    setOpenSections(
+      new Set([
+        'capacity',
+        'whatsapp',
+        'calendar',
+        'templates',
+        'coexistence',
+        'assistant',
+        'token_alerts',
+      ])
+    );
+  };
+
+  const collapseAllSections = () => {
+    setOpenSections(new Set());
+  };
   const activeWaEngine: 'meta' | 'evolution' =
     initialData.whatsappProvider === 'evolution' || initialData.evolutionInstanceName
       ? 'evolution'
@@ -1049,20 +1085,36 @@ export function SettingsForm({
           <span>Canales & IA</span>
         </button>
 
-        {teamData && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('team')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-              activeTab === 'team'
-                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-            }`}
-          >
-            <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-            <span>Equipo Comercial ({teamData.members.length}/{teamData.organization.maxUsers})</span>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setActiveTab('shipping')}
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+            activeTab === 'shipping'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <Truck className="w-4 h-4 text-blue-500" />
+          <span>Políticas de Envío</span>
+          {shippingSettingsData?.cityRates && shippingSettingsData.cityRates.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold">
+              {shippingSettingsData.cityRates.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('payments')}
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+            activeTab === 'payments'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <CreditCard className="w-4 h-4 text-emerald-500" />
+          <span>Cuentas de Pago ({paymentAccountsData?.length || 0})</span>
+        </button>
 
         <button
           type="button"
@@ -1089,6 +1141,51 @@ export function SettingsForm({
           <Zap className="w-4 h-4 text-amber-500" />
           <span>Atajos de Chat (/) ({quickRepliesData?.length || 0})</span>
         </button>
+
+        {teamData && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('team')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+              activeTab === 'team'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+            }`}
+          >
+            <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span>Equipo Comercial ({teamData.members.length}/{teamData.organization.maxUsers})</span>
+          </button>
+        )}
+
+        {enabledModules.staff_mobile_portal && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('specialists')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+              activeTab === 'specialists'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+            }`}
+          >
+            <Smartphone className="w-4 h-4 text-sky-500" />
+            <span>{initialData.specialistLabel || 'Colaboradores'}</span>
+          </button>
+        )}
+
+        {enabledModules.physical_rooms && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('rooms')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+              activeTab === 'rooms'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+            }`}
+          >
+            <DoorOpen className="w-4 h-4 text-emerald-500" />
+            <span>{initialData.roomLabel || 'Espacios'}</span>
+          </button>
+        )}
       </div>
 
       {activeTab === 'follow_ups' ? (
@@ -1141,7 +1238,95 @@ export function SettingsForm({
             </div>
           )}
 
-          {/* Panel de Funcionalidades & Capacidad Activa (En vez de nombre rígido de plan) */}
+          {/* Accesos Directos Comerciales: Envíos & Pagos (Para ajustar fletes, contraentrega y cuentas) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/40 dark:from-blue-950/20 dark:to-indigo-950/10 border border-blue-200/60 dark:border-blue-800/40 flex items-center justify-between gap-4 shadow-xs">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="p-2.5 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Políticas & Tarifas de Envío
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                      {shippingSettingsData?.cityRates?.length || 0} fletes
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    Fletes por ciudad, tiempos de entrega y Pago Contraentrega
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('shipping');
+                  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs"
+              >
+                <span>Ajustar Envíos</span>
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 to-teal-50/40 dark:from-emerald-950/20 dark:to-teal-950/10 border border-emerald-200/60 dark:border-emerald-800/40 flex items-center justify-between gap-4 shadow-xs">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Cuentas de Pago & Plan Separe
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                      {paymentAccountsData?.length || 0} activas
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    Bancolombia, Nequi y Daviplata para abonos y compras
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('payments');
+                  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs"
+              >
+                <span>Configurar Cuentas</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Barra de Control de Acordeones */}
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              Secciones de Configuración ({openSections.size} abiertas)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={expandAllSections}
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition font-medium cursor-pointer"
+              >
+                Desplegar todas
+              </button>
+              <button
+                type="button"
+                onClick={collapseAllSections}
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition font-medium cursor-pointer"
+              >
+                Plegar todas
+              </button>
+            </div>
+          </div>
+
+          {/* ACORDEÓN 1: Capacidad & Consumo del Plan */}
           {(() => {
             const maxUsersCount = teamData?.organization?.maxUsers ?? initialData.maxUsers ?? 2;
             const activeUsersCount = teamData?.organization?.usedUsers ?? 1;
@@ -1200,43 +1385,57 @@ export function SettingsForm({
               },
             ];
 
+            const activeModules = moduleList.filter((m) => m.active);
+            const inactiveModules = moduleList.filter((m) => !m.active);
+            const isCapOpen = openSections.has('capacity');
+
             return (
-              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
-                {/* Cabecera del Servicio */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20">
+              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('capacity')}
+                  className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20 shrink-0">
                       <Sliders className="w-5 h-5" />
                     </div>
-                    <div>
-                      <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                        Funcionalidades & Capacidad Activa
-                      </h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Herramientas habilitadas para {initialData.orgName || 'tu empresa'} y consumo del mes
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                          Capacidad & Consumo del Plan
+                        </h2>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-500/20">
+                          {tokenPercent}% IA • {activeUsersCount}/{maxUsersCount} usuarios
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            subStatus === 'active' || subStatus === 'trialing'
+                              ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                              : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30'
+                          }`}
+                        >
+                          {subStatus === 'trialing' ? 'Prueba Activa' : 'Suscripción Activa'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        Consumo de tokens de IA y cupos de equipo de {initialData.orgName || 'tu empresa'}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-xs font-semibold px-3 py-1 rounded-full border flex items-center gap-1.5 ${
-                        subStatus === 'active' || subStatus === 'trialing'
-                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
-                          : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          subStatus === 'active' || subStatus === 'trialing'
-                            ? 'bg-emerald-500 dark:bg-emerald-400 animate-pulse'
-                            : 'bg-rose-500 dark:bg-rose-400'
-                        }`}
-                      />
-                      {subStatus === 'trialing' ? 'Prueba Activa' : 'Suscripción Activa'}
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                      {isCapOpen ? 'Plegar' : 'Desplegar'}
                     </span>
+                    <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${isCapOpen ? 'rotate-180' : ''}`}>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
                   </div>
-                </div>
+                </button>
+
+                {isCapOpen && (
+                  <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-5 animate-in fade-in duration-150">
 
                 {/* Cuotas de Capacidad: Usuarios y Conversaciones */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1303,132 +1502,184 @@ export function SettingsForm({
                   </div>
                 </div>
 
-                {/* Tablero de Funcionalidades (Encendidas vs No contratadas) */}
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
-                      Herramientas & Módulos Disponibles
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {moduleList.filter((m) => m.active).length} de {moduleList.length} activas
-                    </span>
-                  </div>
+                    {/* Módulos Activos (Limpio y sin consumir espacio con tarjetas inactivas) */}
+                    <div className="space-y-2.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF]" />
+                          Módulos Activos ({activeModules.length})
+                        </span>
+                        {inactiveModules.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllModules(!showAllModules)}
+                            className="text-[11px] text-slate-500 hover:text-[#0052FF] dark:text-slate-400 dark:hover:text-[#00D2FF] font-semibold transition cursor-pointer flex items-center gap-1"
+                          >
+                            {showAllModules ? 'Ocultar adicionales' : `+ Ver otros módulos (${inactiveModules.length})`}
+                          </button>
+                        )}
+                      </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                    {moduleList.map((m) => {
-                      const IconComponent = m.icon;
-                      return (
-                        <div
-                          key={m.id}
-                          className={`p-3.5 rounded-xl border transition flex flex-col justify-between gap-2 ${
-                            m.active
-                              ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20'
-                              : 'bg-slate-50/60 dark:bg-[#0E121C] border-slate-200 dark:border-[#232A3B] opacity-75'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-2">
+                      {activeModules.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {activeModules.map((m) => {
+                            const IconComponent = m.icon;
+                            return (
                               <div
-                                className={`p-1.5 rounded-lg ${
-                                  m.active
-                                    ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
-                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400'
-                                }`}
+                                key={m.id}
+                                className="p-3 rounded-xl border bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20 flex items-center justify-between gap-3"
                               >
-                                <IconComponent className="w-4 h-4" />
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 shrink-0">
+                                    <IconComponent className="w-4 h-4" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
+                                      {m.name}
+                                    </span>
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate">
+                                      {m.desc}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 shrink-0">
+                                  Activo
+                                </span>
                               </div>
-                              <span className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                                {m.name}
-                              </span>
-                            </div>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                                m.active
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
-                                  : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                              }`}
-                            >
-                              {m.active ? 'Encendido' : 'No contratado'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                            {m.desc}
-                          </p>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                      ) : (
+                        <p className="text-xs text-slate-400">No hay módulos adicionales habilitados.</p>
+                      )}
 
-                {/* Banner de Solicitud de Nuevas Funcionalidades */}
-                <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-[#0052FF]/5 border border-blue-100 dark:border-[#0052FF]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                    <span className="text-base">💡</span>
-                    <span>
-                      ¿Deseas encender un módulo adicional o ampliar el cupo de tu equipo?
-                    </span>
+                      {/* Módulos Opcionales Colapsados */}
+                      {showAllModules && inactiveModules.length > 0 && (
+                        <div className="pt-2 animate-in fade-in duration-200 space-y-2 border-t border-slate-100 dark:border-[#1E2433]">
+                          <span className="text-[11px] font-semibold text-slate-400 block">
+                            Módulos opcionales disponibles para activar con soporte:
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {inactiveModules.map((m) => {
+                              const IconComponent = m.icon;
+                              return (
+                                <div
+                                  key={m.id}
+                                  className="p-2.5 rounded-xl border bg-slate-50/70 dark:bg-[#0E121C] border-slate-200 dark:border-[#232A3B] flex items-center justify-between gap-2 opacity-75"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className="p-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-400 shrink-0">
+                                      <IconComponent className="w-3.5 h-3.5" />
+                                    </div>
+                                    <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 truncate">
+                                      {m.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500 shrink-0">
+                                    Opcional
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Banner de Solicitud de Nuevas Funcionalidades */}
+                    <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-[#0052FF]/5 border border-blue-100 dark:border-[#0052FF]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                        <span className="text-base">💡</span>
+                        <span>¿Deseas encender un módulo adicional o ampliar el cupo de tu equipo?</span>
+                      </div>
+                      <a
+                        href="https://wa.me/573000000000?text=Hola,%20deseo%20activar%20una%20funcionalidad%20adicional%20en%20mi%20cuenta%20de%20Synqo"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold transition shrink-0"
+                      >
+                        <span>Solicitar a Soporte</span>
+                      </a>
+                    </div>
                   </div>
-                  <a
-                    href="https://wa.me/573000000000?text=Hola,%20deseo%20activar%20una%20funcionalidad%20adicional%20en%20mi%20cuenta%20de%20Synqo"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold transition shrink-0"
-                  >
-                    <span>Solicitar a Soporte</span>
-                  </a>
-                </div>
+                )}
               </div>
             );
           })()}
 
-          {/* Alertas Push de Tokens (x%) y Acceso Gerencial WhatsApp (#tokens + PIN) */}
-          <TokenAlertsAndPinCard
-            initialThresholds={initialData.tokenPolicyData?.alertThresholds}
-            initialOveragePricePer500kCop={initialData.tokenPolicyData?.overagePricePer500kCop}
-            initialHasPin={initialData.hasManagerPin}
-            alertsSentInCycle={initialData.tokenPolicyData?.alertsSentInCycle}
-          />
-
-          {/* Formulario de Integraciones */}
-          <form onSubmit={handleSave} className="space-y-6">
-            {activeWaEngine === 'evolution' ? (
-              <EvolutionQrCard
-                initialApiUrl={initialData.evolutionApiUrl}
-                initialInstanceName={initialData.evolutionInstanceName}
-                hasApiKey={initialData.hasEvolutionApiKey}
-                initialStatus={initialData.evolutionStatus}
-                initialPhone={initialData.evolutionPhoneConnected}
-                antiBanMode={initialData.evolutionAntiBanMode}
-                maxOutboundPerHour={initialData.evolutionMaxOutboundPerHour}
-                isSuperAdmin={isSuperAdmin}
-              />
-            ) : (
-              /* Meta WhatsApp Cloud API */
-              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl">
+          {/* Formulario de Integraciones & Canales */}
+          <form onSubmit={handleSave} className="space-y-4">
+            {/* ACORDEÓN 2: WhatsApp (Meta Cloud API o Evolution QR) */}
+            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
+              <button
+                type="button"
+                onClick={() => toggleSection('whatsapp')}
+                className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl shrink-0">
                     <Bot className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">WhatsApp Cloud API</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Conexión oficial de WhatsApp Business para captación de leads y atención automática</p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                        {activeWaEngine === 'evolution' ? 'WhatsApp (Evolution QR)' : 'WhatsApp Cloud API Oficial'}
+                      </h2>
+                      {(activeWaEngine === 'evolution' ? initialData.evolutionStatus === 'connected' : (hasToken && phoneNumberId)) ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                          Conectado & Sincronizado
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                          Pendiente de Conexión
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      Línea comercial para atención y cierre automático de leads
+                    </p>
                   </div>
                 </div>
 
-                {hasToken && (
-                  <button
-                    type="button"
-                    onClick={handleTestWhatsApp}
-                    disabled={testingWhatsApp}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 transition cursor-pointer disabled:opacity-50"
-                  >
-                    <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
-                    {testingWhatsApp ? 'Diagnosticando...' : 'Diagnosticar Conexión'}
-                  </button>
-                )}
-              </div>
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                    {openSections.has('whatsapp') ? 'Plegar' : 'Desplegar'}
+                  </span>
+                  <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('whatsapp') ? 'rotate-180' : ''}`}>
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </button>
+
+              {openSections.has('whatsapp') && (
+                <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-5 animate-in fade-in duration-150">
+                  {activeWaEngine === 'evolution' ? (
+                    <EvolutionQrCard
+                      initialApiUrl={initialData.evolutionApiUrl}
+                      initialInstanceName={initialData.evolutionInstanceName}
+                      hasApiKey={initialData.hasEvolutionApiKey}
+                      initialStatus={initialData.evolutionStatus}
+                      initialPhone={initialData.evolutionPhoneConnected}
+                      antiBanMode={initialData.evolutionAntiBanMode}
+                      maxOutboundPerHour={initialData.evolutionMaxOutboundPerHour}
+                      isSuperAdmin={isSuperAdmin}
+                    />
+                  ) : (
+                    <div className="space-y-4">
+                      {hasToken && (
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={handleTestWhatsApp}
+                            disabled={testingWhatsApp}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 transition cursor-pointer disabled:opacity-50"
+                          >
+                            <Zap className={`w-3.5 h-3.5 ${testingWhatsApp ? 'animate-spin' : ''}`} />
+                            {testingWhatsApp ? 'Diagnosticando...' : 'Diagnosticar Conexión'}
+                          </button>
+                        </div>
+                      )}
 
               {waTestResult && (
                 <div
@@ -1823,49 +2074,79 @@ export function SettingsForm({
                 </div>
               )}
             </div>
-            )}
+          )}
+        </div>
+      )}
+    </div>
 
-            {/* Google Calendar & Google Meet (Oficial) */}
+            {/* ACORDEÓN: Google Calendar & Google Meet (Oficial) */}
             {Boolean(enabledModules.native_calendar) && (
-            <div id="google-calendar" className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-500/20 rounded-xl">
-                    <Calendar className="w-5 h-5" />
+              <div id="google-calendar" className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('calendar')}
+                  className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2.5 bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-500/20 rounded-xl shrink-0">
+                      <Calendar className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                          Google Calendar & Google Meet
+                        </h2>
+                        {hasGcalToken ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                            Sincronizado
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                            No vinculado
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        Sincronización de citas nativas con Google Calendar y videollamadas Meet
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">Google Calendar & Google Meet</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Sincroniza tus citas nativas con Google Calendar y genera videollamadas oficiales de Google Meet
-                    </p>
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-2">
-                  {hasGcalToken && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleTestGoogleCalendar}
-                        disabled={testingGcal}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] hover:bg-blue-500/20 border border-blue-500/30 transition cursor-pointer disabled:opacity-50"
-                      >
-                        <Zap className={`w-3.5 h-3.5 ${testingGcal ? 'animate-spin' : ''}`} />
-                        {testingGcal ? 'Probando...' : 'Probar Conexión'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDisconnectGoogleCalendar}
-                        disabled={disconnectingGcal}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer disabled:opacity-50"
-                      >
-                        <Unlink className="w-3.5 h-3.5" />
-                        <span>Desconectar</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                      {openSections.has('calendar') ? 'Plegar' : 'Desplegar'}
+                    </span>
+                    <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('calendar') ? 'rotate-180' : ''}`}>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </button>
+
+                {openSections.has('calendar') && (
+                  <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-5 animate-in fade-in duration-150">
+                    {hasGcalToken && (
+                      <div className="flex justify-end gap-2 pb-2">
+                        <button
+                          type="button"
+                          onClick={handleTestGoogleCalendar}
+                          disabled={testingGcal}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] hover:bg-blue-500/20 border border-blue-500/30 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Zap className={`w-3.5 h-3.5 ${testingGcal ? 'animate-spin' : ''}`} />
+                          {testingGcal ? 'Probando...' : 'Probar Conexión'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDisconnectGoogleCalendar}
+                          disabled={disconnectingGcal}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Unlink className="w-3.5 h-3.5" />
+                          <span>Desconectar</span>
+                        </button>
+                      </div>
+                    )}
 
               {gcalFeedback && (
                 <div
@@ -2062,7 +2343,9 @@ export function SettingsForm({
                   </div>
                 </div>
               )}
-            </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Meta Instagram Direct Messaging (Preparado para próxima actualización - oculto en MVP) */}
@@ -2254,22 +2537,45 @@ export function SettingsForm({
             </div>
             )}
 
-            {/* Plantillas de WhatsApp (Meta) para Ventana de 24 Horas y Nuevos Prospectos - Solo visible si el motor es Meta */}
+            {/* ACORDEÓN: Plantillas de WhatsApp (Meta) */}
             {activeWaEngine === 'meta' && (
-            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-6 shadow-xs space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#232A3B] pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 rounded-xl">
-                    <FileText className="w-5 h-5" />
+              <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('templates')}
+                  className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2.5 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 rounded-xl shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                          Plantillas de WhatsApp (Meta)
+                        </h2>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                          {templates.length} vinculadas
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        Mensajes aprobados para contactar prospectos al vencer la ventana de 24 horas
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">Plantillas de WhatsApp (Meta)</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Disponibles en el selector del chat cuando la ventana de 24 horas expire o al crear un nuevo lead
-                    </p>
+
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                      {openSections.has('templates') ? 'Plegar' : 'Desplegar'}
+                    </span>
+                    <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('templates') ? 'rotate-180' : ''}`}>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
                   </div>
-                </div>
-              </div>
+                </button>
+
+                {openSections.has('templates') && (
+                  <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-5 animate-in fade-in duration-150">
 
               {tplFeedback && (
                 <div
@@ -2410,182 +2716,294 @@ export function SettingsForm({
                 </div>
               </div>
             </div>
-            )}
-
-        {/* Coexistencia Móvil (Asesor respondiendo desde WhatsApp / Instagram en celular) */}
-        <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] p-4 sm:p-5 space-y-3 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50 shrink-0">
-                <Smartphone className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Coexistencia cuando el asesor responde desde el teléfono móvil
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                  Al detectar una respuesta humana desde WhatsApp o Instagram móvil, Synqo limpia &quot;Por responder&quot; y pausa temporalmente la IA para no interrumpir al asesor.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-slate-700 dark:text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={mobileCoexistence.enabled}
-                  onChange={(e) =>
-                    setMobileCoexistence((prev) => ({ ...prev, enabled: e.target.checked }))
-                  }
-                  className="w-4 h-4 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                />
-                <span>Auto-retomar IA</span>
-              </label>
-
-              {mobileCoexistence.enabled && (
-                <select
-                  value={mobileCoexistence.autoResumeHours}
-                  onChange={(e) =>
-                    setMobileCoexistence((prev) => ({
-                      ...prev,
-                      autoResumeHours: Number(e.target.value) || 2,
-                    }))
-                  }
-                  className="text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white font-semibold"
-                >
-                  <option value={1}>Después de 1 hora</option>
-                  <option value={2}>Después de 2 horas (Recomendado)</option>
-                  <option value={4}>Después de 4 horas</option>
-                  <option value={8}>Después de 8 horas</option>
-                  <option value={12}>Después de 12 horas</option>
-                </select>
-              )}
-            </div>
-          </div>
-
-          {!mobileCoexistence.enabled && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/40 rounded-xl px-3 py-2">
-              Con el auto-retorno desactivado, la IA permanecerá en pausa definitiva en ese chat hasta que alguien la reactive manualmente desde el Inbox.
-            </p>
           )}
         </div>
+      )}
 
-        {/* Asistente Visual de IA Multinicho & Vacíos de Conocimiento */}
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#232A3B] pb-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  Asistente Comercial & Catálogo de Servicios
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Estructura el catálogo de productos o servicios, precios, tono de comunicación y respuestas automáticas
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {promptAutosaveStatus === 'saving' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20 text-[11px] font-medium">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Guardando...</span>
-                </span>
-              )}
-              {promptAutosaveStatus === 'saved' && promptLastSavedAt && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20 text-[11px] font-medium">
-                  <CheckCircle2 className="w-3 h-3" />
-                  <span>Guardado autom. ({promptLastSavedAt})</span>
-                </span>
-              )}
-
+            {/* ACORDEÓN: Coexistencia con Asesor en Móvil */}
+            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
               <button
                 type="button"
-                onClick={() => setIsSandboxOpen(true)}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
+                onClick={() => toggleSection('coexistence')}
+                className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
               >
-                <Sparkles className="w-4 h-4" />
-                <span>Probar Bot en Sandbox</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50 shrink-0">
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                        Coexistencia Asesor en Móvil
+                      </h3>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        mobileCoexistence.enabled
+                          ? 'bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30'
+                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {mobileCoexistence.enabled ? `Auto-retorno en ${mobileCoexistence.autoResumeHours}h` : 'Pausa permanente'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      Pausa temporal de la IA si el asesor contesta directamente desde WhatsApp móvil
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                    {openSections.has('coexistence') ? 'Plegar' : 'Desplegar'}
+                  </span>
+                  <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('coexistence') ? 'rotate-180' : ''}`}>
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </button>
+
+              {openSections.has('coexistence') && (
+                <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-[#232A3B] space-y-3 animate-in fade-in duration-150">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Al responder un asesor desde el celular, la IA se pausa temporalmente para no cruzarse con el cliente.
+                    </p>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={mobileCoexistence.enabled}
+                          onChange={(e) =>
+                            setMobileCoexistence((prev) => ({ ...prev, enabled: e.target.checked }))
+                          }
+                          className="w-4 h-4 rounded text-[#0052FF] focus:ring-[#0052FF]"
+                        />
+                        <span>Auto-retomar IA</span>
+                      </label>
+
+                      {mobileCoexistence.enabled && (
+                        <select
+                          value={mobileCoexistence.autoResumeHours}
+                          onChange={(e) =>
+                            setMobileCoexistence((prev) => ({
+                              ...prev,
+                              autoResumeHours: Number(e.target.value) || 2,
+                            }))
+                          }
+                          className="text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white font-semibold"
+                        >
+                          <option value={1}>Después de 1 hora</option>
+                          <option value={2}>Después de 2 horas (Recomendado)</option>
+                          <option value={4}>Después de 4 horas</option>
+                          <option value={8}>Después de 8 horas</option>
+                          <option value={12}>Después de 12 horas</option>
+                        </select>
+                      )}
+                    </div>
+                  </div>
+
+                  {!mobileCoexistence.enabled && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-800/40 rounded-xl px-3 py-2">
+                      Con el auto-retorno desactivado, la IA permanecerá en pausa definitiva en ese chat hasta que alguien la reactive manualmente desde el Inbox.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ACORDEÓN: Asistente Comercial & Catálogo de IA */}
+            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
+              <button
+                type="button"
+                onClick={() => toggleSection('assistant')}
+                className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] rounded-xl border border-[#0052FF]/20 shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                        Asistente Comercial & Catálogo de IA
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/30">
+                        <Sparkles className="w-3 h-3" />
+                        {promptAutosaveStatus === 'saving' ? 'Guardando...' : promptAutosaveStatus === 'saved' ? 'Guardado autom.' : 'Configurado'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      Catálogo de productos, precios, políticas de venta y respuestas automáticas
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                    {openSections.has('assistant') ? 'Plegar' : 'Desplegar'}
+                  </span>
+                  <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('assistant') ? 'rotate-180' : ''}`}>
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </button>
+
+              {openSections.has('assistant') && (
+                <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-6 animate-in fade-in duration-150">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100 dark:border-[#1E2433]">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Entrena las reglas de tu negocio, productos, objeciones y cotizaciones automáticas.
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {promptAutosaveStatus === 'saving' && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/20 text-[11px] font-medium">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Guardando...</span>
+                        </span>
+                      )}
+                      {promptAutosaveStatus === 'saved' && promptLastSavedAt && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20 text-[11px] font-medium">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Guardado autom. ({promptLastSavedAt})</span>
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setIsSandboxOpen(true)}
+                        className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#0052FF] hover:bg-[#0043D4] text-white transition shadow-xs flex items-center gap-2 cursor-pointer shrink-0 self-start sm:self-auto"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>Probar Bot en Sandbox</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Wizard Visual Guiado */}
+                  <div id="ai-prompt-section">
+                    <StructuredPromptWizard
+                      initialPrompt={systemPrompt}
+                      initialStructuredData={structuredPromptData}
+                      companyName={initialData.orgName || 'Mi Empresa'}
+                      externalPromptText={assistantSyncState.promptText}
+                      externalSyncNonce={assistantSyncState.nonce}
+                      highlightedSection={assistantSyncState.highlightedSection}
+                      onPromptCompiled={(compiledXml, newStructuredData) => {
+                        setSystemPrompt(compiledXml);
+                        setStructuredPromptData(newStructuredData);
+                      }}
+                    />
+                  </div>
+
+                  {/* Bucle de Aprendizaje: Vacíos de Conocimiento */}
+                  <div id="knowledge-gaps-section" className="pt-2">
+                    <KnowledgeGapsList
+                      initialGaps={initialData.initialKnowledgeGaps || []}
+                      onPromptUpdated={(newPrompt, newStructuredData) => {
+                        setSystemPrompt(newPrompt);
+                        if (newStructuredData) {
+                          setStructuredPromptData(newStructuredData);
+                        }
+                        setAssistantSyncState((prev) => ({
+                          nonce: prev.nonce + 1,
+                          promptText: newPrompt,
+                          highlightedSection: 'Preguntas frecuentes',
+                        }));
+                      }}
+                    />
+                  </div>
+
+                  {/* Modal Sandbox de Pruebas del Bot */}
+                  <BotSandboxModal
+                    isOpen={isSandboxOpen}
+                    onClose={() => setIsSandboxOpen(false)}
+                    temporaryPrompt={systemPrompt}
+                    botName={initialData.orgName || 'Synqo AI'}
+                    suggestedQuestions={sandboxSuggestedQuestions}
+                    onPromptPatched={(newPrompt) => {
+                      setSystemPrompt(newPrompt);
+                      setFeedback({ type: 'success', message: '¡Regla aprendida y prompt actualizado en tiempo real!' });
+                    }}
+                    onMessageSimulated={() => {
+                      markAssistantSandboxTestedAction().catch(() => {});
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* ACORDEÓN: Alertas de Consumo & Seguridad Gerencial */}
+            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
+              <button
+                type="button"
+                onClick={() => toggleSection('token_alerts')}
+                className="w-full flex items-center justify-between p-4 sm:p-5 text-left transition hover:bg-slate-50/70 dark:hover:bg-[#1A1F2C]/40 cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                        Alertas de Consumo & PIN Gerencial
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        Alertas Push & PIN
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      Notificaciones automáticas al alcanzar 80%/90% de capacidad y PIN de seguridad
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
+                    {openSections.has('token_alerts') ? 'Plegar' : 'Desplegar'}
+                  </span>
+                  <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('token_alerts') ? 'rotate-180' : ''}`}>
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </button>
+
+              {openSections.has('token_alerts') && (
+                <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-4 animate-in fade-in duration-150">
+                  <TokenAlertsAndPinCard
+                    initialThresholds={initialData.tokenPolicyData?.alertThresholds}
+                    initialOveragePricePer500kCop={initialData.tokenPolicyData?.overagePricePer500kCop}
+                    initialHasPin={initialData.hasManagerPin}
+                    alertsSentInCycle={initialData.tokenPolicyData?.alertsSentInCycle}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Barra de Guardado Flotante / Sticky */}
+            <div className="sticky bottom-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-white/95 dark:bg-[#131722]/95 backdrop-blur-md border border-slate-200 dark:border-[#232A3B] shadow-lg">
+              <div>
+                {feedback && (
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl animate-in fade-in duration-200 ${
+                    feedback.type === 'success' 
+                      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20' 
+                      : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
+                  }`}>
+                    {feedback.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                    {feedback.message}
+                  </span>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={saving}
+                className="w-full sm:w-auto min-w-[200px] inline-flex items-center justify-center gap-2 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{saving ? 'Guardando...' : 'Guardar Configuración'}</span>
               </button>
             </div>
-          </div>
-
-          {/* Wizard Visual Guiado */}
-          <div id="ai-prompt-section">
-            <StructuredPromptWizard
-              initialPrompt={systemPrompt}
-              initialStructuredData={structuredPromptData}
-              companyName={initialData.orgName || 'Mi Empresa'}
-              externalPromptText={assistantSyncState.promptText}
-              externalSyncNonce={assistantSyncState.nonce}
-              highlightedSection={assistantSyncState.highlightedSection}
-              onPromptCompiled={(compiledXml, newStructuredData) => {
-                setSystemPrompt(compiledXml);
-                setStructuredPromptData(newStructuredData);
-              }}
-            />
-          </div>
-
-          {/* Bucle de Aprendizaje: Vacíos de Conocimiento */}
-          <div id="knowledge-gaps-section" className="pt-2">
-            <KnowledgeGapsList
-              initialGaps={initialData.initialKnowledgeGaps || []}
-              onPromptUpdated={(newPrompt, newStructuredData) => {
-                setSystemPrompt(newPrompt);
-                if (newStructuredData) {
-                  setStructuredPromptData(newStructuredData);
-                }
-                setAssistantSyncState((prev) => ({
-                  nonce: prev.nonce + 1,
-                  promptText: newPrompt,
-                  highlightedSection: 'Preguntas frecuentes',
-                }));
-              }}
-            />
-          </div>
-
-          {/* Modal Sandbox de Pruebas del Bot */}
-          <BotSandboxModal
-            isOpen={isSandboxOpen}
-            onClose={() => setIsSandboxOpen(false)}
-            temporaryPrompt={systemPrompt}
-            botName={initialData.orgName || 'Synqo AI'}
-            suggestedQuestions={sandboxSuggestedQuestions}
-            onPromptPatched={(newPrompt) => {
-              setSystemPrompt(newPrompt);
-              setFeedback({ type: 'success', message: '¡Regla aprendida y prompt actualizado en tiempo real!' });
-            }}
-            onMessageSimulated={() => {
-              markAssistantSandboxTestedAction().catch(() => {});
-            }}
-          />
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-          <div>
-            {feedback && (
-              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl animate-in fade-in duration-200 ${
-                feedback.type === 'success' 
-                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20' 
-                  : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
-              }`}>
-                {feedback.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                {feedback.message}
-              </span>
-            )}
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="min-w-[195px] inline-flex items-center justify-center gap-2 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            <span>{saving ? 'Guardando...' : 'Guardar Configuración'}</span>
-          </button>
-        </div>
-      </form>
+          </form>
 
       {/* Modal de Edición de Plantilla */}
       {templateToEdit && mounted && createPortal(
