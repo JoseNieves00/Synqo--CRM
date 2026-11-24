@@ -2,6 +2,7 @@
 
 import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge';
 import { resolveRecommendedCommercialAction } from '@/lib/leads/lead-score';
+import { diagnoseCopilotTurn } from '@/lib/ai/copilot-engine';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
@@ -161,6 +162,25 @@ export function ContactPanel({
       dealValue: contact.deal_value,
     });
   }, [contact.lead_score, contact.pipeline_stage, contact.custom_fields, contact.deal_value]);
+
+  const copilotPrescription = useMemo(() => {
+    return diagnoseCopilotTurn({
+      history: [],
+      contactData: contact,
+      leadScore: contact.lead_score,
+    });
+  }, [contact]);
+
+  const isAwaitingPaymentProof = Boolean(
+    contact.custom_fields?.requested_payment_info &&
+    !contact.custom_fields?.has_pending_receipt &&
+    contact.pipeline_stage !== 'ganado'
+  );
+
+  const minutesSinceLastInteraction = useMemo(() => {
+    if (!contact.last_interaction_at) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(contact.last_interaction_at).getTime()) / 60000));
+  }, [contact.last_interaction_at]);
 
   const tempScore = useMemo(() => {
     if (typeof contact.lead_score === 'number') {
@@ -582,6 +602,55 @@ export function ContactPanel({
                 )}
               </div>
             )}
+
+            {/* Radar de Alerta: Comprobante Pendiente en Caliente (>15 min) */}
+            {isAwaitingPaymentProof && minutesSinceLastInteraction >= 15 && (
+              <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 p-2.5 space-y-1">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 dark:text-amber-200">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Riesgo de enfriamiento</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                    {minutesSinceLastInteraction} min sin pagar
+                  </span>
+                </div>
+                <p className="text-[10px] text-amber-800 dark:text-amber-300 leading-tight">
+                  El cliente pidió cuentas de pago pero no ha enviado el comprobante. Sugerencia: recontacta con urgencia ética antes de que se distraiga.
+                </p>
+              </div>
+            )}
+
+            {/* Tarjeta Copiloto Estratégico de Ventas */}
+            <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-900/50 bg-gradient-to-br from-indigo-50/60 to-blue-50/40 dark:from-indigo-950/20 dark:to-blue-950/10 p-3 space-y-2 shadow-2xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">
+                    Copiloto de Ventas
+                  </span>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 whitespace-nowrap">
+                  {copilotPrescription.frictionLabel}
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
+                  🎯 Táctica: {copilotPrescription.tacticName}
+                </div>
+                <p className="text-[10px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  {copilotPrescription.copilotDirective}
+                </p>
+              </div>
+
+              {copilotPrescription.suggestedClosingQuestion && (
+                <div className="pt-1.5 border-t border-indigo-200/50 dark:border-indigo-900/40 text-[10px] text-slate-600 dark:text-slate-400 flex items-start gap-1">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300 shrink-0">Cierre sugerido:</span>
+                  <span className="italic">"{copilotPrescription.suggestedClosingQuestion}"</span>
+                </div>
+              )}
+            </div>
 
             {/* Nivel de Calificación / Temperatura */}
             <div>

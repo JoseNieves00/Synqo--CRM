@@ -64,6 +64,7 @@ import {
   getLeadScoreBand,
   LEAD_SCORE_BAND_META,
 } from '@/lib/leads/lead-score';
+import { diagnoseCopilotTurn } from '@/lib/ai/copilot-engine';
 import {
   extractRecontactPromptDigest,
   inferAutonomousReminderFromLeadMessage,
@@ -704,6 +705,8 @@ function buildDynamicContextBlock(params: {
   sentInformationSummary?: string[];
   stageLabels?: Record<string, string>;
   stageCriteria?: Record<string, string>;
+  history?: Array<{ sender_type: string; content: string }>;
+  organization?: any;
 }): string {
   const {
     orgTimezone,
@@ -718,6 +721,8 @@ function buildDynamicContextBlock(params: {
     sentInformationSummary = [],
     stageLabels = {},
     stageCriteria = {},
+    history = [],
+    organization = null,
   } = params;
   let currentLocalTime = '';
   try {
@@ -746,6 +751,14 @@ function buildDynamicContextBlock(params: {
     customFields: cf,
     dealValue: contactData?.deal_value,
   });
+
+  const copilotPrescription = diagnoseCopilotTurn({
+    history,
+    contactData: contactData || {},
+    organization,
+    leadScore: leadScoreNum,
+  });
+
   const summaryText = cf.ai_summary?.summary_text
     ? String(cf.ai_summary.summary_text).replace(/\n/g, ' | ')
     : '';
@@ -844,6 +857,15 @@ En cada turno donde el cliente revele sus necesidades, intereses, presupuesto, u
   const painPointDisplay = contactData?.custom_fields?.pain_point ? `\nDolor/Necesidad: ${contactData.custom_fields.pain_point}` : '';
   const purchasingPowerDisplay = contactData?.custom_fields?.purchasing_power ? `\nPoder adquisitivo: ${contactData.custom_fields.purchasing_power}` : '';
 
+  const copilotBlock = `\n<copiloto_estrategico_de_ventas>
+Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
+Táctica Prescrita por el Copiloto: ${copilotPrescription.tacticName}
+Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
+Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
+Prohibiciones Estrictas de este Turno:
+${copilotPrescription.prohibitedActions.map((a) => `- ${a}`).join('\n')}
+</copiloto_estrategico_de_ventas>`;
+
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <perfil_lead>
@@ -854,7 +876,7 @@ Objetivo comercial actual: ${recAction.label}
 Directriz de cierre: ${recAction.playbookTip}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</perfil_lead>${copilotBlock}${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -1365,6 +1387,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           sentInformationSummary,
           stageLabels: (orgData?.appointment_settings as any)?.stage_labels,
           stageCriteria: (orgData?.appointment_settings as any)?.stage_criteria,
+          history: dbMessages,
+          organization: orgData,
         }),
       });
 
@@ -2568,6 +2592,12 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       .map((m) => `${m.sender_type === 'lead' ? 'Cliente' : 'Asesor/IA'}: ${m.content}`)
       .join('\n');
 
+    const prescription = diagnoseCopilotTurn({
+      history,
+      contactData: { name: leadName },
+      organization,
+    });
+
     const prompt = `Genera un borrador comercial natural para continuar la conversación de WhatsApp con el cliente ${leadName ? `(${leadName})` : ''}.
 
 Contexto del negocio e instrucciones de cierre:
@@ -2576,11 +2606,17 @@ ${basePrompt}
 Historial reciente de la conversación:
 ${conversationSnippet}
 
+Directriz táctica del Copiloto de Ventas para este turno:
+- Fricción del cliente: ${prescription.frictionLabel} (${prescription.customerMindset})
+- Táctica recomendada: ${prescription.tacticName}
+- Directriz: ${prescription.copilotDirective}
+- Pregunta de cierre sugerida: "${prescription.suggestedClosingQuestion}"
+
 Reglas obligatorias:
 - Eres el mismo asesor de la empresa que viene conversando. NUNCA digas "soy tu asesor asignado", ni "soy tu nuevo asesor", ni anuncies ningún cambio de guardia. La transición debe ser 100% invisible para el cliente.
 - Continúa la conversación con total fluidez, retomando con empatía y precisión exactamente lo último que el cliente preguntó o expresó.
 - Tu objetivo primordial es llevar al cliente al siguiente paso comercial concreto según las instrucciones del negocio (cerrar la venta, confirmar el medio de pago, agendar la cita/llamada o despejar la duda pendiente).
-- Responde directo, persuasivo y amable (1 a 3 líneas cortas), usa precios/datos reales del contexto y devuelve ÚNICAMENTE el texto final a enviar, sin comillas ni encabezados.`;
+- Aplica la directriz táctica del Copiloto: responde directo, persuasivo y amable (1 a 3 líneas cortas), usa precios/datos reales del contexto y devuelve ÚNICAMENTE el texto final a enviar, sin comillas ni encabezados.`;
 
     const { response } = await createChatCompletionWithFallback({
       messages: [
