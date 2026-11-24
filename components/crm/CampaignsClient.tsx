@@ -14,7 +14,13 @@ import {
   Zap,
   AlertTriangle,
   X,
+  Image as ImageIcon,
+  UploadCloud,
+  FileText,
+  Trash2,
+  Bot,
 } from 'lucide-react';
+import { uploadChatMedia } from '@/app/actions/chat';
 import {
   listCampaignsAction,
   previewCampaignAudienceAction,
@@ -36,6 +42,9 @@ interface CampaignRow {
   id: string;
   name: string;
   objective: string;
+  custom_message?: string | null;
+  custom_image_url?: string | null;
+  dispatch_mode?: 'ai' | 'custom' | string;
   segment_filters: CustomerFilters;
   status: 'draft' | 'running' | 'paused' | 'completed' | 'cancelled' | string;
   daily_cap: number;
@@ -115,8 +124,12 @@ export function CampaignsClient({
   const [filters, setFilters] = useState<CustomerFilters>(
     initialFilters ? normalizeCustomerFilters(initialFilters) : {}
   );
+  const [dispatchMode, setDispatchMode] = useState<'ai' | 'custom'>('ai');
   const [name, setName] = useState('');
   const [objective, setObjective] = useState('');
+  const [customMessage, setCustomMessage] = useState('');
+  const [customImageUrl, setCustomImageUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [dailyCap, setDailyCap] = useState(50);
   const [includeProductPhoto, setIncludeProductPhoto] = useState(true);
 
@@ -167,21 +180,54 @@ export function CampaignsClient({
     setFilters((prev) => normalizeCustomerFilters({ ...prev, ...patch }));
   };
 
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor selecciona un archivo de imagen válido (JPG, PNG, WebP).');
+      return;
+    }
+    setUploadingImage(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await uploadChatMedia(fd);
+      if (res?.url) {
+        setCustomImageUrl(res.url);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error subiendo la imagen.');
+    } finally {
+      setUploadingImage(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || objective.trim().length < 5) return;
+    if (!name.trim()) return;
+    if (dispatchMode === 'custom' && (!customMessage.trim() || customMessage.trim().length < 5)) return;
+    if (dispatchMode === 'ai' && (!objective.trim() || objective.trim().length < 5)) return;
+
     setCreating(true);
     setError(null);
     try {
       const res = await createCampaignAction({
         name: name.trim(),
-        objective: objective.trim(),
+        objective: dispatchMode === 'ai' ? objective.trim() : (customMessage.trim().slice(0, 600)),
+        customMessage: dispatchMode === 'custom' ? customMessage.trim() : undefined,
+        customImageUrl: customImageUrl.trim() || undefined,
+        dispatchMode,
         filters,
         dailyCap,
-        includeProductPhoto,
+        includeProductPhoto: dispatchMode === 'ai' ? includeProductPhoto : false,
       });
       setName('');
       setObjective('');
+      setCustomMessage('');
+      setCustomImageUrl('');
+      setDispatchMode('ai');
       setShowWizard(false);
       setNotice(`Campaña creada y en ejecución para ${res.recipients} destinatarios.`);
       await refreshCampaigns();
@@ -300,67 +346,143 @@ export function CampaignsClient({
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF]" />
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                Configurar Nueva Campaña IA
+                Configurar Nueva Campaña Comercial
               </h2>
             </div>
             <button
               type="button"
               onClick={() => setShowWizard(false)}
-              className="text-xs text-slate-400 hover:text-slate-600"
+              className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
             >
               Cancelar
             </button>
           </div>
 
-          {/* Plantillas Creativas 1-Clic para Nichos (Productos & Servicios) */}
-          <div className="rounded-xl border border-[#0052FF]/20 bg-[#0052FF]/5 p-3 space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#0052FF] dark:text-[#00D2FF]">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Plantillas Rápidas con 1 Clic (Creatividad Comercial para tu Nicho)</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
-              {(meta.campaignTemplates || []).map((tmpl) => {
-                const badgeColorClass =
-                  tmpl.badgeColor === 'amber'
-                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
-                    : tmpl.badgeColor === 'blue'
-                    ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
-                    : tmpl.badgeColor === 'emerald'
-                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
-                    : 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300';
+          {/* Selector de Modo de Campaña */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+              ¿Cómo deseas despachar y atender esta campaña?
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setDispatchMode('ai')}
+                className={`p-3.5 rounded-xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                  dispatchMode === 'ai'
+                    ? 'border-[#0052FF] bg-[#0052FF]/5 dark:bg-[#0052FF]/10 ring-1 ring-[#0052FF]'
+                    : 'border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div
+                  className={`p-2 rounded-lg shrink-0 ${
+                    dispatchMode === 'ai'
+                      ? 'bg-[#0052FF] text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <Bot className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      Redacción con IA
+                    </span>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                      Recomendado
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    La IA redacta 1 a 1 para cada cliente según su historial, objeciones y producto de interés. Cierra ventas de forma autónoma.
+                  </p>
+                </div>
+              </button>
 
-                return (
-                  <button
-                    key={tmpl.id}
-                    type="button"
-                    onClick={() => {
-                      setName(tmpl.defaultName);
-                      setObjective(tmpl.defaultObjective);
-                      setFilters(normalizeCustomerFilters(tmpl.defaultFilters));
-                      setIncludeProductPhoto(tmpl.includeProductPhoto);
-                      setDailyCap(tmpl.dailyCap);
-                    }}
-                    className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
-                  >
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className="text-base">{tmpl.emoji}</span>
-                      <span
-                        className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded ${badgeColorClass}`}
-                      >
-                        {tmpl.category}
-                      </span>
-                    </div>
-                    <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
-                      {tmpl.title}
-                    </div>
-                    <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
-                      {tmpl.description}
-                    </div>
-                  </button>
-                );
-              })}
+              <button
+                type="button"
+                onClick={() => setDispatchMode('custom')}
+                className={`p-3.5 rounded-xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                  dispatchMode === 'custom'
+                    ? 'border-emerald-600 bg-emerald-500/5 dark:bg-emerald-500/10 ring-1 ring-emerald-600'
+                    : 'border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div
+                  className={`p-2 rounded-lg shrink-0 ${
+                    dispatchMode === 'custom'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      Mi Mensaje Propio
+                    </span>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                      Calificación IA
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Envía exactamente tu texto e imagen a cada contacto. <strong>La IA califica y atiende</strong> a cada cliente tan pronto te responda.
+                  </p>
+                </div>
+              </button>
             </div>
           </div>
+
+          {/* Plantillas Creativas 1-Clic (Solo en modo Redacción con IA) */}
+          {dispatchMode === 'ai' && (
+            <div className="rounded-xl border border-[#0052FF]/20 bg-[#0052FF]/5 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#0052FF] dark:text-[#00D2FF]">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Plantillas Rápidas con 1 Clic (Creatividad Comercial para tu Nicho)</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
+                {(meta.campaignTemplates || []).map((tmpl) => {
+                  const badgeColorClass =
+                    tmpl.badgeColor === 'amber'
+                      ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                      : tmpl.badgeColor === 'blue'
+                      ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
+                      : tmpl.badgeColor === 'emerald'
+                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                      : 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300';
+
+                  return (
+                    <button
+                      key={tmpl.id}
+                      type="button"
+                      onClick={() => {
+                        setName(tmpl.defaultName);
+                        setObjective(tmpl.defaultObjective);
+                        setFilters(normalizeCustomerFilters(tmpl.defaultFilters));
+                        setIncludeProductPhoto(tmpl.includeProductPhoto);
+                        setDailyCap(tmpl.dailyCap);
+                      }}
+                      className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-base">{tmpl.emoji}</span>
+                        <span
+                          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded ${badgeColorClass}`}
+                        >
+                          {tmpl.category}
+                        </span>
+                      </div>
+                      <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
+                        {tmpl.title}
+                      </div>
+                      <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                        {tmpl.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Preset Saved Segments */}
           {meta.segments.length > 0 && (
@@ -552,40 +674,252 @@ export function CampaignsClient({
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Objetivo e instrucciones para que la IA redacte cada mensaje *
-            </label>
-            <textarea
-              rows={3}
-              required
-              value={objective}
-              onChange={(e) => setObjective(e.target.value)}
-              placeholder="Ej: Retoma la conversación mencionando el producto que preguntó el cliente, destaca que contamos con pago contraentrega sin riesgo y pregunta si desea apartar su talla hoy."
-              className="w-full rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0D111A] px-3 py-2 text-xs"
-            />
-          </div>
+          {/* Mensaje & Creatividad según Modalidad */}
+          {dispatchMode === 'ai' ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Objetivo e instrucciones para que la IA redacte cada mensaje *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={objective}
+                  onChange={(e) => setObjective(e.target.value)}
+                  placeholder="Ej: Retoma la conversación mencionando el producto que preguntó el cliente, destaca que contamos con pago contraentrega sin riesgo y pregunta si desea apartar su talla hoy."
+                  className="w-full rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0D111A] px-3 py-2 text-xs"
+                />
+              </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeProductPhoto}
-                onChange={(e) => setIncludeProductPhoto(e.target.checked)}
-                className="rounded"
-              />
-              Incluir foto del producto de interés cuando exista en el catálogo
-            </label>
+              {/* Adjuntar Imagen Propia Opcional */}
+              <div className="rounded-xl border border-slate-200 dark:border-[#232A3B] p-3.5 bg-slate-50/50 dark:bg-[#0D111A]/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-[#0052FF]" />
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Imagen promocional propia (Opcional)
+                    </span>
+                  </div>
+                  {customImageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomImageUrl('')}
+                      className="text-[11px] text-rose-500 hover:text-rose-600 inline-flex items-center gap-1 cursor-pointer font-medium"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Quitar imagen
+                    </button>
+                  )}
+                </div>
 
-            <button
-              type="submit"
-              disabled={creating || !name.trim() || objective.trim().length < 5}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white"
-            >
-              {creating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Lanzar Campaña IA
-            </button>
-          </div>
+                {customImageUrl ? (
+                  <div className="flex items-center gap-3 p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+                    <div className="relative w-14 h-14 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200 dark:border-slate-700">
+                      <img src={customImageUrl} alt="Campaña" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                        Imagen adjunta a cada mensaje de IA
+                      </p>
+                      <a
+                        href={customImageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-blue-500 hover:underline truncate block"
+                      >
+                        {customImageUrl}
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <label className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 hover:border-[#0052FF] bg-white dark:bg-[#131722] text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer transition">
+                      {uploadingImage ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-[#0052FF]" />
+                          <span>Subiendo imagen...</span>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud className="w-4 h-4 text-slate-400" />
+                          <span>Subir imagen o banner desde mi equipo (JPG, PNG, WebP)</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingImage}
+                        onChange={handleImageFileSelect}
+                        className="hidden"
+                      />
+                    </label>
+                    <div className="relative sm:w-64">
+                      <input
+                        type="url"
+                        value={customImageUrl}
+                        onChange={(e) => setCustomImageUrl(e.target.value)}
+                        placeholder="O pega URL https://..."
+                        className="w-full rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] px-2.5 py-2 text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeProductPhoto}
+                    onChange={(e) => setIncludeProductPhoto(e.target.checked)}
+                    className="rounded"
+                  />
+                  Incluir foto del producto de interés cuando no haya imagen personalizada
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={creating || !name.trim() || objective.trim().length < 5}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer"
+                >
+                  {creating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Lanzar Campaña IA
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Banner Explicativo Modo Propio + Calificación IA */}
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 flex items-start gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <strong>Envío exacto + Calificación automática con IA:</strong> Despacharemos tu mensaje exactamente como lo redactes aquí junto a tu imagen. Tan pronto el cliente responda, <strong>nuestra IA asumirá la conversación de inmediato</strong> para responder sus preguntas, clasificar su interés (score), ofrecer opciones y cerrar la venta.
+                </div>
+              </div>
+
+              {/* Mensaje Personalizado */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                    Tu mensaje comercial exacto *
+                  </label>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <span>Variables disponibles:</span>
+                    <button
+                      type="button"
+                      onClick={() => setCustomMessage((prev) => `${prev} {nombre}`)}
+                      className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1A1F2C] hover:bg-slate-200 dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 font-mono text-[10px] border border-slate-300 dark:border-slate-700 cursor-pointer"
+                      title="Nombre completo del contacto"
+                    >
+                      {'{nombre}'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomMessage((prev) => `${prev} {primer_nombre}`)}
+                      className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1A1F2C] hover:bg-slate-200 dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 font-mono text-[10px] border border-slate-300 dark:border-slate-700 cursor-pointer"
+                      title="Primer nombre del contacto"
+                    >
+                      {'{primer_nombre}'}
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  rows={4}
+                  required
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  placeholder="¡Hola {primer_nombre}! 👋 Tenemos una novedad exclusiva disponible para ti hoy. ¿Te gustaría conocer los detalles y apartar tu pedido?"
+                  className="w-full rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0D111A] px-3 py-2 text-xs"
+                />
+              </div>
+
+              {/* Imagen Adjunta Obligatoria/Opcional en Modo Propio */}
+              <div className="rounded-xl border border-slate-200 dark:border-[#232A3B] p-3.5 bg-slate-50/50 dark:bg-[#0D111A]/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Adjuntar imagen propia (Flyer, foto real o catálogo)
+                    </span>
+                  </div>
+                  {customImageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomImageUrl('')}
+                      className="text-[11px] text-rose-500 hover:text-rose-600 inline-flex items-center gap-1 cursor-pointer font-medium"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Quitar imagen
+                    </button>
+                  )}
+                </div>
+
+                {customImageUrl ? (
+                  <div className="flex items-center gap-3 p-2 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B]">
+                    <div className="relative w-14 h-14 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200 dark:border-slate-700">
+                      <img src={customImageUrl} alt="Campaña" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                        Imagen lista para enviar junto a tu mensaje
+                      </p>
+                      <a
+                        href={customImageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-blue-500 hover:underline truncate block"
+                      >
+                        {customImageUrl}
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <label className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-600 bg-white dark:bg-[#131722] text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer transition">
+                      {uploadingImage ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                          <span>Subiendo imagen...</span>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud className="w-4 h-4 text-slate-400" />
+                          <span>Subir imagen desde mi equipo (JPG, PNG, WebP)</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingImage}
+                        onChange={handleImageFileSelect}
+                        className="hidden"
+                      />
+                    </label>
+                    <div className="relative sm:w-64">
+                      <input
+                        type="url"
+                        value={customImageUrl}
+                        onChange={(e) => setCustomImageUrl(e.target.value)}
+                        placeholder="O pega URL https://..."
+                        className="w-full rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] px-2.5 py-2 text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 pt-1">
+                <button
+                  type="submit"
+                  disabled={creating || !name.trim() || customMessage.trim().length < 5}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer shadow-xs"
+                >
+                  {creating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Lanzar Campaña con Calificación IA
+                </button>
+              </div>
+            </div>
+          )}
         </form>
       )}
 
@@ -620,18 +954,49 @@ export function CampaignsClient({
                       <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusMeta.className}`}>
                         {statusMeta.label}
                       </span>
+                      {c.dispatch_mode === 'custom' ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                          ✍️ Mensaje Propio · Calificación IA
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                          🤖 Redacción IA
+                        </span>
+                      )}
                       <span className="text-[11px] text-slate-400">
                         {formatShortDate(c.created_at)} · Tope {c.daily_cap}/día
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300">{c.objective}</p>
-                    <p className="text-[11px] text-slate-400">
-                      Segmento:{' '}
-                      {describeCustomerFilters(
-                        c.segment_filters || {},
-                        c.segment_filters?.tagId ? tagMap.get(c.segment_filters.tagId) : null
+
+                    <div className="flex items-start gap-3 pt-1">
+                      {c.custom_image_url && (
+                        <a
+                          href={c.custom_image_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 dark:border-[#232A3B] shrink-0 block group shadow-2xs"
+                          title="Ver imagen de la campaña"
+                        >
+                          <img
+                            src={c.custom_image_url}
+                            alt="Campaña"
+                            className="w-full h-full object-cover group-hover:scale-105 transition"
+                          />
+                        </a>
                       )}
-                    </p>
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">
+                          {c.dispatch_mode === 'custom' ? (c.custom_message || c.objective) : c.objective}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          Segmento:{' '}
+                          {describeCustomerFilters(
+                            c.segment_filters || {},
+                            c.segment_filters?.tagId ? tagMap.get(c.segment_filters.tagId) : null
+                          )}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">

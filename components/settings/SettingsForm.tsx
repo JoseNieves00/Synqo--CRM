@@ -1250,7 +1250,7 @@ export function SettingsForm({
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Políticas & Tarifas de Envío
                     </h3>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 whitespace-nowrap shrink-0">
+                    <span className="inline-flex items-center whitespace-nowrap shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
                       {shippingSettingsData?.cityRates?.length || 0} {shippingSettingsData?.cityRates?.length === 1 ? 'flete' : 'fletes'}
                     </span>
                   </div>
@@ -1281,7 +1281,7 @@ export function SettingsForm({
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Cuentas de Pago & Plan Separe
                     </h3>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 whitespace-nowrap shrink-0">
+                    <span className="inline-flex items-center whitespace-nowrap shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                       {paymentAccountsData?.length || 0} {paymentAccountsData?.length === 1 ? 'activa' : 'activas'}
                     </span>
                   </div>

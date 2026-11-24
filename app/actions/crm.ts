@@ -834,14 +834,28 @@ export async function previewCampaignAudienceAction(filters: CustomerFilters) {
 
 export async function createCampaignAction(input: {
   name: string;
-  objective: string;
+  objective?: string;
+  customMessage?: string;
+  customImageUrl?: string;
+  dispatchMode?: 'ai' | 'custom';
   filters: CustomerFilters;
   dailyCap?: number;
   includeProductPhoto?: boolean;
 }) {
   const { user, profile } = await requireOrgMember();
-  if (!input.name?.trim() || !input.objective?.trim() || input.objective.trim().length < 5) {
-    throw new Error('Define un nombre y un objetivo claro (mínimo 5 caracteres) para la campaña.');
+  if (!input.name?.trim()) {
+    throw new Error('Define un nombre para la campaña.');
+  }
+
+  const dispatchMode = input.dispatchMode === 'custom' ? 'custom' : 'ai';
+  if (dispatchMode === 'custom') {
+    if (!input.customMessage?.trim() || input.customMessage.trim().length < 5) {
+      throw new Error('Escribe el mensaje que deseas enviar (mínimo 5 caracteres).');
+    }
+  } else {
+    if (!input.objective?.trim() || input.objective.trim().length < 5) {
+      throw new Error('Define un objetivo claro (mínimo 5 caracteres) para que la IA redacte cada mensaje.');
+    }
   }
 
   const created = await CampaignService.createCampaign({
@@ -849,6 +863,9 @@ export async function createCampaignAction(input: {
     createdBy: user.id,
     name: input.name,
     objective: input.objective,
+    customMessage: input.customMessage,
+    customImageUrl: input.customImageUrl,
+    dispatchMode,
     filters: input.filters,
     dailyCap: input.dailyCap,
     includeProductPhoto: input.includeProductPhoto,
@@ -865,7 +882,7 @@ export async function listCampaignsAction() {
 
   const [campaignsRes, recipientsRes, ordersRes] = await Promise.all([
     (supabaseAdmin.from('campaigns') as any)
-      .select('id, name, objective, segment_filters, status, daily_cap, include_product_photo, created_at, started_at, completed_at')
+      .select('id, name, objective, custom_image_url, custom_message, dispatch_mode, segment_filters, status, daily_cap, include_product_photo, created_at, started_at, completed_at')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(50),

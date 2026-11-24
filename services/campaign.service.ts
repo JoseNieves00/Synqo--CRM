@@ -57,7 +57,10 @@ export class CampaignService {
     organizationId: string;
     createdBy: string;
     name: string;
-    objective: string;
+    objective?: string;
+    customMessage?: string;
+    customImageUrl?: string | null;
+    dispatchMode?: 'ai' | 'custom';
     filters: CustomerFilters;
     dailyCap?: number;
     includeProductPhoto?: boolean;
@@ -70,11 +73,17 @@ export class CampaignService {
     const contactIds = Array.from(new Set((audience || []).map((c: any) => c.id as string)));
     if (contactIds.length === 0) throw new Error('El segmento no tiene clientes elegibles (WhatsApp, sin opt-out).');
 
+    const dispatchMode = params.dispatchMode === 'custom' ? 'custom' : 'ai';
+    const effectiveObjective = params.objective?.trim() || (params.customMessage?.trim().slice(0, 600) || 'Mensaje comercial propio');
+
     const { data: campaign, error } = await (supabaseAdmin.from('campaigns') as any)
       .insert({
         organization_id: params.organizationId,
         name: params.name.trim().slice(0, 80),
-        objective: params.objective.trim().slice(0, 600),
+        objective: effectiveObjective.slice(0, 600),
+        custom_message: params.customMessage?.trim() || null,
+        custom_image_url: params.customImageUrl?.trim() || null,
+        dispatch_mode: dispatchMode,
         segment_filters: filters,
         status: 'running',
         daily_cap: Math.max(1, Math.min(500, Math.round(params.dailyCap || 60))),
@@ -128,7 +137,7 @@ export class CampaignService {
     const result: CampaignRunResult = { campaignsProcessed: 0, sent: 0, skipped: 0, failed: 0, completed: 0 };
 
     let cq = (supabaseAdmin.from('campaigns') as any)
-      .select('id, organization_id, name, objective, daily_cap, include_product_photo')
+      .select('id, organization_id, name, objective, daily_cap, include_product_photo, custom_image_url, custom_message, dispatch_mode')
       .eq('status', 'running')
       .order('started_at', { ascending: true })
       .limit(10);
@@ -223,20 +232,49 @@ export class CampaignService {
         }
 
         try {
-          // El objetivo de la campaña se inyecta como "motivo del recontacto": la IA redacta un mensaje
-          // personalizado con nombre, producto de interés, objeción previa, score y reglas del negocio.
-          const payload = await LeadReactivationService.resolveAutonomousFollowUpPayload({
-            org,
-            contact,
-            cf: { ...cf, active_reminder: { note: `Campaña "${campaign.name}": ${campaign.objective}` } },
-            existingImageUrls: [],
-          });
-          const imageUrls = campaign.include_product_photo ? payload.imageUrls : [];
+          let bodyMessage: string;
+          let imageUrls: string[] = [];
+
+          if (campaign.dispatch_mode === 'custom' && campaign.custom_message) {
+            // Modo "Mi Mensaje Propio": se despacha exactamente el texto redactado por el usuario,
+            // con reemplazo opcional de tags como {nombre} o {primer_nombre}.
+            const rawName = (contact.name || '').trim();
+            const firstName = rawName ? rawName.split(/\s+/)[0] : '';
+            bodyMessage = campaign.custom_message
+              .replace(/\{nombre\}/gi, rawName || '')
+              .replace(/\{primer_nombre\}/gi, firstName || '')
+              .replace(/\{primer nombre\}/gi, firstName || '')
+              .trim();
+
+            if (campaign.custom_image_url) {
+              imageUrls = [campaign.custom_image_url];
+            } else if (campaign.include_product_photo) {
+              const payload = await LeadReactivationService.resolveAutonomousFollowUpPayload({
+                org,
+                contact,
+                cf,
+                existingImageUrls: [],
+              });
+              imageUrls = payload.imageUrls || [];
+            }
+          } else {
+            // Modo "Redacción con IA": la IA redacta un mensaje 1 a 1 según el objetivo, el cliente y el catálogo.
+            const payload = await LeadReactivationService.resolveAutonomousFollowUpPayload({
+              org,
+              contact,
+              cf: { ...cf, active_reminder: { note: `Campaña "${campaign.name}": ${campaign.objective}` } },
+              existingImageUrls: [],
+            });
+            bodyMessage = payload.bodyMessage;
+            imageUrls = campaign.custom_image_url
+              ? [campaign.custom_image_url]
+              : (campaign.include_product_photo ? payload.imageUrls : []);
+          }
 
           const dispatch = await LeadReactivationService.dispatchFollowUpStep({
             org,
             contact,
-            bodyMessage: payload.bodyMessage,
+            bodyMessage,
             imageUrls,
             stepLabel: `Campaña · ${campaign.name}`,
           });
@@ -244,7 +282,7 @@ export class CampaignService {
           if (dispatch.sent) {
             await this.markRecipient(rec.id, {
               status: 'sent',
-              message: payload.bodyMessage.slice(0, 1000),
+              message: bodyMessage.slice(0, 1000),
               sent_at: new Date().toISOString(),
             });
             result.sent++;
