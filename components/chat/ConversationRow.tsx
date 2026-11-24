@@ -289,6 +289,26 @@ export const ConversationRow = React.memo(function ConversationRow({
             {stageObj.label}
           </span>
 
+          {/* Badge de Comprobante de Pago por Validar */}
+          {Boolean(c.custom_fields?.has_pending_receipt || c.custom_fields?.handoff_reason === 'payment_receipt') && (
+            <span
+              title="Comprobante de pago recibido pendiente de validación por asesor"
+              className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center gap-0.5 shrink-0 animate-pulse"
+            >
+              💵 Comprobante
+            </span>
+          )}
+
+          {/* Badge de Saldo Pendiente de Plan Separe / Reserva */}
+          {Boolean(c.custom_fields?.order?.is_separe && Number(c.custom_fields?.order?.balance_due || 0) > 0) && (
+            <span
+              title={`Saldo pendiente por recaudar: $${Number(c.custom_fields.order.balance_due).toLocaleString('es-CO')} COP`}
+              className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-0.5 shrink-0"
+            >
+              ⏳ Saldo pendiente
+            </span>
+          )}
+
           {/* Badge de Producto de Interés (Venta a media) */}
           {productOfInterest && (
             <span

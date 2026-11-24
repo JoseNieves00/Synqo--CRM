@@ -13,6 +13,11 @@ test('1. Playbook de ventas automáticas en situaciones específicas se mantiene
   );
 
   // Verificación de protocolos situacionales
+  assert.ok(playbook.includes('COMPATIBILIDAD MULTI-MODELO'), 'Debe incluir compatibilidad para productos, servicios e híbridos');
+  assert.ok(playbook.includes('TÉRMINOS NATURALES Y COTIDIANOS'), 'Debe exigir términos naturales cotidianos');
+  assert.ok(playbook.includes('Te dejo apartado el tuyo'), 'Debe incluir frase humana de apartado de producto');
+  assert.ok(playbook.includes('Te guardo el cupo'), 'Debe incluir frase humana de reserva de servicio');
+  assert.ok(playbook.includes('REGLA DE VARIANTES ESTRICTA'), 'Debe incluir regla estricta contra invención de variantes');
   assert.ok(playbook.includes('MONOSÍLABOS O ANUNCIO'), 'Debe incluir protocolo para monosílabos y pauta');
   assert.ok(playbook.includes('POSTERGACIÓN O DUDA'), 'Debe incluir protocolo para "lo voy a pensar"');
   assert.ok(playbook.includes('SALIDA AMABLE O CORTE'), 'Debe incluir protocolo para "ah ok gracias"');

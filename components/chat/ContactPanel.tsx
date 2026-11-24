@@ -589,6 +589,44 @@ export function ContactPanel({
           </div>
         </div>
 
+        {/* Tarjeta de Abono / Plan Separe / Reserva (Compatible con Productos, Servicios e Híbridos) */}
+        {Boolean(contact.custom_fields?.order?.is_separe || Number(contact.custom_fields?.order?.deposit_paid || 0) > 0) && (
+          <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-gradient-to-br from-amber-50/80 to-orange-50/40 dark:from-amber-950/20 dark:to-orange-950/10 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                <Wallet className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                Abono / Plan Separe / Reserva
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                Number(contact.custom_fields?.order?.balance_due || 0) > 0
+                  ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200'
+                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+              }`}>
+                {Number(contact.custom_fields?.order?.balance_due || 0) > 0 ? 'Saldo pendiente' : 'Liquidado'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px] pt-0.5">
+              <div className="p-2 rounded-lg bg-white/90 dark:bg-[#131722]/90 border border-amber-200/50 dark:border-amber-500/20">
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Abono Inicial:</span>
+                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                  {formatCop(Number(contact.custom_fields?.order?.deposit_paid || 0))}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-white/90 dark:bg-[#131722]/90 border border-amber-200/50 dark:border-amber-500/20">
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Saldo por Cobrar:</span>
+                <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                  {formatCop(Number(contact.custom_fields?.order?.balance_due || 0))}
+                </span>
+              </div>
+            </div>
+            {Array.isArray(contact.custom_fields?.order?.items) && (
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                Detalle: {contact.custom_fields.order.items.map((it: any) => `${it.quantity}x ${it.product_name}`).join(', ')}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Recordatorios y Seguimiento */}
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between">

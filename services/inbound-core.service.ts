@@ -681,6 +681,7 @@ export class InboundCoreService {
         ...updatedSnoozeCustom,
         unattended_handoff: true,
         handoff_reason: 'payment_receipt',
+        has_pending_receipt: true,
         lead_temperature: 'hot',
       };
       delete receiptCf.temperature;
@@ -693,27 +694,26 @@ export class InboundCoreService {
         content: '[🚨 Comprobante de pago recibido: Asesor humano requerido para verificar pago. IA pausada.]',
       });
 
-      if (organization.handoff_mode !== 'silent') {
-        try {
-          const ackText = AI_TEXT_TEMPLATES.paymentReceiptAck(organization.name);
-          await this.dispatchOutboundMessage({
-            organization,
-            channel,
-            recipientId: updatedSnoozeCustom.remote_jid || updatedSnoozeCustom.whatsapp_jid || senderId,
-            text: ackText,
-            contactId,
-          });
-          await (supabaseAdmin.from('messages') as any).insert({
-            contact_id: contactId,
-            organization_id: orgId,
-            sender_type: 'ai',
-            content: ackText,
-            status: 'sent',
-            channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
-          });
-        } catch (ackErr) {
-          console.warn('[PAYMENT RECEIPT ACK WARN]', ackErr);
-        }
+      // Acuse de recibo inmediato del comprobante para tranquilizar al comprador (cero incertidumbre)
+      try {
+        const ackText = AI_TEXT_TEMPLATES.paymentReceiptAck(organization.name);
+        await this.dispatchOutboundMessage({
+          organization,
+          channel,
+          recipientId: updatedSnoozeCustom.remote_jid || updatedSnoozeCustom.whatsapp_jid || senderId,
+          text: ackText,
+          contactId,
+        });
+        await (supabaseAdmin.from('messages') as any).insert({
+          contact_id: contactId,
+          organization_id: orgId,
+          sender_type: 'ai',
+          content: ackText,
+          status: 'sent',
+          channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
+        });
+      } catch (ackErr) {
+        console.warn('[PAYMENT RECEIPT ACK WARN]', ackErr);
       }
 
       // Mantener abierto en "Por responder" DESPUÉS de insertar acuse para contrarrestar trigger SQL
