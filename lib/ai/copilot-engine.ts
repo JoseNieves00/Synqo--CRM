@@ -69,13 +69,14 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
 
   // 2. Contraentrega
   const shippingSettings = organization?.appointment_settings?.shipping_settings;
-  const isContraentregaExplicitlyFalse = shippingSettings?.isCashOnDeliveryAllowed === false;
+  const allowCod = shippingSettings?.allowCashOnDelivery ?? shippingSettings?.isCashOnDeliveryAllowed;
+  const isContraentregaExplicitlyFalse = allowCod === false;
   const isContraentregaNegated =
     isContraentregaExplicitlyFalse ||
     /no\s+[^.!?\n]*(?:contraentrega|contra\s*entrega|pago\s*al\s*recibir)|prohibido\s+[^.!?\n]*(?:contraentrega|contra\s*entrega)/i.test(
       promptText
     );
-  const hasContraentregaInSettings = Boolean(shippingSettings?.isCashOnDeliveryAllowed);
+  const hasContraentregaInSettings = allowCod === true;
   const hasContraentregaInPrompt =
     !isContraentregaNegated && /contraentrega|contra\s*entrega|pago\s*al\s*recibir/i.test(promptText);
   const canOfferContraentrega =
