@@ -864,6 +864,7 @@ Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
 Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
 Prohibiciones Estrictas de este Turno:
 ${copilotPrescription.prohibitedActions.map((a) => `- ${a}`).join('\n')}
+REGLA DE ORO DE FIJACIÓN AL PROMPT: Cada argumento, sede física, garantía, precio, descuento o método de despacho DEBE existir explícitamente en el prompt o catálogo de la empresa. Prohibido inventar datos o asumir sedes físicas/garantías no descritas.
 </copiloto_estrategico_de_ventas>`;
 
   return `<contexto_actual>

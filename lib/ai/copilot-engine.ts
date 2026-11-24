@@ -32,6 +32,8 @@ export interface CopilotPrescription {
     canOfferPlanSepare: boolean;
     canOfferContraentrega: boolean;
     hasPaymentAccounts: boolean;
+    hasPhysicalLocation: boolean;
+    hasOfficialGuarantee: boolean;
   };
 }
 
@@ -49,6 +51,8 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
   canOfferPlanSepare: boolean;
   canOfferContraentrega: boolean;
   hasPaymentAccounts: boolean;
+  hasPhysicalLocation: boolean;
+  hasOfficialGuarantee: boolean;
 } {
   const promptText = (systemPrompt || organization?.system_prompt || '').toLowerCase();
   const structuredPrompt = organization?.structured_prompt_data || {};
@@ -85,10 +89,30 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
   const hasPaymentAccountsInPrompt = /bancolombia|nequi|daviplata|cuenta\s*de\s*ahorros/i.test(promptText);
   const hasPaymentAccounts = hasActivePaymentAccounts || hasPaymentAccountsInPrompt;
 
+  // 4. Sede Física (Solo si el prompt o configuración describe tienda física, local o consultorio)
+  const isPhysicalLocationNegated =
+    /no\s+[^.!?\n]*(?:sede|tienda|local\s*f[ií]sica)|prohibido\s+[^.!?\n]*(?:sede|visita)/i.test(promptText);
+  const hasPhysicalLocation =
+    !isPhysicalLocationNegated &&
+    /sede\s*f[ií]sica|tienda\s*f[ií]sica|local\s*comercial|estamos\s*ubicados|vis[ií]tanos|consultorio|cl[ií]nica/i.test(
+      promptText
+    );
+
+  // 5. Garantía Explícita (Solo si el prompt define garantía oficial o política de cambios)
+  const isGuaranteeNegated =
+    /sin\s+garant[ií]a|no\s+[^.!?\n]*garant[ií]a/i.test(promptText);
+  const hasOfficialGuarantee =
+    !isGuaranteeNegated &&
+    /garant[ií]a\s*(?:de\s*)?\d+|garant[ií]a\s*oficial|pol[ií]tica\s*de\s*(?:cambio|garant[ií]a)|satisfacci[oó]n\s*garantizada/i.test(
+      promptText
+    );
+
   return {
     canOfferPlanSepare,
     canOfferContraentrega,
     hasPaymentAccounts,
+    hasPhysicalLocation,
+    hasOfficialGuarantee,
   };
 }
 
@@ -186,6 +210,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
   const prohibitedBase = [
     'Prohibido despedirte con "a la orden" o "quedo atento" (eso mata la venta)',
     'Prohibido inventar precios, descuentos o fletes no autorizados en el prompt',
+    'Prohibido inventar sedes físicas, garantías o políticas que no estén explícitas en tu prompt',
     'Prohibido solicitar relevo a asesor humano ante consultas de compra o pago',
   ];
 
@@ -199,8 +224,8 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         tacticKey: isReceipt ? 'validate_receipt_and_dispatch' : 'immediate_liquidation_and_hold',
         tacticName: isReceipt ? 'Confirmación de Comprobante & Datos' : 'Liquidación Directa con Urgencia Natural (2h)',
         copilotDirective: isReceipt
-          ? 'El cliente ya compartió comprobante. Valídalo cordialmente y solicita en 1 solo paso: Nombre completo, Cédula, Ciudad, Dirección y Teléfono.'
-          : 'Cero rodeos ni fotos adicionales. Entrega liquidación exacta y cuentas bancarias. Añade urgencia humana: "Te dejo apartado el tuyo por un par de horitas mientras nos compartes el comprobante" y solicita datos de despacho.',
+          ? 'El cliente ya compartió comprobante. Valídalo cordialmente y solicita en 1 solo paso los datos de despacho requeridos en tu prompt (Nombre, Cédula, Ciudad, Dirección, Teléfono).'
+          : 'Cero rodeos ni fotos adicionales. Entrega liquidación exacta y cuentas bancarias oficiales según tu prompt. Añade urgencia humana: "Te dejo apartado el tuyo por un par de horitas mientras nos compartes el comprobante" y solicita datos de despacho.',
         prohibitedActions: [
           ...prohibitedBase,
           'Prohibido enviar más fotos o preguntas abiertas de exploración cuando el cliente ya quiere pagar',
@@ -218,11 +243,13 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           customerMindset,
           tacticKey: 'demolish_distrust_contraentrega',
           tacticName: 'Derribar Desconfianza con Pago Contraentrega',
-          copilotDirective:
-            'Indica la sede de la empresa y de inmediato ofrece Pago Contraentrega para que cancele seguro al recibir en su puerta. Pregunta ciudad de destino.',
+          copilotDirective: capabilities.hasPhysicalLocation
+            ? 'Menciona la sede autorizada en tu prompt y ofrece Pago Contraentrega para que cancele seguro al recibir en su puerta. Pregunta ciudad de destino.'
+            : 'Ofrece directamente la opción de Pago Contraentrega autorizada para que cancele seguro al recibir en su puerta. Pregunta ciudad de destino.',
           prohibitedActions: [
             ...prohibitedBase,
-            'Prohibido dar explicaciones defensivas largas; ofrece la garantía y la contraentrega directo.',
+            'Prohibido dar explicaciones defensivas largas; ofrece la contraentrega directo.',
+            'Prohibido inventar una sede física si no está en el prompt.',
           ],
           suggestedClosingQuestion: '¿A qué ciudad sería la entrega para confirmarte el tiempo de llegada?',
           allowedCapabilities: capabilities,
@@ -233,11 +260,19 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         frictionLabel,
         customerMindset,
         tacticKey: 'demolish_distrust_guarantee_and_office',
-        tacticName: 'Validación de Seguridad con Sede y Garantía Oficial',
-        copilotDirective:
-          'Indica la sede del negocio, garantía de satisfacción y ofrece fotos reales de clientes o catálogo oficial.',
-        prohibitedActions: prohibitedBase,
-        suggestedClosingQuestion: '¿Deseas que te comparta los detalles de nuestra garantía oficial?',
+        tacticName: 'Validación de Seguridad Basada en el Prompt',
+        copilotDirective: capabilities.hasPhysicalLocation
+          ? 'Apóyate en la sede y canales oficiales descritos en tu prompt para validar legitimidad sin dar explicaciones defensivas.'
+          : (capabilities.hasOfficialGuarantee
+              ? 'Apóyate en la garantía oficial y canales respaldados en tu prompt. Prohibido inventar sedes físicas si el negocio opera online.'
+              : 'Resuelve la desconfianza basándote estrictamente en los respaldos, trayectoria y canales oficiales descritos en tu prompt. Prohibido inventar sedes físicas o garantías no escritas.'),
+        prohibitedActions: [
+          ...prohibitedBase,
+          'Prohibido inventar sedes físicas, tiendas presenciales o garantías si no están en el prompt.',
+        ],
+        suggestedClosingQuestion: capabilities.hasOfficialGuarantee
+          ? '¿Deseas que te comparta los detalles de nuestra garantía oficial?'
+          : '¿Te gustaría resolver alguna duda puntual sobre el servicio o producto?',
         allowedCapabilities: capabilities,
       };
     }
@@ -251,7 +286,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           tacticKey: 'bridge_plan_separe_deposit',
           tacticName: 'Puente de Bajo Compromiso (Plan Separe / Abono Inicial)',
           copilotDirective:
-            'No lo des por perdido ni digas "a la orden". Ofrécele dejar apartado el suyo con un abono inicial para que no pierda la disponibilidad y pagar el saldo con calma.',
+            'No lo des por perdido ni digas "a la orden". Ofrécele dejar apartado el suyo con un abono inicial según lo autorizado en tu prompt para congelar disponibilidad y pagar el saldo con calma.',
           prohibitedActions: [
             ...prohibitedBase,
             'Prohibido inventar condiciones o plazos de Plan Separe no autorizados en el prompt.',
@@ -265,11 +300,14 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         frictionLabel,
         customerMindset,
         tacticKey: 'ethical_reservation_hold',
-        tacticName: 'Reserva Temporal Ética por 2 Horas',
+        tacticName: 'Acompañamiento y Micro-Avance según Prompt',
         copilotDirective:
-          'Comprende con calidez su tiempo y ofrécele guardarle el cupo o producto por un par de horas para que no se quede sin disponibilidad si toma la decisión hoy.',
-        prohibitedActions: prohibitedBase,
-        suggestedClosingQuestion: '¿Te dejo reservado el cupo por un par de horitas para que lo asegures?',
+          'Comprende con calidez su tiempo sin cerrar la conversación ni decir "a la orden". Ofrécele guardar su cupo o resolver cualquier duda puntual sobre lo descrito en el catálogo o servicio para ayudarle a decidir con calma (solo ofrece reserva temporal si tu prompt lo contempla).',
+        prohibitedActions: [
+          ...prohibitedBase,
+          'Prohibido inventar reservas temporales o plazos no contemplados en el prompt.',
+        ],
+        suggestedClosingQuestion: '¿Tienes alguna duda sobre las opciones que te ayude a resolver hoy?',
         allowedCapabilities: capabilities,
       };
     }
@@ -301,7 +339,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           tacticKey: 'budget_relief_separe',
           tacticName: 'Alivio de Presupuesto con Plan Separe',
           copilotDirective:
-            'Facilita la compra proponiendo apartarlo con un abono cómodo y pagar el resto a su ritmo sin intereses.',
+            'Facilita la compra proponiendo apartarlo con un abono inicial según lo autorizado en tu prompt.',
           prohibitedActions: [
             ...prohibitedBase,
             'Prohibido prometer rebajas o descuentos inventados.',
@@ -315,11 +353,14 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         frictionLabel,
         customerMindset,
         tacticKey: 'value_reframing_and_durability',
-        tacticName: 'Reencuadre de Valor, Calidad y Durabilidad',
+        tacticName: 'Reencuadre de Valor según el Prompt',
         copilotDirective:
-          'Explica brevemente por qué el precio refleja calidad, garantía y acabado superior sin inventar rebajas.',
-        prohibitedActions: prohibitedBase,
-        suggestedClosingQuestion: '¿Te gustaría conocer la garantía y materiales que respaldan su durabilidad?',
+          'Explica el beneficio clave o respaldo que justifica el valor según lo descrito en tu prompt, sin inventar rebajas ni características que no existan.',
+        prohibitedActions: [
+          ...prohibitedBase,
+          'Prohibido inventar descuentos, rebajas o beneficios no descritos en el prompt.',
+        ],
+        suggestedClosingQuestion: '¿Te gustaría revisar el detalle de lo que incluye para ver si se ajusta a lo que buscas?',
         allowedCapabilities: capabilities,
       };
     }

@@ -193,7 +193,7 @@ test('3.1. Copiloto E-commerce Físico: Habilitado para Contraentrega y Plan Sep
   assert.strictEqual(rxPrice.tacticKey, 'budget_relief_separe');
 });
 
-test('3.2. Copiloto Clínica Médica / Servicios: Contraentrega y Separe estrictamente PROHIBIDOS', () => {
+test('3.2. Copiloto Clínica Médica / Servicios: Contraentrega y Separe estrictamente PROHIBIDOS y atados al prompt', () => {
   const orgClinic = {
     system_prompt: 'Somos Clínica Odontológica Especializada. Solo pagos presenciales o transferencia a cuenta de ahorros. No manejamos contraentrega ni plan separe.',
     appointment_settings: {
@@ -206,7 +206,7 @@ test('3.2. Copiloto Clínica Médica / Servicios: Contraentrega y Separe estrict
   assert.strictEqual(caps.canOfferContraentrega, false, 'Clínica médica jamás debe habilitar contraentrega');
   assert.strictEqual(caps.canOfferPlanSepare, false, 'Clínica médica jamás debe habilitar plan separe');
 
-  // Ante desconfianza -> NUNCA prescribe Contraentrega; prescribe garantía oficial y sede
+  // Ante desconfianza -> NUNCA prescribe Contraentrega; se apoya estrictamente en el prompt sin inventar sedes o garantías
   const rxDistrustClinic = diagnoseCopilotTurn({
     history: [{ sender_type: 'lead', content: '¿Cómo sé que no me van a estafar? ¿Dónde están ubicados?' }],
     organization: { ...orgClinic, system_prompt: 'Clínica Odontológica. Pagos por transferencia.' },
@@ -215,9 +215,10 @@ test('3.2. Copiloto Clínica Médica / Servicios: Contraentrega y Separe estrict
   assert.strictEqual(rxDistrustClinic.tacticKey, 'demolish_distrust_guarantee_and_office');
   assert.strictEqual(rxDistrustClinic.allowedCapabilities.canOfferContraentrega, false);
   assert.ok(!rxDistrustClinic.copilotDirective.toLowerCase().includes('contraentrega'));
-  assert.ok(rxDistrustClinic.copilotDirective.includes('sede') || rxDistrustClinic.copilotDirective.includes('garantía'));
+  assert.ok(rxDistrustClinic.copilotDirective.includes('prompt'));
+  assert.ok(rxDistrustClinic.prohibitedActions.some((p) => p.includes('sedes físicas')));
 
-  // Ante postergación -> NUNCA prescribe Plan Separe; prescribe reserva ética de 2h
+  // Ante postergación -> NUNCA prescribe Plan Separe; guía con calidez y consulta de dudas según prompt
   const rxPostponementClinic = diagnoseCopilotTurn({
     history: [{ sender_type: 'lead', content: 'Voy a consultar con mi esposo a ver qué me dice.' }],
     organization: { ...orgClinic, system_prompt: 'Clínica Odontológica. Pagos por transferencia.' },
@@ -226,12 +227,9 @@ test('3.2. Copiloto Clínica Médica / Servicios: Contraentrega y Separe estrict
   assert.strictEqual(rxPostponementClinic.tacticKey, 'ethical_reservation_hold');
   assert.strictEqual(rxPostponementClinic.allowedCapabilities.canOfferPlanSepare, false);
   assert.ok(!rxPostponementClinic.copilotDirective.toLowerCase().includes('separe'));
-  assert.ok(
-    rxPostponementClinic.copilotDirective.includes('guardarle el cupo') ||
-      rxPostponementClinic.copilotDirective.includes('un par de horas')
-  );
+  assert.ok(rxPostponementClinic.copilotDirective.includes('catálogo o servicio') || rxPostponementClinic.copilotDirective.includes('prompt'));
 
-  // Ante objeción de precio -> NUNCA prescribe Plan Separe; prescribe reencuadre de valor y calidad
+  // Ante objeción de precio -> NUNCA prescribe Plan Separe; reencuadra valor según beneficios del prompt
   const rxPriceClinic = diagnoseCopilotTurn({
     history: [{ sender_type: 'lead', content: 'Está muy costoso ese tratamiento' }],
     organization: { ...orgClinic, system_prompt: 'Clínica Odontológica. Pagos por transferencia.' },
@@ -240,6 +238,7 @@ test('3.2. Copiloto Clínica Médica / Servicios: Contraentrega y Separe estrict
   assert.strictEqual(rxPriceClinic.tacticKey, 'value_reframing_and_durability');
   assert.strictEqual(rxPriceClinic.allowedCapabilities.canOfferPlanSepare, false);
   assert.ok(!rxPriceClinic.copilotDirective.toLowerCase().includes('separe'));
+  assert.ok(rxPriceClinic.copilotDirective.includes('prompt'));
 });
 
 test('3.3. Copiloto Cierre Directo (ready_to_close): Cliente listo para pagar o con comprobante', () => {
