@@ -1314,14 +1314,14 @@ export function SettingsForm({
                 onClick={expandAllSections}
                 className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition font-medium cursor-pointer"
               >
-                Desplegar todas
+                Expandir todas
               </button>
               <button
                 type="button"
                 onClick={collapseAllSections}
                 className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition font-medium cursor-pointer"
               >
-                Plegar todas
+                Colapsar todas
               </button>
             </div>
           </div>
@@ -1424,10 +1424,7 @@ export function SettingsForm({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                    <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                      {isCapOpen ? 'Plegar' : 'Desplegar'}
-                    </span>
+                  <div className="shrink-0 ml-3">
                     <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${isCapOpen ? 'rotate-180' : ''}`}>
                       <ChevronDown className="w-4 h-4" />
                     </div>
@@ -1642,10 +1639,7 @@ export function SettingsForm({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 ml-3">
-                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                    {openSections.has('whatsapp') ? 'Plegar' : 'Desplegar'}
-                  </span>
+                <div className="shrink-0 ml-3">
                   <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('whatsapp') ? 'rotate-180' : ''}`}>
                     <ChevronDown className="w-4 h-4" />
                   </div>
@@ -2113,10 +2107,7 @@ export function SettingsForm({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                    <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                      {openSections.has('calendar') ? 'Plegar' : 'Desplegar'}
-                    </span>
+                  <div className="shrink-0 ml-3">
                     <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('calendar') ? 'rotate-180' : ''}`}>
                       <ChevronDown className="w-4 h-4" />
                     </div>
@@ -2564,10 +2555,7 @@ export function SettingsForm({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                    <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                      {openSections.has('templates') ? 'Plegar' : 'Desplegar'}
-                    </span>
+                  <div className="shrink-0 ml-3">
                     <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('templates') ? 'rotate-180' : ''}`}>
                       <ChevronDown className="w-4 h-4" />
                     </div>
@@ -2750,10 +2738,7 @@ export function SettingsForm({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 ml-3">
-                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                    {openSections.has('coexistence') ? 'Plegar' : 'Desplegar'}
-                  </span>
+                <div className="shrink-0 ml-3">
                   <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('coexistence') ? 'rotate-180' : ''}`}>
                     <ChevronDown className="w-4 h-4" />
                   </div>
@@ -2837,10 +2822,7 @@ export function SettingsForm({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 ml-3">
-                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                    {openSections.has('assistant') ? 'Plegar' : 'Desplegar'}
-                  </span>
+                <div className="shrink-0 ml-3">
                   <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('assistant') ? 'rotate-180' : ''}`}>
                     <ChevronDown className="w-4 h-4" />
                   </div>
@@ -2958,10 +2940,7 @@ export function SettingsForm({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 ml-3">
-                  <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                    {openSections.has('token_alerts') ? 'Plegar' : 'Desplegar'}
-                  </span>
+                <div className="shrink-0 ml-3">
                   <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('token_alerts') ? 'rotate-180' : ''}`}>
                     <ChevronDown className="w-4 h-4" />
                   </div>
