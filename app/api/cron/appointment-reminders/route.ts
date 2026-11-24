@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { ReminderService } from '@/services/reminder.service';
 import { AssignmentService } from '@/services/assignment.service';
-import { LeadReactivationService } from '@/services/reactivation.service';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -59,8 +58,6 @@ async function handleCron(request: NextRequest) {
 
     const result = await ReminderService.processAppointmentRemindersAndCancellations(orgId);
     const slaResult = await AssignmentService.reassignStaleHandoffs(orgId);
-    const reactivationResult = await LeadReactivationService.processAutonomousLeadReactivations(orgId);
-    const archiveResult = await LeadReactivationService.processAutoArchiveUnresponsiveReactivations(orgId);
 
     await logCronRun(
       'invoked',
@@ -73,8 +70,6 @@ async function handleCron(request: NextRequest) {
       ...result,
       reallocatedHandoffs: slaResult.reallocatedCount,
       aiAutoResumedHandoffs: slaResult.autoResumedCount,
-      autonomousReactivations: reactivationResult,
-      autoArchivedUnresponsive: archiveResult.autoArchivedCount,
     });
   } catch (err: any) {
     console.error('[CRON APPOINTMENT REMINDERS ERROR]', err);

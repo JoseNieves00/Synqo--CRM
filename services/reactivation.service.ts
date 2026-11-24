@@ -363,10 +363,10 @@ export class LeadReactivationService {
 
       // 2. Candado Atómico de Idempotencia:
       // Validar si el contacto ya recibió un mensaje saliente (IA, asesor o sistema) en los últimos 30 minutos
-      // (Elimina de raíz los envíos duplicados de 400ms provocados por invocaciones concurrentes del cron)
+      // (Elimina de raíz los envíos duplicados provocados por invocaciones concurrentes del cron)
       const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
       const { data: recentOutbound } = await (supabaseAdmin.from('messages') as any)
-        .select('id')
+        .select('id, created_at')
         .eq('contact_id', contact.id)
         .in('sender_type', ['ai', 'agent', 'agent_manual', 'system'])
         .gte('created_at', thirtyMinsAgo)
@@ -378,21 +378,27 @@ export class LeadReactivationService {
         return { sent: false, skippedReason: 'already_messaged_recently' };
       }
 
-      // 3. Comprobar timestamp de intento reciente en custom_fields (< 5 minutos)
-      const lastAttempt = custom.last_followup_attempt_at;
+      // 3. Comprobar timestamp de intento reciente directamente desde la base de datos (< 15 minutos)
+      const { data: freshContact } = await (supabaseAdmin.from('contacts') as any)
+        .select('custom_fields')
+        .eq('id', contact.id)
+        .single();
+
+      const freshCustom = (freshContact?.custom_fields as Record<string, any>) || {};
+      const lastAttempt = freshCustom.last_followup_attempt_at;
       if (lastAttempt) {
         const lastAttemptMs = new Date(lastAttempt).getTime();
-        if (Date.now() - lastAttemptMs < 5 * 60 * 1000) {
-          console.warn(`[FOLLOWUP IDEMPOTENCY] Contacto ${contact.id} tuvo intento de seguimiento hace < 5 minutos. Omitiendo.`);
+        if (Date.now() - lastAttemptMs < 15 * 60 * 1000) {
+          console.warn(`[FOLLOWUP IDEMPOTENCY] Contacto ${contact.id} tuvo intento reciente hace < 15 minutos (${lastAttempt}). Omitiendo.`);
           return { sent: false, skippedReason: 'recent_attempt_lock' };
         }
       }
 
-      // Marcar intento en base de datos antes de disparar llamadas a APIs externas
+      // Marcar intento atómico en base de datos antes de disparar llamadas a APIs externas
       await (supabaseAdmin.from('contacts') as any)
         .update({
           custom_fields: {
-            ...custom,
+            ...freshCustom,
             last_followup_attempt_at: new Date().toISOString(),
           },
         })
@@ -477,7 +483,8 @@ export class LeadReactivationService {
             isColdOutbound: true,
           });
 
-          for (const imgUrl of imageUrls.slice(0, 3)) {
+          const uniqueImageUrls = Array.from(new Set(imageUrls || [])).filter(Boolean);
+          for (const imgUrl of uniqueImageUrls.slice(0, 3)) {
             try {
               if (provider === 'evolution') {
                 await sleep(1200 + Math.floor(Math.random() * 1000));
@@ -722,164 +729,192 @@ export class LeadReactivationService {
           if (processedContactIds.has(contact.id)) continue;
           if (await this.hasRecentFollowUpForContact(contact.id, 0.75)) continue;
 
-          const cf = (contact.custom_fields as Record<string, any>) || {};
-          const isExempt = await TagService.isContactAiExempt(org.id, contact.id, cf);
-          if (cf.opted_out === true || cf.follow_up?.paused === true || isExempt.exempt) {
-            await (supabaseAdmin.from('scheduled_reminders') as any)
-              .update({ status: 'cancelled' })
-              .eq('id', rem.id);
-            continue;
+          // Candado distribuido a nivel de PostgreSQL para prevenir ejecuciones concurrentes
+          const lockWorkerId = `fu-rem-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          let acquiredLock = false;
+          try {
+            const { data: lockResult } = await (supabaseAdmin.rpc as any)('try_acquire_ai_lock', {
+              p_contact_id: contact.id,
+              p_worker_id: lockWorkerId,
+              p_ttl_seconds: 120,
+            });
+            acquiredLock = Boolean(lockResult);
+          } catch {
+            acquiredLock = true;
           }
-          // Candado unificado: cancelar en cerrado/ganado/perdido/opt-out, retener mientras
-          // el cliente espera respuesta humana y ENVIAR en el resto (aunque is_ai_active sea
-          // false porque un asesor respondió manualmente — su propio seguimiento sigue válido).
-          const holdReason = resolveFollowUpHoldReason(contact);
-          if (holdReason === 'conversation_closed' || holdReason === 'deal_closed') {
-            await (supabaseAdmin.from('scheduled_reminders') as any)
-              .update({ status: 'cancelled' })
-              .eq('id', rem.id);
-            continue;
-          }
-          if (holdReason === 'waiting_for_advisor') {
-            result.heldRemindersCount = (result.heldRemindersCount || 0) + 1;
+
+          if (!acquiredLock) {
+            console.warn(`[FOLLOWUP LOCK] Recordatorio para contacto ${contact.id} bloqueado concurrentemente. Omitiendo.`);
             continue;
           }
 
-          result.processedCount++;
-          const category = this.resolveSequenceCategory(contact, seqConfig);
-          const steps = seqConfig.sequences[category]?.steps || [];
-          const currentStepIdx = Math.min(Number(cf.follow_up?.currentStepIndex || 0), Math.max(0, steps.length - 1));
-          const step: FollowUpStep | undefined = steps[currentStepIdx];
+          try {
+            const cf = (contact.custom_fields as Record<string, any>) || {};
+            const isExempt = await TagService.isContactAiExempt(org.id, contact.id, cf);
+            if (cf.opted_out === true || cf.follow_up?.paused === true || isExempt.exempt) {
+              await (supabaseAdmin.from('scheduled_reminders') as any)
+                .update({ status: 'cancelled' })
+                .eq('id', rem.id);
+              continue;
+            }
+            // Candado unificado: cancelar en cerrado/ganado/perdido/opt-out, retener mientras
+            // el cliente espera respuesta humana y ENVIAR en el resto (aunque is_ai_active sea
+            // false porque un asesor respondió manualmente — su propio seguimiento sigue válido).
+            const holdReason = resolveFollowUpHoldReason(contact);
+            if (holdReason === 'conversation_closed' || holdReason === 'deal_closed') {
+              await (supabaseAdmin.from('scheduled_reminders') as any)
+                .update({ status: 'cancelled' })
+                .eq('id', rem.id);
+              continue;
+            }
+            if (holdReason === 'waiting_for_advisor') {
+              result.heldRemindersCount = (result.heldRemindersCount || 0) + 1;
+              continue;
+            }
 
-          const isMetaLocked =
-            (org.whatsapp_provider || 'meta') === 'meta' && !isLeadWindowOpen(contact);
-          const hasAutonomousContext = Boolean(cf.active_reminder?.note || cf.active_reminder?.suggestedMessage);
+            result.processedCount++;
+            const category = this.resolveSequenceCategory(contact, seqConfig);
+            const steps = seqConfig.sequences[category]?.steps || [];
+            const currentStepIdx = Math.min(Number(cf.follow_up?.currentStepIndex || 0), Math.max(0, steps.length - 1));
+            const step: FollowUpStep | undefined = steps[currentStepIdx];
 
-          let bodyMessage: string;
-          let resolvedImageUrls: string[] | undefined = step?.imageUrls;
+            const isMetaLocked =
+              (org.whatsapp_provider || 'meta') === 'meta' && !isLeadWindowOpen(contact);
+            const hasAutonomousContext = Boolean(cf.active_reminder?.note || cf.active_reminder?.suggestedMessage);
 
-          if (!isMetaLocked && (hasAutonomousContext || !step)) {
-            const payload = await this.resolveAutonomousFollowUpPayload({
-              org,
-              contact,
-              cf,
-              existingImageUrls: step?.imageUrls,
-            });
-            bodyMessage = payload.bodyMessage;
-            resolvedImageUrls = payload.imageUrls;
-          } else {
-            const rawText = step?.text || this.buildReactivationMessage(contact.name, cf);
-            const deducedProduct = await this.deduceCanonicalProductInterest({
-              contact,
-              org,
-              cf,
-              category,
-            });
-            bodyMessage = interpolateFollowUpText(rawText, {
-              contactName: contact.name,
-              productName: deducedProduct,
-              companyName: org.name,
-            });
+            let bodyMessage: string;
+            let resolvedImageUrls: string[] | undefined = step?.imageUrls;
 
-            // Si el paso no traía imágenes fijas y hay un producto deducido, adjuntar la foto del producto de interés
-            if ((!resolvedImageUrls || resolvedImageUrls.length === 0) && deducedProduct) {
-              const { items } = resolveOrganizationGallery(org, org.system_prompt);
-              const matched = findGalleryProductMatch(items, deducedProduct);
-              if (matched?.url) {
-                resolvedImageUrls = [matched.url];
+            if (!isMetaLocked && (hasAutonomousContext || !step)) {
+              const payload = await this.resolveAutonomousFollowUpPayload({
+                org,
+                contact,
+                cf,
+                existingImageUrls: step?.imageUrls,
+              });
+              bodyMessage = payload.bodyMessage;
+              resolvedImageUrls = payload.imageUrls;
+            } else {
+              const rawText = step?.text || this.buildReactivationMessage(contact.name, cf);
+              const deducedProduct = await this.deduceCanonicalProductInterest({
+                contact,
+                org,
+                cf,
+                category,
+              });
+              bodyMessage = interpolateFollowUpText(rawText, {
+                contactName: contact.name,
+                productName: deducedProduct,
+                companyName: org.name,
+              });
+
+              // Si el paso no traía imágenes fijas y hay un producto deducido, adjuntar la foto del producto de interés
+              if ((!resolvedImageUrls || resolvedImageUrls.length === 0) && deducedProduct) {
+                const { items } = resolveOrganizationGallery(org, org.system_prompt);
+                const matched = findGalleryProductMatch(items, deducedProduct);
+                if (matched?.url) {
+                  resolvedImageUrls = [matched.url];
+                }
               }
             }
-          }
 
-          const dispatch = await this.dispatchFollowUpStep({
-            org,
-            contact,
-            bodyMessage,
-            imageUrls: resolvedImageUrls,
-            metaTemplateName: step?.metaTemplateName,
-            metaTemplateParams: step?.metaTemplateParams,
-            metaTemplateLanguage: step?.metaTemplateLanguage,
-            stepLabel: hasAutonomousContext || !step ? 'Seguimiento Autónomo IA' : 'Seguimiento Agendado',
-            category,
-            stepIndex: currentStepIdx,
-          });
+            const dispatch = await this.dispatchFollowUpStep({
+              org,
+              contact,
+              bodyMessage,
+              imageUrls: resolvedImageUrls,
+              metaTemplateName: step?.metaTemplateName,
+              metaTemplateParams: step?.metaTemplateParams,
+              metaTemplateLanguage: step?.metaTemplateLanguage,
+              stepLabel: hasAutonomousContext || !step ? 'Seguimiento Autónomo IA' : 'Seguimiento Agendado',
+              category,
+              stepIndex: currentStepIdx,
+            });
 
-          if (dispatch.skippedReason === 'meta_outside_24h_no_template') {
-            result.skippedNoTemplateCount++;
-            const pausedFu = {
-              ...(cf.follow_up || {}),
-              paused: true,
-              pausedReason: 'meta_outside_24h_no_template',
-            };
-            delete pausedFu.nextSendAt;
-            await (supabaseAdmin.from('contacts') as any)
-              .update({
-                custom_fields: {
-                  ...cf,
-                  follow_up: pausedFu,
-                  follow_up_last_skipped: 'meta_outside_24h_no_template',
-                },
-              })
-              .eq('id', contact.id);
-            await (supabaseAdmin.from('scheduled_reminders') as any)
-              .update({ status: 'cancelled' })
-              .eq('id', rem.id);
-            continue;
-          }
-
-          if (dispatch.error) {
-            result.errors.push(dispatch.error);
-            continue;
-          }
-
-          if (dispatch.sent) {
-            sentToday++;
-            sentThisHour++;
-            result.reactivationsSent++;
-            result.scheduledRemindersSent++;
-            processedContactIds.add(contact.id);
-
-            await (supabaseAdmin.from('scheduled_reminders') as any)
-              .update({ status: 'sent' })
-              .eq('id', rem.id);
-
-            const nextIndex = currentStepIdx + 1;
-            const nextStep = steps[nextIndex];
-            const nextSendDate = nextStep
-              ? clampToSafeBusinessHours(
-                  new Date(nowTime + this.stepDelayMs(nextStep)),
-                  org.business_hours,
-                  timeZone
-                )
-              : null;
-            const updatedCf: Record<string, any> = {
-              ...cf,
-              follow_up: {
+            if (dispatch.skippedReason === 'meta_outside_24h_no_template') {
+              result.skippedNoTemplateCount++;
+              const pausedFu = {
                 ...(cf.follow_up || {}),
-                category,
-                currentStepIndex: nextIndex,
-                lastSentAt: nowIso,
-                ...(nextSendDate ? { nextSendAt: nextSendDate.toISOString() } : {}),
-                completed: !nextStep,
-              },
-            };
-            delete updatedCf.active_reminder;
-            if (!nextStep) delete updatedCf.follow_up.nextSendAt;
-
-            await (supabaseAdmin.from('contacts') as any)
-              .update({
-                custom_fields: updatedCf,
-                last_interaction_at: nowIso,
-                updated_at: nowIso,
-                last_message_sender: 'ai',
-                last_message_preview: bodyMessage.slice(0, 160),
-              })
-              .eq('id', contact.id);
-            await LeadScoreService.recompute(contact.id);
-
-            if ((org.whatsapp_provider || 'meta') === 'evolution') {
-              await sleep(2000 + Math.floor(Math.random() * 1500));
+                paused: true,
+                pausedReason: 'meta_outside_24h_no_template',
+              };
+              delete pausedFu.nextSendAt;
+              await (supabaseAdmin.from('contacts') as any)
+                .update({
+                  custom_fields: {
+                    ...cf,
+                    follow_up: pausedFu,
+                    follow_up_last_skipped: 'meta_outside_24h_no_template',
+                  },
+                })
+                .eq('id', contact.id);
+              await (supabaseAdmin.from('scheduled_reminders') as any)
+                .update({ status: 'cancelled' })
+                .eq('id', rem.id);
+              continue;
             }
+
+            if (dispatch.error) {
+              result.errors.push(dispatch.error);
+              continue;
+            }
+
+            if (dispatch.sent) {
+              sentToday++;
+              sentThisHour++;
+              result.reactivationsSent++;
+              result.scheduledRemindersSent++;
+              processedContactIds.add(contact.id);
+
+              await (supabaseAdmin.from('scheduled_reminders') as any)
+                .update({ status: 'sent' })
+                .eq('id', rem.id);
+
+              const nextIndex = currentStepIdx + 1;
+              const nextStep = steps[nextIndex];
+              const nextSendDate = nextStep
+                ? clampToSafeBusinessHours(
+                    new Date(nowTime + this.stepDelayMs(nextStep)),
+                    org.business_hours,
+                    timeZone
+                  )
+                : null;
+              const updatedCf: Record<string, any> = {
+                ...cf,
+                follow_up: {
+                  ...(cf.follow_up || {}),
+                  category,
+                  currentStepIndex: nextIndex,
+                  lastSentAt: nowIso,
+                  ...(nextSendDate ? { nextSendAt: nextSendDate.toISOString() } : {}),
+                  completed: !nextStep,
+                },
+              };
+              delete updatedCf.active_reminder;
+              if (!nextStep) delete updatedCf.follow_up.nextSendAt;
+
+              await (supabaseAdmin.from('contacts') as any)
+                .update({
+                  custom_fields: updatedCf,
+                  last_interaction_at: nowIso,
+                  updated_at: nowIso,
+                  last_message_sender: 'ai',
+                  last_message_preview: bodyMessage.slice(0, 160),
+                })
+                .eq('id', contact.id);
+              await LeadScoreService.recompute(contact.id);
+
+              if ((org.whatsapp_provider || 'meta') === 'evolution') {
+                await sleep(2000 + Math.floor(Math.random() * 1500));
+              }
+            }
+          } finally {
+            try {
+              await (supabaseAdmin.rpc as any)('release_ai_lock', {
+                p_contact_id: contact.id,
+                p_worker_id: lockWorkerId,
+              });
+            } catch {}
           }
         }
       }
@@ -1009,7 +1044,29 @@ export class LeadReactivationService {
       for (const item of batchToProcess) {
         if (sentToday >= dailyCap || sentThisHour >= hourlyCap) break;
         const { contact, category, stepIndex, step, autonomousDecision } = item;
+        if (processedContactIds.has(contact.id)) continue;
         if (await this.hasRecentFollowUpForContact(contact.id, 2.5)) continue;
+
+        // Candado distribuido a nivel de PostgreSQL para prevenir ejecuciones concurrentes
+        const lockWorkerId = `fu-seq-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        let acquiredLock = false;
+        try {
+          const { data: lockResult } = await (supabaseAdmin.rpc as any)('try_acquire_ai_lock', {
+            p_contact_id: contact.id,
+            p_worker_id: lockWorkerId,
+            p_ttl_seconds: 120,
+          });
+          acquiredLock = Boolean(lockResult);
+        } catch {
+          acquiredLock = true;
+        }
+
+        if (!acquiredLock) {
+          console.warn(`[FOLLOWUP LOCK] Secuencia para contacto ${contact.id} bloqueada concurrentemente. Omitiendo.`);
+          continue;
+        }
+
+        try {
         const cf = (contact.custom_fields as Record<string, any>) || {};
         result.processedCount++;
 
@@ -1095,6 +1152,7 @@ export class LeadReactivationService {
           sentToday++;
           sentThisHour++;
           result.reactivationsSent++;
+          processedContactIds.add(contact.id);
 
           const steps = seqConfig.sequences[category]?.steps || [];
           const nextIdx = stepIndex + 1;
@@ -1184,7 +1242,15 @@ export class LeadReactivationService {
             await sleep(2500 + Math.floor(Math.random() * 2000));
           }
         }
+      } finally {
+        try {
+          await (supabaseAdmin.rpc as any)('release_ai_lock', {
+            p_contact_id: contact.id,
+            p_worker_id: lockWorkerId,
+          });
+        } catch {}
       }
+    }
     }
 
     return result;
