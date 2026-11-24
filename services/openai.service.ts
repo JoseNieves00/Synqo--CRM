@@ -466,7 +466,7 @@ const requestHumanHandoffTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'request_human_handoff',
     description:
-      'Solicita relevo silencioso hacia un asesor humano ante comprobantes de pago, audios inaudibles, reclamos, descuentos especiales no autorizados, petición explícita de asesor o falta de información crítica.',
+      'Solicita relevo silencioso hacia un asesor humano ante comprobantes de pago ya efectuados, audios inaudibles, reclamos o petición explícita de asesor. PROHIBIDO usar cuando el cliente acepte comprar, diga que sí a un seguimiento, pida apartar con plan separe o solicite datos de pago (en esos casos la IA debe cerrar la venta directamente).',
     parameters: {
       type: 'object',
       properties: {
@@ -2079,83 +2079,100 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               }
             } else if (functionName === 'request_human_handoff') {
               const handoffReason = String(functionArgs?.reason || 'Consulta requiere asesor').trim();
-              pauseAfterSend = true;
-              detectedHandoffReason = handoffReason;
 
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                organization_id: organizationId,
-                sender_type: 'system',
-                content: `[🚨 Relevo Silencioso: Asesor humano requerido - Motivo: "${handoffReason}"]`,
-              });
+              // BLINDAJE ANTI-DESVÍO COMERCIAL:
+              // Si el cliente quiere apartar, comprar, pagar o muestra intención de compra y NO ha adjuntado comprobante ni solicitado un humano expresamente:
+              const isPurchaseOrSepareIntent =
+                /(apartar|separe|abono|abonar|comprar|reserva(r|ndo)?|ordenar|interes.*compra)/i.test(handoffReason) &&
+                !/(comprobante|recibo|voucher|transferido|consignaci[oó]n|captura|humano|asesor|hablar con|persona|queja|reclamo)/i.test(handoffReason);
 
-              HandoffService.notifyHandoff({
-                organizationId,
-                contactId,
-                reason: handoffReason,
-                channel: (channel as any) || 'whatsapp',
-              }).catch(() => {});
-
-              const isOperationalOnlyHandoff = /(asesor|humano|persona|agente|operador|comprobante|pago|transferencia|reclamo|queja|garant[ií]a|audio|nota de voz|descuento|cita)/i.test(
-                handoffReason
-              );
-              if (!isOperationalOnlyHandoff) {
-                try {
-                  const cleanReason = handoffReason.slice(0, 80);
-                  const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
-                    .select('id, occurrences')
-                    .eq('organization_id', organizationId)
-                    .eq('status', 'pending')
-                    .ilike('question_text', `%${cleanReason}%`)
-                    .limit(1);
-
-                  if (existingGaps && existingGaps.length > 0) {
-                    await (supabaseAdmin.from('ai_knowledge_gaps') as any)
-                      .update({ occurrences: (existingGaps[0].occurrences || 1) + 1, updated_at: new Date().toISOString() })
-                      .eq('id', existingGaps[0].id);
-                  } else {
-                    await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
-                      organization_id: organizationId,
-                      contact_id: contactId,
-                      question_text: handoffReason,
-                      ai_category: 'general',
-                      reason: handoffReason,
-                      status: 'pending',
-                      occurrences: 1,
-                    });
-                  }
-                } catch {}
-              }
-
-              const isSilent = handoffMode === 'silent';
-              const isExplicitHuman = /(asesor|humano|persona|agente|operador|alguien real)/i.test(handoffReason);
-              const nextOpeningWindow = calculateNextOpeningWindow(businessHours, orgTimezone);
-
-              if (isSilent) {
-                toolResult = JSON.stringify(
-                  isAfterHours && afterHoursMessage
-                    ? { status: 'after_hours_fallback', instructions_for_assistant: afterHoursMessage }
-                    : { status: 'silent_handoff', instructions_for_assistant: 'Responde únicamente SILENT_HANDOFF.' }
-                );
-              } else if (isExplicitHuman) {
+              if (isPurchaseOrSepareIntent) {
+                // Rechazar el relevo, mantener a la IA activa y ordenar cierre comercial directo
+                pauseAfterSend = false;
                 toolResult = JSON.stringify({
-                  status: 'handoff_explicit_human',
-                  instructions_for_assistant: `Comunica con calidez que un asesor ya toma la conversación. Sugerencia: "${AI_TEXT_TEMPLATES.explicitHandoff(
-                    orgData?.name,
-                    contactId
-                  )}"`,
-                });
-              } else if (isAfterHours) {
-                toolResult = JSON.stringify({
-                  status: 'handoff_after_hours',
-                  instructions_for_assistant: `Indica con calidez que validarás el dato con el equipo ${nextOpeningWindow} para darle respuesta exacta.`,
+                  status: 'handoff_rejected_closing_required',
+                  instructions_for_assistant:
+                    'REGLA ESTRICTA: PROHIBIDO desviar al asesor o decir que un asesor contactará al cliente. La IA debe cerrar la venta directamente en este mensaje: 1) Confirma el modelo con calidez, 2) Entrega los datos oficiales de pago/abono inicial (ej. cuenta Bancolombia de la empresa), 3) Solicita los datos de la orden (nombre completo, ciudad de envío y personalización deseada), 4) Pide que te comparta el comprobante por este medio una vez realice el abono.',
                 });
               } else {
-                toolResult = JSON.stringify({
-                  status: 'handoff_business_hours',
-                  instructions_for_assistant:
-                    'Indica con naturalidad que vas a validar ese dato con el equipo interno y confirmas en breve.',
+                pauseAfterSend = true;
+                detectedHandoffReason = handoffReason;
+
+                await supabaseAdmin.from('messages').insert({
+                  contact_id: contactId,
+                  organization_id: organizationId,
+                  sender_type: 'system',
+                  content: `[🚨 Relevo Silencioso: Asesor humano requerido - Motivo: "${handoffReason}"]`,
                 });
+
+                HandoffService.notifyHandoff({
+                  organizationId,
+                  contactId,
+                  reason: handoffReason,
+                  channel: (channel as any) || 'whatsapp',
+                }).catch(() => {});
+
+                const isOperationalOnlyHandoff = /(asesor|humano|persona|agente|operador|comprobante|pago|transferencia|reclamo|queja|garant[ií]a|audio|nota de voz|descuento|cita)/i.test(
+                  handoffReason
+                );
+                if (!isOperationalOnlyHandoff) {
+                  try {
+                    const cleanReason = handoffReason.slice(0, 80);
+                    const { data: existingGaps } = await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                      .select('id, occurrences')
+                      .eq('organization_id', organizationId)
+                      .eq('status', 'pending')
+                      .ilike('question_text', `%${cleanReason}%`)
+                      .limit(1);
+
+                    if (existingGaps && existingGaps.length > 0) {
+                      await (supabaseAdmin.from('ai_knowledge_gaps') as any)
+                        .update({ occurrences: (existingGaps[0].occurrences || 1) + 1, updated_at: new Date().toISOString() })
+                        .eq('id', existingGaps[0].id);
+                    } else {
+                      await (supabaseAdmin.from('ai_knowledge_gaps') as any).insert({
+                        organization_id: organizationId,
+                        contact_id: contactId,
+                        question_text: handoffReason,
+                        ai_category: 'general',
+                        reason: handoffReason,
+                        status: 'pending',
+                        occurrences: 1,
+                      });
+                    }
+                  } catch {}
+                }
+
+                const isSilent = handoffMode === 'silent';
+                const isExplicitHuman = /(asesor|humano|persona|agente|operador|alguien real)/i.test(handoffReason);
+                const nextOpeningWindow = calculateNextOpeningWindow(businessHours, orgTimezone);
+
+                if (isSilent) {
+                  toolResult = JSON.stringify(
+                    isAfterHours && afterHoursMessage
+                      ? { status: 'after_hours_fallback', instructions_for_assistant: afterHoursMessage }
+                      : { status: 'silent_handoff', instructions_for_assistant: 'Responde únicamente SILENT_HANDOFF.' }
+                  );
+                } else if (isExplicitHuman) {
+                  toolResult = JSON.stringify({
+                    status: 'handoff_explicit_human',
+                    instructions_for_assistant: `Comunica con calidez que un asesor ya toma la conversación. Sugerencia: "${AI_TEXT_TEMPLATES.explicitHandoff(
+                      orgData?.name,
+                      contactId
+                    )}"`,
+                  });
+                } else if (isAfterHours) {
+                  toolResult = JSON.stringify({
+                    status: 'handoff_after_hours',
+                    instructions_for_assistant: `Indica con calidez que validarás el dato con el equipo ${nextOpeningWindow} para darle respuesta exacta.`,
+                  });
+                } else {
+                  toolResult = JSON.stringify({
+                    status: 'handoff_business_hours',
+                    instructions_for_assistant:
+                      'Indica con naturalidad que vas a validar ese dato con el equipo interno y confirmas en breve.',
+                  });
+                }
               }
             } else if (functionName === 'record_knowledge_gap') {
               const qText = String(functionArgs?.question_text || '').trim();
@@ -3451,8 +3468,20 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
             resultPayload = { status: 'validation_error', error: parsed.error.message };
           }
         } else if (fn === 'request_human_handoff') {
-          trace.handoffRequested = { reason: String(args.reason || 'Asesor requerido') };
-          resultPayload = { status: 'handoff_business_hours' };
+          const handoffReason = String(args.reason || 'Asesor requerido');
+          const isPurchaseOrSepareIntent =
+            /(apartar|separe|abono|abonar|comprar|reserva(r|ndo)?|ordenar|interes.*compra)/i.test(handoffReason) &&
+            !/(comprobante|recibo|voucher|transferido|consignaci[oó]n|captura|humano|asesor|hablar con|persona|queja|reclamo)/i.test(handoffReason);
+          if (isPurchaseOrSepareIntent) {
+            resultPayload = {
+              status: 'handoff_rejected_closing_required',
+              instructions_for_assistant:
+                'PROHIBIDO desviar al asesor. La IA debe cerrar la venta directamente: confirma el modelo, entrega datos de pago/abono y pide datos de despacho.',
+            };
+          } else {
+            trace.handoffRequested = { reason: handoffReason };
+            resultPayload = { status: 'handoff_business_hours' };
+          }
         }
 
         trace.toolCallsExecuted.push({ name: fn, args, status: resultPayload.status || 'ok' });

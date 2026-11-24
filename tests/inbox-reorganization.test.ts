@@ -786,7 +786,7 @@ async function runInboxTests() {
     currentUserId: 'usr-1',
     currentUserRole: 'admin',
     initialContacts: [oldChatWithRecentMetadataUpdate as any, recentActiveChat as any],
-    initialCounts: { por_responder: 0, mis_abiertos: 0, ia_atendiendo: 2, seguimiento: 0, cerrados: 0 },
+    initialCounts: { todos: 2, por_responder: 0, mis_abiertos: 0, ia_atendiendo: 2, seguimiento: 0, cerrados: 0 },
     initialView: 'ia_atendiendo',
   });
   assert.strictEqual(

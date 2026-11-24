@@ -44,6 +44,7 @@ async function runFaseBTests() {
     currentUserRole: 'agent',
     initialContacts: [testContact1, testContact2],
     initialCounts: {
+      todos: 4,
       por_responder: 1,
       mis_abiertos: 2,
       ia_atendiendo: 1,
@@ -168,7 +169,7 @@ async function runFaseBTests() {
       currentUserId: 'test-user',
       currentUserRole: 'agent',
       initialContacts: [],
-      initialCounts: { por_responder: 0, mis_abiertos: 0, ia_atendiendo: 0, seguimiento: 0, cerrados: 0 },
+      initialCounts: { todos: 0, por_responder: 0, mis_abiertos: 0, ia_atendiendo: 0, seguimiento: 0, cerrados: 0 },
       activeContactId: null,
       initialMessages: [],
     });
