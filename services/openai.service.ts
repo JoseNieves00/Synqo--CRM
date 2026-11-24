@@ -1202,13 +1202,12 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         let contentText = msg.content || '';
 
         if (msg.sender_type === 'ai' || msg.sender_type === 'agent_manual') {
-          // Extraer imagen y conservar el caption 100% íntegro reemplazando la URL técnica por un marcador limpio
+          // Extraer imagen y resumir de forma limpia sin enseñar al modelo a emitir prefijos artificiales
           let compactText = contentText;
           const parsed = parseImageMessageContent(contentText);
           if (parsed.isImage) {
-            compactText = parsed.caption
-              ? `[Foto oficial enviada]: ${parsed.caption}`
-              : '[Foto oficial enviada]';
+            const firstLine = (parsed.caption || '').split('\n')[0].trim();
+            compactText = `[Tarjeta visual de producto ya enviada y vista por el cliente${firstLine ? `: "${firstLine}"` : ''}. Prohibido repetir este marcador o sus especificaciones.]`;
           } else {
             compactText = compactText.replace(/\[IMAGEN:\s*https?:\/\/[^\]]+\]/gi, '[Imagen enviada]');
           }
@@ -1559,10 +1558,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     status: 'sent',
                     product: matched.name,
                     price: formatGalleryPrice(matched.price),
-                    caption,
                     already_visible_in_card: true,
                     message:
-                      'Tarjeta visual enviada al cliente con foto oficial, precio y medidas en el pie de foto. TU MENSAJE FINAL DE TEXTO TIENE PROHIBIDO VOLVER A LISTAR PRECIOS, MEDIDAS O CARACTERÍSTICAS YA ENVIADAS EN LA TARJETA, Y PROHIBIDO USAR FRASES META-REFERENCIALES ANUNCIANDO EL ENVÍO (ej: no digas "He enviado la información...", "Te comparto la foto..."). Tu mensaje de texto debe ser ÚNICAMENTE 1 sola pregunta breve de cierre orientada a la venta (ej: "¿Cuál de estos modelos se adapta mejor a tu espacio?"). No escribas enlaces.',
+                      'Tarjeta visual despachada a WhatsApp con foto, precio y medidas. TU MENSAJE FINAL DE TEXTO TIENE TERMINANTEMENTE PROHIBIDO REPETIR PRECIOS, MEDIDAS O DETALLES, Y PROHIBIDO ESCRIBIR "[Foto oficial enviada]". Tu mensaje de texto debe ser ÚNICAMENTE 1 sola pregunta breve de cierre orientada a la compra o apartado (ej: "¿Te gustaría apartarla desde hoy con abono inicial o prefieres conocer algún detalle adicional?").',
                   });
                 }
               }
@@ -2525,11 +2523,38 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         }
       }
 
-      // Blindaje Determinístico: Si la IA despachó tarjetas con foto/precio/medidas en este turno,
-      // se poda cualquier lista repetitiva de precios/medidas en el texto final, garantizando que el
-      // cliente solo reciba la pregunta limpia de cierre.
-      if (dispatchedUrlsThisTurn.size > 0 && finalResponseText) {
-        finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText);
+      // Blindaje Determinístico: Poda de ecos de tarjetas, prefijos internos y listas redundantes
+      if (finalResponseText) {
+        // 1. Eliminar cualquier eco de marcador interno que el LLM haya intentado escribir
+        finalResponseText = finalResponseText
+          .replace(/^\[(?:Foto oficial enviada|Imagen enviada|Tarjeta visual)[^\]]*\]:?\s*/gim, '')
+          .replace(/\[(?:Foto oficial enviada|Imagen enviada)\]:?\s*/gi, '')
+          .trim();
+
+        // 2. Si se despacharon fotos en este turno o en turnos recientes, podar listas y atributos repetitivos
+        if (dispatchedUrlsThisTurn.size > 0 || sentInformationSummary.length > 0) {
+          finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText);
+
+          // Si el texto resultante empieza repitiendo líneas de descripción de producto o medidas
+          const lines = finalResponseText.split('\n');
+          const cleanedLines = lines.filter((l) => {
+            const trimmed = l.trim();
+            if (!trimmed) return true;
+            // Descartar líneas que sean únicamente nombre y precio (ej. "Casita de ensueños · $630.000")
+            if (/\$\s*\d+[\d.,]*/.test(trimmed) && (trimmed.includes('·') || trimmed.includes('-') || trimmed.length < 50)) {
+              return false;
+            }
+            // Descartar líneas con especificaciones de medidas/dimensiones
+            if (/medidas?\s*:\s*\d+.*(?:alto|ancho|prof)/i.test(trimmed)) {
+              return false;
+            }
+            return true;
+          });
+          const reassembled = cleanedLines.join('\n').trim();
+          if (reassembled.length >= 10) {
+            finalResponseText = reassembled;
+          }
+        }
       }
 
       return {

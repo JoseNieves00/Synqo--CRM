@@ -430,6 +430,12 @@ export function stripRedundantCatalogListAfterCards(
 
   let result = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 
+  // Poda de marcadores internos o ecos de tarjeta de producto
+  result = result
+    .replace(/^\[(?:Foto oficial enviada|Imagen enviada|Tarjeta visual)[^\]]*\]:?\s*/gim, '')
+    .replace(/\[(?:Foto oficial enviada|Imagen enviada)\]:?\s*/gi, '')
+    .trim();
+
   // Poda determinística de frases meta-referenciales donde la IA anuncia que "envió" fotos o datos
   // (ej. "He enviado la información sobre la cocina pequeña. ¿Cuál de estos modelos se adapta mejor a tu espacio?")
   result = result

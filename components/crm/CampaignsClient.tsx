@@ -19,6 +19,8 @@ import {
   FileText,
   Trash2,
   Bot,
+  Eye,
+  Edit3,
 } from 'lucide-react';
 import { uploadChatMedia } from '@/app/actions/chat';
 import {
@@ -26,6 +28,9 @@ import {
   previewCampaignAudienceAction,
   createCampaignAction,
   updateCampaignStatusAction,
+  updateCampaignDetailsAction,
+  deleteCampaignAction,
+  getCampaignDetailsAction,
   runCampaignTickNowAction,
   type TagRecord,
   type SavedSegmentRecord,
@@ -146,6 +151,26 @@ export function CampaignsClient({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Detalles de campaña
+  const [detailsCampaignId, setDetailsCampaignId] = useState<string | null>(null);
+  const [campaignDetailsData, setCampaignDetailsData] = useState<{
+    campaign: any;
+    recipients: any[];
+  } | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsFilterStatus, setDetailsFilterStatus] = useState<string>('all');
+
+  // Edición de campaña
+  const [editingCampaign, setEditingCampaign] = useState<CampaignRow | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDispatchMode, setEditDispatchMode] = useState<'ai' | 'custom'>('ai');
+  const [editObjective, setEditObjective] = useState('');
+  const [editCustomMessage, setEditCustomMessage] = useState('');
+  const [editCustomImageUrl, setEditCustomImageUrl] = useState('');
+  const [editDailyCap, setEditDailyCap] = useState(50);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [uploadingEditImage, setUploadingEditImage] = useState(false);
+
   const stageLabels = { ...STAGE_LABELS_DEFAULT, ...(meta.stageLabels || {}) };
 
   const refreshCampaigns = useCallback(async () => {
@@ -251,6 +276,106 @@ export function CampaignsClient({
       setError(err?.message || 'Error actualizando estado.');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleOpenDetails = async (campaignId: string) => {
+    setDetailsCampaignId(campaignId);
+    setLoadingDetails(true);
+    setCampaignDetailsData(null);
+    setDetailsFilterStatus('all');
+    try {
+      const res = await getCampaignDetailsAction({ campaignId });
+      setCampaignDetailsData(res);
+    } catch (err: any) {
+      setError(err?.message || 'Error cargando detalles de la campaña.');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleStartEdit = (c: CampaignRow) => {
+    setEditingCampaign(c);
+    setEditName(c.name || '');
+    setEditDispatchMode((c.dispatch_mode as any) === 'custom' ? 'custom' : 'ai');
+    setEditObjective(c.objective || '');
+    setEditCustomMessage(c.custom_message || '');
+    setEditCustomImageUrl(c.custom_image_url || '');
+    setEditDailyCap(c.daily_cap || 50);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCampaign) return;
+    if (!editName.trim()) {
+      setError('El nombre de la campaña es obligatorio.');
+      return;
+    }
+    if (editDispatchMode === 'custom' && editCustomMessage.trim().length < 5) {
+      setError('En modo mensaje propio debes ingresar un mensaje de al menos 5 caracteres.');
+      return;
+    }
+    if (editDispatchMode === 'ai' && !editObjective.trim()) {
+      setError('El objetivo comercial es obligatorio en modo redacción IA.');
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    try {
+      await updateCampaignDetailsAction({
+        campaignId: editingCampaign.id,
+        name: editName.trim(),
+        dispatch_mode: editDispatchMode,
+        objective: editObjective.trim(),
+        custom_message: editCustomMessage.trim(),
+        custom_image_url: editCustomImageUrl.trim() || null,
+        daily_cap: editDailyCap,
+      });
+      setNotice('Campaña actualizada exitosamente.');
+      setEditingCampaign(null);
+      await refreshCampaigns();
+    } catch (err: any) {
+      setError(err?.message || 'Error actualizando campaña.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteCampaign = async (campaignId: string, campaignName: string) => {
+    const ok = window.confirm(`¿Estás seguro de eliminar permanentemente la campaña "${campaignName}" y sus registros de envío?`);
+    if (!ok) return;
+    setBusyId(campaignId);
+    setError(null);
+    try {
+      await deleteCampaignAction({ campaignId });
+      setNotice(`Campaña "${campaignName}" eliminada correctamente.`);
+      await refreshCampaigns();
+    } catch (err: any) {
+      setError(err?.message || 'Error eliminando campaña.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleUploadEditImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingEditImage(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await uploadChatMedia(formData);
+      if (res?.url) {
+        setEditCustomImageUrl(res.url);
+      } else {
+        setError('No se pudo subir la imagen.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error subiendo imagen.');
+    } finally {
+      setUploadingEditImage(false);
+      e.target.value = '';
     }
   };
 
@@ -1030,6 +1155,34 @@ export function CampaignsClient({
                         <XCircle className="w-3.5 h-3.5" /> Cancelar
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDetails(c.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-[#1E2536] dark:text-slate-300 dark:hover:bg-[#283145] transition cursor-pointer"
+                      title="Ver detalles, mensaje y lista de destinatarios"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-slate-500" /> Detalles
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleStartEdit(c)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50 transition cursor-pointer"
+                      title="Editar mensaje, objetivo, imagen o tope diario"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> Editar
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={busyId === c.id}
+                      onClick={() => handleDeleteCampaign(c.id, c.name)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                      title="Eliminar campaña permanentemente"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
 
@@ -1083,6 +1236,426 @@ export function CampaignsClient({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal: Ver Detalles de Campaña */}
+      {detailsCampaignId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-100 dark:border-[#1E2536] flex items-center justify-between bg-slate-50/50 dark:bg-[#0D111A]/50">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-[#0052FF] dark:text-[#00D2FF] flex items-center justify-center shrink-0">
+                  <Eye className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                    {campaignDetailsData?.campaign?.name || 'Detalles de la Campaña'}
+                  </h3>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400 flex-wrap">
+                    <span>Creada: {formatShortDate(campaignDetailsData?.campaign?.created_at)}</span>
+                    <span>•</span>
+                    <span>Tope: {campaignDetailsData?.campaign?.daily_cap || 50}/día</span>
+                    {campaignDetailsData?.campaign?.dispatch_mode === 'custom' ? (
+                      <span className="px-1.5 py-0.2 rounded font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                        ✍️ Mensaje Propio
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 rounded font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                        🤖 Redacción IA
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailsCampaignId(null);
+                  setCampaignDetailsData(null);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1E2536] transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 flex-1 overflow-y-auto space-y-4">
+              {loadingDetails ? (
+                <div className="py-12 flex flex-col items-center justify-center text-slate-400 space-y-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#0052FF]" />
+                  <span className="text-xs">Cargando destinatarios y detalles...</span>
+                </div>
+              ) : campaignDetailsData?.campaign ? (
+                <>
+                  {/* Mensaje / Objetivo */}
+                  <div className="rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0D111A]/50 p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                      <span>{campaignDetailsData.campaign.dispatch_mode === 'custom' ? 'Mensaje configurado' : 'Objetivo de la campaña'}</span>
+                      {campaignDetailsData.campaign.custom_image_url && (
+                        <a
+                          href={campaignDetailsData.campaign.custom_image_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-blue-600 hover:underline inline-flex items-center gap-1"
+                        >
+                          <ImageIcon className="w-3 h-3" /> Ver imagen adjunta
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex items-start gap-3">
+                      {campaignDetailsData.campaign.custom_image_url && (
+                        <img
+                          src={campaignDetailsData.campaign.custom_image_url}
+                          alt="Adjunto"
+                          className="w-14 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#232A3B] shrink-0"
+                        />
+                      )}
+                      <p className="text-xs text-slate-700 dark:text-slate-200 font-mono whitespace-pre-wrap leading-relaxed">
+                        {campaignDetailsData.campaign.custom_message || campaignDetailsData.campaign.objective}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Destinatarios */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Destinatarios ({campaignDetailsData.recipients?.length || 0})
+                      </h4>
+                      <div className="flex items-center gap-1 text-[11px]">
+                        {[
+                          { id: 'all', label: 'Todos' },
+                          { id: 'sent', label: 'Enviados' },
+                          { id: 'skipped', label: 'Omitidos' },
+                          { id: 'pending', label: 'Pendientes' },
+                        ].map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setDetailsFilterStatus(t.id)}
+                            className={`px-2 py-0.5 rounded-lg font-medium transition cursor-pointer ${
+                              detailsFilterStatus === t.id
+                                ? 'bg-[#0052FF] text-white'
+                                : 'bg-slate-100 dark:bg-[#1E2536] text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 dark:border-[#232A3B] overflow-hidden max-h-64 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-50 dark:bg-[#0D111A] text-[10px] text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-200 dark:border-[#232A3B] sticky top-0">
+                          <tr>
+                            <th className="py-2 px-3">Contacto</th>
+                            <th className="py-2 px-3">Teléfono</th>
+                            <th className="py-2 px-3">Estado</th>
+                            <th className="py-2 px-3">Detalle / Fecha</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-[#1E2536]">
+                          {campaignDetailsData.recipients
+                            .filter((r: any) => detailsFilterStatus === 'all' || r.status === detailsFilterStatus)
+                            .map((r: any) => {
+                              const c = r.contacts || {};
+                              return (
+                                <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-[#161B26] transition">
+                                  <td className="py-2 px-3 font-medium text-slate-900 dark:text-white">
+                                    {c.name || 'Sin nombre'}
+                                  </td>
+                                  <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">
+                                    {c.phone || '-'}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                        r.status === 'sent'
+                                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                          : r.status === 'skipped'
+                                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                          : r.status === 'failed'
+                                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                                      }`}
+                                    >
+                                      {r.status === 'sent'
+                                        ? 'Enviado'
+                                        : r.status === 'skipped'
+                                        ? 'Omitido'
+                                        : r.status === 'failed'
+                                        ? 'Fallido'
+                                        : 'Pendiente'}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3 text-[11px] text-slate-500 truncate max-w-[200px]" title={r.skip_reason || r.message || ''}>
+                                    {r.skip_reason ? (
+                                      <span className="text-amber-600 dark:text-amber-400">
+                                        {r.skip_reason === 'recent_automated_message'
+                                          ? 'Enviado recientemente (<24h)'
+                                          : r.skip_reason === 'no_phone'
+                                          ? 'Sin número válido'
+                                          : r.skip_reason === 'opted_out'
+                                          ? 'Pidió no contactar'
+                                          : r.skip_reason === 'already_won'
+                                          ? 'Ya es cliente ganado'
+                                          : r.skip_reason}
+                                      </span>
+                                    ) : r.sent_at ? (
+                                      formatShortDate(r.sent_at)
+                                    ) : (
+                                      '-'
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-[#0D111A] border-t border-slate-100 dark:border-[#1E2536] flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailsCampaignId(null);
+                  setCampaignDetailsData(null);
+                }}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Editar Campaña en Curso */}
+      {editingCampaign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150">
+          <form
+            onSubmit={handleSaveEdit}
+            className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
+          >
+            <div className="p-4 border-b border-slate-100 dark:border-[#1E2536] flex items-center justify-between bg-slate-50/50 dark:bg-[#0D111A]/50">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-[#0052FF] dark:text-[#00D2FF] flex items-center justify-center shrink-0">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Editar Campaña
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Modifica el mensaje, objetivo comercial, imagen o límite diario de envíos.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCampaign(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1E2536] transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 flex-1 overflow-y-auto space-y-4">
+              {/* Nombre de la campaña */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Nombre de la campaña *
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Ej. Promo Navidad · Colección Infantil"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  required
+                />
+              </div>
+
+              {/* Selector de Modo */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Modo de despacho
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditDispatchMode('ai')}
+                    className={`py-2 px-3 rounded-lg border text-xs font-semibold text-center transition cursor-pointer ${
+                      editDispatchMode === 'ai'
+                        ? 'border-[#0052FF] bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF]'
+                        : 'border-slate-200 dark:border-[#232A3B] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    🤖 Redacción IA
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditDispatchMode('custom')}
+                    className={`py-2 px-3 rounded-lg border text-xs font-semibold text-center transition cursor-pointer ${
+                      editDispatchMode === 'custom'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                        : 'border-slate-200 dark:border-[#232A3B] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    ✍️ Mensaje Propio
+                  </button>
+                </div>
+              </div>
+
+              {/* Contenido según modo */}
+              {editDispatchMode === 'custom' ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Mensaje redactado por ti *
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditCustomMessage((prev) => `${prev} {primer_nombre}`)}
+                        className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1E2536] text-[10px] font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
+                      >
+                        {'{primer_nombre}'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditCustomMessage((prev) => `${prev} {nombre}`)}
+                        className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1E2536] text-[10px] font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
+                      >
+                        {'{nombre}'}
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={editCustomMessage}
+                    onChange={(e) => setEditCustomMessage(e.target.value)}
+                    placeholder="¡Hola {primer_nombre}! Te escribimos para..."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Objetivo comercial para la IA *
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editObjective}
+                    onChange={(e) => setEditObjective(e.target.value)}
+                    placeholder="Ej. Ofrecer Plan Separe apartando con $50.000 para apartar el modelo de su interés..."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                  />
+                </div>
+              )}
+
+              {/* Imagen Adjunta */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Imagen adjunta (opcional)
+                </label>
+                {editCustomImageUrl ? (
+                  <div className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0D111A]">
+                    <img
+                      src={editCustomImageUrl}
+                      alt="Preview"
+                      className="w-14 h-14 object-cover rounded-lg border border-slate-200 dark:border-[#232A3B]"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                        Imagen cargada
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate font-mono">
+                        {editCustomImageUrl}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditCustomImageUrl('')}
+                      className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                      title="Eliminar imagen"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0D111A] hover:bg-slate-100 dark:hover:bg-[#1E2536] text-xs font-medium text-slate-700 dark:text-slate-200 transition">
+                      {uploadingEditImage ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0052FF]" />
+                      ) : (
+                        <UploadCloud className="w-3.5 h-3.5 text-[#0052FF]" />
+                      )}
+                      <span>Subir archivo</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleUploadEditImage}
+                        disabled={uploadingEditImage}
+                      />
+                    </label>
+                    <input
+                      type="url"
+                      value={editCustomImageUrl}
+                      onChange={(e) => setEditCustomImageUrl(e.target.value)}
+                      placeholder="o pega la URL de la imagen..."
+                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Tope diario */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tope diario de envíos (protección anti-ban)
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={200}
+                  value={editDailyCap}
+                  onChange={(e) => setEditDailyCap(Number(e.target.value) || 50)}
+                  className="w-32 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0D111A] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-[#0D111A] border-t border-slate-100 dark:border-[#1E2536] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingCampaign(null)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={savingEdit}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#0052FF] hover:bg-[#0040CC] text-white disabled:opacity-50 cursor-pointer shadow-xs"
+              >
+                {savingEdit ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>Guardar Cambios</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

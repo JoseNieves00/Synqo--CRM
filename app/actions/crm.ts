@@ -961,6 +961,86 @@ export async function updateCampaignStatusAction(input: {
   return { success: true };
 }
 
+export async function updateCampaignDetailsAction(input: {
+  campaignId: string;
+  name?: string;
+  objective?: string;
+  custom_message?: string;
+  custom_image_url?: string | null;
+  daily_cap?: number;
+  dispatch_mode?: 'ai' | 'custom';
+}) {
+  const { profile } = await requireOrgMember();
+  const payload: Record<string, any> = {};
+  if (typeof input.name === 'string' && input.name.trim()) payload.name = input.name.trim();
+  if (typeof input.objective === 'string') payload.objective = input.objective.trim();
+  if (typeof input.custom_message === 'string') payload.custom_message = input.custom_message.trim();
+  if (input.custom_image_url !== undefined) payload.custom_image_url = input.custom_image_url?.trim() || null;
+  if (typeof input.daily_cap === 'number' && input.daily_cap > 0) payload.daily_cap = input.daily_cap;
+  if (input.dispatch_mode === 'ai' || input.dispatch_mode === 'custom') payload.dispatch_mode = input.dispatch_mode;
+
+  if (Object.keys(payload).length === 0) return { success: true };
+
+  const { error } = await (supabaseAdmin.from('campaigns') as any)
+    .update(payload)
+    .eq('id', input.campaignId)
+    .eq('organization_id', profile.organization_id);
+  if (error) throw new Error(`Error actualizando detalles de campaña: ${error.message}`);
+
+  revalidatePath('/campanas');
+  return { success: true };
+}
+
+export async function deleteCampaignAction(input: { campaignId: string }) {
+  const { profile } = await requireOrgMember();
+  const orgId = profile.organization_id;
+
+  // 1. Eliminar destinatarios asociados
+  const { error: recErr } = await (supabaseAdmin.from('campaign_recipients') as any)
+    .delete()
+    .eq('campaign_id', input.campaignId)
+    .eq('organization_id', orgId);
+  if (recErr) throw new Error(`Error eliminando destinatarios: ${recErr.message}`);
+
+  // 2. Eliminar registro de campaña
+  const { error: campErr } = await (supabaseAdmin.from('campaigns') as any)
+    .delete()
+    .eq('id', input.campaignId)
+    .eq('organization_id', orgId);
+  if (campErr) throw new Error(`Error eliminando campaña: ${campErr.message}`);
+
+  revalidatePath('/campanas');
+  return { success: true };
+}
+
+export async function getCampaignDetailsAction(input: { campaignId: string }) {
+  const { profile } = await requireOrgMember();
+  const orgId = profile.organization_id;
+
+  const [campaignRes, recipientsRes] = await Promise.all([
+    (supabaseAdmin.from('campaigns') as any)
+      .select('id, name, objective, custom_image_url, custom_message, dispatch_mode, segment_filters, status, daily_cap, include_product_photo, created_at, started_at, completed_at')
+      .eq('id', input.campaignId)
+      .eq('organization_id', orgId)
+      .maybeSingle(),
+    (supabaseAdmin.from('campaign_recipients') as any)
+      .select('id, contact_id, status, skip_reason, sent_at, message, replied_at, converted_at, contacts:contact_id(id, name, phone, lead_score, pipeline_stage)')
+      .eq('campaign_id', input.campaignId)
+      .eq('organization_id', orgId)
+      .order('sent_at', { ascending: false, nullsFirst: false })
+      .limit(100),
+  ]);
+
+  if (campaignRes.error || !campaignRes.data) {
+    throw new Error('Campaña no encontrada o sin acceso');
+  }
+
+  return {
+    campaign: campaignRes.data,
+    recipients: recipientsRes.data || [],
+  };
+}
+
 export async function runCampaignTickNowAction() {
   const { profile } = await requireOrgMember();
   const res = await CampaignService.processRunningCampaigns({
