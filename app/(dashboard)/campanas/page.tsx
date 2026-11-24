@@ -40,6 +40,7 @@ export default async function CampanasPage({
           segments: meta.segments,
           whatsappProvider: meta.whatsappProvider,
           stageLabels: meta.stageLabels,
+          campaignTemplates: meta.campaignTemplates,
         }}
         initialFilters={initialFilters}
       />

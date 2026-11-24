@@ -29,6 +29,7 @@ import {
   normalizeCustomerFilters,
   describeCustomerFilters,
 } from '@/lib/crm/customer-filters';
+import { type CampaignTemplatePreset } from '@/lib/crm/campaign-templates';
 import { STAGE_LABELS_DEFAULT, formatCop, formatShortDate } from './crm-ui-helpers';
 
 interface CampaignRow {
@@ -61,6 +62,7 @@ interface CampaignsClientProps {
     segments: SavedSegmentRecord[];
     whatsappProvider: 'meta' | 'evolution';
     stageLabels: Record<string, string>;
+    campaignTemplates?: CampaignTemplatePreset[];
   };
   initialFilters?: CustomerFilters | null;
 }
@@ -317,113 +319,46 @@ export function CampaignsClient({
               <span>Plantillas Rápidas con 1 Clic (Creatividad Comercial para tu Nicho)</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setName('Reactivación Plan Separe / Apartado');
-                  setObjective(
-                    'Recontacta al cliente con calidez recordando el modelo o producto que le interesó. Ofrécele la facilidad de apartarlo hoy con un abono inicial mínimo mediante Plan Separe, asegurando su disponibilidad y pagando el saldo a su propio ritmo.'
-                  );
-                  setFilters(normalizeCustomerFilters({ temperature: 'warm', inactiveDays: 3 }));
-                  setIncludeProductPhoto(true);
-                  setDailyCap(40);
-                }}
-                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <span className="text-base">🏷️</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-                    Productos
-                  </span>
-                </div>
-                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
-                  Plan Separe / Abono
-                </div>
-                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
-                  Apartar con abono inicial y pagar saldo a su ritmo.
-                </div>
-              </button>
+              {(meta.campaignTemplates || []).map((tmpl) => {
+                const badgeColorClass =
+                  tmpl.badgeColor === 'amber'
+                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                    : tmpl.badgeColor === 'blue'
+                    ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
+                    : tmpl.badgeColor === 'emerald'
+                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300';
 
-              <button
-                type="button"
-                onClick={() => {
-                  setName('Bono Especial en Flete / Despacho');
-                  setObjective(
-                    'Saluda con calidez y resuélvele la duda del costo de despacho ofreciéndole un beneficio especial o flete preferencial si confirma su compra esta semana sin demoras.'
-                  );
-                  setFilters(normalizeCustomerFilters({ temperature: 'qualified_doubt' }));
-                  setIncludeProductPhoto(true);
-                  setDailyCap(40);
-                }}
-                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <span className="text-base">🚚</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300">
-                    Productos
-                  </span>
-                </div>
-                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
-                  Romper Objeción de Flete
-                </div>
-                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
-                  Beneficio especial en el valor o tiempo de envío.
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setName('Cupos de Diagnóstico o Valoración');
-                  setObjective(
-                    'Invita amablemente al cliente a agendar una cita o valoración personalizada sin costo o con cupo prioritario esta semana para analizar su caso directamente con un especialista.'
-                  );
-                  setFilters(normalizeCustomerFilters({ temperature: 'warm', inactiveDays: 2 }));
-                  setIncludeProductPhoto(false);
-                  setDailyCap(35);
-                }}
-                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <span className="text-base">🩺</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
-                    Servicios
-                  </span>
-                </div>
-                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
-                  Valoración / Cita Gratis
-                </div>
-                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
-                  Agendamiento de diagnóstico o cupo prioritario.
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setName('Reactivación Inactivos +15 Días');
-                  setObjective(
-                    'Saluda con afecto recordando su consulta previa, menciónale que estamos organizando las entregas y cupos de la semana y pregúntale de forma sencilla si aún desea concretar su pedido o cita.'
-                  );
-                  setFilters(normalizeCustomerFilters({ inactiveDays: 15 }));
-                  setIncludeProductPhoto(true);
-                  setDailyCap(30);
-                }}
-                className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <span className="text-base">✨</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300">
-                    General
-                  </span>
-                </div>
-                <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
-                  Reactivar Inactivos
-                </div>
-                <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
-                  Recuperar clientes de más de 15 días en frío.
-                </div>
-              </button>
+                return (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => {
+                      setName(tmpl.defaultName);
+                      setObjective(tmpl.defaultObjective);
+                      setFilters(normalizeCustomerFilters(tmpl.defaultFilters));
+                      setIncludeProductPhoto(tmpl.includeProductPhoto);
+                      setDailyCap(tmpl.dailyCap);
+                    }}
+                    className="p-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF] text-left transition cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-base">{tmpl.emoji}</span>
+                      <span
+                        className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded ${badgeColorClass}`}
+                      >
+                        {tmpl.category}
+                      </span>
+                    </div>
+                    <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-[#0052FF]">
+                      {tmpl.title}
+                    </div>
+                    <div className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                      {tmpl.description}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

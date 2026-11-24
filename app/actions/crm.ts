@@ -16,6 +16,10 @@ import {
   type CustomerFilters,
   type CustomerSort,
 } from '@/lib/crm/customer-filters';
+import {
+  resolveCampaignTemplates,
+  type CampaignTemplatePreset,
+} from '@/lib/crm/campaign-templates';
 
 async function requireOrgMember() {
   const supabase = createServerSupabaseClient();
@@ -87,10 +91,17 @@ export async function listTagsAndSegmentsAction() {
       .eq('organization_id', orgId)
       .order('full_name', { ascending: true }),
     (supabaseAdmin.from('organizations') as any)
-      .select('whatsapp_provider, stage_labels')
+      .select('name, whatsapp_provider, stage_labels, system_prompt, structured_prompt_data, enabled_modules')
       .eq('id', orgId)
       .maybeSingle(),
   ]);
+
+  const campaignTemplates = resolveCampaignTemplates({
+    systemPrompt: orgRes.data?.system_prompt,
+    structuredPromptData: orgRes.data?.structured_prompt_data,
+    enabledModules: orgRes.data?.enabled_modules,
+    orgName: orgRes.data?.name,
+  });
 
   return {
     tags: (tagsRes.data || []) as TagRecord[],
@@ -98,6 +109,7 @@ export async function listTagsAndSegmentsAction() {
     teamMembers: (teamRes.data || []) as Array<{ id: string; full_name: string }>,
     whatsappProvider: (orgRes.data?.whatsapp_provider || 'meta') as 'meta' | 'evolution',
     stageLabels: (orgRes.data?.stage_labels || {}) as Record<string, string>,
+    campaignTemplates,
   };
 }
 
