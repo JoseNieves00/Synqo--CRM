@@ -28,12 +28,20 @@ export function resolveCampaignTemplates(params: {
   const spData = params.structuredPromptData || {};
   const modules = params.enabledModules || {};
 
+  const hasPhysicalCatalog =
+    (Array.isArray(spData.catalog) && spData.catalog.length > 0) ||
+    (Array.isArray(spData.gallery) && spData.gallery.length > 0) ||
+    /producto|flete|env[ií]o|despacho|f[aá]brica|tienda|cat[aá]logo|cocin\w*|mdf|artesanal/i.test(
+      promptText
+    );
+
   const isServiceOrAppointment =
     Boolean(modules.native_calendar) ||
     Boolean(modules.physical_rooms) ||
-    /cita|paciente|consulta|diagn[oó]stico|doctor|odontolog|cl[ií]nica|especialista|est[eé]tica|terapia|sesi[oó]n|agendamiento/i.test(
-      promptText
-    );
+    (!hasPhysicalCatalog &&
+      /\b(paciente|pacientes|diagn[oó]stico|odontol[oó]g\w*|cl[ií]nica|doctor|doctora|terapia|m[eé]dic\w*)\b/i.test(
+        promptText
+      ));
 
   // Nicho Servicios / Salud / Citas médicas o de valoración
   if (isServiceOrAppointment) {
@@ -101,6 +109,10 @@ export function resolveCampaignTemplates(params: {
   const hasCraftOrWood =
     /madera|mdf|artesanal|cocinita|closet|juguete|infantil|niña/i.test(promptText);
 
+  const hasContraentrega =
+    /contraentrega|contra entrega|pago al recibir|pagar al recibir/i.test(promptText) ||
+    /contraentrega|contra entrega/i.test(JSON.stringify(spData));
+
   const productTemplates: CampaignTemplatePreset[] = [
     {
       id: 'plan_separe_hook',
@@ -117,6 +129,23 @@ export function resolveCampaignTemplates(params: {
       dailyCap: 40,
     },
   ];
+
+  if (hasContraentrega) {
+    productTemplates.push({
+      id: 'contraentrega_national_hook',
+      title: 'Pago Contraentrega Nacional',
+      category: 'PRODUCTOS',
+      badgeColor: 'emerald',
+      emoji: '📦',
+      description: 'Paga al recibir en tu ciudad. Cero desconfianza y máxima seguridad.',
+      defaultName: 'Campaña Pago Contraentrega Nacional',
+      defaultObjective:
+        'Saluda con calidez recordando el modelo o producto que le interesó. Cuéntale la excelente noticia de que contamos con opción de Pago Contraentrega en envíos nacionales para que pague con total tranquilidad al recibir su paquete en casa. Pregúntale a qué ciudad sería el despacho para verificar cobertura.',
+      defaultFilters: normalizeCustomerFilters({ temperature: 'warm', inactiveDays: 4 }),
+      includeProductPhoto: true,
+      dailyCap: 40,
+    });
+  }
 
   if (hasCraftOrWood) {
     productTemplates.push({

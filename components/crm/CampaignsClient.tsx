@@ -318,7 +318,7 @@ export function CampaignsClient({
               <Sparkles className="w-3.5 h-3.5" />
               <span>Plantillas Rápidas con 1 Clic (Creatividad Comercial para tu Nicho)</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
               {(meta.campaignTemplates || []).map((tmpl) => {
                 const badgeColorClass =
                   tmpl.badgeColor === 'amber'

@@ -4,12 +4,12 @@ import { resolveCampaignTemplates } from '../lib/crm/campaign-templates';
 
 test('1. Negocio de productos artesanales (Filippo Kids) genera plantillas de producto y NUNCA de citas/médicas', () => {
   const templates = resolveCampaignTemplates({
-    systemPrompt: 'Filippo Kids - Fábrica de cocinitas infantiles en madera MDF artesanal en Valledupar. Plan Separe con abono inicial.',
+    systemPrompt: 'Filippo Kids - Fábrica de cocinitas infantiles en madera MDF artesanal en Valledupar. Plan Separe con abono inicial. Envíos nacionales con pago contraentrega.',
     enabledModules: { native_calendar: false },
     orgName: 'Filippo Kids',
   });
 
-  assert.strictEqual(templates.length, 4);
+  assert.strictEqual(templates.length, 5);
 
   // Ninguna plantilla debe ser de citas médicas o diagnóstico
   const hasMedical = templates.some((t) => t.id === 'appointment_free_eval' || t.title.includes('Cita Gratis'));
@@ -18,6 +18,10 @@ test('1. Negocio de productos artesanales (Filippo Kids) genera plantillas de pr
   // Debe incluir Plan Separe
   const hasPlanSepare = templates.some((t) => t.id === 'plan_separe_hook');
   assert.strictEqual(hasPlanSepare, true, 'Debe incluir plantilla de Plan Separe');
+
+  // Debe incluir Contraentrega
+  const hasContraentrega = templates.some((t) => t.id === 'contraentrega_national_hook');
+  assert.strictEqual(hasContraentrega, true, 'Debe incluir plantilla de Pago Contraentrega Nacional');
 
   // Debe incluir Mini-Closet / Artesanal
   const hasCloset = templates.some((t) => t.id === 'pedagogical_benefits_closet');
