@@ -44,6 +44,9 @@ export function buildCampaignAudienceQuery(organizationId: string, filters: Cust
     .neq('channel', 'instagram')
     .neq('pipeline_stage', 'perdido')
     .or('custom_fields->>opted_out.is.null,custom_fields->>opted_out.neq.true');
+  if (normalized.stage !== 'ganado') {
+    q = q.neq('pipeline_stage', 'ganado');
+  }
   q = applyCustomerFilters(q, { ...normalized, channel: 'all' });
   return q;
 }
@@ -204,6 +207,10 @@ export class CampaignService {
         else if (cf.opted_out === true) skipReason = 'opted_out';
         else if (!contact.phone || contact.phone.trim().length < 8) skipReason = 'no_phone';
         else if (contact.pipeline_stage === 'perdido') skipReason = 'lost';
+        else if (contact.pipeline_stage === 'ganado' && (campaign.segment_filters as any)?.stage !== 'ganado')
+          skipReason = 'already_won';
+        else if (cf.unattended_handoff === true) skipReason = 'waiting_human_review';
+        else if (contact.is_ai_active === false && !contact.waiting_since) skipReason = 'manual_agent_active';
         else if ((contact.unread_count || 0) > 0 || contact.waiting_since) skipReason = 'customer_waiting_reply';
         else if (provider === 'meta' && !isLeadWindowOpen(contact)) skipReason = 'meta_outside_24h';
         else if (await LeadReactivationService.hasRecentFollowUpForContact(contact.id, CONTACT_COOLDOWN_HOURS))
