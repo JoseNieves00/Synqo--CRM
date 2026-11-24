@@ -211,7 +211,7 @@ export function computeLeadScore(signals: LeadScoreSignals): LeadScoreResult {
 }
 
 export function resolveRecommendedCommercialAction(params: {
-  score: number;
+  score?: number | null;
   stage?: string | null;
   customFields?: Record<string, any> | null;
   dealValue?: number | null;
@@ -219,20 +219,22 @@ export function resolveRecommendedCommercialAction(params: {
   const { score, stage, customFields } = params;
   const cf = customFields || {};
 
-  if (stage === 'ganado') {
+  if (stage === 'ganado' || stage === 'perdido') {
     return {
       actionKey: 'post_sale_service',
-      label: 'Post-venta: Agradecer y fidelizar',
+      label: stage === 'ganado' ? 'Post-venta: Agradecer y fidelizar' : 'Contacto cerrado o descartado',
       urgency: 'low',
       playbookTip:
-        'Venta cerrada. Confirma satisfacción, comparte guía de envío si aplica y deja la puerta abierta para recompra.',
+        stage === 'ganado'
+          ? 'Venta cerrada. Confirma satisfacción, comparte guía de envío si aplica y deja la puerta abierta para recompra.'
+          : 'Contacto marcado como perdido o descartado. No enviar mensajes comerciales activos.',
     };
   }
 
   const hasReceipt = cf.has_pending_receipt === true;
   const isSepare = cf.is_separe === true || (cf.deposit_paid && Number(cf.deposit_paid) > 0);
 
-  if (hasReceipt || isSepare || score >= 80) {
+  if (hasReceipt || isSepare || (typeof score === 'number' && score >= 80)) {
     return {
       actionKey: 'confirm_closing_and_receipt',
       label: 'Cierre inmediato: Confirmar comprobante o pedir datos de envío',
@@ -246,7 +248,7 @@ export function resolveRecommendedCommercialAction(params: {
   const hasShippingQuote = cf.requested_shipping_quote === true || Boolean(cf.shipping_data?.destination_city);
 
   if (
-    score >= 60 ||
+    (typeof score === 'number' && score >= 60) ||
     hasPaymentInquiry ||
     hasShippingQuote ||
     resolveLeadTemperature(cf) === 'qualified_doubt'
@@ -260,7 +262,7 @@ export function resolveRecommendedCommercialAction(params: {
     };
   }
 
-  if (score >= 40 || resolveProductInterest(cf, params.dealValue)) {
+  if ((typeof score === 'number' && score >= 40) || resolveProductInterest(cf, params.dealValue)) {
     return {
       actionKey: 'clarify_and_quote',
       label: 'Presentar catálogo, fotos oficiales y disponibilidad',

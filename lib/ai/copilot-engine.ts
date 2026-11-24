@@ -54,15 +54,30 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
   const structuredPrompt = organization?.structured_prompt_data || {};
   
   // 1. Plan Separe / Abono
-  const hasPlanSepareInPrompt = /plan\s*separe|abono|separar|apartar/i.test(promptText);
+  const isPlanSepareNegated =
+    /no\s+[^.!?\n]*(?:plan\s*separe|separe|abono)|prohibido\s+[^.!?\n]*(?:plan\s*separe|separe|abono)/i.test(
+      promptText
+    );
+  const hasPlanSepareInPrompt =
+    !isPlanSepareNegated && /plan\s*separe|abono|separar|apartar/i.test(promptText);
   const hasPlanSepareInCustom = Boolean(structuredPrompt.has_plan_separe);
-  const canOfferPlanSepare = hasPlanSepareInPrompt || hasPlanSepareInCustom;
+  const canOfferPlanSepare = (hasPlanSepareInPrompt || hasPlanSepareInCustom) && !isPlanSepareNegated;
 
   // 2. Contraentrega
   const shippingSettings = organization?.appointment_settings?.shipping_settings;
+  const isContraentregaExplicitlyFalse = shippingSettings?.isCashOnDeliveryAllowed === false;
+  const isContraentregaNegated =
+    isContraentregaExplicitlyFalse ||
+    /no\s+[^.!?\n]*(?:contraentrega|contra\s*entrega|pago\s*al\s*recibir)|prohibido\s+[^.!?\n]*(?:contraentrega|contra\s*entrega)/i.test(
+      promptText
+    );
   const hasContraentregaInSettings = Boolean(shippingSettings?.isCashOnDeliveryAllowed);
-  const hasContraentregaInPrompt = /contraentrega|contra\s*entrega|pago\s*al\s*recibir/i.test(promptText);
-  const canOfferContraentrega = hasContraentregaInSettings || hasContraentregaInPrompt;
+  const hasContraentregaInPrompt =
+    !isContraentregaNegated && /contraentrega|contra\s*entrega|pago\s*al\s*recibir/i.test(promptText);
+  const canOfferContraentrega =
+    (hasContraentregaInSettings || hasContraentregaInPrompt) &&
+    !isContraentregaNegated &&
+    !isContraentregaExplicitlyFalse;
 
   // 3. Cuentas de Pago
   const paymentAccounts = organization?.appointment_settings?.payment_accounts;

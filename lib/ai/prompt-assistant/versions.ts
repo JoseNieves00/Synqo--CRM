@@ -451,13 +451,38 @@ export function patchSectionInPrompt(
     const existingContent = existingBlock.body.trim();
     let mergedContent = adapted;
     if (existingContent) {
-      // Evitar duplicar viñetas si la regla ya existe en la sección
-      const normAdapted = adapted.replace(/^[-*•]\s*/, '').toLowerCase().trim();
-      if (!existingContent.toLowerCase().includes(normAdapted)) {
-        mergedContent = `${existingContent}\n${adapted}`;
-      } else {
-        mergedContent = existingContent;
+      const existingLines = existingContent.split('\n');
+      const adaptedLines = adapted.split('\n');
+      const mergedLines = [...existingLines];
+
+      for (const newLine of adaptedLines) {
+        const normNew = newLine.replace(/^[-*•]\s*/, '').trim();
+        if (!normNew) continue;
+
+        // Detectar si la viñeta actualiza una entidad o regla ya existente (ej: "Servicio A" con nuevo precio)
+        const entityPrefix = normNew.split(/[:($]/)[0].trim().toLowerCase();
+        const existingIdx =
+          entityPrefix.length >= 3
+            ? mergedLines.findIndex((line) => {
+                const normOld = line.replace(/^[-*•]\s*/, '').trim();
+                const oldPrefix = normOld.split(/[:($]/)[0].trim().toLowerCase();
+                return oldPrefix === entityPrefix;
+              })
+            : -1;
+
+        if (existingIdx >= 0) {
+          mergedLines[existingIdx] = newLine;
+        } else {
+          // Si no existe, añadir si no es una duplicación exacta
+          const isExactDup = mergedLines.some(
+            (l) => l.replace(/^[-*•]\s*/, '').trim().toLowerCase() === normNew.toLowerCase()
+          );
+          if (!isExactDup) {
+            mergedLines.push(newLine);
+          }
+        }
       }
+      mergedContent = mergedLines.join('\n');
     }
     const replacement = `${existingBlock.rawHeading}\n${mergedContent}\n\n`;
     const before = body.slice(0, existingBlock.startIdx);

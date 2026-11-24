@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { sleep } from '@/lib/anti-ban/cadence';
 import { AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
 import { applyCustomerFilters, normalizeCustomerFilters, type CustomerFilters } from '@/lib/crm/customer-filters';
+import { interpolateFollowUpText } from '@/lib/ai/follow-up-types';
 import { isLeadWindowOpen } from '@/services/contact.service';
 import { LeadReactivationService } from '@/services/reactivation.service';
 
@@ -251,14 +252,11 @@ export class CampaignService {
 
           if (campaign.dispatch_mode === 'custom' && campaign.custom_message) {
             // Modo "Mi Mensaje Propio": se despacha exactamente el texto redactado por el usuario,
-            // con reemplazo opcional de tags como {nombre} o {primer_nombre}.
-            const rawName = (contact.name || '').trim();
-            const firstName = rawName ? rawName.split(/\s+/)[0] : '';
-            bodyMessage = campaign.custom_message
-              .replace(/\{nombre\}/gi, rawName || '')
-              .replace(/\{primer_nombre\}/gi, firstName || '')
-              .replace(/\{primer nombre\}/gi, firstName || '')
-              .trim();
+            // sanitizando nombres no genuinos, números telefónicos o emojis, y formateando limpiamente puntuación.
+            bodyMessage = interpolateFollowUpText(campaign.custom_message, {
+              contactName: contact.name,
+              companyName: org.name,
+            });
 
             if (campaign.custom_image_url) {
               imageUrls = [campaign.custom_image_url];

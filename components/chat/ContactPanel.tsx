@@ -174,7 +174,9 @@ export function ContactPanel({
   const isAwaitingPaymentProof = Boolean(
     contact.custom_fields?.requested_payment_info &&
     !contact.custom_fields?.has_pending_receipt &&
-    contact.pipeline_stage !== 'ganado'
+    contact.pipeline_stage !== 'ganado' &&
+    contact.pipeline_stage !== 'perdido' &&
+    contact.conversation_status !== 'closed'
   );
 
   const minutesSinceLastInteraction = useMemo(() => {
