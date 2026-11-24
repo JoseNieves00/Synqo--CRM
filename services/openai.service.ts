@@ -2092,7 +2092,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 toolResult = JSON.stringify({
                   status: 'handoff_rejected_closing_required',
                   instructions_for_assistant:
-                    'REGLA ESTRICTA: PROHIBIDO desviar al asesor o decir que un asesor contactará al cliente. Mantén coherencia con la conversación: 1) Si el producto aún no está definido, extrae cuál modelo desea antes de pedir pago. 2) Si el producto ya está claro en el contexto, cotiza el valor total (y abono de separe si el tema fue apartar), facilita las cuentas oficiales de transferencia y solicita los datos de orden (nombre, ciudad y personalización).',
+                    'REGLA ESTRICTA: PROHIBIDO desviar al asesor o decir que un asesor contactará al cliente. Mantén coherencia con la conversación: 1) Si el producto aún no está definido, extrae cuál modelo desea antes de pedir pago usando el gancho de Plan Separe. 2) Si el producto ya está claro en el contexto, cotiza el valor total, recuerda la opción de apartar con abono inicial por Plan Separe, facilita las cuentas oficiales de transferencia y solicita los datos de orden (nombre, ciudad y personalización).',
                 });
               } else {
                 pauseAfterSend = true;
@@ -3476,7 +3476,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
             resultPayload = {
               status: 'handoff_rejected_closing_required',
               instructions_for_assistant:
-                'PROHIBIDO desviar al asesor. Si el producto no está definido, extráelo primero. Si ya está claro en contexto, cotiza el total (y abono de separe si aplica), envía cuentas y pide datos de orden.',
+                'PROHIBIDO desviar al asesor. Si el producto no está definido, extráelo primero con gancho de plan separe. Si ya está claro en contexto, cotiza el total con opción de separe, envía cuentas y pide datos de orden.',
             };
           } else {
             trace.handoffRequested = { reason: handoffReason };
