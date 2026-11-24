@@ -1239,19 +1239,19 @@ export function SettingsForm({
           )}
 
           {/* Accesos Directos Comerciales: Envíos & Pagos (Para ajustar fletes, contraentrega y cuentas) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/40 dark:from-blue-950/20 dark:to-indigo-950/10 border border-blue-200/60 dark:border-blue-800/40 flex items-center justify-between gap-4 shadow-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/40 dark:from-blue-950/20 dark:to-indigo-950/10 border border-blue-200/60 dark:border-blue-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 shadow-xs">
               <div className="flex items-center gap-3.5 min-w-0">
                 <div className="p-2.5 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0">
                   <Truck className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Políticas & Tarifas de Envío
                     </h3>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                      {shippingSettingsData?.cityRates?.length || 0} fletes
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 whitespace-nowrap shrink-0">
+                      {shippingSettingsData?.cityRates?.length || 0} {shippingSettingsData?.cityRates?.length === 1 ? 'flete' : 'fletes'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
@@ -1265,24 +1265,24 @@ export function SettingsForm({
                   setActiveTab('shipping');
                   if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs whitespace-nowrap"
               >
                 <span>Ajustar Envíos</span>
               </button>
             </div>
 
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 to-teal-50/40 dark:from-emerald-950/20 dark:to-teal-950/10 border border-emerald-200/60 dark:border-emerald-800/40 flex items-center justify-between gap-4 shadow-xs">
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 to-teal-50/40 dark:from-emerald-950/20 dark:to-teal-950/10 border border-emerald-200/60 dark:border-emerald-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 shadow-xs">
               <div className="flex items-center gap-3.5 min-w-0">
                 <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                       Cuentas de Pago & Plan Separe
                     </h3>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                      {paymentAccountsData?.length || 0} activas
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 whitespace-nowrap shrink-0">
+                      {paymentAccountsData?.length || 0} {paymentAccountsData?.length === 1 ? 'activa' : 'activas'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
@@ -1296,7 +1296,7 @@ export function SettingsForm({
                   setActiveTab('payments');
                   if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs whitespace-nowrap"
               >
                 <span>Configurar Cuentas</span>
               </button>
@@ -2959,28 +2959,22 @@ export function SettingsForm({
               )}
             </div>
 
-            {/* Barra de Guardado Flotante / Sticky */}
-            <div className="sticky bottom-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-white/95 dark:bg-[#131722]/95 backdrop-blur-md border border-slate-200 dark:border-[#232A3B] shadow-lg">
-              <div>
-                {feedback && (
-                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl animate-in fade-in duration-200 ${
-                    feedback.type === 'success' 
-                      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20' 
-                      : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20'
-                  }`}>
-                    {feedback.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                    {feedback.message}
-                  </span>
-                )}
+            {/* Auto-guardado Activo */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 pb-2 text-xs text-slate-400 border-t border-slate-100 dark:border-[#1E2433]">
+              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span>Auto-guardado activo: todos los cambios se guardan automáticamente.</span>
               </div>
-              <button
-                type="submit"
-                disabled={saving}
-                className="w-full sm:w-auto min-w-[200px] inline-flex items-center justify-center gap-2 bg-[#0052FF] hover:bg-[#0047E0] text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
-              >
-                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>{saving ? 'Guardando...' : 'Guardar Configuración'}</span>
-              </button>
+              {feedback && (
+                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${
+                  feedback.type === 'success' 
+                    ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10' 
+                    : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10'
+                }`}>
+                  {feedback.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                  {feedback.message}
+                </span>
+              )}
             </div>
           </form>
 
