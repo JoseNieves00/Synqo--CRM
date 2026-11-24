@@ -2087,12 +2087,12 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 !/(comprobante|recibo|voucher|transferido|consignaci[oó]n|captura|humano|asesor|hablar con|persona|queja|reclamo)/i.test(handoffReason);
 
               if (isPurchaseOrSepareIntent) {
-                // Rechazar el relevo, mantener a la IA activa y ordenar cierre comercial directo
+                // Rechazar el relevo, mantener a la IA activa y ordenar avance comercial según contexto
                 pauseAfterSend = false;
                 toolResult = JSON.stringify({
                   status: 'handoff_rejected_closing_required',
                   instructions_for_assistant:
-                    'REGLA ESTRICTA: PROHIBIDO desviar al asesor o decir que un asesor contactará al cliente. La IA debe cerrar la venta directamente en este mensaje: 1) Confirma el modelo con calidez, 2) Entrega los datos oficiales de pago/abono inicial (ej. cuenta Bancolombia de la empresa), 3) Solicita los datos de la orden (nombre completo, ciudad de envío y personalización deseada), 4) Pide que te comparta el comprobante por este medio una vez realice el abono.',
+                    'REGLA ESTRICTA: PROHIBIDO desviar al asesor o decir que un asesor contactará al cliente. Mantén coherencia con la conversación: 1) Si el producto aún no está definido, extrae cuál modelo desea antes de pedir pago. 2) Si el producto ya está claro en el contexto, cotiza el valor total (y abono de separe si el tema fue apartar), facilita las cuentas oficiales de transferencia y solicita los datos de orden (nombre, ciudad y personalización).',
                 });
               } else {
                 pauseAfterSend = true;
@@ -3476,7 +3476,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
             resultPayload = {
               status: 'handoff_rejected_closing_required',
               instructions_for_assistant:
-                'PROHIBIDO desviar al asesor. La IA debe cerrar la venta directamente: confirma el modelo, entrega datos de pago/abono y pide datos de despacho.',
+                'PROHIBIDO desviar al asesor. Si el producto no está definido, extráelo primero. Si ya está claro en contexto, cotiza el total (y abono de separe si aplica), envía cuentas y pide datos de orden.',
             };
           } else {
             trace.handoffRequested = { reason: handoffReason };
