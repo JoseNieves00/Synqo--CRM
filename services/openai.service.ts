@@ -857,6 +857,44 @@ En cada turno donde el cliente revele sus necesidades, intereses, presupuesto, u
   const painPointDisplay = contactData?.custom_fields?.pain_point ? `\nDolor/Necesidad: ${contactData.custom_fields.pain_point}` : '';
   const purchasingPowerDisplay = contactData?.custom_fields?.purchasing_power ? `\nPoder adquisitivo: ${contactData.custom_fields.purchasing_power}` : '';
 
+  const caps = copilotPrescription.allowedCapabilities;
+  const modelLabel =
+    caps.businessModel === 'products'
+      ? 'Productos Físicos'
+      : caps.businessModel === 'services'
+      ? 'Servicios / Citas'
+      : 'Híbrido (Productos y Servicios)';
+
+  const modalityLabel =
+    caps.allowsVirtual && caps.allowsInPerson
+      ? 'Virtual y Presencial'
+      : caps.allowsVirtual
+      ? '100% Virtual'
+      : caps.allowsInPerson
+      ? 'Presencial en Sede'
+      : 'En línea / Remoto';
+
+  const locationLabel = caps.physicalAddress
+    ? `Sede Oficial Verificada: ${caps.physicalAddress}`
+    : caps.hasPhysicalLocation
+    ? 'Sede Física: Configurada en prompt (consultar dirección oficial)'
+    : 'Sede Física: No registrada (operación virtual / despacho directo; PROHIBIDO inventar sedes físicas)';
+
+  const modalityStrictRule =
+    caps.businessModel === 'services'
+      ? 'Este es un negocio de SERVICIOS. NUNCA ofrezcas despachos de paquetes, envíos nacionales ni cobro de fletes a menos que el cliente compre expresamente un producto físico. Usa check_native_availability y book_native_appointment para agendamiento.'
+      : caps.businessModel === 'products'
+      ? 'Este es un negocio de PRODUCTOS. Ofrece productos con send_product_card, calcula envíos con get_shipping_quote_for_city y facilita el cierre con el gancho comercial activo.'
+      : 'Este es un negocio HÍBRIDO. Coordina tanto ventas de productos físicos como citas/valoraciones según lo que solicite el cliente.';
+
+  const businessModelBlock = `\n<modelo_y_gancho_comercial>
+Modelo de Negocio: ${modelLabel}
+Modalidad de Atención: ${modalityLabel}
+${locationLabel}
+Gancho Comercial Activo: ${caps.primaryHook}
+Regla Estricta de Modalidad: ${modalityStrictRule}
+</modelo_y_gancho_comercial>`;
+
   const copilotBlock = `\n<copiloto_estrategico_de_ventas>
 Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
 Táctica Prescrita por el Copiloto: ${copilotPrescription.tacticName}
@@ -877,7 +915,7 @@ Objetivo comercial actual: ${recAction.label}
 Directriz de cierre: ${recAction.playbookTip}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${copilotBlock}${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</perfil_lead>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 

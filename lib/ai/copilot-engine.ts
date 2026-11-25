@@ -19,6 +19,29 @@ export type CustomerFriction =
   | 'ready_to_close'
   | 'discovery';
 
+export type BusinessModelType = 'products' | 'services' | 'hybrid';
+export type HookCategory =
+  | 'separe'
+  | 'cod'
+  | 'appointment_deposit'
+  | 'free_assessment'
+  | 'virtual_or_inperson'
+  | 'custom';
+
+export interface OrganizationCapabilities {
+  businessModel: BusinessModelType;
+  allowsVirtual: boolean;
+  allowsInPerson: boolean;
+  physicalAddress: string | null;
+  primaryHook: string;
+  hookCategory: HookCategory;
+  canOfferPlanSepare: boolean;
+  canOfferContraentrega: boolean;
+  hasPaymentAccounts: boolean;
+  hasPhysicalLocation: boolean;
+  hasOfficialGuarantee: boolean;
+}
+
 export interface CopilotPrescription {
   friction: CustomerFriction;
   frictionLabel: string;
@@ -28,13 +51,7 @@ export interface CopilotPrescription {
   copilotDirective: string;
   prohibitedActions: string[];
   suggestedClosingQuestion: string;
-  allowedCapabilities: {
-    canOfferPlanSepare: boolean;
-    canOfferContraentrega: boolean;
-    hasPaymentAccounts: boolean;
-    hasPhysicalLocation: boolean;
-    hasOfficialGuarantee: boolean;
-  };
+  allowedCapabilities: OrganizationCapabilities;
 }
 
 export interface CopilotEngineInput {
@@ -45,19 +62,63 @@ export interface CopilotEngineInput {
 }
 
 /**
- * Detecta qué opciones comerciales están formalmente autorizadas en el prompt y configuración del negocio.
+ * Extrae la dirección física exacta de la sede si está explícita en el prompt.
  */
-export function extractOrganizationCapabilities(organization?: any, systemPrompt?: string): {
-  canOfferPlanSepare: boolean;
-  canOfferContraentrega: boolean;
-  hasPaymentAccounts: boolean;
-  hasPhysicalLocation: boolean;
-  hasOfficialGuarantee: boolean;
-} {
-  const promptText = (systemPrompt || organization?.system_prompt || '').toLowerCase();
+export function extractPhysicalAddressFromPrompt(prompt: string): string | null {
+  if (!prompt) return null;
+  const match =
+    prompt.match(/(?:direcci[oó]n|ubicad[ao]s?\s*en|sede(?:\s*f[ií]sica)?(?:\s*en)?|consultorio\s*en|local(?:\s*en)?)\s*:\s*([^.\n]+)/i) ||
+    prompt.match(/(?:estamos\s+ubicados\s+en|vis[ií]tanos\s+en)\s+([^.\n]+)/i) ||
+    prompt.match(/(?:carrera|calle|cra\.?|cll\.?|diagonal|transversal|av(?:enida)?\.?)\s+\d+[^.\n]+/i);
+  if (!match) return null;
+  const raw = (match[1] || match[0]).replace(/[*_`]/g, '').trim();
+  return raw.length >= 8 && raw.length <= 150 ? raw : null;
+}
+
+/**
+ * Detecta qué opciones comerciales están formalmente autorizadas en el prompt y configuración del negocio.
+ * Soporta de manera multinicho negocios de Productos, Servicios (Virtuales y Presenciales) e Híbridos.
+ */
+export function extractOrganizationCapabilities(organization?: any, systemPrompt?: string): OrganizationCapabilities {
+  const rawPrompt = systemPrompt || organization?.system_prompt || '';
+  const promptText = rawPrompt.toLowerCase();
   const structuredPrompt = organization?.structured_prompt_data || {};
   
-  // 1. Plan Separe / Abono
+  // 1. Sede Física y Dirección Extraída
+  const isPhysicalLocationNegated =
+    /no\s+[^.!?\n]*(?:sede|tienda|local\s*f[ií]sica)|prohibido\s+[^.!?\n]*(?:sede|visita)/i.test(promptText);
+  const physicalAddress = isPhysicalLocationNegated ? null : extractPhysicalAddressFromPrompt(rawPrompt);
+  const hasPhysicalLocation =
+    !isPhysicalLocationNegated &&
+    (Boolean(physicalAddress) ||
+      /sede\s*f[ií]sica|tienda\s*f[ií]sica|local\s*comercial|estamos\s*ubicados|vis[ií]tanos|consultorio|cl[ií]nica/i.test(
+        promptText
+      ));
+
+  // 2. Modalidades de Atención (Virtual vs Presencial)
+  const allowsVirtual = /virtual|zoom|meet|videollamada|teleconsulta|en l[ií]nea|remot[ao]/i.test(promptText);
+  const allowsInPerson = hasPhysicalLocation || /presencial|en\s*sede|instalaciones/i.test(promptText);
+
+  // 3. Detección de Modelo de Negocio (Servicios, Productos o Híbrido)
+  const hasCalendarModule = organization?.enabled_modules?.native_calendar !== false;
+  const hasCalendarIntent = /agenda|agendar|cita|reserva|turno|horario|calendario|visita/i.test(promptText);
+  const hasServicesIndicator = hasCalendarModule || hasCalendarIntent;
+
+  const hasOrdersModule = organization?.enabled_modules?.orders !== false;
+  const hasProductsIndicator =
+    hasOrdersModule ||
+    /env[ií]os?|despacho|flete|paquete|transportadora|contraentrega|producto|cat[aá]logo/i.test(promptText);
+
+  let businessModel: BusinessModelType = 'services';
+  if (hasProductsIndicator && hasServicesIndicator) {
+    businessModel = 'hybrid';
+  } else if (hasProductsIndicator) {
+    businessModel = 'products';
+  } else {
+    businessModel = 'services';
+  }
+
+  // 4. Plan Separe / Abono
   const isPlanSepareNegated =
     /no\s+[^.!?\n]*(?:plan\s*separe|separe|abono)|prohibido\s+[^.!?\n]*(?:plan\s*separe|separe|abono)/i.test(
       promptText
@@ -67,7 +128,7 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
   const hasPlanSepareInCustom = Boolean(structuredPrompt.has_plan_separe);
   const canOfferPlanSepare = (hasPlanSepareInPrompt || hasPlanSepareInCustom) && !isPlanSepareNegated;
 
-  // 2. Contraentrega
+  // 5. Contraentrega
   const shippingSettings = organization?.appointment_settings?.shipping_settings;
   const allowCod = shippingSettings?.allowCashOnDelivery ?? shippingSettings?.isCashOnDeliveryAllowed;
   const isContraentregaExplicitlyFalse = allowCod === false;
@@ -80,26 +141,18 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
   const hasContraentregaInPrompt =
     !isContraentregaNegated && /contraentrega|contra\s*entrega|pago\s*al\s*recibir/i.test(promptText);
   const canOfferContraentrega =
+    businessModel !== 'services' &&
     (hasContraentregaInSettings || hasContraentregaInPrompt) &&
     !isContraentregaNegated &&
     !isContraentregaExplicitlyFalse;
 
-  // 3. Cuentas de Pago
+  // 6. Cuentas de Pago
   const paymentAccounts = organization?.appointment_settings?.payment_accounts;
   const hasActivePaymentAccounts = Array.isArray(paymentAccounts) && paymentAccounts.some((a: any) => a.isActive !== false);
   const hasPaymentAccountsInPrompt = /bancolombia|nequi|daviplata|cuenta\s*de\s*ahorros/i.test(promptText);
   const hasPaymentAccounts = hasActivePaymentAccounts || hasPaymentAccountsInPrompt;
 
-  // 4. Sede Física (Solo si el prompt o configuración describe tienda física, local o consultorio)
-  const isPhysicalLocationNegated =
-    /no\s+[^.!?\n]*(?:sede|tienda|local\s*f[ií]sica)|prohibido\s+[^.!?\n]*(?:sede|visita)/i.test(promptText);
-  const hasPhysicalLocation =
-    !isPhysicalLocationNegated &&
-    /sede\s*f[ií]sica|tienda\s*f[ií]sica|local\s*comercial|estamos\s*ubicados|vis[ií]tanos|consultorio|cl[ií]nica/i.test(
-      promptText
-    );
-
-  // 5. Garantía Explícita (Solo si el prompt define garantía oficial o política de cambios)
+  // 7. Garantía Explícita
   const isGuaranteeNegated =
     /sin\s+garant[ií]a|no\s+[^.!?\n]*garant[ií]a/i.test(promptText);
   const hasOfficialGuarantee =
@@ -108,7 +161,50 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
       promptText
     );
 
+  // 8. Análisis Inteligente del Gancho Comercial Activo (Multi-Nicho)
+  let primaryHook = '';
+  let hookCategory: HookCategory = 'custom';
+
+  const hasFreeAssessment =
+    /valoraci[oó]n[^.\n]*(?:gratis|sin\s*costo)|diagn[oó]stico[^.\n]*(?:gratis|sin\s*costo)|primera\s*(?:consulta|sesi[oó]n|cita)[^.\n]*(?:gratis|sin\s*costo|de\s*prueba)|clase\s*de\s*prueba/i.test(
+      promptText
+    );
+
+  if (hasFreeAssessment) {
+    primaryHook = 'Valoración o diagnóstico inicial sin costo para evaluar tu caso';
+    hookCategory = 'free_assessment';
+  } else if (businessModel === 'products' && canOfferPlanSepare) {
+    primaryHook = 'Plan Separe dando un abono inicial y pagando el saldo a tu ritmo';
+    hookCategory = 'separe';
+  } else if (businessModel === 'products' && canOfferContraentrega) {
+    primaryHook = 'Pago Contraentrega nacional (cancelas seguro al recibir en tu puerta)';
+    hookCategory = 'cod';
+  } else if ((businessModel === 'services' || businessModel === 'hybrid') && canOfferPlanSepare) {
+    primaryHook = 'Reserva de cupo con anticipo o abono inicial para congelar tu fecha';
+    hookCategory = 'appointment_deposit';
+  } else if (allowsVirtual && allowsInPerson) {
+    primaryHook = 'Cita con agenda abierta (modalidad presencial en sede o virtual por videollamada)';
+    hookCategory = 'virtual_or_inperson';
+  } else if (allowsVirtual) {
+    primaryHook = 'Sesión 100% virtual vía Google Meet o Zoom en tu horario preferido';
+    hookCategory = 'virtual_or_inperson';
+  } else if (allowsInPerson) {
+    primaryHook = physicalAddress
+      ? `Atención presencial en nuestra sede (${physicalAddress})`
+      : 'Atención presencial en nuestra sede con cita previa';
+    hookCategory = 'virtual_or_inperson';
+  } else {
+    primaryHook = 'Agendamiento previo para asegurar tu cupo esta semana';
+    hookCategory = 'custom';
+  }
+
   return {
+    businessModel,
+    allowsVirtual,
+    allowsInPerson,
+    physicalAddress,
+    primaryHook,
+    hookCategory,
     canOfferPlanSepare,
     canOfferContraentrega,
     hasPaymentAccounts,
@@ -222,6 +318,27 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
   switch (friction) {
     case 'ready_to_close': {
       const isReceipt = cf.has_pending_receipt === true;
+      if (capabilities.businessModel === 'services') {
+        return {
+          friction,
+          frictionLabel,
+          customerMindset,
+          tacticKey: isReceipt ? 'validate_service_receipt' : 'confirm_service_booking',
+          tacticName: isReceipt ? 'Confirmación de Pago & Cita' : 'Cierre de Agendamiento / Reserva',
+          copilotDirective: isReceipt
+            ? `El cliente compartió comprobante de la cita. Valídalo cordialmente, confirma día y hora, y comparte el enlace de videollamada (si es virtual) o la dirección de sede (${capabilities.physicalAddress || 'sede oficial'}) si es presencial.`
+            : `El cliente desea concretar la cita. Si requiere abono, entrega cuentas oficiales. Si es agenda directa, llama a book_native_appointment y confirma si prefiere virtual o presencial.`,
+          prohibitedActions: [
+            ...prohibitedBase,
+            'Prohibido cobrar fletes o pedir direcciones de envío físico para un servicio.',
+          ],
+          suggestedClosingQuestion: capabilities.allowsVirtual && capabilities.allowsInPerson
+            ? '¿Prefieres asistir de manera presencial en nuestra sede o conectarte de forma virtual por videollamada?'
+            : '¿A nombre de quién y en qué horario dejamos confirmada tu cita?',
+          allowedCapabilities: capabilities,
+        };
+      }
+
       return {
         friction,
         frictionLabel,
@@ -241,6 +358,30 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
     }
 
     case 'distrust': {
+      if (capabilities.businessModel === 'services') {
+        const addressText = capabilities.physicalAddress ? `en nuestra sede (${capabilities.physicalAddress})` : 'en nuestras instalaciones';
+        return {
+          friction,
+          frictionLabel,
+          customerMindset,
+          tacticKey: 'demolish_service_distrust',
+          tacticName: 'Seguridad en Servicios (Sede o Modalidad Virtual Verificada)',
+          copilotDirective: capabilities.hasPhysicalLocation
+            ? `Brinda total tranquilidad mencionando que pueden visitarnos de forma presencial ${addressText} o agendar previa cita para conocer al especialista.`
+            : (capabilities.allowsVirtual
+                ? 'Explica con calidez y profesionalismo que la atención es 100% personalizada por videollamada (Google Meet / Zoom) con acompañamiento directo de un especialista oficial.'
+                : 'Resuelve la desconfianza apoyándote estrictamente en la trayectoria, certificaciones y canales oficiales descritos en tu prompt.'),
+          prohibitedActions: [
+            ...prohibitedBase,
+            'Prohibido inventar sedes físicas que no figuren en el prompt.',
+          ],
+          suggestedClosingQuestion: capabilities.allowsVirtual && capabilities.allowsInPerson
+            ? '¿Te gustaría agendar una cita presencial en nuestra sede o prefieres iniciar con una videollamada?'
+            : '¿Te gustaría revisar los horarios disponibles para tu sesión?',
+          allowedCapabilities: capabilities,
+        };
+      }
+
       if (capabilities.canOfferContraentrega) {
         return {
           friction,
@@ -283,6 +424,49 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
     }
 
     case 'postponement': {
+      if (capabilities.businessModel === 'services') {
+        if (capabilities.hookCategory === 'free_assessment') {
+          return {
+            friction,
+            frictionLabel,
+            customerMindset,
+            tacticKey: 'free_assessment_bridge',
+            tacticName: 'Puente de Valoración Inicial Sin Costo',
+            copilotDirective:
+              'Comprende su tiempo con calidez. Recuérdale que la primera sesión o diagnóstico es 100% sin costo ni compromiso para que conozca el plan exacto antes de decidir.',
+            prohibitedActions: [...prohibitedBase],
+            suggestedClosingQuestion: '¿Te gustaría que agendemos tu valoración inicial sin costo para esta semana?',
+            allowedCapabilities: capabilities,
+          };
+        }
+        if (capabilities.canOfferPlanSepare) {
+          return {
+            friction,
+            frictionLabel,
+            customerMindset,
+            tacticKey: 'appointment_deposit_bridge',
+            tacticName: 'Reserva de Cupo con Abono Inicial',
+            copilotDirective:
+              'Ofrécele asegurar su espacio en la agenda con un abono inicial mínimo para congelar la fecha y pagar el saldo el día de la sesión.',
+            prohibitedActions: [...prohibitedBase],
+            suggestedClosingQuestion: '¿Te gustaría asegurar tu cupo con un abono inicial y programar tu fecha con tranquilidad?',
+            allowedCapabilities: capabilities,
+          };
+        }
+        return {
+          friction,
+          frictionLabel,
+          customerMindset,
+          tacticKey: 'service_hold_bridge',
+          tacticName: 'Acompañamiento en Servicios',
+          copilotDirective:
+            'Comprende su tiempo sin decir "a la orden". Ofrécele resolver dudas del servicio o revisar horarios tentativos para cuando le quede cómodo.',
+          prohibitedActions: [...prohibitedBase],
+          suggestedClosingQuestion: '¿Prefieres que revisemos horarios tentativos para la próxima semana?',
+          allowedCapabilities: capabilities,
+        };
+      }
+
       if (capabilities.canOfferPlanSepare) {
         return {
           friction,
@@ -325,17 +509,52 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         tacticKey: 'bestseller_recommendation',
         tacticName: 'Regla del Best-Seller (Opción Más Popular)',
         copilotDirective:
-          'Recomienda con convicción la opción favorita de los clientes destacando su beneficio clave y cierra con una alternativa binaria A vs B.',
+          capabilities.businessModel === 'services'
+            ? 'Compara de forma concisa y clara los 2 servicios o modalidades recomendando la más conveniente para su necesidad.'
+            : 'Recomienda con convicción la opción favorita de los clientes destacando su beneficio clave y cierra con una alternativa binaria A vs B.',
         prohibitedActions: [
           ...prohibitedBase,
           'Prohibido enviar fichas técnicas largas o aburridas que aumenten la confusión.',
         ],
-        suggestedClosingQuestion: '¿Prefieres la opción favorita de nuestros clientes o buscas un detalle puntual?',
+        suggestedClosingQuestion: capabilities.businessModel === 'services'
+          ? '¿Cuál de las dos alternativas va más acorde a lo que buscas?'
+          : '¿Prefieres la opción favorita de nuestros clientes o buscas un detalle puntual?',
         allowedCapabilities: capabilities,
       };
     }
 
     case 'price': {
+      if (capabilities.businessModel === 'services') {
+        if (capabilities.hookCategory === 'free_assessment') {
+          return {
+            friction,
+            frictionLabel,
+            customerMindset,
+            tacticKey: 'free_assessment_price_relief',
+            tacticName: 'Diagnóstico Sin Costo para Ajustar Presupuesto',
+            copilotDirective:
+              'Recuérdale que la valoración inicial no tiene costo. En ella se determina con precisión el plan necesario para que no pague de más.',
+            prohibitedActions: [...prohibitedBase, 'Prohibido prometer rebajas no autorizadas.'],
+            suggestedClosingQuestion: '¿Te gustaría agendar tu valoración sin costo para evaluar tu caso puntual?',
+            allowedCapabilities: capabilities,
+          };
+        }
+        if (capabilities.canOfferPlanSepare) {
+          return {
+            friction,
+            frictionLabel,
+            customerMindset,
+            tacticKey: 'service_deposit_budget_relief',
+            tacticName: 'Reserva con Abono Parcial',
+            copilotDirective:
+              'Facilita el acceso ofreciendo reservar el cupo con un abono inicial y cancelar el resto en cuotas o al recibir la sesión.',
+            prohibitedActions: [...prohibitedBase],
+            suggestedClosingQuestion: '¿Te quedaría cómodo congelar tu cupo hoy con un anticipo inicial?',
+            allowedCapabilities: capabilities,
+          };
+        }
+      }
+
       if (capabilities.canOfferPlanSepare) {
         return {
           friction,
@@ -372,6 +591,34 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
 
     case 'discovery':
     default: {
+      if (capabilities.businessModel === 'services') {
+        const isFree = capabilities.hookCategory === 'free_assessment';
+        return {
+          friction,
+          frictionLabel,
+          customerMindset,
+          tacticKey: hasConsultativeDoubt ? 'consultative_service_advice' : 'service_availability_discovery',
+          tacticName: hasConsultativeDoubt
+            ? 'Asesoría Consultiva de Servicios & Agenda'
+            : 'Orientación de Servicio y Consulta de Agenda',
+          copilotDirective: hasConsultativeDoubt
+            ? `El cliente formuló una duda o consulta sobre el servicio. Responde primero con empatía y asesoría clara (máx 2 mensajes cortos); luego recomienda la sesión adecuada usando check_native_availability.`
+            : (isFree
+                ? 'Presenta el servicio con su gancho de valoración inicial sin costo y ofrece verificar horarios disponibles con check_native_availability.'
+                : 'Presenta el servicio con claridad y ofrece verificar horarios disponibles con check_native_availability.'),
+          prohibitedActions: [
+            ...prohibitedBase,
+            'Prohibido cobrar envíos de paquetes para un servicio.',
+          ],
+          suggestedClosingQuestion: capabilities.allowsVirtual && capabilities.allowsInPerson
+            ? '¿Te gustaría agendar de forma presencial en nuestra sede o por videollamada virtual?'
+            : (isFree
+                ? '¿Te gustaría agendar tu valoración inicial sin costo para esta semana?'
+                : '¿Para qué día te quedaría mejor programar tu sesión?'),
+          allowedCapabilities: capabilities,
+        };
+      }
+
       return {
         friction,
         frictionLabel,
