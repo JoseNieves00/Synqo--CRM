@@ -117,19 +117,40 @@ export function BotSandboxModal({
         targetOrganizationId,
       });
 
-      const assistantMsg: SimulatedMessage = {
-        id: `ai-${Date.now()}`,
-        role: 'assistant',
-        content: res.reply || 'Sin respuesta generada.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        latencyMs: res.latencyMs,
-        model: res.model,
-        productCards: res.productCards,
-        toolCalls: res.toolCalls,
-        leadProfileUpdate: res.leadProfileUpdate,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
+      if (res.replyParts && res.replyParts.length > 1) {
+        const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const assistantMsg1: SimulatedMessage = {
+          id: `ai-${Date.now()}-1`,
+          role: 'assistant',
+          content: res.replyParts[0],
+          timestamp: timeNow,
+          latencyMs: res.latencyMs,
+          model: res.model,
+          productCards: res.productCards,
+          toolCalls: res.toolCalls,
+          leadProfileUpdate: res.leadProfileUpdate,
+        };
+        const assistantMsg2: SimulatedMessage = {
+          id: `ai-${Date.now()}-2`,
+          role: 'assistant',
+          content: res.replyParts[1],
+          timestamp: timeNow,
+        };
+        setMessages((prev) => [...prev, assistantMsg1, assistantMsg2]);
+      } else {
+        const assistantMsg: SimulatedMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'assistant',
+          content: res.reply || 'Sin respuesta generada.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          latencyMs: res.latencyMs,
+          model: res.model,
+          productCards: res.productCards,
+          toolCalls: res.toolCalls,
+          leadProfileUpdate: res.leadProfileUpdate,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      }
       onMessageSimulated?.();
     } catch (err: any) {
       const errorMsg: SimulatedMessage = {

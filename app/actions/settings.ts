@@ -11,7 +11,7 @@ import {
 import { Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import { WhatsAppService } from '@/services/whatsapp.service';
-import { GalleryPhotoItem } from '@/lib/media/format';
+import { GalleryPhotoItem, splitIntoConsecutiveMessages } from '@/lib/media/format';
 import { OpenAIService } from '@/services/openai.service';
 import { pushPromptVersion, splitGalleryTail } from '@/lib/ai/prompt-assistant/versions';
 import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
@@ -976,6 +976,7 @@ export async function simulateBotMessage(params: {
   targetOrganizationId?: string;
 }): Promise<{
   reply: string;
+  replyParts?: string[];
   latencyMs: number;
   model: string;
   provider: string;
@@ -1024,8 +1025,11 @@ export async function simulateBotMessage(params: {
     enabledModules: org.enabled_modules,
   });
 
+  const replyParts = splitIntoConsecutiveMessages(result.reply, 2);
+
   return {
     reply: result.reply,
+    replyParts,
     latencyMs: result.latencyMs,
     model: result.modelUsed,
     provider: result.provider,

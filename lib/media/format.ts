@@ -506,3 +506,69 @@ export function extractSentInformationSummary(
   return sentSummaries;
 }
 
+/**
+ * Divide una respuesta del asistente en máximo 2 mensajes consecutivos y coherentes
+ * para evitar abrumar al cliente con un párrafo gigante en WhatsApp/Instagram.
+ *
+ * Reglas:
+ * 1. Si el texto es breve (<= 160 caracteres), se mantiene como 1 solo mensaje.
+ * 2. Si contiene separador explícito de párrafos ('\n\n' o '---'), divide en los 2 bloques principales.
+ * 3. Si es un único párrafo largo (> 170 caracteres), busca una frontera natural de oración
+ *    ('. ', '? ', '! ') cercana a la mitad para dividirlo limpiamente en 2 oraciones/mensajes coherentes.
+ * 4. NUNCA devuelve más de `maxMessages` (por defecto 2).
+ */
+export function splitIntoConsecutiveMessages(text: string | null | undefined, maxMessages = 2): string[] {
+  if (!text || typeof text !== 'string') return [];
+  const clean = text.trim();
+  if (!clean) return [];
+
+  // Si ya es un mensaje corto, no dividirlo
+  if (clean.length <= 160) {
+    return [clean];
+  }
+
+  // 1. Separación por delimitador explícito de párrafo doble '\n\n' o marcador
+  const paragraphParts = clean
+    .split(/\n\s*\n+|(?:\r?\n){2,}|\[SIGUIENTE_MENSAJE\]|---/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (paragraphParts.length >= 2) {
+    if (paragraphParts.length === 2) {
+      return paragraphParts;
+    }
+    // Si hay 3 o más párrafos, tomamos el primero y agrupamos el resto en el segundo (máximo 2 mensajes)
+    return [paragraphParts[0], paragraphParts.slice(1).join('\n\n')];
+  }
+
+  // 2. Si es un único párrafo largo (> 170 caracteres), buscar frontera de oración natural (. ! ?)
+  if (clean.length > 170) {
+    const sentenceEndRegex = /([.?!])\s+/g;
+    let match: RegExpExecArray | null;
+    let bestSplitIndex = -1;
+    const targetMid = Math.floor(clean.length / 2);
+    let minDistanceToMid = Infinity;
+
+    while ((match = sentenceEndRegex.exec(clean)) !== null) {
+      const splitPos = match.index + 1; // justo después del signo . ! ?
+      if (splitPos >= 35 && clean.length - splitPos >= 35) {
+        const distance = Math.abs(splitPos - targetMid);
+        if (distance < minDistanceToMid) {
+          minDistanceToMid = distance;
+          bestSplitIndex = splitPos;
+        }
+      }
+    }
+
+    if (bestSplitIndex !== -1) {
+      const part1 = clean.slice(0, bestSplitIndex).trim();
+      const part2 = clean.slice(bestSplitIndex).trim();
+      if (part1 && part2) {
+        return [part1, part2];
+      }
+    }
+  }
+
+  return [clean];
+}
+

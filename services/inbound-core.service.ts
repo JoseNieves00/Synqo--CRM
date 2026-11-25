@@ -2,7 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { LeadScoreService } from '@/services/lead-score.service';
 import { CampaignService } from '@/services/campaign.service';
 import { sanitizeLeadMessage } from '@/lib/security/sanitize';
-import { formatQuoteMessageContent, formatImageMessageContent } from '@/lib/media/format';
+import { formatQuoteMessageContent, formatImageMessageContent, splitIntoConsecutiveMessages } from '@/lib/media/format';
 import { AssignmentService } from './assignment.service';
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
@@ -1256,52 +1256,64 @@ export class InboundCoreService {
         retryOutboundText = cleanedAiText || null;
 
         if (cleanedAiText) {
-          const messageId = crypto.randomUUID();
+          const messageParts = splitIntoConsecutiveMessages(cleanedAiText, 2);
 
-          // 🛡️ PATRÓN OUTBOX: Insertar mensaje con status 'sending' e ID primario ANTES de llamar a Evolution / Meta.
-          // Esto elimina la carrera donde el eco fromMe de Evolution llega antes de que el mensaje exista en DB.
-          const { error: outboxInsertErr } = await (supabaseAdmin.from('messages') as any).insert({
-            id: messageId,
-            contact_id: contactId,
-            organization_id: organization.id,
-            sender_type: 'ai',
-            content: cleanedAiText,
-            status: 'sending',
-            channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
-          });
-          retryMessageRowId = messageId;
+          for (let pIdx = 0; pIdx < messageParts.length; pIdx++) {
+            const partText = messageParts[pIdx];
+            if (!partText) continue;
 
-          if (outboxInsertErr) {
-            console.error('[INBOUND CORE OUTBOX INSERT ERROR]', outboxInsertErr);
-          }
+            if (pIdx > 0) {
+              // Pausa humana natural (800ms) para garantizar orden estricto de entrega en WhatsApp
+              await new Promise((resolve) => setTimeout(resolve, 800));
+            }
 
-          try {
-            outboundMessageId = await this.dispatchOutboundMessage({
-              organization,
-              channel,
-              recipientId: targetRecipient,
-              text: cleanedAiText,
-              contactId,
+            const messageId = crypto.randomUUID();
+
+            // 🛡️ PATRÓN OUTBOX: Insertar mensaje con status 'sending' e ID primario ANTES de llamar a Evolution / Meta.
+            // Esto elimina la carrera donde el eco fromMe de Evolution llega antes de que el mensaje exista en DB.
+            const { error: outboxInsertErr } = await (supabaseAdmin.from('messages') as any).insert({
+              id: messageId,
+              contact_id: contactId,
+              organization_id: organization.id,
+              sender_type: 'ai',
+              content: partText,
+              status: 'sending',
+              channel: channel === 'instagram' ? 'instagram' : 'whatsapp',
             });
+            retryMessageRowId = messageId;
 
-            // Reconciliar mensaje a 'sent' con el ID del proveedor
-            await (supabaseAdmin.from('messages') as any)
-              .update({
-                status: 'sent',
-                meta_message_id: outboundMessageId || null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', messageId);
-          } catch (dispatchErr: any) {
-            console.error('[INBOUND CORE OUTBOUND DISPATCH FAILED]', dispatchErr);
-            await (supabaseAdmin.from('messages') as any)
-              .update({
-                status: 'failed',
-                error_message: dispatchErr?.message || 'Error de envío',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', messageId);
-            throw dispatchErr;
+            if (outboxInsertErr) {
+              console.error('[INBOUND CORE OUTBOX INSERT ERROR]', outboxInsertErr);
+            }
+
+            try {
+              outboundMessageId = await this.dispatchOutboundMessage({
+                organization,
+                channel,
+                recipientId: targetRecipient,
+                text: partText,
+                contactId,
+              });
+
+              // Reconciliar mensaje a 'sent' con el ID del proveedor
+              await (supabaseAdmin.from('messages') as any)
+                .update({
+                  status: 'sent',
+                  meta_message_id: outboundMessageId || null,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', messageId);
+            } catch (dispatchErr: any) {
+              console.error('[INBOUND CORE OUTBOUND DISPATCH FAILED]', dispatchErr);
+              await (supabaseAdmin.from('messages') as any)
+                .update({
+                  status: 'failed',
+                  error_message: dispatchErr?.message || 'Error de envío',
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', messageId);
+              throw dispatchErr;
+            }
           }
         }
 

@@ -381,7 +381,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           ? 'Asesoría Consultiva Prioritaria & Tarjeta Visual'
           : 'Atención Visual con Tarjeta y Micro-Avance',
         copilotDirective: hasConsultativeDoubt
-          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Responde PRIMERO a su inquietud con asesoría honesta y empática orientándolo al modelo ideal. Envía send_product_card y cierra con alternativa de micro-avance hacia el pedido o apartado.'
+          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Divide tu respuesta en máximo 2 mensajes cortos (separados por doble salto): Mensaje 1: responde primero su duda con asesoría honesta; Mensaje 2: recomienda el modelo ideal con su gancho comercial y pregunta de avance. Envía send_product_card.'
           : 'Envía send_product_card con foto oficial y precio. En tu mensaje (máx 1-2 líneas), presenta el beneficio y haz una pregunta de micro-avance hacia el despacho.',
         prohibitedActions: [
           ...prohibitedBase,
