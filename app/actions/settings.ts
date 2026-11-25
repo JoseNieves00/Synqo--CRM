@@ -178,6 +178,7 @@ export async function updateOrganizationSettings(input: UpdateSettingsInput) {
   }
 
   revalidatePath('/settings');
+  revalidatePath('/inbox');
   return { success: true };
 }
 
@@ -227,6 +228,51 @@ export async function saveProductGallery(
     throw new Error(`Error guardando catálogo de fotos: ${updateError.message}`);
   }
 
+  return { success: true };
+}
+
+/**
+ * Guarda únicamente la galería de imágenes disponibles para la IA (sin sobreescribir el system_prompt).
+ */
+export async function saveAiImageGallery(gallery: GalleryPhotoItem[]) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden modificar la galería.');
+  }
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada para el usuario.');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('structured_prompt_data')
+    .eq('id', orgId)
+    .single();
+
+  const currentStructured = org?.structured_prompt_data || {};
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      structured_prompt_data: {
+        ...currentStructured,
+        gallery,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateError) {
+    throw new Error(`Error guardando galería IA: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
   return { success: true };
 }
 
@@ -620,6 +666,7 @@ export async function disconnectWhatsApp() {
   }
 
   revalidatePath('/settings');
+  revalidatePath('/inbox');
   return { success: true };
 }
 

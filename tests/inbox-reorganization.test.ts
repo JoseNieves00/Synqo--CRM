@@ -318,8 +318,9 @@ async function runInboxTests() {
 
   // 10. Probar Filtro Optimizado de Seguimiento y Sugerencias de Reactivación con IA
   console.log('\n🔟 Probando filtro estricto de seguimiento y generador de reactivaciones con IA...');
+  const inboxQueryServiceContent = fs.readFileSync('services/inbox-query.service.ts', 'utf8');
   assert.ok(
-    chatTsContent.includes("not('pipeline_stage', 'in', '(\"ganado\",\"perdido\",\"cita_agendada\")')"),
+    inboxQueryServiceContent.includes("not('pipeline_stage', 'in', '(\"ganado\",\"perdido\",\"cita_agendada\")')"),
     'listInbox seguimiento debe excluir etapas ganadas, perdidas o con cita agendada'
   );
   assert.ok(
@@ -501,10 +502,10 @@ async function runInboxTests() {
   const contactsTsContent = fs.readFileSync('app/actions/contacts.ts', 'utf8');
   const reactivationTsContent = fs.readFileSync('services/reactivation.service.ts', 'utf8');
   assert.ok(
-    chatTsContent.includes('custom_fields->>active_reminder.not.is.null') &&
-      chatTsContent.includes('custom_fields->follow_up->>nextSendAt.not.is.null') &&
-      chatTsContent.includes('SEGUIMIENTO_EXCLUDE_COLD_OR'),
-    'chat.ts debe usar ->> y excluir contactos cold de Seguimiento'
+    inboxQueryServiceContent.includes('custom_fields->>active_reminder.not.is.null') &&
+      inboxQueryServiceContent.includes('custom_fields->follow_up->>nextSendAt.not.is.null') &&
+      inboxQueryServiceContent.includes('SEGUIMIENTO_EXCLUDE_COLD_OR'),
+    'inbox-query.service.ts debe usar ->> y excluir contactos cold de Seguimiento'
   );
   assert.ok(
     openaiServiceContent.includes('classifyUnclassifiedContactsForActiveOrgs') &&
@@ -711,7 +712,7 @@ async function runInboxTests() {
     'Anti-spam horario y enfriamiento por contacto deben consultarse en base de datos'
   );
   assert.ok(
-    chatTsContent.includes('seguimientoSubView') && chatTsContent.includes('seguimientoSubCounts'),
+    inboxQueryServiceContent.includes('seguimientoSubView') && inboxQueryServiceContent.includes('seguimientoSubCounts'),
     'listInbox debe resolver sub-bandejas y conteos completos en servidor'
   );
   const convRowContent = fs.readFileSync('components/chat/ConversationRow.tsx', 'utf8');
@@ -820,8 +821,8 @@ async function runInboxTests() {
     'Al recibir un mensaje nuevo en tiempo real, el chat debe subir al #1 como WhatsApp Web'
   );
 
-  // Verificar que la consulta SQL en app/actions/chat.ts usa last_interaction_at DESC NULLS LAST
-  const latestChatTs = fs.readFileSync('app/actions/chat.ts', 'utf8');
+  // Verificar que la consulta SQL en services/inbox-query.service.ts usa last_interaction_at DESC NULLS LAST
+  const latestChatTs = fs.readFileSync('services/inbox-query.service.ts', 'utf8');
   assert.ok(
     latestChatTs.includes("order('last_interaction_at', { ascending: false, nullsFirst: false })"),
     'listInbox debe ordenar en PostgreSQL por last_interaction_at DESC NULLS LAST'

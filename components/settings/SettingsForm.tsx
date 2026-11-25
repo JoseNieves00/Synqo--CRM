@@ -48,8 +48,8 @@ import {
   Pencil,
   Trash2,
   Save,
-  DoorOpen,
   Smartphone,
+  Image as ImageIcon,
   Truck,
   Instagram,
   Video,
@@ -100,6 +100,11 @@ const FollowUpSequencesSettings = dynamic(() => import('./FollowUpSequencesSetti
 
 const ShippingSettings = dynamic(() => import('./ShippingSettings').then((m) => m.ShippingSettings), {
   loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando envíos y fletes...</div>,
+  ssr: false,
+});
+
+const AiGalleryTab = dynamic(() => import('./AiGalleryTab').then((m) => m.AiGalleryTab), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando galería IA...</div>,
   ssr: false,
 });
 
@@ -206,7 +211,7 @@ export function SettingsForm({
   isSuperAdmin = false,
 }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'team' | 'specialists' | 'rooms' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
 
   // Estado multi-acordeón: permite abrir o plegar múltiples secciones en simultáneo
   const [openSections, setOpenSections] = useState<Set<string>>(
@@ -1119,6 +1124,19 @@ export function SettingsForm({
 
         <button
           type="button"
+          onClick={() => setActiveTab('gallery')}
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+            activeTab === 'gallery'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <ImageIcon className="w-4 h-4 text-sky-500" />
+          <span>Galería de Imágenes</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('shipping')}
           className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'shipping'
@@ -1188,39 +1206,11 @@ export function SettingsForm({
             <span>Equipo Comercial ({teamData.members.length}/{teamData.organization.maxUsers})</span>
           </button>
         )}
-
-        {enabledModules.staff_mobile_portal && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('specialists')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-              activeTab === 'specialists'
-                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-            }`}
-          >
-            <Smartphone className="w-4 h-4 text-sky-500" />
-            <span>{initialData.specialistLabel || 'Colaboradores'}</span>
-          </button>
-        )}
-
-        {enabledModules.physical_rooms && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('rooms')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-              activeTab === 'rooms'
-                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-            }`}
-          >
-            <DoorOpen className="w-4 h-4 text-emerald-500" />
-            <span>{initialData.roomLabel || 'Espacios'}</span>
-          </button>
-        )}
       </div>
 
-      {activeTab === 'follow_ups' ? (
+      {activeTab === 'gallery' ? (
+        <AiGalleryTab />
+      ) : activeTab === 'follow_ups' ? (
         <FollowUpSequencesSettings
           initialConfig={followUpSequencesData}
           whatsappTemplates={initialData.whatsappTemplates || []}
@@ -1362,9 +1352,6 @@ export function SettingsForm({
             const remainingTokens = Math.max(0, effectiveLimit - effectiveUsed);
             const remainingEstimatedChats = Math.floor(remainingTokens / 1000);
 
-            const specLabel = initialData.specialistLabel || 'Colaborador';
-            const rLabel = initialData.roomLabel || 'Espacio';
-
             const moduleList = [
               {
                 id: 'calendar',
@@ -1374,32 +1361,11 @@ export function SettingsForm({
                 desc: 'Bot IA agendador 24/7 y sincronización de citas en tiempo real.',
               },
               {
-                id: 'specialists',
-                name: `Gestión de ${specLabel}s`,
-                active: Boolean(enabledModules.staff_mobile_portal),
-                icon: Smartphone,
-                desc: `Portal móvil con PIN para que los ${specLabel.toLowerCase()}s vean su agenda.`,
-              },
-              {
-                id: 'rooms',
-                name: `Control de ${rLabel}s & Aforo`,
-                active: Boolean(enabledModules.physical_rooms),
-                icon: DoorOpen,
-                desc: `Asignación de ${rLabel.toLowerCase()}s físicos por turno sin sobrecupo.`,
-              },
-              {
                 id: 'anti_no_show',
                 name: 'Protocolo Anti No-Show',
                 active: Boolean(enabledModules.anti_no_show),
                 icon: Shield,
                 desc: 'Confirmaciones automáticas a 8 horas con recordatorios diurnos.',
-              },
-              {
-                id: 'quick_pay',
-                name: 'Cobros Rápidos (Quick Pay)',
-                active: Boolean(enabledModules.quick_pay),
-                icon: CreditCard,
-                desc: 'Registro de cobros directos (Efectivo, Nequi, Datáfono).',
               },
             ];
 

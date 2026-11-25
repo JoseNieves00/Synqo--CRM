@@ -212,7 +212,7 @@ async function runTests() {
   );
 
   // Verificación de filtro por_responder sin falsos positivos donde la IA ya respondió o está atendiendo
-  const chatTsSource = fs.readFileSync(path.join(process.cwd(), 'app/actions/chat.ts'), 'utf8');
+  const chatTsSource = fs.readFileSync(path.join(process.cwd(), 'services/inbox-query.service.ts'), 'utf8');
   assert.ok(
     chatTsSource.includes('buildPorResponderOrFilter') &&
       chatTsSource.includes('is_ai_active.eq.false') &&

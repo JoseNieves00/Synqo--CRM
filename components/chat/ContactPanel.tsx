@@ -38,14 +38,13 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { PIPELINE_STAGES } from '@/services/contact.service';
-import { updateLeadStage } from '@/app/actions/pipeline';
 import {
   LEAD_TEMPERATURE_META,
   LEAD_TEMPERATURE_ORDER,
   type LeadTemperature,
   resolveLeadTemperature,
 } from '@/lib/ai/follow-up-types';
-import { updateContactDetails } from '@/app/actions/contacts';
+import { updateContactDetails, updateLeadStage } from '@/app/actions/contacts';
 import { generateContactAiSummary, endContactConversation, reopenContactConversation } from '@/app/actions/chat';
 import { toggleContactFollowUpPause } from '@/app/actions/reminders';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
@@ -532,7 +531,7 @@ export function ContactPanel({
         <div className="space-y-2.5 pt-1">
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-              Etapa en el pipeline
+              Estado comercial
             </label>
             <div className="relative">
               <select

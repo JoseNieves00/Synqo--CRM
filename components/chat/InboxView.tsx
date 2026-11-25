@@ -2,12 +2,20 @@
 
 import { useShallow } from 'zustand/react/shallow';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { InboxSidebar } from './InboxSidebar';
-import { BatchApologyModal } from './BatchApologyModal';
-import { InboxCommandPalette } from '@/components/inbox/InboxCommandPalette';
+
+const BatchApologyModal = dynamic(
+  () => import('./BatchApologyModal').then((m) => m.BatchApologyModal),
+  { ssr: false }
+);
+const InboxCommandPalette = dynamic(
+  () => import('@/components/inbox/InboxCommandPalette').then((m) => m.InboxCommandPalette),
+  { ssr: false }
+);
 import { ContactRowData } from './ConversationRow';
 import { FilterState } from './InboxFiltersPopover';
 import {
@@ -157,12 +165,10 @@ export function InboxView({
       useInboxStore.getState().setFilters(initialFilters);
     }
 
-    if (paymentAccounts.length > 0 || catalogItems.length > 0) {
-      useInboxStore.getState().setBootstrap({
-        paymentAccounts,
-        catalog: catalogItems,
-      });
-    }
+    useInboxStore.getState().setBootstrap({
+      paymentAccounts,
+      catalog: catalogItems,
+    });
   }, [organizationId, initialView]);
 
   // Mantener vista y filtros sincronizados cuando Next.js navega con nuevos searchParams (ej: clic desde Dashboard)
@@ -348,6 +354,11 @@ export function InboxView({
   }, [activeView, seguimientoFilter, filters, debouncedSearchQuery]);
 
   // 9. Mapeo unificado para abrir chat (URL, clicks, popstate, notificaciones, J/K)
+  const ssrActiveContactIdRef = useRef(activeContact?.id);
+  const ssrMessagesRef = useRef(messages);
+  ssrActiveContactIdRef.current = activeContact?.id;
+  ssrMessagesRef.current = messages;
+
   const openChat = useCallback(
     async (contactId: string, options?: { skipPushState?: boolean }) => {
       if (!contactId) return;
@@ -372,7 +383,7 @@ export function InboxView({
       const cached = useInboxStore.getState().messagesByContact[contactId];
       const hasCached = Boolean(
         (cached && cached.items && cached.items.length > 0) ||
-        (contactId === activeContact?.id && messages && messages.length > 0)
+        (contactId === ssrActiveContactIdRef.current && ssrMessagesRef.current && ssrMessagesRef.current.length > 0)
       );
 
       if (!hasCached) {
@@ -388,7 +399,7 @@ export function InboxView({
         setIsLoadingMessages(false);
       }
     },
-    [activeView, activeContact?.id, messages]
+    [activeView]
   );
 
   const handleSelectContact = useCallback(
@@ -397,6 +408,25 @@ export function InboxView({
     },
     [openChat]
   );
+
+  const prefetchedContactIdsRef = useRef<Set<string>>(new Set());
+  const prefetchChat = useCallback((contactId: string) => {
+    if (!contactId) return;
+    if (prefetchedContactIdsRef.current.has(contactId)) return;
+    const cached = useInboxStore.getState().messagesByContact[contactId];
+    if (cached && cached.items && cached.items.length > 0) {
+      prefetchedContactIdsRef.current.add(contactId);
+      return;
+    }
+    prefetchedContactIdsRef.current.add(contactId);
+    getContactMessages(contactId)
+      .then((msgs) => {
+        useInboxStore.getState().setContactMessages(contactId, msgs);
+      })
+      .catch(() => {
+        prefetchedContactIdsRef.current.delete(contactId);
+      });
+  }, []);
 
   // Escuchar botón Atrás del navegador (Popstate)
   useEffect(() => {
@@ -758,6 +788,7 @@ export function InboxView({
           onQuickSnooze={handleQuickSnooze}
           onBatchClose={handleBatchClose}
           onOpenBatchApology={handleOpenBatchApology}
+          onPrefetchContact={prefetchChat}
         />
       </div>
 
@@ -823,7 +854,8 @@ export function InboxView({
       )}
 
       {/* Paleta de Comandos Global ⌘K para Asesores Comerciales */}
-      <InboxCommandPalette
+      {isCommandPaletteOpen && (
+        <InboxCommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         activeContactId={selectedContactId}
@@ -882,7 +914,8 @@ export function InboxView({
           // Abre modal de fin de conversación en ChatWindow
           window.dispatchEvent(new CustomEvent('synqo-open-end-chat-modal', { detail: { resolution } }));
         }}
-      />
+        />
+      )}
     </div>
   );
 }

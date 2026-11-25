@@ -42,6 +42,7 @@ interface ConversationRowProps {
   isMine?: boolean;
   assignedUserName?: string;
   onSelect: (id: string) => void;
+  onPrefetch?: (id: string) => void;
   onToggleSelect?: (id: string, e: React.MouseEvent) => void;
   onQuickAssign?: (id: string, e: React.MouseEvent) => void;
   onQuickMarkAttended?: (id: string, e: React.MouseEvent) => void;
@@ -56,6 +57,7 @@ export const ConversationRow = React.memo(function ConversationRow({
   isMine = false,
   assignedUserName,
   onSelect,
+  onPrefetch,
   onToggleSelect,
   onQuickAssign,
   onQuickMarkAttended,
@@ -185,6 +187,7 @@ export const ConversationRow = React.memo(function ConversationRow({
   return (
     <div
       onClick={() => onSelect(c.id)}
+      onMouseEnter={() => onPrefetch?.(c.id)}
       className={`group relative p-3 border-l-2 select-none transition cursor-pointer ${
         isActive
           ? 'bg-blue-50/80 dark:bg-[#0052FF]/15 border-l-[#0052FF]'

@@ -349,23 +349,33 @@ export function ChatHeader({
           onToggle={onToggleAi}
         />
 
-        {/* Badge visible solo si ya está exento de IA; la acción 'Eximir IA' vive en el menú ... */}
-        {localExempt && (
-          <button
-            type="button"
-            onClick={handleToggleExempt}
-            disabled={isExemptLoading}
-            className="h-8 px-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300"
-            title="Contacto Exento de IA (0 tokens consumidos). Clic para reactivar IA."
-          >
-            {isExemptLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            )}
-            <span className="hidden md:inline">Exento IA</span>
-          </button>
-        )}
+        {/* Botón visible siempre para marcar o quitar Exento de IA (0 tokens consumidos) */}
+        <button
+          type="button"
+          onClick={handleToggleExempt}
+          disabled={isExemptLoading}
+          className={`h-8 px-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+            localExempt
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300'
+              : 'bg-slate-100/80 dark:bg-[#1A1F2C] border-slate-200 dark:border-[#232A3B] text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+          }`}
+          title={
+            localExempt
+              ? 'Contacto Exento de IA (0 tokens consumidos). Clic para reactivar IA.'
+              : 'Marcar como Exento de IA (atención 100% manual, 0 tokens)'
+          }
+        >
+          {isExemptLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <ShieldAlert
+              className={`w-3.5 h-3.5 ${
+                localExempt ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'
+              }`}
+            />
+          )}
+          <span className="hidden md:inline">{localExempt ? 'Exento IA' : 'Eximir IA'}</span>
+        </button>
 
         {/* En 'Por responder', 'Atendido' es la acción principal (y 'Cerrar' pasa al menú ...) */}
         {isClosed ? (

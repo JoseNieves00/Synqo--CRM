@@ -7,7 +7,10 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { ChatHeader } from './ChatHeader';
-import { ContactPanel } from './ContactPanel';
+const ContactPanel = dynamic(
+  () => import('./ContactPanel').then((m) => m.ContactPanel),
+  { ssr: false }
+);
 import { formatMessageDateDivider } from '@/lib/utils/inbox-date';
 import { isLeadWindowOpen, getLeadWindowAnchor, getRemainingHoursInWindow, PIPELINE_STAGES } from '@/services/contact.service';
 import {
@@ -32,7 +35,9 @@ import dynamic from 'next/dynamic';
 import { deleteContactWithPassword, updateContactDetails } from '@/app/actions/contacts';
 import { completeContactReminder, cancelContactReminder, type ActiveReminderData } from '@/app/actions/reminders';
 import { META_TEMPLATES } from '@/lib/whatsapp/templates';
-import { createClient } from '@/lib/supabase/client';
+import { useChatCollision } from '@/lib/inbox/use-chat-collision';
+import { ReactivationPanel } from './ReactivationPanel';
+import { DeleteChatModal, EndChatModal } from './ChatActionModals';
 
 const ScheduleReminderModal = dynamic(
   () => import('./ScheduleReminderModal').then((m) => m.ScheduleReminderModal),
@@ -74,7 +79,7 @@ import {
   Smartphone,
   Flame,
 } from 'lucide-react';
-import { updateLeadStage } from '@/app/actions/pipeline';
+import { updateLeadStage } from '@/app/actions/contacts';
 import { PipelineStage } from '@/lib/supabase/types';
 import { useRouter } from 'next/navigation';
 
@@ -158,8 +163,6 @@ export const ChatWindow = React.memo(function ChatWindow({
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [hasNoMoreOlder, setHasNoMoreOlder] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const broadcastChannelRef = useRef<any>(null);
-  const lastTypingBroadcastRef = useRef<number>(0);
 
   // Estados de Eliminación Rápida de Chat
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -402,7 +405,12 @@ export const ChatWindow = React.memo(function ChatWindow({
   // Estados de Asignación y Bloqueo Concurrente
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState(false);
-  const [otherTyping, setOtherTyping] = useState<string | null>(null);
+  const currentMemberName =
+    teamMembers.find((m) => m.id === currentUserId)?.full_name || 'Un asesor';
+  const { otherTyping, broadcastTyping: handleTypingBroadcast } = useChatCollision(
+    contact.id,
+    currentMemberName
+  );
 
   // Despacho puntual de IA para este chat
   const [isTriggeringAi, setIsTriggeringAi] = useState(false);
@@ -692,62 +700,6 @@ export const ChatWindow = React.memo(function ChatWindow({
     } finally {
       setIsLoadingOlder(false);
     }
-  };
-
-  // Canal Realtime Broadcast: Detección de Colisión (Typing Presence entre agentes)
-  useEffect(() => {
-    if (!contact.id) return;
-    const supabase = createClient();
-    let typingTimeout: NodeJS.Timeout | null = null;
-
-    const channel = supabase.channel(`chat-collision-${contact.id}`, {
-      config: { broadcast: { self: false } },
-    });
-
-    broadcastChannelRef.current = channel;
-
-    channel
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        const typingUser = payload?.payload?.userName;
-        if (typingUser) {
-          setOtherTyping(typingUser);
-          if (typingTimeout) clearTimeout(typingTimeout);
-          typingTimeout = setTimeout(() => {
-            setOtherTyping(null);
-          }, 3500);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      broadcastChannelRef.current = null;
-      supabase.removeChannel(channel);
-      if (typingTimeout) clearTimeout(typingTimeout);
-    };
-  }, [contact.id]);
-
-  // Emitir señal de tipeo con throttle de 3.5 segundos para evitar saturación de red
-  const handleTypingBroadcast = () => {
-    if (!contact.id) return;
-    const now = Date.now();
-    if (now - lastTypingBroadcastRef.current < 3500) {
-      return; // Cero lag en tipeo: no enviar ráfagas de WebSocket por cada tecla
-    }
-    lastTypingBroadcastRef.current = now;
-
-    const currentMember = teamMembers.find((m) => m.id === currentUserId);
-    const myName = currentMember?.full_name || 'Un asesor';
-    const channel = broadcastChannelRef.current || createClient().channel(`chat-collision-${contact.id}`, {
-      config: { broadcast: { self: false } },
-    });
-
-    channel
-      .send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: { userName: myName },
-      })
-      .catch(() => {});
   };
 
   // Reclamar lead huérfano con Bloqueo Atómico Transaccional
@@ -1783,116 +1735,15 @@ export const ChatWindow = React.memo(function ChatWindow({
 
           {/* Banner de Reactivación Inteligente con IA según Interés del Lead */}
           {isReactivationEligible && (
-            <div className="mx-4 my-2 p-2.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-300/80 dark:border-amber-500/30 text-xs shadow-xs animate-in fade-in space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 min-w-0">
-                  <RotateCcw className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <div className="truncate">
-                    <span className="font-bold">Lead en seguimiento (&gt;24h en silencio):</span>{' '}
-                    <span className="opacity-90">Reanuda la conversación con un gancho basado en su interés real.</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleGenerateAiReactivation}
-                    disabled={isGeneratingReactivation}
-                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-xs transition disabled:opacity-60"
-                  >
-                    {isGeneratingReactivation ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>Analizando interés...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3 h-3 text-amber-200" />
-                        <span>Sugerir con IA</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleApplyReactivationMessage}
-                    title="Pegar mensaje rápido predeterminado"
-                    className="px-2 py-1 rounded-lg bg-white dark:bg-[#1A1F2C] border border-amber-300 dark:border-amber-500/40 text-amber-900 dark:text-amber-200 text-[11px] font-medium hover:bg-amber-100/50 cursor-pointer transition"
-                  >
-                    <span>Texto rápido</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDismissReactivation}
-                    title="No insistir más con este contacto"
-                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Tarjeta de Sugerencias Generadas por la IA */}
-              {reactivationAiResult && (
-                <div className="p-3 bg-white/95 dark:bg-[#0D111A]/95 rounded-lg border border-amber-400/60 dark:border-amber-500/40 space-y-2.5 shadow-sm">
-                  <div className="flex items-center justify-between gap-2 border-b border-amber-100 dark:border-amber-950/40 pb-1.5">
-                    <div className="flex items-center gap-1.5 text-[11px] min-w-0">
-                      <span className="font-bold text-amber-800 dark:text-amber-300 shrink-0">🎯 Interés Detectado:</span>
-                      <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 font-semibold border border-amber-500/20 truncate">
-                        {reactivationAiResult.detectedInterest}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setReactivationAiResult(null)}
-                      className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer shrink-0"
-                    >
-                      Ocultar
-                    </button>
-                  </div>
-
-                  {/* Opción 1: Enfoque Directo en su Consulta */}
-                  <div className="p-2.5 rounded-md bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/30 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between text-[10px] font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider">
-                      <span>Opción A · Gancho Personalizado</span>
-                    </div>
-                    <p className="text-xs text-slate-800 dark:text-slate-200 italic leading-relaxed">
-                      &quot;{reactivationAiResult.suggestedMessage}&quot;
-                    </p>
-                    <div className="flex items-center justify-end gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleApplyDraftText(reactivationAiResult.suggestedMessage)}
-                        className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-medium text-[11px] inline-flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                      >
-                        <Pencil className="w-3 h-3" />
-                        <span>Usar en borrador</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Opción 2: Alternativa Suave */}
-                  {reactivationAiResult.alternativeHook && (
-                    <div className="p-2.5 rounded-md bg-slate-50 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-                        <span>Opción B · Seguimiento Suave</span>
-                      </div>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 italic leading-relaxed">
-                        &quot;{reactivationAiResult.alternativeHook}&quot;
-                      </p>
-                      <div className="flex items-center justify-end gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleApplyDraftText(reactivationAiResult.alternativeHook)}
-                          className="px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300 dark:bg-[#1F2637] dark:hover:bg-[#2A334A] text-slate-800 dark:text-slate-200 font-medium text-[11px] inline-flex items-center gap-1 cursor-pointer transition"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          <span>Usar en borrador</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <ReactivationPanel
+              isGenerating={isGeneratingReactivation}
+              result={reactivationAiResult}
+              onGenerate={handleGenerateAiReactivation}
+              onApplyQuickText={handleApplyReactivationMessage}
+              onDismiss={handleDismissReactivation}
+              onClearResult={() => setReactivationAiResult(null)}
+              onApplyDraft={handleApplyDraftText}
+            />
           )}
 
           {/* Input de Chat con Bloqueo Anti-Colisión (Solo Lectura) */}
@@ -1957,83 +1808,17 @@ export const ChatWindow = React.memo(function ChatWindow({
       )}
 
       {/* Modal de Confirmación Rápida para Eliminar Chat */}
-      {showDeleteModal && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F]">
-              <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
-                <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                  ¿Eliminar conversación?
-                </h4>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDeleteModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleDeleteChat} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3.5 [scrollbar-width:thin]">
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Esta acción es permanente e irreversible. Se eliminará a{' '}
-                  <strong className="text-slate-900 dark:text-white">{contact.name || contact.phone}</strong>{' '}
-                  junto con todo su historial de mensajes, notas y registros de actividad.
-                </p>
-
-                {deleteError && (
-                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    <span>{deleteError}</span>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Confirma con tu contraseña de administrador:
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="password"
-                      required
-                      placeholder="Tu contraseña actual"
-                      value={deletePassword}
-                      onChange={(e) => setDeletePassword(e.target.value)}
-                      className="w-full pl-8.5 pr-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3.5 border-t border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#0E131F]">
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteModal(false)}
-                  disabled={isDeleting}
-                  className="px-3.5 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1A1F2C] rounded-xl text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isDeleting || !deletePassword.trim()}
-                  className="min-w-[125px] inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition cursor-pointer shadow-xs"
-                >
-                  {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{isDeleting ? 'Eliminando...' : 'Eliminar Chat'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
+      <DeleteChatModal
+        isOpen={showDeleteModal}
+        mounted={mounted}
+        contactLabel={contact.name || contact.phone}
+        deletePassword={deletePassword}
+        setDeletePassword={setDeletePassword}
+        deleteError={deleteError}
+        isDeleting={isDeleting}
+        onClose={() => setShowDeleteModal(false)}
+        onSubmit={handleDeleteChat}
+      />
 
       {/* Modal de Resumen Ejecutivo con IA */}
       <AiSummaryModal
@@ -2071,142 +1856,20 @@ export const ChatWindow = React.memo(function ChatWindow({
       />
 
       {/* Modal de Finalizar Conversación ('Dar Fin') */}
-      {isEndChatModalOpen && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 dark:border-[#232A3B] text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#090A0F]">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                    Dar Fin a la Conversación
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {contact.name || contact.phone}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsEndChatModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleEndConversation} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 [scrollbar-width:thin]">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Resultado de la Atención
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEndResolution('completed')}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
-                        endResolution === 'completed'
-                          ? 'border-blue-500 bg-blue-50/70 dark:bg-[#0052FF]/10 text-blue-900 dark:text-blue-200 ring-2 ring-blue-500/20'
-                          : 'border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
-                      }`}
-                    >
-                      <span className="text-base">✓</span>
-                      <span className="text-xs font-bold">Completado</span>
-                      <span className="text-[10px] opacity-70">Atención regular</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setEndResolution('won')}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
-                        endResolution === 'won'
-                          ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20'
-                          : 'border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
-                      }`}
-                    >
-                      <span className="text-base">🎉</span>
-                      <span className="text-xs font-bold">Ganado</span>
-                      <span className="text-[10px] opacity-70">Venta cerrada</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setEndResolution('lost')}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
-                        endResolution === 'lost'
-                          ? 'border-rose-500 bg-rose-50/70 dark:bg-rose-500/10 text-rose-900 dark:text-rose-200 ring-2 ring-rose-500/20'
-                          : 'border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
-                      }`}
-                    >
-                      <span className="text-base">✕</span>
-                      <span className="text-xs font-bold">Perdido</span>
-                      <span className="text-[10px] opacity-70">No concretado</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Campo de Monto de la Venta (Solo si el resultado es Ganado) */}
-                {endResolution === 'won' && (
-                  <div className="animate-in fade-in slide-in-from-top-1 duration-150">
-                    <label className="block text-xs font-semibold text-emerald-800 dark:text-emerald-300 mb-1">
-                      Valor de la Venta Ganada ($):
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs font-semibold text-slate-400">$</span>
-                      <input
-                        type="text"
-                        value={endDealValue}
-                        onChange={(e) => setEndDealValue(e.target.value)}
-                        placeholder="0 COP"
-                        className="w-full pl-7 pr-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-emerald-300 dark:border-emerald-500/40 rounded-xl text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30"
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                      Este monto alimentará tus métricas de conversión comercial y analítica de ROI.
-                    </p>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Nota interna de cierre (opcional):
-                  </label>
-                  <textarea
-                    value={endNote}
-                    onChange={(e) => setEndNote(e.target.value)}
-                    placeholder="Ej: Cliente realizó pedido y pagó por transferencia..."
-                    rows={2}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-[#0052FF]"
-                  />
-                </div>
-              </div>
-
-              <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-3.5 border-t border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#0E131F]">
-                <button
-                  type="button"
-                  onClick={() => setIsEndChatModalOpen(false)}
-                  disabled={isEndingChat}
-                  className="px-3.5 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl text-xs font-semibold cursor-pointer transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isEndingChat}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
-                >
-                  {isEndingChat && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Finalizar Atención</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
+      <EndChatModal
+        isOpen={isEndChatModalOpen}
+        mounted={mounted}
+        contactLabel={contact.name || contact.phone}
+        endResolution={endResolution}
+        setEndResolution={setEndResolution}
+        endDealValue={endDealValue}
+        setEndDealValue={setEndDealValue}
+        endNote={endNote}
+        setEndNote={setEndNote}
+        isEndingChat={isEndingChat}
+        onClose={() => setIsEndChatModalOpen(false)}
+        onSubmit={handleEndConversation}
+      />
     </div>
   );
 });

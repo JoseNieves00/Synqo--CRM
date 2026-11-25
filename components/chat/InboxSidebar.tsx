@@ -32,6 +32,7 @@ interface InboxSidebarProps {
   currentUserRole?: string;
   pendingGapsCount?: number;
   onSelectContact: (id: string) => void;
+  onPrefetchContact?: (id: string) => void;
   onChangeView: (view: InboxViewType) => void;
   onChangeSeguimientoFilter?: (subView: SeguimientoFilterType) => void;
   onChangeSearch: (query: string) => void;
@@ -64,6 +65,7 @@ export function InboxSidebar({
   currentUserRole,
   pendingGapsCount = 0,
   onSelectContact,
+  onPrefetchContact,
   onChangeView,
   onChangeSeguimientoFilter,
   onChangeSearch,
@@ -407,6 +409,7 @@ export function InboxSidebar({
                     isMine={c.assigned_to === currentUserId}
                     assignedUserName={c.assigned_to ? memberMap.get(c.assigned_to) : undefined}
                     onSelect={onSelectContact}
+                    onPrefetch={onPrefetchContact}
                     onToggleSelect={handleToggleSelect}
                     onQuickAssign={onQuickAssign ? (id, e) => onQuickAssign(id) : undefined}
                     onQuickMarkAttended={onQuickMarkAttended ? (id, e) => onQuickMarkAttended(id) : undefined}

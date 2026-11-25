@@ -3,7 +3,7 @@
 import { LeadScoreService } from '@/services/lead-score.service';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { PipelineStage } from '@/lib/supabase/types';
+import { PipelineStage, Database } from '@/lib/supabase/types';
 import { revalidatePath } from 'next/cache';
 import {
   LEAD_TEMPERATURE_META,
@@ -11,6 +11,99 @@ import {
   buildSynchronizedClassification,
   normalizeFollowUpSettings,
 } from '@/lib/ai/follow-up-types';
+
+/**
+ * Actualiza el estado comercial (etapa) de un contacto.
+ * Valida sesión y pertenencia a la organización (Anti-IDOR).
+ */
+export async function updateLeadStage(contactId: string, newStage: PipelineStage) {
+  const supabase = createServerSupabaseClient();
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    throw new Error('No autorizado');
+  }
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.organization_id) {
+    throw new Error('Perfil no encontrado');
+  }
+
+  const orgId = profile.organization_id as string;
+  const { data: prevContact } = await (supabaseAdmin.from('contacts') as any)
+    .select('pipeline_stage, closed_at, custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .maybeSingle();
+
+  const nowIso = new Date().toISOString();
+  const prevCustom = (prevContact?.custom_fields as Record<string, any>) || {};
+  const nextCustom: Record<string, any> = { ...prevCustom };
+
+  if (newStage === 'ganado') {
+    nextCustom.lead_temperature = 'hot';
+    delete nextCustom.temperature;
+    if (nextCustom.follow_up && nextCustom.follow_up.category !== 'post_order') {
+      nextCustom.follow_up = { ...nextCustom.follow_up, category: 'post_order' };
+    }
+  } else if (newStage === 'perdido') {
+    nextCustom.lead_temperature = 'cold';
+    delete nextCustom.temperature;
+    if (nextCustom.follow_up) {
+      nextCustom.follow_up = { ...nextCustom.follow_up, nextSendAt: null, completed: true };
+    }
+  }
+
+  const updatePayload: Database['public']['Tables']['contacts']['Update'] = {
+    pipeline_stage: newStage,
+    custom_fields: nextCustom,
+    updated_at: nowIso,
+    ...(newStage === 'ganado' || newStage === 'perdido'
+      ? {
+          conversation_status: 'closed',
+          waiting_since: null,
+          is_ai_active: false,
+          ...(!prevContact?.closed_at ? { closed_at: nowIso } : {}),
+        }
+      : {}),
+  };
+
+  const { error: updateError } = await (supabaseAdmin
+    .from('contacts') as any)
+    .update(updatePayload)
+    .eq('id', contactId)
+    .eq('organization_id', orgId);
+
+  if (newStage === 'ganado' || newStage === 'perdido') {
+    await (supabaseAdmin.from('scheduled_reminders') as any)
+      .update({ status: 'cancelled', updated_at: nowIso })
+      .eq('contact_id', contactId)
+      .eq('reminder_type', 'reactivation')
+      .eq('status', 'pending');
+  }
+
+  if (updateError) {
+    throw new Error(`Error actualizando estado del contacto: ${updateError.message}`);
+  }
+
+  if (prevContact && prevContact.pipeline_stage !== newStage) {
+    await (supabaseAdmin.from('messages') as any).insert({
+      contact_id: contactId,
+      sender_type: 'system',
+      content: `[📊 Etapa actualizada por Humano (${profile.full_name || 'Asesor'}): ${newStage}]`,
+    });
+  }
+
+  await LeadScoreService.recompute(contactId);
+
+  revalidatePath('/inbox');
+  revalidatePath('/dashboard');
+  revalidatePath('/clientes');
+}
 
 interface CreateLeadInput {
   name: string;
