@@ -1587,7 +1587,7 @@ export const ChatWindow = React.memo(function ChatWindow({
                 </span>
               </p>
               <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5 font-medium">
-                <strong className="text-amber-900 dark:text-amber-200">Motivo:</strong> "{latestHandoffReason}"
+                <strong className="text-amber-900 dark:text-amber-200">Motivo:</strong> &quot;{latestHandoffReason}&quot;
               </p>
             </div>
           </div>
@@ -1855,7 +1855,7 @@ export const ChatWindow = React.memo(function ChatWindow({
                       <span>Opción A · Gancho Personalizado</span>
                     </div>
                     <p className="text-xs text-slate-800 dark:text-slate-200 italic leading-relaxed">
-                      "{reactivationAiResult.suggestedMessage}"
+                      &quot;{reactivationAiResult.suggestedMessage}&quot;
                     </p>
                     <div className="flex items-center justify-end gap-1.5 pt-1">
                       <button
@@ -1876,7 +1876,7 @@ export const ChatWindow = React.memo(function ChatWindow({
                         <span>Opción B · Seguimiento Suave</span>
                       </div>
                       <p className="text-xs text-slate-700 dark:text-slate-300 italic leading-relaxed">
-                        "{reactivationAiResult.alternativeHook}"
+                        &quot;{reactivationAiResult.alternativeHook}&quot;
                       </p>
                       <div className="flex items-center justify-end gap-1.5 pt-1">
                         <button

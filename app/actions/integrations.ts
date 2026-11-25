@@ -1,9 +1,13 @@
 'use server';
 
-import crypto from 'node:crypto';
+import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { encryptSecret, decryptSecret } from '@/lib/security/encryption';
+import {
+  createSignedGoogleOAuthState,
+  GOOGLE_OAUTH_NONCE_COOKIE,
+} from '@/lib/security/google-oauth-state';
 import { GoogleCalendarService } from '@/services/google-calendar.service';
 import { revalidatePath } from 'next/cache';
 
@@ -106,23 +110,25 @@ export async function getGoogleOAuthUrl() {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
   const redirectUri = `${appUrl}/api/auth/google/callback`;
 
-  // Crear estado HMAC firmado para vincular de forma segura a la organización
-  const statePayload = {
-    orgId: organizationId,
-    userId: user.id,
-    timestamp: Date.now(),
-  };
-  const stateStr = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
   const encKey = process.env.ENCRYPTION_KEY;
   if (!encKey) {
     throw new Error('ENCRYPTION_KEY obligatoria no configurada en el servidor.');
   }
-  const signature = crypto
-    .createHmac('sha256', encKey)
-    .update(stateStr)
-    .digest('hex');
 
-  const state = `${stateStr}.${signature}`;
+  // Crear estado HMAC firmado + nonce de sesión en cookie HTTP-only
+  const { state, nonce } = createSignedGoogleOAuthState({
+    orgId: organizationId,
+    userId: user.id,
+    encKey,
+  });
+
+  cookies().set(GOOGLE_OAUTH_NONCE_COOKIE, nonce, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 20 * 60,
+    path: '/',
+  });
 
   const scopes = [
     'https://www.googleapis.com/auth/calendar.events',

@@ -5,6 +5,8 @@
  * para mantener compatibilidad sin migraciones obligatorias.
  */
 
+import { estimateChatsFromTokens } from '@/lib/billing/plan-defaults';
+
 export const DEFAULT_TOKEN_ALERT_THRESHOLDS = [80, 90, 100] as const;
 
 export interface TokenPolicyConfig {
@@ -218,12 +220,12 @@ export function formatManagerTokensReport(params: {
       : '';
 
   const lines = [
-    `🤖 *ESTADO DE TOKENS — ${params.orgName.toUpperCase()}*`,
-    `• Cupo base mensual: *${status.limit.toLocaleString('es-CO')}* tokens`,
-    `• Consumidos: *${status.used.toLocaleString('es-CO')}* (${status.rawPercentage}%)`,
+    `🤖 *ESTADO DE CONVERSACIONES E IA — ${params.orgName.toUpperCase()}*`,
+    `• Capacidad del ciclo: *${estimateChatsFromTokens(status.limit)}* (${status.limit.toLocaleString('es-CO')} tokens)`,
+    `• Consumido: *${status.rawPercentage}%* (${status.used.toLocaleString('es-CO')} tokens)`,
     status.isOverage
       ? `• Excedente acumulado: *${status.overageTokens.toLocaleString('es-CO')}* tokens${overageNote}`
-      : `• Cupo restante base: *${status.remainingBase.toLocaleString('es-CO')}* tokens`,
+      : `• Disponible estimado: *${estimateChatsFromTokens(status.remainingBase)}* (${status.remainingBase.toLocaleString('es-CO')} tokens)`,
   ];
 
   if (typeof params.googleUsed === 'number' || typeof params.openaiUsed === 'number') {

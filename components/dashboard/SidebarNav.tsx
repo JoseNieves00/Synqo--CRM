@@ -67,15 +67,6 @@ export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules, isCollapsed 
       matchExact: false,
     },
     {
-      href: '/pipeline',
-      label: 'Pipeline Kanban',
-      icon: Kanban,
-      activeColor:
-        'text-slate-900 dark:text-white bg-slate-100 dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold shadow-xs',
-      iconColor: 'text-[#0052FF]',
-      matchExact: true,
-    },
-    {
       href: '/clientes',
       label: 'Base de Clientes',
       icon: Users,

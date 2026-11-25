@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
         );
       }
       const mimeType = file.type || 'audio/webm';
-      const text = await OpenAIService.transcribeAudio(buffer, mimeType);
+      const text = await OpenAIService.transcribeAudio(buffer, mimeType, {
+        organizationId: org.id,
+      });
       if (!text) {
         return NextResponse.json(
           { error: 'No se pudo transcribir el audio con claridad. Intenta grabar más cerca del micrófono o escribir.' },

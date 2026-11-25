@@ -20,12 +20,11 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { createSupportTicket, listMyTickets } from '@/app/actions/support';
-import { askClientCopilot } from '@/app/actions/client-copilot';
 import { TicketCategory, TicketPriority } from '@/lib/supabase/types';
 
 export function SupportModal() {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'copilot' | 'report' | 'history'>('copilot');
+  const [activeTab, setActiveTab] = useState<'copilot' | 'report' | 'history'>('report');
 
   // Escuchar evento global para abrir el modal desde el Header o Sidebar
   useEffect(() => {
@@ -120,7 +119,10 @@ export function SupportModal() {
     setCopilotLoading(true);
 
     try {
-      const res = await askClientCopilot(q, copilotMessages);
+      const res = {
+        success: true,
+        answer: 'Para soporte rápido, crea un ticket técnico en la pestaña "Reportar Falla" o escríbenos por WhatsApp.',
+      };
       setCopilotMessages((prev) => [
         ...prev,
         { role: 'assistant', content: res.answer || 'Sin respuesta.' },

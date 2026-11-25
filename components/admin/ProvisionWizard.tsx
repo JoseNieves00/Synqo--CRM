@@ -30,8 +30,8 @@ export function ProvisionWizard({ onSuccess, onCancel }: Props) {
   // Datos de la empresa
   const [companyName, setCompanyName] = useState('');
   const [businessModel, setBusinessModel] = useState<'products' | 'services' | 'hybrid'>('products');
-  const [planType, setPlanType] = useState<'starter' | 'core' | 'pro' | 'enterprise'>('core');
-  const [maxUsers, setMaxUsers] = useState<number>(3);
+  const [initialMode, setInitialMode] = useState<'paid_30' | 'trial_15' | 'trial_7'>('paid_30');
+  const [maxUsers, setMaxUsers] = useState<number>(5);
 
   // Credenciales Admin Inicial
   const [adminName, setAdminName] = useState('');
@@ -70,16 +70,29 @@ export function ProvisionWizard({ onSuccess, onCancel }: Props) {
     setErrorMessage(null);
 
     try {
-      await provisionCompany({
+      const res = await provisionCompany({
         companyName: companyName.trim(),
         adminName: adminName.trim(),
         adminEmail: adminEmail.trim().toLowerCase(),
         adminPassword,
-        planType,
+        planType: 'core',
         maxUsers,
         industryPreset: businessModel,
         whatsappProvider,
       });
+      if (initialMode !== 'paid_30' && res?.organization?.id) {
+        const { grantCycleOrTrialAction } = await import('@/app/actions/erp');
+        const days = initialMode === 'trial_15' ? 15 : 7;
+        const trialTokens = initialMode === 'trial_15' ? 2_500_000 : 1_500_000;
+        await grantCycleOrTrialAction({
+          organizationId: res.organization.id,
+          cycleKind: 'trial',
+          days,
+          tokensLimit: trialTokens,
+          resetTokensUsed: true,
+          notes: `Prueba inicial ${days} días gratis desde aprovisionamiento`,
+        });
+      }
 
       setSuccessData({
         companyName: companyName.trim(),
@@ -258,17 +271,16 @@ Por seguridad te sugerimos cambiar tu contraseña una vez ingreses al sistema. �
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                      Plan Comercial
+                      Inicio de Servicio
                     </label>
                     <select
-                      value={planType}
-                      onChange={(e) => setPlanType(e.target.value as any)}
+                      value={initialMode}
+                      onChange={(e) => setInitialMode(e.target.value as any)}
                       className="w-full h-10 px-3 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#0052FF]"
                     >
-                      <option value="starter">Plan Starter</option>
-                      <option value="core">Plan Core (Recomendado)</option>
-                      <option value="pro">Plan Pro</option>
-                      <option value="enterprise">Plan Enterprise</option>
+                      <option value="paid_30">Licencia Completa (5M tokens · ~400–650 chats)</option>
+                      <option value="trial_15">Prueba 15 días gratis (2.5M tokens)</option>
+                      <option value="trial_7">Prueba 7 días gratis (1.5M tokens)</option>
                     </select>
                   </div>
 

@@ -154,7 +154,10 @@ export async function POST(request: NextRequest) {
                 });
               } catch {}
               try {
-                transcription = await OpenAIService.transcribeAudio(buf, mime);
+                transcription = await OpenAIService.transcribeAudio(buf, mime, {
+                  organizationId: organization.id,
+                  contactId: `ig_${senderId}`,
+                });
               } catch {}
             }
           } catch {}

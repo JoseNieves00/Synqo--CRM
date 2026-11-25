@@ -349,40 +349,25 @@ export function ChatHeader({
           onToggle={onToggleAi}
         />
 
-        {/* Botón 1-Clic: Exento de IA (0 tokens, proveedores/amigos) */}
-        <button
-          type="button"
-          onClick={handleToggleExempt}
-          disabled={isExemptLoading}
-          className={`h-8 px-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs ${
-            localExempt
-              ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300'
-              : 'border-slate-200 dark:border-[#232A3B] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5'
-          }`}
-          title={localExempt ? 'Contacto Exento de IA (0 tokens consumidos, atención humana exclusiva). Clic para reactivar IA.' : 'Eximir este contacto de IA (ideal para proveedores, transportadoras o personales)'}
-        >
-          {isExemptLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <ShieldAlert className={`w-3.5 h-3.5 ${localExempt ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
-          )}
-          <span className="hidden md:inline">{localExempt ? 'Exento IA' : 'Eximir IA'}</span>
-        </button>
-
-        {/* Botón Intuitivo: 'Atendido' (solo visible si el chat requiere respuesta humana en 'Por responder') */}
-        {!isClosed && onMarkAttended && contactNeedsHumanResponse(contact) && (
+        {/* Badge visible solo si ya está exento de IA; la acción 'Eximir IA' vive en el menú ... */}
+        {localExempt && (
           <button
             type="button"
-            onClick={onMarkAttended}
-            className="h-8 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
-            title="Dar por atendido, detener alertas y reactivar la IA para futuros mensajes"
+            onClick={handleToggleExempt}
+            disabled={isExemptLoading}
+            className="h-8 px-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300"
+            title="Contacto Exento de IA (0 tokens consumidos). Clic para reactivar IA."
           >
-            <CheckCheck className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Atendido</span>
+            {isExemptLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            )}
+            <span className="hidden md:inline">Exento IA</span>
           </button>
         )}
 
-        {/* Botón Acción Cerrar Chat / Reabrir */}
+        {/* En 'Por responder', 'Atendido' es la acción principal (y 'Cerrar' pasa al menú ...) */}
         {isClosed ? (
           onReopenChat && (
             <button
@@ -394,6 +379,16 @@ export function ChatHeader({
               <span className="hidden sm:inline">Reabrir</span>
             </button>
           )
+        ) : onMarkAttended && contactNeedsHumanResponse(contact) ? (
+          <button
+            type="button"
+            onClick={onMarkAttended}
+            className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title="Dar por atendido, detener alertas y reactivar la IA para futuros mensajes"
+          >
+            <CheckCheck className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Atendido</span>
+          </button>
         ) : (
           <button
             type="button"
@@ -458,6 +453,32 @@ export function ChatHeader({
 
             {showMoreMenu && (
               <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-[#131722] rounded-xl shadow-xl border border-slate-200 dark:border-[#232A3B] py-1.5 z-50 text-xs animate-in fade-in zoom-in-95">
+                {!isClosed && onMarkAttended && contactNeedsHumanResponse(contact) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      onCloseChat();
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Cerrar / Archivar chat</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleToggleExempt();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{localExempt ? 'Reactivar IA (Quitar exento)' : 'Eximir de IA (0 tokens)'}</span>
+                </button>
+
                 {/* Pausa temporal de IA */}
                 <button
                   type="button"

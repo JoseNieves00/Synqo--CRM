@@ -826,6 +826,7 @@ export interface Database {
           package_session_info: string | null;
           reference_info?: string | null;
           meeting_link?: string | null;
+          google_event_id?: string | null;
           delay_minutes?: number;
           services_list?: Json;
           created_at: string;
@@ -855,6 +856,7 @@ export interface Database {
           package_session_info?: string | null;
           reference_info?: string | null;
           meeting_link?: string | null;
+          google_event_id?: string | null;
           delay_minutes?: number;
           services_list?: Json;
           created_at?: string;
@@ -884,6 +886,7 @@ export interface Database {
           package_session_info?: string | null;
           reference_info?: string | null;
           meeting_link?: string | null;
+          google_event_id?: string | null;
           delay_minutes?: number;
           services_list?: Json;
           created_at?: string;

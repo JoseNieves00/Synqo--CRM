@@ -127,7 +127,7 @@ export class GoogleCalendarService {
 
     try {
       const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
-        .select('google_calendar_token, google_calendar_id, google_calendar_sync_enabled')
+        .select('google_calendar_token, google_calendar_id, google_calendar_sync_enabled, business_hours, appointment_settings')
         .eq('id', organizationId)
         .single();
 
@@ -140,6 +140,7 @@ export class GoogleCalendarService {
         };
       }
 
+      const orgTimezone = org.business_hours?.timezone || org.appointment_settings?.timezone || 'America/Bogota';
       const calendarId = encodeURIComponent(org.google_calendar_id || 'primary');
       const decryptedToken = await this.getValidAccessToken(organizationId);
       if (!decryptedToken) {
@@ -155,11 +156,11 @@ export class GoogleCalendarService {
         description: `${description}\n\nCliente: ${clientName || 'N/A'}${referenceInfo ? `\nReferencia: ${referenceInfo}` : ''}\nAgendado automáticamente vía Synqo CRM.`,
         start: {
           dateTime: startTime,
-          timeZone: 'America/Bogota',
+          timeZone: orgTimezone,
         },
         end: {
           dateTime: endTime,
-          timeZone: 'America/Bogota',
+          timeZone: orgTimezone,
         },
         conferenceData: {
           createRequest: {
@@ -228,7 +229,7 @@ export class GoogleCalendarService {
 
     try {
       const { data: org } = await (supabaseAdmin.from('organizations') as any)
-        .select('google_calendar_token, google_calendar_id, google_calendar_block_busy')
+        .select('google_calendar_token, google_calendar_id, google_calendar_block_busy, business_hours, appointment_settings')
         .eq('id', organizationId)
         .single();
 
@@ -236,6 +237,7 @@ export class GoogleCalendarService {
         return [];
       }
 
+      const orgTimezone = org.business_hours?.timezone || org.appointment_settings?.timezone || 'America/Bogota';
       const calendarId = org.google_calendar_id || 'primary';
       const decryptedToken = await this.getValidAccessToken(organizationId);
       if (!decryptedToken) return [];
@@ -249,7 +251,7 @@ export class GoogleCalendarService {
         body: JSON.stringify({
           timeMin,
           timeMax,
-          timeZone: 'America/Bogota',
+          timeZone: orgTimezone,
           items: [{ id: calendarId }],
         }),
         signal: AbortSignal.timeout(5000),
@@ -266,6 +268,74 @@ export class GoogleCalendarService {
     } catch (err) {
       console.warn('[GOOGLE CALENDAR BUSY QUERY ERROR]', err);
       return [];
+    }
+  }
+
+  /**
+   * Actualiza la fecha/hora de un evento existente en Google Calendar (reprogramación).
+   */
+  static async updateCalendarEvent(params: {
+    organizationId: string;
+    eventId: string;
+    startTime: string;
+    endTime: string;
+  }): Promise<boolean> {
+    try {
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('google_calendar_token, google_calendar_id, google_calendar_sync_enabled, business_hours, appointment_settings')
+        .eq('id', params.organizationId)
+        .single();
+      if (!org?.google_calendar_token || !org?.google_calendar_sync_enabled) return false;
+
+      const token = await this.getValidAccessToken(params.organizationId);
+      if (!token) return false;
+      const orgTimezone = org.business_hours?.timezone || org.appointment_settings?.timezone || 'America/Bogota';
+      const calendarId = encodeURIComponent(org.google_calendar_id || 'primary');
+
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodeURIComponent(params.eventId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            start: { dateTime: params.startTime, timeZone: orgTimezone },
+            end: { dateTime: params.endTime, timeZone: orgTimezone },
+          }),
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Elimina un evento en Google Calendar cuando se cancela la cita.
+   */
+  static async deleteCalendarEvent(params: { organizationId: string; eventId: string }): Promise<boolean> {
+    try {
+      const { data: org } = await (supabaseAdmin.from('organizations') as any)
+        .select('google_calendar_token, google_calendar_id, google_calendar_sync_enabled')
+        .eq('id', params.organizationId)
+        .single();
+      if (!org?.google_calendar_token || !org?.google_calendar_sync_enabled) return false;
+
+      const token = await this.getValidAccessToken(params.organizationId);
+      if (!token) return false;
+      const calendarId = encodeURIComponent(org.google_calendar_id || 'primary');
+
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodeURIComponent(params.eventId)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+      return res.ok || res.status === 404;
+    } catch {
+      return false;
     }
   }
 }

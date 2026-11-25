@@ -227,7 +227,10 @@ export async function POST(request: NextRequest) {
 
         let transcription = '';
         try {
-          transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType);
+          transcription = await OpenAIService.transcribeAudio(media.buffer, media.mimeType, {
+            organizationId: organization.id,
+            contactId: leadPhone || undefined,
+          });
         } catch (transcribeErr) {
           console.warn('[WHATSAPP AUDIO TRANSCRIBE WARN]', transcribeErr);
         }

@@ -262,7 +262,16 @@ console.log('🧪 Iniciando Suite de Pruebas Automatizadas de Seguridad & Lógic
 // 11. Protección C1: Acciones administrativas de colaboradores sin sesión deben fallar
 (async () => {
   console.log('1️⃣1️⃣  Probando Protección de Acciones de Staff (C1)...');
-  const { approveSpecialist, listSpecialistsForAdmin, createStaffInvitation } = await import('../app/actions/staff');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  assert.strictEqual(
+    fs.existsSync(path.join(process.cwd(), 'app/actions/staff.ts')),
+    false,
+    'app/actions/staff.ts debe permanecer eliminado'
+  );
+  console.log('   ✅ Superficie Staff eliminada.');
+
+/*
 
   await assert.rejects(
     async () => {
@@ -289,6 +298,7 @@ console.log('🧪 Iniciando Suite de Pruebas Automatizadas de Seguridad & Lógic
   );
 
   console.log('   ✅ Protección de acciones de staff (C1) aprobada.');
+*/
 
   // 12. Protección C3: Cron Worker exige Authorization Bearer CRON_SECRET y rechaza bypass de x-vercel-cron
   console.log('1️⃣2️⃣  Probando Protección de Cron Worker (C3)...');

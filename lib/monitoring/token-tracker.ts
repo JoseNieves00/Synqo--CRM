@@ -146,16 +146,30 @@ export async function recordTokenUsage(input: RecordTokenUsageInput) {
       .single();
 
     if (org) {
-      const currentUsed = Number(org.ai_tokens_used || 0);
-      const newTotal = currentUsed + totalTokens;
-      const limit = Number(org.ai_tokens_limit) || 500000;
-      const currentGoogle = Number(
-        org.ai_tokens_google_used || Math.max(0, currentUsed - Number(org.ai_tokens_openai_used || 0))
-      );
-      const currentOpenAi = Number(org.ai_tokens_openai_used || 0);
+      let newTotal = Number(org.ai_tokens_used || 0) + totalTokens;
+      const baseLimit = Number(org.ai_tokens_limit) || 5000000;
+      const extraBalance = Number((org as any).extra_tokens_balance || 0);
+      const limit = baseLimit + Math.max(0, extraBalance);
 
-      const newGoogle = isGoogle ? currentGoogle + totalTokens : currentGoogle;
-      const newOpenAi = isOpenAi ? currentOpenAi + totalTokens : currentOpenAi;
+      // Incremento atómico SQL para evitar condiciones de carrera entre turnos concurrentes
+      let atomicOk = false;
+      try {
+        const { data: rpcRows, error: rpcErr } = await (supabaseAdmin as any).rpc(
+          'increment_org_token_usage',
+          {
+            p_org_id: organizationId,
+            p_total: totalTokens,
+            p_google: isGoogle ? totalTokens : 0,
+            p_openai: isOpenAi ? totalTokens : 0,
+          }
+        );
+        if (!rpcErr && Array.isArray(rpcRows) && rpcRows[0]) {
+          newTotal = Number(rpcRows[0].ai_tokens_used ?? newTotal);
+          atomicOk = true;
+        }
+      } catch {
+        // Fallback a update directo si la RPC aún no existe en BD
+      }
 
       const currentSettings =
         org.appointment_settings && typeof org.appointment_settings === 'object'
@@ -169,12 +183,16 @@ export async function recordTokenUsage(input: RecordTokenUsageInput) {
       });
 
       const nowIso = new Date().toISOString();
-      const orgUpdatePayload: Record<string, any> = {
-        ai_tokens_used: newTotal,
-        ai_tokens_google_used: newGoogle,
-        ai_tokens_openai_used: newOpenAi,
-        updated_at: nowIso,
-      };
+      const orgUpdatePayload: Record<string, any> = atomicOk
+        ? { updated_at: nowIso }
+        : {
+            ai_tokens_used: newTotal,
+            ai_tokens_google_used:
+              Number(org.ai_tokens_google_used || Math.max(0, Number(org.ai_tokens_used || 0) - Number(org.ai_tokens_openai_used || 0))) +
+              (isGoogle ? totalTokens : 0),
+            ai_tokens_openai_used: Number(org.ai_tokens_openai_used || 0) + (isOpenAi ? totalTokens : 0),
+            updated_at: nowIso,
+          };
 
       // Si cruzó algún umbral no notificado aún en este ciclo, marcarlo inmediatamente para evitar spam
       let thresholdToNotify: number | null = null;
@@ -273,7 +291,7 @@ export async function checkTokenQuota(organizationId: string): Promise<{
 }> {
   try {
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
-      .select('ai_tokens_used, ai_tokens_limit, appointment_settings')
+      .select('ai_tokens_used, ai_tokens_limit, extra_tokens_balance, appointment_settings')
       .eq('id', organizationId)
       .single();
 
@@ -281,7 +299,7 @@ export async function checkTokenQuota(organizationId: string): Promise<{
       return {
         allowed: true,
         used: 0,
-        limit: 500000,
+        limit: 5000000,
         percentage: 0,
         rawPercentage: 0,
         overageTokens: 0,
@@ -290,9 +308,10 @@ export async function checkTokenQuota(organizationId: string): Promise<{
       };
     }
 
+    const effectiveLimit = (Number(org.ai_tokens_limit) || 5000000) + Math.max(0, Number(org.extra_tokens_balance || 0));
     const status = computeTokenStatus({
       used: Number(org.ai_tokens_used || 0),
-      limit: Number(org.ai_tokens_limit) || 500000,
+      limit: effectiveLimit,
       policy: org.appointment_settings?.token_policy,
     });
 

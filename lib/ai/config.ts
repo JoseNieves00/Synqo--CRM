@@ -22,6 +22,7 @@ const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4o': { input: 2.50, cachedInput: 1.25, output: 10.00 },
   'gpt-4.1-mini': { input: 0.40, cachedInput: 0.10, output: 1.60 },
   'gpt-4.1-nano': { input: 0.10, cachedInput: 0.025, output: 0.40 },
+  'whisper-1': { input: 0.25, cachedInput: 0.25, output: 0.0 },
   'gemini-3.5-flash-lite': { input: 0.075, cachedInput: 0.01875, output: 0.30 },
   'gemini-3.5-flash': { input: 0.15, cachedInput: 0.0375, output: 0.60 },
   'gemini-3.1-flash-lite': { input: 0.075, cachedInput: 0.01875, output: 0.30 },
@@ -136,14 +137,14 @@ function parseChainEntry(raw: string): AiChainEntry | null {
  */
 export function getAiChatChain(aiProviderPreference?: string | null): AiChainEntry[] {
   const envChain = (process.env.AI_CHAT_CHAIN || '').trim();
-  const defaultPrimaryGemini = (process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite').trim();
+  const defaultPrimaryGemini = (process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite').trim();
   const defaultOpenAi = (process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini').trim();
 
   const rawEntries = envChain
     ? envChain.split(',').map(parseChainEntry).filter((x): x is AiChainEntry => Boolean(x))
     : [
         { provider: 'google' as const, model: defaultPrimaryGemini },
-        { provider: 'google' as const, model: 'gemini-3.5-flash-lite' },
+        { provider: 'google' as const, model: 'gemini-2.5-flash' },
         { provider: 'openai' as const, model: defaultOpenAi },
       ];
 
@@ -175,7 +176,7 @@ export function getAiChatChain(aiProviderPreference?: string | null): AiChainEnt
 export function getAiUtilityChain(): AiChainEntry[] {
   const envUtility = (process.env.AI_UTILITY_MODEL || '').trim();
   const defaultOpenAi = (process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini').trim();
-  const defaultGemini = (process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite').trim();
+  const defaultGemini = (process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite').trim();
 
   const parsed = envUtility ? parseChainEntry(envUtility) : null;
   const list: AiChainEntry[] = parsed

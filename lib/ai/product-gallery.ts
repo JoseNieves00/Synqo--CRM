@@ -52,6 +52,9 @@ export function formatGalleryPrice(rawPrice?: string | number | null): string {
 export interface EnrichedGalleryItem extends GalleryPhotoItem {
   searchKeywords: string[];
   catalogDescription?: string;
+  itemType?: 'product' | 'service';
+  durationMinutes?: number;
+  modality?: 'in_person' | 'virtual' | 'both';
 }
 
 export function resolveOrganizationGallery(organization?: any, systemPromptText?: string | null): {

@@ -283,9 +283,9 @@ export default async function DashboardPage({
             </Link>
 
             <Link
-              href="/pipeline?temp=cold"
+              href="/clientes"
               className="p-3 rounded-xl bg-sky-50/70 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20 hover:border-sky-400 hover:shadow-xs transition block group"
-              title="Filtrar en Pipeline: Prospectos fríos sin interés"
+              title="Filtrar en Clientes: Prospectos fríos sin interés"
             >
               <div className="flex items-center justify-between gap-1 text-sky-700 dark:text-sky-300 text-[11px] font-bold">
                 <span className="flex items-center gap-1 truncate">
@@ -297,7 +297,7 @@ export default async function DashboardPage({
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.cold || 0}
               </div>
-              <p className="text-[10px] text-sky-700/80 dark:text-sky-300/80 font-medium">En Pipeline →</p>
+              <p className="text-[10px] text-sky-700/80 dark:text-sky-300/80 font-medium">En Clientes →</p>
             </Link>
 
             <Link

@@ -326,7 +326,10 @@ export async function POST(request: NextRequest) {
             });
           } catch {}
           try {
-            transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime);
+            transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime, {
+              organizationId: orgId,
+              contactId: leadPhone || undefined,
+            });
           } catch {}
         }
         rawText = audioUrl
@@ -470,7 +473,10 @@ export async function POST(request: NextRequest) {
 
         // Transcripción de alta fidelidad con OpenAI Whisper
         try {
-          transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime);
+          transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime, {
+            organizationId: orgId,
+            contactId: leadPhone || undefined,
+          });
         } catch (transcribeErr) {
           console.warn('[EVOLUTION AUDIO TRANSCRIPTION WARN]', transcribeErr);
         }

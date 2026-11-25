@@ -49,7 +49,7 @@ import { updateContactDetails } from '@/app/actions/contacts';
 import { generateContactAiSummary, endContactConversation, reopenContactConversation } from '@/app/actions/chat';
 import { toggleContactFollowUpPause } from '@/app/actions/reminders';
 import { formatInboxConversationDate } from '@/lib/utils/inbox-date';
-import { getCustomer360Action } from '@/app/actions/crm';
+import { getCustomer360Action, createManualOrderAction } from '@/app/actions/crm';
 import { Customer360Drawer } from '@/components/crm/Customer360Drawer';
 import { TAG_COLOR_CLASSES, formatCop } from '@/components/crm/crm-ui-helpers';
 
@@ -118,6 +118,17 @@ export function ContactPanel({
 
   // Ficha 360 integrada (etiquetas, pedidos/LTV y notas del equipo)
   const [is360Open, setIs360Open] = useState(false);
+
+  // Registro rápido de pedido pre-llenado
+  const [isQuickOrderOpen, setIsQuickOrderOpen] = useState(false);
+  const [quickOrderProduct, setQuickOrderProduct] = useState(
+    String(contact.custom_fields?.product_interest || '')
+  );
+  const [quickOrderTotal, setQuickOrderTotal] = useState(
+    contact.deal_value ? String(contact.deal_value) : ''
+  );
+  const [quickOrderMethod, setQuickOrderMethod] = useState('Transferencia');
+  const [isSavingQuickOrder, setIsSavingQuickOrder] = useState(false);
   const [drawerTab, setDrawerTab] = useState<'resumen' | 'etiquetas' | 'pedidos' | 'notas'>('resumen');
   const [crmMini, setCrmMini] = useState<{
     tags: Array<{ id: string; name: string; color: string; source: 'ai' | 'human' }>;
@@ -649,7 +660,7 @@ export function ContactPanel({
               {copilotPrescription.suggestedClosingQuestion && (
                 <div className="pt-1.5 border-t border-indigo-200/50 dark:border-indigo-900/40 text-[10px] text-slate-600 dark:text-slate-400 flex items-start gap-1">
                   <span className="font-semibold text-slate-700 dark:text-slate-300 shrink-0">Cierre sugerido:</span>
-                  <span className="italic">"{copilotPrescription.suggestedClosingQuestion}"</span>
+                  <span className="italic">&quot;{copilotPrescription.suggestedClosingQuestion}&quot;</span>
                 </div>
               )}
             </div>
@@ -1099,14 +1110,28 @@ export function ContactPanel({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setIsClosingModalOpen(true)}
-              className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Finalizar / Cerrar venta</span>
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickOrderProduct(String(contact.custom_fields?.product_interest || ''));
+                  setQuickOrderTotal(contact.deal_value ? String(contact.deal_value) : '');
+                  setIsQuickOrderOpen(true);
+                }}
+                className="w-full py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>Registrar Pedido</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsClosingModalOpen(true)}
+                className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Finalizar / Cerrar venta</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1117,6 +1142,94 @@ export function ContactPanel({
         onClose={() => setIs360Open(false)}
         onChanged={loadCrmMini}
       />
+
+      {/* Modal Rápido de Pedido (1-clic pre-llenado) */}
+      {isQuickOrderOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#131722] rounded-2xl max-w-sm w-full p-4 border border-slate-200 dark:border-[#232A3B] shadow-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-slate-950 dark:text-white flex items-center gap-1.5">
+                <ShoppingBag className="w-4 h-4 text-[#0052FF]" />
+                Registrar Pedido
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsQuickOrderOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2.5 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Producto / Servicio *</label>
+                <input
+                  type="text"
+                  value={quickOrderProduct}
+                  onChange={(e) => setQuickOrderProduct(e.target.value)}
+                  placeholder="Ej. Cocinita mediana"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Total (COP) *</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={quickOrderTotal}
+                  onChange={(e) => setQuickOrderTotal(e.target.value)}
+                  placeholder="Ej. 410000"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Método de pago</label>
+                <input
+                  type="text"
+                  value={quickOrderMethod}
+                  onChange={(e) => setQuickOrderMethod(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsQuickOrderOpen(false)}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSavingQuickOrder || !quickOrderProduct.trim()}
+                onClick={async () => {
+                  setIsSavingQuickOrder(true);
+                  try {
+                    const ship = contact.custom_fields?.shipping_data || {};
+                    await createManualOrderAction({
+                      contactId: contact.id,
+                      items: [{ product_name: quickOrderProduct.trim(), quantity: 1, unit_price: Number(quickOrderTotal) || 0 }],
+                      total: Number(quickOrderTotal) || 0,
+                      status: 'confirmed',
+                      paymentMethod: quickOrderMethod,
+                      address: ship.address || undefined,
+                      city: ship.destination_city || undefined,
+                    });
+                    setIsQuickOrderOpen(false);
+                    loadCrmMini();
+                  } finally {
+                    setIsSavingQuickOrder(false);
+                  }
+                }}
+                className="px-4 py-1.5 rounded-xl text-xs font-bold bg-[#0052FF] hover:bg-[#0047E0] text-white disabled:opacity-50"
+              >
+                {isSavingQuickOrder ? 'Guardando...' : 'Confirmar Pedido'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Finalización / Cierre con Resultado */}
       {isClosingModalOpen && (

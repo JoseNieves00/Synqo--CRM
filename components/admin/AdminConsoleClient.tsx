@@ -40,6 +40,8 @@ import {
 } from 'lucide-react';
 import { AdminTicketsTab } from './AdminTicketsTab';
 import { AdminCopilotTab } from './AdminCopilotTab';
+import { ErpCreditsTab } from './erp/ErpCreditsTab';
+import { ErpEditCompanyModal } from './erp/ErpEditCompanyModal';
 import { ProvisionWizard } from './ProvisionWizard';
 import { SuperAdminCompanyConfigModal } from './SuperAdminCompanyConfigModal';
 import {
@@ -102,7 +104,7 @@ export default function AdminConsoleClient({
   initialOrganizations,
   initialTickets = [],
 }: AdminConsoleClientProps) {
-  const [mainTab, setMainTab] = useState<'companies' | 'tickets' | 'copilot'>('companies');
+  const [mainTab, setMainTab] = useState<'companies' | 'credits' | 'tickets' | 'copilot'>('companies');
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [organizations, setOrganizations] = useState<OrganizationRow[]>(initialOrganizations);
   const [searchQuery, setSearchQuery] = useState('');
@@ -131,6 +133,7 @@ export default function AdminConsoleClient({
   const [editEvolutionMaxOutbound, setEditEvolutionMaxOutbound] = useState(50);
   const [editSpecialistLabel, setEditSpecialistLabel] = useState('Colaborador');
   const [editRoomLabel, setEditRoomLabel] = useState('Espacio');
+  const [editBusinessModel, setEditBusinessModel] = useState<'products' | 'services' | 'hybrid'>('products');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -297,6 +300,14 @@ export default function AdminConsoleClient({
     setEditEvolutionMaxOutbound(org.evolution_max_outbound_per_hour ?? 50);
     setEditSpecialistLabel(org.specialist_label || 'Colaborador');
     setEditRoomLabel(org.room_label || 'Espacio');
+    const preset = org.industry_preset;
+    if (preset === 'services' || preset === 'hybrid' || preset === 'products') {
+      setEditBusinessModel(preset);
+    } else {
+      const hasCal = org.enabled_modules?.native_calendar === true;
+      const hasOrd = org.enabled_modules?.orders !== false;
+      setEditBusinessModel(hasCal && hasOrd ? 'hybrid' : hasCal ? 'services' : 'products');
+    }
   };
 
   const handleUpdateCompanyDetails = async (e: React.FormEvent) => {
@@ -321,7 +332,13 @@ export default function AdminConsoleClient({
         aiTokensLimit: editTokensLimit,
         resetTokensUsed: editResetTokens,
         tokenAlertThresholds: editTokenAlertThresholds,
-        enabledModules: editModules,
+        businessModel: editBusinessModel,
+        enabledModules: {
+          ...editModules,
+          native_calendar: editBusinessModel === 'services' || editBusinessModel === 'hybrid',
+          anti_no_show: editBusinessModel === 'services' || editBusinessModel === 'hybrid',
+          orders: editBusinessModel === 'products' || editBusinessModel === 'hybrid',
+        },
         companyCode: editCompanyCode,
         whatsappProvider: editWaProvider,
         evolutionApiUrl: editEvolutionApiUrl.trim() || undefined,
@@ -491,6 +508,22 @@ export default function AdminConsoleClient({
           <span>
             <span className="hidden sm:inline">Empresas & Facturación</span>
             <span className="sm:hidden">Empresas</span> ({organizations.length})
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainTab('credits')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+            mainTab === 'credits'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <Zap className="w-4 h-4 text-amber-500" />
+          <span>
+            <span className="hidden sm:inline">Créditos OpenAI & Packs</span>
+            <span className="sm:hidden">Créditos</span>
           </span>
         </button>
 
@@ -1137,6 +1170,10 @@ export default function AdminConsoleClient({
     </>
   )}
 
+  {mainTab === 'credits' && (
+    <ErpCreditsTab organizations={organizations} />
+  )}
+
   {mainTab === 'tickets' && (
     <AdminTicketsTab initialTickets={initialTickets} />
   )}
@@ -1161,494 +1198,39 @@ export default function AdminConsoleClient({
         />
       )}
 
-      {/* Modal: Editar Empresa (Plan, Usuarios, Tokens) — Diseño Horizontal Adaptativo */}
+      {/* Modal: Editar Empresa (Plan, Usuarios, Tokens) */}
       {editingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-200">
-            {/* Cabecera Pinned */}
-            <div className="shrink-0 px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-[#0052FF]/10 text-[#0052FF] flex items-center justify-center font-bold shadow-xs">
-                  <Building2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                    Editar Empresa: <span>{editingOrg.name}</span>
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    Ajuste de plan comercial, límite de usuarios y asignación de tokens IA para el mes en curso.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingOrg(null)}
-                className="text-gray-400 hover:text-gray-700 p-2 rounded-xl hover:bg-gray-200/60 transition cursor-pointer text-sm font-semibold"
-                title="Cerrar modal"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateCompanyDetails} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 [scrollbar-width:thin]">
-                {/* Layout Horizontal de 2 Columnas */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Columna Izquierda: Información de Empresa & Equipo */}
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                      Nombre Comercial de la Empresa *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      placeholder="Ej. Clínica Dental Sonrisas"
-                      className="w-full h-10 px-3.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 font-medium transition shadow-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-semibold text-gray-700">
-                        Límite de Usuarios
-                      </label>
-                      <span className="text-[11px] text-gray-500 font-medium">
-                        En uso: <strong className="text-gray-900">{editingOrg.users_count}</strong> activos
-                      </span>
-                    </div>
-                    <input
-                      type="number"
-                      min={editingOrg.users_count || 1}
-                      max={500}
-                      value={editSeats}
-                      onChange={(e) => setEditSeats(parseInt(e.target.value, 10) || 1)}
-                      className="w-full h-10 px-3.5 text-sm rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#0052FF] focus:ring-4 focus:ring-[#0052FF]/10 font-medium transition shadow-xs"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Protección de integridad: No se puede reducir por debajo de {editingOrg.users_count} miembros activos.
-                    </p>
-                  </div>
-
-                  {/* Tarjeta de Resumen Rápido / Cortesía de soporte */}
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                    <span className="text-[11px] font-bold text-slate-700 block">
-                      Cortesía de Soporte Técnico
-                    </span>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 font-medium">
-                      <input
-                        type="checkbox"
-                        checked={editResetTokens}
-                        onChange={(e) => setEditResetTokens(e.target.checked)}
-                        className="rounded text-[#0052FF] focus:ring-[#0052FF]/20 w-4 h-4"
-                      />
-                      <span>Reiniciar tokens consumidos a 0 ahora</span>
-                    </label>
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1.5 mt-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-600 font-medium flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                          Google Gemini (Primario • $0):
-                        </span>
-                        <strong className="font-mono text-slate-800">
-                          {((editingOrg.ai_tokens_google_used ?? (editingOrg.ai_tokens_used ? Math.max(0, editingOrg.ai_tokens_used - (editingOrg.ai_tokens_openai_used || 0)) : 0))).toLocaleString()} tokens
-                        </strong>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-600 font-medium flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full ${editingOrg.ai_tokens_openai_used ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
-                          OpenAI Backup (Emergencia):
-                        </span>
-                        <strong className="font-mono text-slate-800">
-                          {(editingOrg.ai_tokens_openai_used || 0).toLocaleString()} / {(editingOrg.ai_tokens_openai_backup_limit || 25000).toLocaleString()} tokens
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Columna Derecha: Gestión de Tokens IA y Boosters */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-3">
-                  <div className="space-y-3">
-                    {/* Cabecera con consumo actual y porcentaje */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-                        Límite Mensual de Tokens IA
-                      </span>
-                      <span className="text-[11px] font-mono text-slate-600 font-semibold bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                        {Math.min(100, Math.round(((editingOrg.ai_tokens_used || 0) / editTokensLimit) * 100))}% consumido
-                      </span>
-                    </div>
-
-                    {/* Tarjeta destacada con el límite actual seleccionado en texto legible y estimación */}
-                    <div className="p-3 bg-white rounded-xl border border-blue-100 shadow-xs flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Cuota Asignada
-                        </span>
-                        <div className="text-base font-black text-[#0052FF]">
-                          {formatTokenDetailed(editTokensLimit)}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Capacidad Estimada
-                        </span>
-                        <span className="text-xs font-bold text-slate-700">
-                          {estimateChatsFromTokens(editTokensLimit)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Chips de selección rápida por niveles oficiales */}
-                    <div>
-                      <span className="text-[11px] font-semibold text-slate-600 block mb-1">
-                        Niveles Predefinidos (1 Clic):
-                      </span>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {[
-                          { tokens: 500000, label: '500k', sub: 'Starter' },
-                          { tokens: 1000000, label: '1M', sub: '1 Millón' },
-                          { tokens: 2500000, label: '2.5M', sub: 'Pro' },
-                          { tokens: 5000000, label: '5M', sub: '5 Millones' },
-                          { tokens: 7500000, label: '7.5M', sub: 'Enterprise' },
-                          { tokens: 10000000, label: '10M', sub: '10 Millones' },
-                        ].map((tier) => {
-                          const isSelected = editTokensLimit === tier.tokens;
-                          return (
-                            <button
-                              key={tier.tokens}
-                              type="button"
-                              onClick={() => setEditTokensLimit(tier.tokens)}
-                              className={`py-1 px-2 rounded-xl text-center border transition cursor-pointer ${
-                                isSelected
-                                  ? 'bg-[#0052FF] text-white border-[#0052FF] shadow-xs'
-                                  : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
-                              }`}
-                            >
-                              <span className="block text-xs font-bold leading-tight">{tier.label}</span>
-                              <span className={`block text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                                {tier.sub}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Boosters Rápidos de 1 Clic (+1M, +500k, Restablecer base) */}
-                    <div>
-                      <span className="text-[11px] font-semibold text-slate-600 block mb-1">
-                        Paquetes Booster (Mes en Curso):
-                      </span>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setEditTokensLimit((prev) => prev + 1000000)}
-                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
-                          title="Suma 1 Millón de tokens (1M) al límite del mes actual"
-                        >
-                          +1M Booster
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setEditTokensLimit((prev) => prev + 500000)}
-                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
-                          title="Suma 500k tokens al límite del mes actual"
-                        >
-                          +500k Extra
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setEditTokensLimit(500000)}
-                          className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
-                          title="Restablece a la cuota base de 500k tokens"
-                        >
-                          ↺ 500k Base
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Input manual alternativo para custom exacto */}
-                  <div className="pt-2 border-t border-slate-200/80 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        step={100000}
-                        min={100000}
-                        max={100000000}
-                        value={editTokensLimit}
-                        onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
-                        placeholder="Cantidad manual..."
-                        className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-semibold text-slate-800"
-                      />
-                      <span className="text-xs font-bold text-slate-700 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 font-mono flex-shrink-0 shadow-2xs">
-                        {formatTokenQuota(editTokensLimit)}
-                      </span>
-                    </div>
-
-                    <p className="text-[10px] text-slate-500 italic">
-                      Asigna la cuota base mensual de tokens IA (en Modo Excedente el bot no se detiene al 100%).
-                    </p>
-
-                    <div className="pt-2">
-                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                        Umbrales Push de Aviso (% separados por coma):
-                      </label>
-                      <input
-                        type="text"
-                        value={editTokenAlertThresholds}
-                        onChange={(e) => setEditTokenAlertThresholds(e.target.value)}
-                        placeholder="80, 90, 100"
-                        className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono text-slate-800"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sección de Módulos Activos (Por Empresa / Plan) */}
-              <div className="pt-4 border-t border-gray-100 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
-                      Módulos Habilitados en la Empresa (Control Modular)
-                    </h4>
-                    <p className="text-[11px] text-gray-500">
-                      Activa o desactiva funcionalidades según el plan de suscripción acordado.
-                    </p>
-                  </div>
-                  {/* Código de Empresa para Colaboradores */}
-                  <div className="flex items-center gap-1.5 bg-purple-50 px-2.5 py-1 rounded-xl border border-purple-200">
-                    <span className="text-[10px] font-bold text-purple-700">Código Equipo:</span>
-                    <input
-                      type="text"
-                      value={editCompanyCode}
-                      onChange={(e) => setEditCompanyCode(e.target.value.toUpperCase())}
-                      placeholder="CÓDIGO"
-                      className="w-24 text-xs font-mono font-black text-purple-900 bg-transparent uppercase border-b border-purple-300 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {/* 1. Calendario Nativo */}
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    editModules.native_calendar ? 'bg-blue-50/50 border-[#0052FF]/30' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={editModules.native_calendar}
-                      onChange={(e) => setEditModules(prev => ({ ...prev, native_calendar: e.target.checked }))}
-                      className="mt-0.5 rounded text-[#0052FF] focus:ring-[#0052FF]"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-[#0052FF]" />
-                        Calendario Nativo
-                      </span>
-                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
-                        Agendamiento nativo multi-especialista con Synqo AI y horarios propios.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Protocolo Anti-No-Show (Solo si Calendario Nativo está activo) */}
-                  {editModules.native_calendar && (
-                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                    editModules.anti_no_show ? 'bg-emerald-50/50 border-emerald-300' : 'bg-gray-50/50 border-gray-200'
-                  }`}>
-                    <input
-                      type="checkbox"
-                      checked={editModules.anti_no_show}
-                      onChange={(e) => setEditModules(prev => ({ ...prev, anti_no_show: e.target.checked }))}
-                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        Protocolo Anti-No-Show (Confirmación 8h)
-                        {editWaProvider === 'evolution' && (
-                          <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-semibold">
-                            Evolution API (Sin costo por mensaje)
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-[10px] text-gray-500 block leading-tight mt-0.5">
-                        Recordatorio automático diurno (máx 8pm) y liberación de cupo si no confirman 8h antes.
-                      </span>
-                    </div>
-                  </label>
-                  )}
-                </div>
-
-                {/* Módulo WhatsApp Engine en Edición: Meta vs Evolution API */}
-                <div className="border-t border-gray-100 pt-3 space-y-3">
-                  <div>
-                    <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                      <QrCode className="w-3.5 h-3.5 text-[#0052FF]" />
-                      Motor de Mensajería WhatsApp Asignado
-                    </h4>
-                    <p className="text-[11px] text-gray-500">
-                      Configurado exclusivamente desde esta consola de Super Admin. Si activas Evolution API, el cliente solo verá el QR para escanear en sus Ajustes.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <label
-                      className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
-                        editWaProvider === 'evolution'
-                          ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/20'
-                          : 'bg-white border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="editWaProvider"
-                        value="evolution"
-                        checked={editWaProvider === 'evolution'}
-                        onChange={() => setEditWaProvider('evolution')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-gray-900 block">
-                          Evolution API (VPS)
-                        </span>
-                        <span className="text-[10px] text-indigo-700 block font-medium">
-                          Self-Hosted • QR & Código
-                        </span>
-                      </div>
-                    </label>
-
-                    <label
-                      className={`p-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition ${
-                        editWaProvider === 'meta'
-                          ? 'bg-blue-50/70 border-[#0052FF] ring-2 ring-[#0052FF]/20'
-                          : 'bg-white border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="editWaProvider"
-                        value="meta"
-                        checked={editWaProvider === 'meta'}
-                        onChange={() => setEditWaProvider('meta')}
-                        className="text-[#0052FF] focus:ring-[#0052FF]"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-gray-900 block">
-                          Meta Cloud API
-                        </span>
-                        <span className="text-[10px] text-gray-500 block">
-                          Oficial Meta • WABA
-                        </span>
-                      </div>
-                    </label>
-                  </div>
-
-                  {editWaProvider === 'evolution' && (
-                    <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-200 space-y-3">
-                      <p className="text-[11px] text-indigo-950 font-medium">
-                        Credenciales Evolution API v2 (Deja la clave en blanco para conservar la existente):
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <div>
-                          <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                            URL del VPS
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="https://evolution.synqo.dev o http://ip:8080"
-                            value={editEvolutionApiUrl}
-                            onChange={(e) => setEditEvolutionApiUrl(e.target.value)}
-                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                            Nombre de Instancia <span className="text-rose-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="ej: empresa_synqo"
-                            value={editEvolutionInstanceName}
-                            onChange={(e) => setEditEvolutionInstanceName(e.target.value)}
-                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                            Nueva API Key
-                          </label>
-                          <input
-                            type="password"
-                            placeholder="Dejar en blanco para mantener..."
-                            value={editEvolutionApiKey}
-                            onChange={(e) => setEditEvolutionApiKey(e.target.value)}
-                            className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-indigo-200/60 text-xs">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={editEvolutionAntiBan}
-                            onChange={(e) => setEditEvolutionAntiBan(e.target.checked)}
-                            className="rounded text-indigo-600 focus:ring-indigo-500"
-                          />
-                          <span className="text-[11px] font-semibold text-indigo-950">
-                            Heurística Anti-Ban (Jitter humano y demoras realistas)
-                          </span>
-                        </label>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-gray-500">Tope/hora:</span>
-                          <input
-                            type="number"
-                            min={5}
-                            max={500}
-                            value={editEvolutionMaxOutbound}
-                            onChange={(e) => setEditEvolutionMaxOutbound(Number(e.target.value))}
-                            className="w-16 text-xs text-center border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-900 font-semibold"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              </div>
-
-              {/* Botones de Acción (Footer Horizontal Pinned) */}
-              <div className="shrink-0 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/70">
-                <button
-                  type="button"
-                  onClick={() => setEditingOrg(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="min-w-[150px] inline-flex items-center justify-center gap-1.5 px-6 py-2 bg-[#0052FF] hover:bg-[#0047E0] disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
-                >
-                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  <span>{isSubmitting ? 'Guardando...' : 'Guardar Cambios'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <ErpEditCompanyModal
+          editingOrg={editingOrg}
+          onClose={() => setEditingOrg(null)}
+          onSubmit={handleUpdateCompanyDetails}
+          isSubmitting={isSubmitting}
+          editName={editName}
+          setEditName={setEditName}
+          editSeats={editSeats}
+          setEditSeats={setEditSeats}
+          editTokensLimit={editTokensLimit}
+          setEditTokensLimit={setEditTokensLimit}
+          editResetTokens={editResetTokens}
+          setEditResetTokens={setEditResetTokens}
+          editTokenAlertThresholds={editTokenAlertThresholds}
+          setEditTokenAlertThresholds={setEditTokenAlertThresholds}
+          editBusinessModel={editBusinessModel}
+          setEditBusinessModel={setEditBusinessModel}
+          setEditModules={setEditModules}
+          editWaProvider={editWaProvider}
+          setEditWaProvider={setEditWaProvider}
+          editEvolutionApiUrl={editEvolutionApiUrl}
+          setEditEvolutionApiUrl={setEditEvolutionApiUrl}
+          editEvolutionInstanceName={editEvolutionInstanceName}
+          setEditEvolutionInstanceName={setEditEvolutionInstanceName}
+          editEvolutionApiKey={editEvolutionApiKey}
+          setEditEvolutionApiKey={setEditEvolutionApiKey}
+          editEvolutionAntiBan={editEvolutionAntiBan}
+          setEditEvolutionAntiBan={setEditEvolutionAntiBan}
+          editEvolutionMaxOutbound={editEvolutionMaxOutbound}
+          setEditEvolutionMaxOutbound={setEditEvolutionMaxOutbound}
+        />
       )}
 
       {/* Mini-Modal: Actualizar Cobertura de Pago (Mensual o Anual) */}

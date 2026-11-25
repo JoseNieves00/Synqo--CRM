@@ -401,6 +401,7 @@ export class AppointmentService {
 
     // Sincronización automática con Google Calendar (si está conectado) y obtención de enlace Meet
     let finalMeetingLink = meetingLink || null;
+    let googleEventId: string | null = null;
     try {
       const gcal = await GoogleCalendarService.createCalendarEvent({
         organizationId,
@@ -412,6 +413,9 @@ export class AppointmentService {
         referenceInfo: referenceInfo || undefined,
       });
 
+      if (gcal.eventId) {
+        googleEventId = gcal.eventId;
+      }
       if (gcal.meetLink && !finalMeetingLink) {
         finalMeetingLink = gcal.meetLink;
       }
@@ -438,6 +442,7 @@ export class AppointmentService {
         notes: notes || null,
         reference_info: referenceInfo || null,
         meeting_link: finalMeetingLink,
+        google_event_id: googleEventId,
         services_list: servicesList || [],
         confirmation_status: 'confirmed',
       })
@@ -553,7 +558,7 @@ export class AppointmentService {
 
     const { data: appt, error: findErr } = await supabaseAdmin
       .from('appointments')
-      .select('id, organization_id, specialist_id, contact_id, service_name, start_time, notes')
+      .select('id, organization_id, specialist_id, contact_id, service_name, start_time, notes, google_event_id')
       .eq('id', appointmentId)
       .single();
 
@@ -586,6 +591,18 @@ export class AppointmentService {
 
     if (updateErr) {
       throw new Error(`Error al cancelar cita: ${updateErr.message}`);
+    }
+
+    const gcalEventId = (appt as { google_event_id?: string | null }).google_event_id;
+    if (gcalEventId) {
+      try {
+        await GoogleCalendarService.deleteCalendarEvent({
+          organizationId: appt.organization_id,
+          eventId: gcalEventId,
+        });
+      } catch (gcalErr) {
+        console.warn('[CANCEL APPOINTMENT GOOGLE CALENDAR SYNC WARN]', gcalErr);
+      }
     }
 
     if (appt.contact_id) {
@@ -655,7 +672,7 @@ export class AppointmentService {
 
     const { data: appt, error: findErr } = await supabaseAdmin
       .from('appointments')
-      .select('id, organization_id, specialist_id, reschedule_count, duration_minutes, notes, service_name')
+      .select('id, organization_id, specialist_id, reschedule_count, duration_minutes, notes, service_name, google_event_id')
       .eq('id', appointmentId)
       .single();
 
@@ -717,6 +734,20 @@ export class AppointmentService {
 
     if (updateErr) {
       throw new Error(`Error al actualizar reprogramación: ${updateErr.message}`);
+    }
+
+    const gcalEventId = (appt as { google_event_id?: string | null }).google_event_id;
+    if (gcalEventId) {
+      try {
+        await GoogleCalendarService.updateCalendarEvent({
+          organizationId: appt.organization_id,
+          eventId: gcalEventId,
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+        });
+      } catch (gcalErr) {
+        console.warn('[RESCHEDULE APPOINTMENT GOOGLE CALENDAR SYNC WARN]', gcalErr);
+      }
     }
 
     const remainingReschedules = 2 - (currentCount + 1);

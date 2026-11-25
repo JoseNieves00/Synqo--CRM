@@ -1550,22 +1550,7 @@ export function SuperAdminCompanyConfigModal({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B]">
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                      Plan Comercial
-                    </label>
-                    <select
-                      value={planType}
-                      onChange={(e) => setPlanType(e.target.value as any)}
-                      className="w-full h-9 px-3 text-xs rounded-xl border border-slate-300 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 font-semibold cursor-pointer"
-                    >
-                      <option value="starter">Starter</option>
-                      <option value="pro">Pro</option>
-                      <option value="enterprise">Enterprise</option>
-                    </select>
-                  </div>
-
+                <div className="grid grid-cols-1 gap-3">
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B]">
                     <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
                       Límite de Asesores (Max Users)
@@ -1577,19 +1562,6 @@ export function SuperAdminCompanyConfigModal({
                       value={maxUsers}
                       onChange={(e) => setMaxUsers(Number(e.target.value) || 1)}
                       className="w-full h-9 px-3 text-xs rounded-xl border border-slate-300 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 font-mono font-bold"
-                    />
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B]">
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                      Código de Equipo
-                    </label>
-                    <input
-                      type="text"
-                      value={companyCode}
-                      onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
-                      placeholder="CÓDIGO"
-                      className="w-full h-9 px-3 text-xs rounded-xl border border-slate-300 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-800 dark:text-slate-200 font-mono font-bold uppercase"
                     />
                   </div>
                 </div>

@@ -348,7 +348,7 @@ export function PaymentAccountsSettings({ initialAccounts }: PaymentAccountsSett
 
                 {acc.instructions && (
                   <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 italic">
-                    "{acc.instructions}"
+                    &quot;{acc.instructions}&quot;
                   </p>
                 )}
               </div>

@@ -789,7 +789,7 @@ export function EvolutionQrCard({
                     <ol className="list-decimal list-inside space-y-1">
                       <li>Abre WhatsApp en el <strong>teléfono celular principal</strong> donde está la cuenta.</li>
                       <li>Toca <strong>Dispositivos vinculados</strong> $\rightarrow$ <strong>Vincular un dispositivo</strong>.</li>
-                      <li>Toca la opción inferior: <strong>"Vincular con el número de teléfono"</strong>.</li>
+                      <li>Toca la opción inferior: <strong>&quot;Vincular con el número de teléfono&quot;</strong>.</li>
                       <li>Escribe o pega el código de 8 caracteres que ves arriba.</li>
                     </ol>
                     <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 border-t border-slate-200/50 dark:border-slate-800/50 mt-1">

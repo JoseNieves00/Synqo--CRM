@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
-import crypto from 'node:crypto';
+import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { encryptSecret } from '@/lib/security/encryption';
+import {
+  GOOGLE_OAUTH_NONCE_COOKIE,
+  verifySignedGoogleOAuthState,
+} from '@/lib/security/google-oauth-state';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,39 +31,20 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Validar HMAC y decodificar estado
-    const [stateStr, signature] = state.split('.');
-    if (!stateStr || !signature) {
-      throw new Error('Formato de estado de autenticación inválido.');
-    }
-
+    // 1. Validar HMAC, expiración y nonce de sesión HTTP-only
     const encKey = process.env.ENCRYPTION_KEY;
     if (!encKey) {
       throw new Error('ENCRYPTION_KEY obligatoria no configurada en el servidor.');
     }
 
-    const expectedSignature = crypto
-      .createHmac('sha256', encKey)
-      .update(stateStr)
-      .digest('hex');
-
-    const expBuf = Buffer.from(expectedSignature, 'utf8');
-    const sigBuf = Buffer.from(signature, 'utf8');
-    if (expBuf.length !== sigBuf.length || !crypto.timingSafeEqual(expBuf, sigBuf)) {
-      throw new Error('Firma de seguridad inválida o manipulada.');
-    }
-
-    const payload = JSON.parse(Buffer.from(stateStr, 'base64url').toString('utf8'));
-    const { orgId, timestamp } = payload;
-
-    if (!orgId) {
-      throw new Error('No se identificó la organización asociada.');
-    }
-
-    // Expirar states después de 20 minutos
-    if (Date.now() - Number(timestamp) > 20 * 60 * 1000) {
-      throw new Error('El intento de vinculación expiró. Por favor intenta de nuevo.');
-    }
+    const cookieStore = cookies();
+    const cookieNonce = cookieStore.get(GOOGLE_OAUTH_NONCE_COOKIE)?.value;
+    const { orgId } = verifySignedGoogleOAuthState({
+      state,
+      cookieNonce,
+      encKey,
+    });
+    cookieStore.delete(GOOGLE_OAUTH_NONCE_COOKIE);
 
     // 2. Intercambiar código de autorización por tokens
     const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;

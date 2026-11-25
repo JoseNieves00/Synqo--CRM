@@ -18,6 +18,8 @@ export function calculateBillingStatus(org: {
   is_active?: boolean;
   subscription_status?: string;
   paid_until_month?: string | null;
+  billing_cycle_ends_at?: string | null;
+  cycle_kind?: 'trial' | 'paid' | string | null;
   past_due_since?: string | null;
   created_at?: string;
   is_exempt?: boolean;
@@ -80,7 +82,61 @@ export function calculateBillingStatus(org: {
     };
   }
 
-  // 3. Evaluar según paid_until_month (Opción A: si es nueva o ya cubrió el mes)
+  // 3. Evaluar por fecha exacta (billing_cycle_ends_at) si existe (soporta 15 días gratis, pruebas, etc.)
+  if (org.billing_cycle_ends_at) {
+    const endMs = new Date(org.billing_cycle_ends_at).getTime();
+    if (Number.isFinite(endMs)) {
+      const diffDays = Math.ceil((endMs - now.getTime()) / (1000 * 60 * 60 * 24));
+      const isTrial = org.cycle_kind === 'trial';
+      if (diffDays >= 0) {
+        const endLabel = new Date(endMs).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+        return {
+          status: 'al_dia',
+          label: isTrial ? `Prueba / Cortesía (${diffDays}d rest.)` : `Al día (hasta ${endLabel})`,
+          color: isTrial ? 'blue' : 'emerald',
+          daysPastDue: 0,
+          isSuspended: false,
+        };
+      }
+      const daysOverdue = Math.max(1, Math.floor((now.getTime() - endMs) / (1000 * 60 * 60 * 24)));
+      if (isTrial) {
+        return {
+          status: daysOverdue >= 30 ? 'baja_definitiva' : 'mora_preventiva',
+          label: `Prueba vencida (${daysOverdue}d)`,
+          color: 'rose',
+          daysPastDue: daysOverdue,
+          isSuspended: false,
+        };
+      }
+      if (daysOverdue <= 5) {
+        return {
+          status: 'pendiente',
+          label: `Cobro Pendiente (${daysOverdue}d)`,
+          color: 'blue',
+          daysPastDue: 0,
+          isSuspended: false,
+        };
+      }
+      if (daysOverdue < 10) {
+        return {
+          status: 'gracia',
+          label: `Período Gracia (${daysOverdue}d)`,
+          color: 'amber',
+          daysPastDue: daysOverdue,
+          isSuspended: false,
+        };
+      }
+      return {
+        status: daysOverdue >= 30 ? 'baja_definitiva' : 'mora_preventiva',
+        label: `Mora Preventiva (${daysOverdue}d)`,
+        color: 'rose',
+        daysPastDue: daysOverdue,
+        isSuspended: false,
+      };
+    }
+  }
+
+  // 4. Fallback retrocompatible según paid_until_month (Opción A: si es nueva o ya cubrió el mes)
   const paidMonth = org.paid_until_month || currentMonthStr;
 
   if (paidMonth >= currentMonthStr) {

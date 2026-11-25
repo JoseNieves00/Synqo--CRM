@@ -64,16 +64,6 @@ const TeamTab = dynamic(() => import('./TeamTab').then((m) => m.TeamTab), {
   ssr: false,
 });
 
-const SpecialistsTab = dynamic(() => import('./SpecialistsTab').then((m) => m.SpecialistsTab), {
-  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando colaboradores...</div>,
-  ssr: false,
-});
-
-const RoomsTab = dynamic(() => import('./RoomsTab').then((m) => m.RoomsTab), {
-  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando espacios...</div>,
-  ssr: false,
-});
-
 const StructuredPromptWizard = dynamic(() => import('./StructuredPromptWizard').then((m) => m.StructuredPromptWizard), {
   loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando asistente de configuración IA...</div>,
   ssr: false,
@@ -1245,20 +1235,6 @@ export function SettingsForm({
         <PaymentAccountsSettings initialAccounts={paymentAccountsData || []} />
       ) : activeTab === 'shipping' ? (
         <ShippingSettings initialSettings={shippingSettingsData} />
-      ) : activeTab === 'specialists' && enabledModules.staff_mobile_portal ? (
-        <SpecialistsTab
-          specialists={specialistsData || []}
-          organizationId={teamData?.organization.id || ''}
-          companyCode={initialData.companyCode || ''}
-          companyName={initialData.orgName || 'Mi Empresa'}
-          specialistLabel={initialData.specialistLabel || 'Colaborador'}
-        />
-      ) : activeTab === 'rooms' && enabledModules.physical_rooms ? (
-        <RoomsTab
-          rooms={roomsData || []}
-          organizationId={teamData?.organization.id || ''}
-          roomLabel={initialData.roomLabel || 'Espacio'}
-        />
       ) : activeTab === 'team' && teamData ? (
         <TeamTab initialData={teamData} />
       ) : (
@@ -3289,7 +3265,7 @@ export function SettingsForm({
               <div className="flex-1 min-h-0 overflow-y-auto space-y-3.5 [scrollbar-width:thin] pr-1">
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                   ¿Estás seguro de que deseas quitar la plantilla{' '}
-                  <strong className="text-slate-800 dark:text-slate-200 font-mono">"{templateToDelete}"</strong> del CRM? Ya no estará disponible en el selector del Inbox.
+                  <strong className="text-slate-800 dark:text-slate-200 font-mono">&quot;{templateToDelete}&quot;</strong> del CRM? Ya no estará disponible en el selector del Inbox.
                 </p>
 
                 {deleteError && (

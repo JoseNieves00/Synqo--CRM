@@ -8,6 +8,7 @@ import { PlatformAlertService } from '@/services/platform-alert.service';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import { LeadScoreService } from '@/services/lead-score.service';
 import { CampaignService } from '@/services/campaign.service';
+import { runMonthlyBillingCycleRollover } from '@/app/actions/erp';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Hasta 60s en Vercel Serverless
@@ -113,6 +114,10 @@ async function handleCron(request: NextRequest) {
       !orgId && remainingMs() > 5_000
         ? await PlatformAlertService.sendDailyDigestIfDue().catch(() => false)
         : false;
+    const cycleRollover =
+      remainingMs() > 4_000
+        ? await runMonthlyBillingCycleRollover(orgId).catch(() => ({ resetCount: 0, expiredTrialsCount: 0 }))
+        : { resetCount: 0, expiredTrialsCount: 0 };
 
     await logCronRun(
       'invoked',

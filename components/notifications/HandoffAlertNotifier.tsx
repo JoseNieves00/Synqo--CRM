@@ -508,7 +508,7 @@ export function HandoffAlertNotifier({
 
                 {latestUnattended.lastMessage && (
                   <p className="text-[11px] text-slate-600 dark:text-slate-300 italic line-clamp-2 mt-1 bg-white dark:bg-[#131722] p-2 rounded-lg border border-slate-200 dark:border-[#1E2433]">
-                    "{latestUnattended.lastMessage}"
+                    &quot;{latestUnattended.lastMessage}&quot;
                   </p>
                 )}
               </div>

@@ -172,7 +172,7 @@ async function runTests() {
     messageText: '4829',
     nowMs: 1_700_000_005_000,
   });
-  assert(resValid.replyText?.includes('ESTADO DE TOKENS'), 'PIN válido debe entregar reporte de tokens');
+  assert(resValid.replyText?.includes('ESTADO DE CONVERSACIONES E IA'), 'PIN válido debe entregar reporte híbrido');
   assert(resValid.replyText?.includes('120.000'), 'Reporte debe incluir excedente acumulado');
 
   // Dentro de sesión activa (15 min), #admin abre menú y salir cierra sesión
