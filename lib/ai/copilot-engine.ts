@@ -202,6 +202,9 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
   const lastLeadMsg = [...history].reverse().find((m) => m.sender_type === 'lead');
   const lastLeadText = lastLeadMsg?.content || '';
 
+  // Detectar si el prospecto formuló una consulta consultiva específica (medidas, edad, gusto, idoneidad, material)
+  const hasConsultativeDoubt = /\?|mide|altura|alto|tamaño|medida|edad|años|le gusta|le gustan|le sirve|sirve para|material|madera|espacio|cabe|soporta|peso|recomiendas/i.test(lastLeadText);
+
   const { friction, frictionLabel, customerMindset } = detectCustomerFriction({
     lastLeadText,
     customFields: cf,
@@ -213,6 +216,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
     'Prohibido inventar precios, descuentos o fletes no autorizados en el prompt',
     'Prohibido inventar sedes físicas, garantías o políticas que no estén explícitas en tu prompt',
     'Prohibido solicitar relevo a asesor humano ante consultas de compra o pago',
+    ...(hasConsultativeDoubt ? ['Prohibido ignorar la pregunta del cliente para soltar un gancho comercial desconectado'] : []),
   ];
 
   switch (friction) {
@@ -372,15 +376,21 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         friction,
         frictionLabel,
         customerMindset,
-        tacticKey: 'visual_card_and_advance',
-        tacticName: 'Atención Visual con Tarjeta y Micro-Avance',
-        copilotDirective:
-          'Envía send_product_card con foto oficial y precio. En tu mensaje (máx 1-2 líneas), presenta el beneficio y haz una pregunta de micro-avance hacia el despacho.',
+        tacticKey: hasConsultativeDoubt ? 'consultative_advice_and_card' : 'visual_card_and_advance',
+        tacticName: hasConsultativeDoubt
+          ? 'Asesoría Consultiva Prioritaria & Tarjeta Visual'
+          : 'Atención Visual con Tarjeta y Micro-Avance',
+        copilotDirective: hasConsultativeDoubt
+          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Responde PRIMERO a su inquietud con asesoría honesta y empática orientándolo al modelo ideal. Envía send_product_card y cierra con alternativa de micro-avance hacia el pedido o apartado.'
+          : 'Envía send_product_card con foto oficial y precio. En tu mensaje (máx 1-2 líneas), presenta el beneficio y haz una pregunta de micro-avance hacia el despacho.',
         prohibitedActions: [
           ...prohibitedBase,
           'Prohibido preguntar "¿quieres que te envíe fotos?"; envía la tarjeta directo.',
+          ...(hasConsultativeDoubt ? ['Prohibido ignorar la pregunta del cliente para emitir únicamente un gancho de cierre'] : []),
         ],
-        suggestedClosingQuestion: '¿Para entrega en qué ciudad sería?',
+        suggestedClosingQuestion: hasConsultativeDoubt
+          ? '¿Te gustaría apartarla desde hoy con Plan Separe o prefieres conocer algún detalle adicional?'
+          : '¿Para entrega en qué ciudad sería?',
         allowedCapabilities: capabilities,
       };
     }

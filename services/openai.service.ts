@@ -1560,7 +1560,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     price: formatGalleryPrice(matched.price),
                     already_visible_in_card: true,
                     message:
-                      'Tarjeta visual despachada a WhatsApp con foto, precio y medidas. TU MENSAJE FINAL DE TEXTO TIENE TERMINANTEMENTE PROHIBIDO REPETIR PRECIOS, MEDIDAS O DETALLES, Y PROHIBIDO ESCRIBIR "[Foto oficial enviada]". Tu mensaje de texto debe ser ÚNICAMENTE 1 sola pregunta breve de cierre orientada a la compra o apartado (ej: "¿Te gustaría apartarla desde hoy con abono inicial o prefieres conocer algún detalle adicional?").',
+                      'Tarjeta visual despachada a WhatsApp con foto oficial, precio y detalles. Si el cliente formuló una duda, contexto o inquietud (ej: estatura, medidas, edad, gusto, idoneidad o uso), DEBES RESPONDER PRIMERO a su inquietud con asesoría honesta, cercana y empática orientada al modelo ideal. PROHIBIDO escribir "[Foto oficial enviada]" y PROHIBIDO transcribir en bloque fichas técnicas mecánicas redundantes; concluye con una alternativa de micro-avance hacia la compra o apartado.',
                   });
                 }
               }
@@ -2544,8 +2544,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             if (/\$\s*\d+[\d.,]*/.test(trimmed) && (trimmed.includes('·') || trimmed.includes('-') || trimmed.length < 50)) {
               return false;
             }
-            // Descartar líneas con especificaciones de medidas/dimensiones
-            if (/medidas?\s*:\s*\d+.*(?:alto|ancho|prof)/i.test(trimmed)) {
+            // Descartar líneas de ficha técnica que sean especificaciones de medidas aisladas
+            if (/^\s*[-*•]?\s*medidas?\s*:\s*\d+/i.test(trimmed)) {
               return false;
             }
             return true;
@@ -3368,7 +3368,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
   static async simulateSandboxMessage(params: {
     systemPrompt: string;
     userMessage: string;
-    history: Array<{ role: 'user' | 'assistant'; content: string }>;
+    history: Array<{ role: 'user' | 'assistant'; content: string; productCards?: any[] }>;
     aiProvider?: string | null;
     organizationId?: string;
     organization?: any;
@@ -3399,20 +3399,60 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
         })
       : params.systemPrompt;
 
+    const pseudoDbMessages = [
+      ...params.history.map((h, i) => {
+        let content = h.content;
+        if (h.role === 'assistant' && Array.isArray((h as any).productCards) && (h as any).productCards.length > 0) {
+          const firstCard = (h as any).productCards[0];
+          content = formatImageMessageContent(firstCard.url || '', firstCard.caption || `${firstCard.name} · ${firstCard.price}`);
+        }
+        return {
+          sender_type: h.role === 'user' ? 'lead' : 'ai',
+          content,
+          created_at: new Date(Date.now() - (params.history.length - i + 1) * 60000).toISOString(),
+        };
+      }),
+      {
+        sender_type: 'lead',
+        content: params.userMessage,
+        created_at: new Date().toISOString(),
+      },
+    ];
+
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: staticSystem },
-      ...params.history.map((h) => ({
-        role: h.role as 'user' | 'assistant',
-        content: h.content,
-      })),
+      ...params.history.map((h) => {
+        if (h.role === 'assistant' && Array.isArray((h as any).productCards) && (h as any).productCards.length > 0) {
+          const cardNames = (h as any).productCards
+            .map((c: any) => `"${c.name} · ${formatGalleryPrice(c.price)}"`)
+            .join(', ');
+          const cardMarker = `[Tarjeta visual de producto ya enviada y vista por el cliente: ${cardNames}. Prohibido repetir este marcador o sus especificaciones.]`;
+          return {
+            role: 'assistant' as const,
+            content: `${cardMarker}\n${h.content}`.trim(),
+          };
+        }
+        return {
+          role: h.role as 'user' | 'assistant',
+          content: h.content,
+        };
+      }),
       { role: 'user', content: params.userMessage },
     ];
+
+    const rawStoredCatalog = Array.isArray(params.organization?.structured_prompt_data?.catalog)
+      ? params.organization.structured_prompt_data.catalog
+      : [];
+    const overflowCatalog = rawStoredCatalog.length > 15 ? rawStoredCatalog.slice(15, 100) : [];
+    const sentInformationSummary = extractSentInformationSummary(pseudoDbMessages);
+    const lastAssistantMsg = [...params.history].reverse().find((m) => m.role === 'assistant');
+    const lastAssistantText = lastAssistantMsg?.content || null;
 
     if (params.enableDryRunTools) {
       messages.push({
         role: 'system',
         content: buildDynamicContextBlock({
-          orgTimezone: AI_OPERATIONAL_CONFIG.defaultTimezone,
+          orgTimezone: params.organization?.business_hours?.timezone || AI_OPERATIONAL_CONFIG.defaultTimezone,
           contactData: {
             name: params.leadProfileContext?.name,
             pipeline_stage: params.leadProfileContext?.stage || 'nuevo',
@@ -3423,8 +3463,13 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
           },
           leadName: params.leadProfileContext?.name,
           galleryItems,
+          extendedCatalog: overflowCatalog,
+          lastAssistantText,
+          sentInformationSummary,
           stageLabels: (params.organization?.appointment_settings as any)?.stage_labels,
           stageCriteria: (params.organization?.appointment_settings as any)?.stage_criteria,
+          history: pseudoDbMessages,
+          organization: params.organization,
         }),
       });
     }
@@ -3525,7 +3570,7 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
                 caption,
                 already_visible_in_card: true,
                 message:
-                  'Tarjeta visual enviada con foto, precio y caption. No repitas en texto los datos ya visibles si <instrucciones_del_negocio> pide evitar redundancias; sigue exactamente su ruta de cierre.',
+                  'Tarjeta visual despachada con foto oficial, precio y detalles. Si el cliente formuló una duda, contexto o inquietud (ej: estatura, medidas, edad, gusto, idoneidad o uso), DEBES RESPONDER PRIMERO a su inquietud con asesoría honesta, cercana y empática orientada al modelo ideal. PROHIBIDO escribir "[Foto oficial enviada]" y PROHIBIDO transcribir en bloque fichas técnicas mecánicas redundantes; concluye con una alternativa de micro-avance hacia la compra o apartado.',
               };
             }
           }
@@ -3581,6 +3626,35 @@ Responde ÚNICAMENTE JSON válido con esta estructura exacta (2 pasos por catego
       const badPrices = findHallucinatedPrices(trace.reply, knownPrices);
       if (badPrices.length > 0) {
         trace.reply += ''; // Flag en eval si es necesario
+      }
+    }
+
+    // Blindaje Determinístico: Poda de ecos de tarjetas, prefijos internos y listas redundantes en Sandbox
+    if (trace.reply) {
+      trace.reply = trace.reply
+        .replace(/^\[(?:Foto oficial enviada|Imagen enviada|Tarjeta visual)[^\]]*\]:?\s*/gim, '')
+        .replace(/\[(?:Foto oficial enviada|Imagen enviada)\]:?\s*/gi, '')
+        .trim();
+
+      if (trace.productCardsSent.length > 0 || sentInformationSummary.length > 0) {
+        trace.reply = stripRedundantCatalogListAfterCards(trace.reply);
+
+        const lines = trace.reply.split('\n');
+        const cleanedLines = lines.filter((l) => {
+          const trimmed = l.trim();
+          if (!trimmed) return true;
+          if (/\$\s*\d+[\d.,]*/.test(trimmed) && (trimmed.includes('·') || trimmed.includes('-') || trimmed.length < 50)) {
+            return false;
+          }
+          if (/^\s*[-*•]?\s*medidas?\s*:\s*\d+/i.test(trimmed)) {
+            return false;
+          }
+          return true;
+        });
+        const reassembled = cleanedLines.join('\n').trim();
+        if (reassembled.length >= 10) {
+          trace.reply = reassembled;
+        }
       }
     }
 

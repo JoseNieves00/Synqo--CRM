@@ -17,6 +17,13 @@ interface BotSandboxModalProps {
   onPromptPatched?: (newPrompt: string) => void;
 }
 
+export interface SimulatedProductCard {
+  name: string;
+  price?: string | number;
+  caption?: string;
+  url: string;
+}
+
 interface SimulatedMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -24,6 +31,9 @@ interface SimulatedMessage {
   timestamp: string;
   latencyMs?: number;
   model?: string;
+  productCards?: SimulatedProductCard[];
+  toolCalls?: Array<{ name: string; args: any; status: string }>;
+  leadProfileUpdate?: any;
 }
 
 export function BotSandboxModal({
@@ -94,7 +104,11 @@ export function BotSandboxModal({
     try {
       const historyPayload = messages
         .filter((m) => m.id !== 'welcome')
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+          productCards: m.productCards,
+        }));
 
       const res = await simulateBotMessage({
         userMessage: cleanInput,
@@ -110,6 +124,9 @@ export function BotSandboxModal({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         latencyMs: res.latencyMs,
         model: res.model,
+        productCards: res.productCards,
+        toolCalls: res.toolCalls,
+        leadProfileUpdate: res.leadProfileUpdate,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -275,7 +292,56 @@ export function BotSandboxModal({
                     <span>{m.timestamp}</span>
                   </div>
 
+                  {/* Tarjetas Visuales de Producto despachadas por la IA */}
+                  {!isUser && m.productCards && m.productCards.length > 0 && (
+                    <div className="space-y-2 my-2">
+                      {m.productCards.map((card, idx) => (
+                        <div
+                          key={idx}
+                          className="rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 text-left"
+                        >
+                          {card.url && (
+                            <div className="relative aspect-[4/3] max-h-56 w-full overflow-hidden bg-slate-200 dark:bg-slate-800">
+                              <img
+                                src={card.url}
+                                alt={card.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          )}
+                          <div className="p-2.5 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-slate-900 dark:text-white text-xs">{card.name}</span>
+                              <span className="px-2 py-0.5 rounded-full bg-[#0052FF]/10 text-[#0052FF] dark:text-[#00D2FF] font-mono font-bold text-[11px]">
+                                {typeof card.price === 'number' ? `$${card.price.toLocaleString('es-CO')}` : card.price}
+                              </span>
+                            </div>
+                            {card.caption && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap leading-tight">
+                                {card.caption}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <p className="whitespace-pre-wrap leading-relaxed select-text">{m.content}</p>
+
+                  {/* Badges de Herramientas Ejecutadas por el Agente */}
+                  {!isUser && m.toolCalls && m.toolCalls.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {m.toolCalls.map((tc, idx) => (
+                        <span
+                          key={idx}
+                          className="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-mono"
+                        >
+                          ⚙️ {tc.name === 'send_product_card' ? `Foto: ${tc.args?.product_name_or_id || ''}` : tc.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   {!isUser && m.id !== 'welcome' && (
                     <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-[#1E2433] space-y-1.5">

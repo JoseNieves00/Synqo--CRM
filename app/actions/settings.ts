@@ -971,7 +971,7 @@ export async function saveOrganizationShippingSettings(
  */
 export async function simulateBotMessage(params: {
   userMessage: string;
-  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  history: Array<{ role: 'user' | 'assistant'; content: string; productCards?: any[] }>;
   temporaryPrompt?: string;
   targetOrganizationId?: string;
 }): Promise<{
@@ -979,6 +979,10 @@ export async function simulateBotMessage(params: {
   latencyMs: number;
   model: string;
   provider: string;
+  productCards?: Array<{ name: string; price?: string | number; caption: string; url: string }>;
+  toolCalls?: Array<{ name: string; args: any; status: string }>;
+  leadProfileUpdate?: any;
+  handoffRequested?: any;
 }> {
   const supabase = createServerSupabaseClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -999,7 +1003,7 @@ export async function simulateBotMessage(params: {
   const startTime = Date.now();
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, name, structured_prompt_data, system_prompt, ai_provider, appointment_settings, enabled_modules')
+    .select('id, name, structured_prompt_data, system_prompt, ai_provider, appointment_settings, business_hours, enabled_modules')
     .eq('id', orgId)
     .single();
 
@@ -1025,6 +1029,10 @@ export async function simulateBotMessage(params: {
     latencyMs: result.latencyMs,
     model: result.modelUsed,
     provider: result.provider,
+    productCards: result.dryRunTrace?.productCardsSent || [],
+    toolCalls: result.dryRunTrace?.toolCallsExecuted || [],
+    leadProfileUpdate: result.dryRunTrace?.leadProfileUpdate,
+    handoffRequested: result.dryRunTrace?.handoffRequested,
   };
 }
 
