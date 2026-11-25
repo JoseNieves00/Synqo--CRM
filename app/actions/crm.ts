@@ -618,9 +618,8 @@ export interface OrderListItem {
   updated_at: string;
   contact?: {
     id: string;
-    full_name: string | null;
+    name: string | null;
     phone: string | null;
-    whatsapp_id: string | null;
   } | null;
 }
 
@@ -652,9 +651,8 @@ export async function listOrdersAction(params?: {
       updated_at,
       contacts:contact_id (
         id,
-        full_name,
-        phone,
-        whatsapp_id
+        name,
+        phone
       )
     `
     )
@@ -707,8 +705,8 @@ export async function listOrdersAction(params?: {
     return {
       id: o.id,
       contact_id: o.contact_id,
-      customer_name: o.customer_name || o.contacts?.full_name || 'Cliente sin nombre',
-      customer_phone: o.customer_phone || o.contacts?.phone || o.contacts?.whatsapp_id || '',
+      customer_name: o.customer_name || o.contacts?.name || 'Cliente sin nombre',
+      customer_phone: o.customer_phone || o.contacts?.phone || '',
       items: Array.isArray(o.items) ? o.items : [],
       total: Number(o.total || 0),
       status: o.status as OrderStatus,
