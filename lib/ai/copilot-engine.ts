@@ -298,8 +298,14 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
   const lastLeadMsg = [...history].reverse().find((m) => m.sender_type === 'lead');
   const lastLeadText = lastLeadMsg?.content || '';
 
-  // Detectar si el prospecto formuló una consulta consultiva específica (medidas, edad, gusto, idoneidad, material)
-  const hasConsultativeDoubt = /\?|mide|altura|alto|tamaño|medida|edad|años|le gusta|le gustan|le sirve|sirve para|material|madera|espacio|cabe|soporta|peso|recomiendas/i.test(lastLeadText);
+  // Detectar si el prospecto formuló una consulta consultiva específica multi-nicho:
+  // - Productos: estatura, medidas, dimensiones, espacio, edades, peso, resistencia, materiales, armado.
+  // - Servicios: dolor, duración, procedimiento, anestesia, preparación, especialista, modalidad virtual vs presencial.
+  // - Híbridos: toma de medidas a domicilio, instalación, montaje, garantía de mano de obra.
+  const hasConsultativeDoubt =
+    /\?|mide|altura|alto|baja?|estatura|tamaño|medida|dimension|espacio|cabe|ancho|profund|edad|años|meses|para\s+niñ[oa]|para\s+beb[eé]|le\s+gusta|le\s+gustan|le\s+sirve|sirve\s+para|funciona\s+para|adecuad[ao]|recomendad[ao]|material|madera|pl[aá]stico|resiste|soporta|peso|kilos|recomiendas|diferencia\s+entre|garant[ií]a|instalaci[oó]n|incluye|armad[ao]|dura|duraci[oó]n|duele|dolor|anestesia|procedimiento|requisito|preparaci[oó]n|visita|domicilio|virtual|presencial|parqueadero/i.test(
+      lastLeadText
+    );
 
   const { friction, frictionLabel, customerMindset } = detectCustomerFriction({
     lastLeadText,
