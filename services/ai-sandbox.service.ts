@@ -11,6 +11,7 @@ import {
   stripRedundantCatalogListAfterCards,
   extractSentInformationSummary,
 } from '@/lib/media/format';
+import { evaluateOrderPaymentGuard } from '@/lib/orders/order-guard';
 import {
   AI_OPERATIONAL_CONFIG,
   AiChainEntry,
@@ -277,8 +278,23 @@ export class AiSandboxService {
         } else if (fn === 'create_order') {
           const parsed = CreateOrderToolSchema.safeParse(args);
           if (parsed.success) {
-            trace.orderCreated = parsed.data;
-            resultPayload = { status: 'order_created', total: parsed.data.total };
+            const paymentGuard = evaluateOrderPaymentGuard({
+              paymentMethod: parsed.data.metodo_pago,
+              isSepare: parsed.data.is_separe,
+              hasPendingReceipt: false,
+              messages: pseudoDbMessages,
+            });
+            if (!paymentGuard.allowed) {
+              resultPayload = {
+                status: 'blocked_missing_payment_proof',
+                draft_saved: true,
+                instructions_for_assistant:
+                  'Borrador guardado. No se confirma el pedido sin comprobante de pago para métodos anticipados o Plan Separe. Solicita el comprobante al cliente.',
+              };
+            } else {
+              trace.orderCreated = parsed.data;
+              resultPayload = { status: 'order_created', total: parsed.data.total };
+            }
           } else {
             resultPayload = { status: 'validation_error', error: parsed.error.message };
           }
@@ -320,7 +336,9 @@ export class AiSandboxService {
         .trim();
 
       if (trace.productCardsSent.length > 0 || sentInformationSummary.length > 0) {
-        trace.reply = stripRedundantCatalogListAfterCards(trace.reply);
+        trace.reply = stripRedundantCatalogListAfterCards(trace.reply, {
+          stripCardSpecs: trace.productCardsSent.length > 0,
+        });
 
         const lines = trace.reply.split('\n');
         const cleanedLines = lines.filter((l) => {

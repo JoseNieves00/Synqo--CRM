@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { stripRedundantCatalogListAfterCards } from '../lib/media/format';
+import { stripRedundantCatalogListAfterCards, extractSentInformationSummary } from '../lib/media/format';
+import { isExplicitRejectionSignal } from '../lib/ai/follow-up-types';
 
 test('1. Anti-Repetición: stripRedundantCatalogListAfterCards elimina marcadores internos de tarjeta y especificaciones repetidas', () => {
   const rawAssistantOutput = `[Foto oficial enviada]: Casita de ensueños · $630.000
@@ -31,4 +32,44 @@ test('3. Anti-Repetición: Limpieza de frases meta-anunciando el envío de fotos
 
   assert.ok(!cleaned.toLowerCase().includes('he enviado la foto'), 'Debe podar frases meta-referenciales');
   assert.ok(cleaned.includes('¿Para qué ciudad sería la entrega?'), 'Debe conservar la pregunta de avance');
+});
+
+test('4. Anti-Repetición: stripCardSpecs poda "Aquí tienes la tarjeta..." y precio/medidas en prosa sin borrar abono ni personalización', () => {
+  const sample = `Aquí tienes la tarjeta de la Casita de los sueños. 🏡✨ Su precio es de $630.000 COP y mide 110 cm de alto x 72 cm de ancho x 26 cm de profundidad.
+
+Recuerda que puedes personalizarla con el tema de Barbie. El abono inicial para apartarla es de $63.000 COP. ¿Te gustaría proceder con el abono?`;
+
+  const cleaned = stripRedundantCatalogListAfterCards(sample, { stripCardSpecs: true });
+
+  assert.ok(!cleaned.includes('Aquí tienes la tarjeta'), 'Debe eliminar la frase meta-referencial');
+  assert.ok(!cleaned.includes('$630.000 COP'), 'Debe eliminar el precio repetido de la tarjeta');
+  assert.ok(!cleaned.includes('110 cm de alto'), 'Debe eliminar las medidas repetidas de la tarjeta');
+  assert.ok(cleaned.includes('personalizarla con el tema de Barbie'), 'Debe conservar la personalización');
+  assert.ok(cleaned.includes('$63.000 COP'), 'Debe conservar el valor del abono inicial');
+});
+
+test('5. Memoria del agente: extractSentInformationSummary registra abono inicial, personalización y precios ya enviados', () => {
+  const history = [
+    {
+      sender_type: 'ai',
+      content: 'Recuerda que puedes personalizarla con el tema de Barbie. El abono inicial para apartarla es de $63.000 COP.',
+    },
+    {
+      sender_type: 'ai',
+      content: 'Su precio es de $630.000 COP y mide 110 cm de alto.',
+    },
+  ];
+
+  const summary = extractSentInformationSummary(history);
+  assert.ok(summary.some((s) => s.includes('Abono inicial') && s.includes('$63.000 COP')));
+  assert.ok(summary.some((s) => s.includes('personalización')));
+  assert.ok(summary.some((s) => s.includes('Precios y medidas')));
+});
+
+test('6. Rechazo explícito: isExplicitRejectionSignal detecta despedidas/rechazos claros y respeta aplazamientos', () => {
+  assert.equal(isExplicitRejectionSignal('Bueno chao no me inporta'), true);
+  assert.equal(isExplicitRejectionSignal('No me interesa gracias'), true);
+  assert.equal(isExplicitRejectionSignal('No quiero continuar, dejemos así'), true);
+  assert.equal(isExplicitRejectionSignal('Lo pienso y luego te aviso'), false);
+  assert.equal(isExplicitRejectionSignal('Muchas gracias, buen día'), false);
 });

@@ -55,10 +55,16 @@ import {
   type LeadTemperature,
   buildSynchronizedClassification,
   clampToSafeBusinessHours,
+  isExplicitRejectionSignal,
   normalizeFollowUpSettings,
   resolveLeadTemperature,
   resolveProductInterest,
 } from '@/lib/ai/follow-up-types';
+import {
+  evaluateOrderPaymentGuard,
+  hasCustomerPaymentProof,
+  isCashOnDeliveryPaymentMethod,
+} from '@/lib/orders/order-guard';
 import {
   resolveRecommendedCommercialAction,
   getLeadScoreBand,
@@ -417,7 +423,7 @@ const createOrderTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'create_order',
     description:
-      'Registra un pedido confirmado en el CRM cuando el cliente aprueba la compra y entrega sus datos de envío y forma de pago.',
+      'Registra un pedido confirmado en el CRM. REGLA ESTRICTA ANTI-FANTASMA: Para pago contraentrega puedes registrarlo apenas el cliente confirme y entregue sus datos de envío. Para transferencias, Nequi, Bancolombia, link de pago o Plan Separe, PROHIBIDO llamar esta herramienta sin que el cliente haya enviado primero su comprobante o captura de pago; antes de recibir el comprobante, solicita los datos y el comprobante.',
     parameters: {
       type: 'object',
       properties: {
@@ -827,11 +833,22 @@ export function buildDynamicContextBlock(params: {
     ? `\n[VARIACIÓN CONVERSACIONAL OBLIGATORIA]: Tu último mensaje fue: "${lastAssistantText.slice(0, 160)}...". Si el cliente insiste, reafirma o responde afirmativamente a tu propuesta previa, NO repitas el mismo mensaje ni frases idénticas. Reconoce brevemente lo anterior de forma diferente y natural.`
     : '';
 
+  const pendingDraft = contactData?.custom_fields?.pending_order_draft;
+  const sanitizeDraftText = (val: any, max = 80) =>
+    String(val || '')
+      .replace(/[<>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
+  const pendingDraftBlock = pendingDraft
+    ? `\n<borrador_pedido_pendiente>\nEl cliente ya entregó sus datos de envío (Nombre: ${sanitizeDraftText(pendingDraft.nombre, 60)}, Ciudad: ${sanitizeDraftText(pendingDraft.ciudad, 40)}, Tel: ${sanitizeDraftText(pendingDraft.telefono, 25)}, Total: $${Number(pendingDraft.total || 0).toLocaleString('es-CO')}, Método: ${sanitizeDraftText(pendingDraft.metodo_pago || (pendingDraft.is_separe ? 'Plan Separe' : 'Transferencia'), 40)}). Solo falta su comprobante de pago para confirmar el pedido; NO vuelvas a pedirle esos datos.\n</borrador_pedido_pendiente>`
+    : '';
+
   const sentInfoBlock =
     sentInformationSummary.length > 0
       ? `\n<memoria_interna_informacion_ya_enviada>\nInformación clave que la empresa YA entregó al cliente en este chat:\n${sentInformationSummary
           .map((s) => `- ${s}`)
-          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla. Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados (precios, medidas, materiales o cuentas), así como usar frases meta-referenciales anunciando lo que enviaste (como "He enviado...", "Te envié...", "Ya te compartí..."). Habla con fluidez natural, avanzando la conversación hacia el siguiente paso de la atención o venta sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
+          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla (incluyendo tarjetas con foto/precio/medidas, abonos, personalización, cuentas y envíos). Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados por iniciativa propia, a menos que el cliente vuelva a pedirlos explícitamente. Tampoco uses frases meta-referenciales ("He enviado...", "Te envié...", "Aquí tienes la tarjeta..."). Habla con fluidez natural, avanzando la conversación hacia el siguiente paso sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
       : '';
 
   const pipelineRules = `\n<etapas_pipeline_comercial>
@@ -915,7 +932,7 @@ Objetivo comercial actual: ${recAction.label}
 Directriz de cierre: ${recAction.playbookTip}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</perfil_lead>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${pendingDraftBlock}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -1890,17 +1907,59 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
               }
             } else if (functionName === 'create_order') {
-              orderOrBookingCompletedThisTurn = true;
               const validated = CreateOrderToolSchema.parse(functionArgs);
               const nowIso = new Date().toISOString();
 
               const { data: latestC } = await (supabaseAdmin.from('contacts') as any)
-                .select('name, custom_fields')
+                .select('name, pipeline_stage, custom_fields')
                 .eq('id', contactId)
                 .maybeSingle();
 
+              const paymentGuard = evaluateOrderPaymentGuard({
+                paymentMethod: validated.metodo_pago,
+                isSepare: validated.is_separe,
+                hasPendingReceipt: latestC?.custom_fields?.has_pending_receipt === true,
+                messages: dbMessages,
+              });
+
+              if (!paymentGuard.allowed) {
+                leadProfileUpdatedThisTurn = true;
+                const cfDraft = { ...(latestC?.custom_fields || {}) };
+                cfDraft.lead_temperature = 'hot';
+                delete cfDraft.temperature;
+                cfDraft.deal_value = validated.total;
+                cfDraft.pending_order_draft = {
+                  ...validated,
+                  drafted_at: nowIso,
+                };
+
+                await (supabaseAdmin.from('contacts') as any)
+                  .update({
+                    ...(latestC?.pipeline_stage === 'nuevo' ? { pipeline_stage: 'calificado' } : {}),
+                    deal_value: validated.total,
+                    custom_fields: cfDraft,
+                    updated_at: nowIso,
+                  })
+                  .eq('id', contactId);
+
+                toolResult = JSON.stringify({
+                  status: 'blocked_missing_payment_proof',
+                  draft_saved: true,
+                  instructions_for_assistant:
+                    'Los datos del pedido quedaron guardados como borrador, pero NO se confirmó el pedido ni se movió a Ganado porque el método de pago no es contraentrega y aún no hay comprobante de pago. Pide amablemente al cliente que envíe la captura o comprobante de la transferencia/abono para validar y confirmar su pedido.',
+                });
+                conversationHistory.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: toolResult,
+                });
+                continue;
+              }
+
+              orderOrBookingCompletedThisTurn = true;
               leadProfileUpdatedThisTurn = true;
               const cf = { ...(latestC?.custom_fields || {}) };
+              delete cf.pending_order_draft;
               cf.lead_temperature = 'hot';
               delete cf.temperature;
               cf.deal_value = validated.total;
@@ -1931,7 +1990,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 .eq('id', contactId);
 
               // Pedido como entidad propia (historial de compras, valor del cliente y atribución a campañas)
-              await OrderService.recordOrder({
+              const orderResult = await OrderService.recordOrder({
                 organizationId,
                 contactId,
                 items: validated.items,
@@ -1949,17 +2008,19 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 balanceDue: validated.balance_due,
               });
 
-              const deliveryLabel = [validated.ciudad, validated.direccion].filter(Boolean).join(' - ');
               const itemsStr = validated.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');
-              const separeSuffix = validated.is_separe
-                ? ` · [Plan Separe] Abono: $${Number(validated.deposit_paid || 0).toLocaleString('es-CO')} | Saldo: $${Number(validated.balance_due || 0).toLocaleString('es-CO')}`
-                : '';
-              await supabaseAdmin.from('messages').insert({
-                contact_id: contactId,
-                organization_id: organizationId,
-                sender_type: 'system',
-                content: `[🛒 ${validated.is_separe ? 'Plan Separe' : 'Pedido'} registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')}${separeSuffix}${deliveryLabel ? ` · ${deliveryLabel}` : ''} · Cliente: ${validated.nombre}]`,
-              });
+              if (!orderResult?.deduplicated) {
+                const deliveryLabel = [validated.ciudad, validated.direccion].filter(Boolean).join(' - ');
+                const separeSuffix = validated.is_separe
+                  ? ` · [Plan Separe] Abono: $${Number(validated.deposit_paid || 0).toLocaleString('es-CO')} | Saldo: $${Number(validated.balance_due || 0).toLocaleString('es-CO')}`
+                  : '';
+                await supabaseAdmin.from('messages').insert({
+                  contact_id: contactId,
+                  organization_id: organizationId,
+                  sender_type: 'system',
+                  content: `[🛒 ${validated.is_separe ? 'Plan Separe' : 'Pedido'} registrado por IA: ${itemsStr} · Total $${validated.total.toLocaleString('es-CO')}${separeSuffix}${deliveryLabel ? ` · ${deliveryLabel}` : ''} · Cliente: ${validated.nombre}]`,
+                });
+              }
 
               // Notificar al equipo para despacho sin pausar la IA
               HandoffService.notifyHandoff({
@@ -1981,6 +2042,47 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 .select('pipeline_stage, custom_fields')
                 .eq('id', contactId)
                 .maybeSingle();
+
+              // Bloqueo anti-pedido fantasma: exigir orden confirmada, comprobante de pago o contraentrega real antes de marcar como ganado
+              if (
+                validated.new_stage === 'ganado' &&
+                !orderOrBookingCompletedThisTurn &&
+                stageContact?.pipeline_stage !== 'ganado'
+              ) {
+                const draft = stageContact?.custom_fields?.pending_order_draft;
+                const hasProof = hasCustomerPaymentProof(
+                  stageContact?.custom_fields?.has_pending_receipt === true,
+                  dbMessages
+                );
+                const isCodDraft = isCashOnDeliveryPaymentMethod(draft?.metodo_pago, draft?.is_separe);
+                const hasStoredOrder = Boolean(stageContact?.custom_fields?.order);
+
+                let hasActiveDbOrder = false;
+                if (!hasProof && !isCodDraft && !hasStoredOrder) {
+                  const { data: existingOrd } = await (supabaseAdmin.from('orders') as any)
+                    .select('id')
+                    .eq('organization_id', organizationId)
+                    .eq('contact_id', contactId)
+                    .neq('status', 'cancelled')
+                    .limit(1)
+                    .maybeSingle();
+                  hasActiveDbOrder = Boolean(existingOrd?.id);
+                }
+
+                if (!hasProof && !isCodDraft && !hasStoredOrder && !hasActiveDbOrder) {
+                  toolResult = JSON.stringify({
+                    status: 'blocked_missing_payment_proof',
+                    instructions_for_assistant:
+                      'No puedes pasar el lead a Ganado sin un pedido confirmado, pago contraentrega o comprobante de pago enviado por el cliente. Solicita el comprobante o registra el pedido contraentrega primero.',
+                  });
+                  conversationHistory.push({
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    content: toolResult,
+                  });
+                  continue;
+                }
+              }
 
               const targetTempForStage: LeadTemperature | null =
                 validated.new_stage === 'ganado' || validated.new_stage === 'cita_agendada'
@@ -2396,9 +2498,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               lowerLeadMsg
             );
           const isExplicitColdSignal =
-            /(no me interesa|no gracias|muy caro|fuera de mi presupuesto|no deseo continuar|ya compr[eé] en otro)/i.test(
-              lowerLeadMsg
-            );
+            isExplicitRejectionSignal(lowerLeadMsg) || /muy caro/i.test(lowerLeadMsg);
           const hasProductContext = Boolean(resolveProductInterest(latestC?.custom_fields, latestC?.deal_value));
           const isSpecificDoubtSignal =
             !/(lo pienso|luego te aviso|despu[eé]s te confirmo|consulto con)/i.test(lowerLeadMsg) &&
@@ -2454,6 +2554,64 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         } catch (autoClassErr) {
           console.warn('[AUTO CLASSIFY FALLBACK WARN]', autoClassErr);
         }
+      }
+
+      // Cierre automático a Cerrados/Perdidos ante rechazo explícito del cliente para no insistir más
+      try {
+        const latestLeadMsgForRejection =
+          [...dbMessages].reverse().find((m: any) => m.sender_type === 'lead')?.content || '';
+        if (isExplicitRejectionSignal(latestLeadMsgForRejection)) {
+          const { data: currentContactForClose } = await (supabaseAdmin.from('contacts') as any)
+            .select('pipeline_stage, conversation_status, custom_fields')
+            .eq('id', contactId)
+            .maybeSingle();
+
+          const currentStage = currentContactForClose?.pipeline_stage;
+          if (
+            currentContactForClose &&
+            currentStage !== 'ganado' &&
+            currentStage !== 'cita_agendada' &&
+            (currentStage !== 'perdido' || currentContactForClose.conversation_status !== 'closed')
+          ) {
+            const nowIso = new Date().toISOString();
+            const syncClose = buildSynchronizedClassification({
+              customFields: currentContactForClose.custom_fields || {},
+              currentStage,
+              temperature: 'cold',
+              lostReason: 'Rechazo explícito del cliente en chat',
+              followUpSettings: orgData?.appointment_settings?.follow_up_sequences
+                ? normalizeFollowUpSettings(orgData.appointment_settings.follow_up_sequences)
+                : null,
+            });
+
+            await (supabaseAdmin.from('contacts') as any)
+              .update({
+                custom_fields: syncClose.customFields,
+                pipeline_stage: 'perdido',
+                conversation_status: 'closed',
+                is_ai_active: false,
+                waiting_since: null,
+                closed_at: nowIso,
+                updated_at: nowIso,
+              })
+              .eq('id', contactId);
+
+            await (supabaseAdmin.from('scheduled_reminders') as any)
+              .update({ status: 'cancelled', updated_at: nowIso })
+              .eq('contact_id', contactId)
+              .eq('status', 'pending');
+
+            await (supabaseAdmin.from('messages') as any).insert({
+              organization_id: organizationId,
+              contact_id: contactId,
+              sender_type: 'system',
+              content: 'Conversación cerrada y movida a Perdido automáticamente por rechazo explícito del cliente.',
+              status: 'delivered',
+            });
+          }
+        }
+      } catch (rejectionCloseErr) {
+        console.warn('[EXPLICIT REJECTION AUTO CLOSE WARN]', rejectionCloseErr);
       }
 
       // Respaldo autónomo de recordatorios: si el cliente dio señal temporal o de aplazamiento y la IA no llamó schedule_follow_up
@@ -2596,7 +2754,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
         // 2. Si se despacharon fotos en este turno o en turnos recientes, podar listas y atributos repetitivos
         if (dispatchedUrlsThisTurn.size > 0 || sentInformationSummary.length > 0) {
-          finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText);
+          finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText, {
+            stripCardSpecs: dispatchedUrlsThisTurn.size > 0,
+          });
 
           // Si el texto resultante empieza repitiendo líneas de descripción de producto o medidas
           const lines = finalResponseText.split('\n');

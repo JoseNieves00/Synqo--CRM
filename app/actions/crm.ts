@@ -526,11 +526,15 @@ export async function createManualOrderAction(input: {
       .neq('status', 'cancelled');
     const ltv = (activeOrders || []).reduce((acc: number, o: any) => acc + Number(o.total || 0), 0);
 
-    const nextCf = {
+    const nextCf: Record<string, any> = {
       ...(contact.custom_fields || {}),
       lead_temperature: 'hot',
       deal_value: ltv || total,
     };
+    delete nextCf.has_pending_receipt;
+    delete nextCf.pending_order_draft;
+    delete nextCf.unattended_handoff;
+    delete nextCf.handoff_reason;
     const updatePayload: Record<string, any> = {
       deal_value: ltv || total,
       custom_fields: nextCf,

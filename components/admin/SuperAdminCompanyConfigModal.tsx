@@ -1588,7 +1588,7 @@ export function SuperAdminCompanyConfigModal({
                       />
                       <div>
                         <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                          Calendario Nativo & Google Calendar (ARM)
+                          Agenda de Citas & Google Calendar / Meet
                         </span>
                         <span className="text-[11px] text-slate-500 block leading-tight mt-0.5">
                           Agendamiento inteligente de citas, reuniones o llamadas con sincronización con Google Calendar.

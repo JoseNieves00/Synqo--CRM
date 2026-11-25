@@ -631,3 +631,22 @@ export function clampToSafeBusinessHours(
   return current;
 }
 
+/**
+ * Detecta si el mensaje del cliente contiene un rechazo explícito o despedida definitiva
+ * (p. ej. "no me interesa", "chao no me inporta", "no quiero", "no insistas", "dejemos así")
+ * para mover el chat a Perdido / Cerrado sin insistir, evitando falsos positivos ante aplazamientos.
+ */
+export function isExplicitRejectionSignal(text: string): boolean {
+  const normalized = String(text || '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (/(lo pienso|luego te aviso|despu[eé]s te confirmo|te aviso|consulto con|m[aá]s tarde|otra ocasi[oó]n)/i.test(normalized)) {
+    return false;
+  }
+  const explicitRejectionPattern =
+    /(no me interesa|no me i[mn]porta|ya no (?:me interesa|quiero)|no quiero(?:\s+(?:continuar|seguir|comprar|nada|m[aá]s))?\b|no deseo continuar|no insistas?|dejemos\s+as[ií]|ya compr[eé] en otro|olv[ií]dalo|fuera de mi presupuesto|no gracias)/i;
+  const dismissiveGoodbyePattern =
+    /(?:^|\b)(?:chao|adi[oó]s|bye)\b.*\b(?:no me i[mn]porta|no me interesa|no quiero|dejemos|olv[ií]dalo)\b|\b(?:no me i[mn]porta|no me interesa|no quiero)\b.*\b(?:chao|adi[oó]s|bye)\b/i;
+  return explicitRejectionPattern.test(normalized) || dismissiveGoodbyePattern.test(normalized);
+}
+
+

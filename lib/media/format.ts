@@ -391,6 +391,7 @@ export function stripRedundantCatalogListAfterCards(
   options?: {
     allowRedundancy?: boolean;
     customFallbackQuestion?: string;
+    stripCardSpecs?: boolean;
   }
 ): string {
   if (!text || typeof text !== 'string') return text;
@@ -437,13 +438,39 @@ export function stripRedundantCatalogListAfterCards(
     .trim();
 
   // Poda determinística de frases meta-referenciales donde la IA anuncia que "envió" fotos o datos
-  // (ej. "He enviado la información sobre la cocina pequeña. ¿Cuál de estos modelos se adapta mejor a tu espacio?")
+  // (ej. "He enviado la información sobre la cocina pequeña.", "Aquí tienes la tarjeta de la Casita...")
   result = result
     .replace(
-      /(?:^|\n)\s*(?:he\s+enviado\s+(?:la\s+informaci[oó]n|la\s+foto|el\s+cat[aá]logo|los\s+detalles|la\s+ficha|las\s+fotos|las\s+im[aá]genes|informaci[oó]n|todo|esto)[^.?!]*[.?!]\s*|te\s+(?:acabo\s+de\s+(?:enviar|compartir)|he\s+(?:enviado|compartido)|envi[eé]|compart[ií]|dej[eé])\s+[^.?!]*[.?!]\s*|ya\s+te\s+(?:envi[eé]|compart[ií]|dej[eé]|mand[eé]|he\s+enviado)\s+[^.?!]*[.?!]\s*|adjunto\s+te\s+[^.?!]*[.?!]\s*|listo,\s*ya\s+te\s+[^.?!]*[.?!]\s*)/gi,
+      /(?:^|\n)\s*(?:he\s+enviado\s+(?:la\s+informaci[oó]n|la\s+foto|el\s+cat[aá]logo|los\s+detalles|la\s+ficha|las\s+fotos|las\s+im[aá]genes|informaci[oó]n|todo|esto)[^.?!]*[.?!]\s*|te\s+(?:acabo\s+de\s+(?:enviar|compartir)|he\s+(?:enviado|compartido)|envi[eé]|compart[ií]|dej[eé])\s+[^.?!]*[.?!]\s*|ya\s+te\s+(?:envi[eé]|compart[ií]|dej[eé]|mand[eé]|he\s+enviado)\s+[^.?!]*[.?!]\s*|adjunto\s+te\s+[^.?!]*[.?!]\s*|listo,\s*ya\s+te\s+[^.?!]*[.?!]\s*|aqu[ií]\s+(?:tienes|est[aá])\s+(?:la\s+(?:tarjeta|foto|imagen|ficha|informaci[oó]n)|el\s+cat[aá]logo|los\s+(?:detalles|modelos))[^.?!]*[.?!]\s*)/gi,
       ''
     )
+    .replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF\s]+(?=[A-ZÁÉÍÓÚÑ¿¡])/u, '')
     .trim();
+
+  // Cuando se acaba de despachar una tarjeta visual en este mismo turno, podar oraciones en prosa
+  // que repiten el precio o las medidas ya visibles en la tarjeta (sin tocar abonos, envíos ni personalización).
+  if (options?.stripCardSpecs && result) {
+    const paragraphs = result.split(/\n{2,}/);
+    const cleanedParagraphs = paragraphs
+      .map((para) => {
+        const sentences = para.split(/(?<=[.?!])\s+/);
+        const kept = sentences.filter((sentence) => {
+          const s = sentence.trim();
+          if (!s) return false;
+          // Nunca eliminar información de abono/separe o envío que no viene en la tarjeta
+          if (/\b(abono|separe|anticipo|env[ií]o|flete|domicilio|contraentrega)\b/i.test(s)) {
+            return true;
+          }
+          const repeatsPriceOrMeasure =
+            (/\$\s*\d+[\d.,]*/.test(s) && /\b(precio|valor|cuesta|vale|mide|medidas?)\b/i.test(s)) ||
+            (/\b\d+\s*(?:cm|mm|m)\b/i.test(s) && /\b(alto|ancho|profundidad|largo|mide|medidas?)\b/i.test(s));
+          return !repeatsPriceOrMeasure;
+        });
+        return kept.join(' ').trim();
+      })
+      .filter(Boolean);
+    result = cleanedParagraphs.join('\n\n').trim();
+  }
 
   const fallbackQuestion = options?.customFallbackQuestion || '¿Cuál de estas opciones se adapta mejor a lo que buscas?';
   return result || fallbackQuestion;
@@ -499,6 +526,32 @@ export function extractSentInformationSummary(
       if (!seenItems.has('cotizacion_envio')) {
         seenItems.add('cotizacion_envio');
         sentSummaries.push('Tarifas o condiciones de envío/contraentrega ya comunicadas');
+      }
+    }
+
+    // 4. Abono inicial / plan separe ya informado
+    if (/(abono\s+inicial|plan\s+separe|para\s+apartar(?:la|lo)?|anticipo)/i.test(text)) {
+      const amountMatch = text.match(/\$\s*[\d.,]+(?:\s*COP)?/i);
+      if (amountMatch && !seenItems.has('abono_inicial')) {
+        seenItems.add('abono_inicial');
+        sentSummaries.push(`Abono inicial / plan separe ya informado (${amountMatch[0].trim()})`);
+      }
+    }
+
+    // 5. Opciones de personalización o fabricación ya explicadas
+    if (/(personalizar(?:la|lo)?|tem[aá]tica|mdf\s+de\s+\d+|tiempo\s+de\s+(?:fabricaci[oó]n|entrega))/i.test(text)) {
+      if (!seenItems.has('personalizacion_info')) {
+        seenItems.add('personalizacion_info');
+        sentSummaries.push('Opciones de personalización, materiales o fabricación ya explicadas');
+      }
+    }
+
+    // 6. Precios o medidas específicos ya mencionados en texto (cuando no fue tarjeta)
+    if (!parsedImg.isImage && /(?:su\s+precio\s+es|cuesta|vale|tiene\s+un\s+(?:precio|valor)\s+de|mide)\b/i.test(text)) {
+      const hasPriceOrMeasure = /\$\s*[\d.,]+|\d+\s*(?:cm|mm|m)\b/i.test(text);
+      if (hasPriceOrMeasure && !seenItems.has('precios_medidas_texto')) {
+        seenItems.add('precios_medidas_texto');
+        sentSummaries.push('Precios y medidas del producto consultado ya comunicados en el chat');
       }
     }
   }

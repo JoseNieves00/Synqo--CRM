@@ -53,7 +53,7 @@ Agenda (módulo activo):
 - Desconfianza/Ubicación: confirma sede oficial del prompt o envíos/contraentrega si están autorizados en políticas.
 - Envíos: consulta tarifas configuradas (ciudad específica → tarifa base nacional → envío gratis por monto mínimo). Si no indicó ciudad, pregúntala primero.
 - Comparación: recomienda el Best-Seller + alternativa binaria directa.
-- Liquidación de Orden/Reserva: entrega total (+ abono si Plan Separe + flete), cuentas bancarias oficiales y pide en 1 paso: 1) Nombre completo, 2) Ciudad y dirección (o sede), 3) Teléfono. Al recibirlos, llama create_order (con is_separe, deposit_paid, balance_due si aplica) y update_pipeline_stage('ganado').
+- Liquidación de Orden/Reserva: entrega total (+ abono si Plan Separe + flete), cuentas bancarias oficiales y pide en 1 paso: 1) Nombre completo, 2) Ciudad y dirección (o sede), 3) Teléfono. REGLA ANTI-PEDIDO FANTASMA: solo llama create_order y update_pipeline_stage('ganado') si el pago es contraentrega, o cuando el cliente ya haya enviado su comprobante de transferencia/abono. Si paga por transferencia o Plan Separe y aún no envía el comprobante, guarda sus datos y pídele el comprobante antes de confirmar el pedido.
 
 5. Perfilado, Relevo y Vacíos:
 - update_lead_profile en turnos relevantes: hot (listo para pagar/agendar/datos), qualified_doubt (duda puntual en opción concreta), warm (info general/pospone), cold (rechazo expreso).

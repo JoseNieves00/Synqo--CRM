@@ -236,12 +236,14 @@ export async function grantTokenPackAction(input: {
   organizationId: string;
   tokensAmount: number;
   amountCop: number;
+  mode?: 'temporary' | 'permanent';
   packageId?: string | null;
   notes?: string;
   idempotencyKey?: string;
 }) {
   const actor = await requireStrictSuperAdmin();
   const tokens = Math.max(100_000, Math.round(input.tokensAmount));
+  const mode = input.mode === 'permanent' ? 'permanent' : 'temporary';
 
   const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
     .select('id, ai_tokens_limit, extra_tokens_balance')
@@ -250,26 +252,34 @@ export async function grantTokenPackAction(input: {
 
   if (fetchErr || !org) throw new Error('Empresa no encontrada.');
 
-  const nextExtra = Math.max(0, Number(org.extra_tokens_balance || 0)) + tokens;
-  const effectiveAfter = (Number(org.ai_tokens_limit) || 5_000_000) + nextExtra;
+  const currentBase = Number(org.ai_tokens_limit) || 5_000_000;
+  const currentExtra = Math.max(0, Number(org.extra_tokens_balance || 0));
+
+  const nextBase = mode === 'permanent' ? currentBase + tokens : currentBase;
+  const nextExtra = mode === 'temporary' ? currentExtra + tokens : currentExtra;
+  const effectiveAfter = nextBase + nextExtra;
 
   const { error: updErr } = await (supabaseAdmin.from('organizations') as any)
     .update({
-      extra_tokens_balance: nextExtra,
+      ...(mode === 'permanent' ? { ai_tokens_limit: nextBase } : { extra_tokens_balance: nextExtra }),
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.organizationId);
 
-  if (updErr) throw new Error(`Error acreditando paquete: ${updErr.message}`);
+  if (updErr) throw new Error(`Error acreditando tokens: ${updErr.message}`);
 
   await (supabaseAdmin.from('token_ledger') as any).insert({
     organization_id: input.organizationId,
-    entry_type: 'pack_purchase',
+    entry_type: mode === 'permanent' ? 'manual_adjustment' : 'pack_purchase',
     tokens_delta: tokens,
     balance_after_limit: effectiveAfter,
     package_id: input.packageId || null,
     idempotency_key: input.idempotencyKey || null,
-    notes: input.notes?.trim() || `Paquete adicional (+${tokens.toLocaleString('es-CO')} tokens)`,
+    notes:
+      input.notes?.trim() ||
+      (mode === 'permanent'
+        ? `Aumento permanente de plan (+${tokens.toLocaleString('es-CO')} tokens/mes)`
+        : `Paquete adicional este mes (+${tokens.toLocaleString('es-CO')} tokens)`),
     created_by: actor.userId === 'test-super-admin' ? null : actor.userId,
   });
 
@@ -282,16 +292,25 @@ export async function grantTokenPackAction(input: {
       amount_cop: input.amountCop,
       currency: 'COP',
       period_month: ym,
-      concept_type: 'token_pack',
+      concept_type: mode === 'permanent' ? 'monthly_base' : 'token_pack',
       status: 'paid',
       tokens_granted: tokens,
       payment_method: 'transferencia',
-      notes: input.notes?.trim() || `Pack tokens +${tokens.toLocaleString('es-CO')}`,
+      notes:
+        input.notes?.trim() ||
+        (mode === 'permanent'
+          ? `Aumento permanente +${tokens.toLocaleString('es-CO')} tokens/mes`
+          : `Pack tokens +${tokens.toLocaleString('es-CO')}`),
     });
   }
 
   revalidatePath('/admin');
-  return { success: true, extraTokensBalance: nextExtra };
+  return {
+    success: true,
+    mode,
+    aiTokensLimit: nextBase,
+    extraTokensBalance: nextExtra,
+  };
 }
 
 /**

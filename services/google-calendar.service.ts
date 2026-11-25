@@ -151,7 +151,11 @@ export class GoogleCalendarService {
         };
       }
 
-      const eventPayload = {
+      const modality = String(org.appointment_settings?.attendance_modality || 'presencial').toLowerCase();
+      const shouldGenerateMeet = modality === 'virtual' || modality === 'hybrid';
+      const clinicAddress = String(org.appointment_settings?.clinic_address || '').trim();
+
+      const eventPayload: Record<string, any> = {
         summary: referenceInfo ? `${summary} [${referenceInfo}]` : summary,
         description: `${description}\n\nCliente: ${clientName || 'N/A'}${referenceInfo ? `\nReferencia: ${referenceInfo}` : ''}\nAgendado automáticamente vía Synqo CRM.`,
         start: {
@@ -162,16 +166,26 @@ export class GoogleCalendarService {
           dateTime: endTime,
           timeZone: orgTimezone,
         },
-        conferenceData: {
+      };
+
+      if (clinicAddress && !shouldGenerateMeet) {
+        eventPayload.location = clinicAddress;
+      } else if (clinicAddress && modality === 'hybrid') {
+        eventPayload.location = clinicAddress;
+      }
+
+      if (shouldGenerateMeet) {
+        eventPayload.conferenceData = {
           createRequest: {
             requestId: `synqo-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             conferenceSolutionKey: { type: 'hangoutsMeet' },
           },
-        },
-      };
+        };
+      }
 
+      const query = shouldGenerateMeet ? '?conferenceDataVersion=1' : '';
       const res = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?conferenceDataVersion=1`,
+        `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events${query}`,
         {
           method: 'POST',
           headers: {

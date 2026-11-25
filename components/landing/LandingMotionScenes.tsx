@@ -582,7 +582,7 @@ export function AdaptiveBusinessModelSection() {
       summary: 'Diseñado para agendas, consultas, citas presenciales o por videollamada.',
       activeModules: [
         'Catálogo de Servicios con duración y precio',
-        'Calendario Nativo + sincronización Google Calendar y Meet',
+        'Agenda de Citas + sincronización Google Calendar y Meet',
         'Protocolo Anti-No-Show con recordatorio automático 8h antes',
         'Reprogramación y cancelación bidireccional',
       ],
@@ -592,7 +592,7 @@ export function AdaptiveBusinessModelSection() {
       summary: 'Para negocios que venden productos y también agendan servicios en un mismo canal.',
       activeModules: [
         'Catálogo unificado organizado en Productos y Servicios',
-        'Pedidos + Calendario Nativo y Google Meet activos',
+        'Pedidos + Agenda de Citas y Google Meet activos',
         'Ficha 360 y Copiloto adaptados a ambos flujos',
         'Campañas IA segmentadas por interés',
       ],

@@ -638,7 +638,7 @@ export function CalendarViewClient({
               <CalendarIcon className="w-4 h-4" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Agenda & Calendario Nativo</h1>
+              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Agenda de Citas & Google Meet</h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Gestión multi-especialista y salones sin colisiones
               </p>

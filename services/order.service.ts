@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { ORDER_STATUSES, type OrderStatus } from '@/lib/crm/constants';
+import { buildNormalizedItemsSignature } from '@/lib/orders/order-guard';
 
 export { ORDER_STATUSES, type OrderStatus };
 
@@ -11,6 +12,8 @@ export interface OrderItemInput {
 
 /** Atribución de campañas: un pedido cuenta como conversión si llega hasta 7 días después del envío. */
 const CAMPAIGN_ATTRIBUTION_DAYS = 7;
+/** Ventana de idempotencia para evitar pedidos duplicados por reintentos o doble clic. */
+const ORDER_DEDUPE_WINDOW_MS = 2 * 3600 * 1000;
 
 export class OrderService {
   /**
@@ -35,8 +38,31 @@ export class OrderService {
     depositPaid?: number;
     balanceDue?: number;
     separeDueDate?: string | null;
-  }): Promise<{ id: string; campaignId: string | null } | null> {
+  }): Promise<{ id: string; campaignId: string | null; deduplicated?: boolean } | null> {
     try {
+      const normalizedTotal = Math.max(0, Number(params.total) || 0);
+      const dedupeSinceIso = new Date(Date.now() - ORDER_DEDUPE_WINDOW_MS).toISOString();
+      const targetSig = buildNormalizedItemsSignature(params.items);
+
+      const { data: recentOrders } = await (supabaseAdmin.from('orders') as any)
+        .select('id, campaign_id, total, items, status')
+        .eq('organization_id', params.organizationId)
+        .eq('contact_id', params.contactId)
+        .neq('status', 'cancelled')
+        .gte('created_at', dedupeSinceIso)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      const duplicate = (recentOrders || []).find((ord: any) => {
+        if (Number(ord.total || 0) !== normalizedTotal) return false;
+        const existingSig = buildNormalizedItemsSignature(Array.isArray(ord.items) ? ord.items : []);
+        return existingSig === targetSig;
+      });
+
+      if (duplicate) {
+        return { id: duplicate.id, campaignId: duplicate.campaign_id || null, deduplicated: true };
+      }
+
       const sinceIso = new Date(Date.now() - CAMPAIGN_ATTRIBUTION_DAYS * 24 * 3600 * 1000).toISOString();
       const { data: recipient } = await (supabaseAdmin.from('campaign_recipients') as any)
         .select('id, campaign_id')

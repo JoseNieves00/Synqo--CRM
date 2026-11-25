@@ -1113,14 +1113,25 @@ export function ContactPanel({
               <button
                 type="button"
                 onClick={() => {
-                  setQuickOrderProduct(String(contact.custom_fields?.product_interest || ''));
-                  setQuickOrderTotal(contact.deal_value ? String(contact.deal_value) : '');
+                  const draft = contact.custom_fields?.pending_order_draft;
+                  const draftItem = Array.isArray(draft?.items) && draft.items[0]?.product_name
+                    ? String(draft.items[0].product_name)
+                    : '';
+                  setQuickOrderProduct(draftItem || String(contact.custom_fields?.product_interest || ''));
+                  setQuickOrderTotal(
+                    draft?.total ? String(draft.total) : contact.deal_value ? String(contact.deal_value) : ''
+                  );
+                  if (draft?.metodo_pago) {
+                    setQuickOrderMethod(String(draft.metodo_pago));
+                  }
                   setIsQuickOrderOpen(true);
                 }}
                 className="w-full py-2 rounded-xl bg-[#0052FF] hover:bg-[#0047E0] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
-                <span>Registrar Pedido</span>
+                <span>
+                  {contact.custom_fields?.pending_order_draft ? 'Confirmar Borrador de Pedido' : 'Registrar Pedido'}
+                </span>
               </button>
               <button
                 type="button"

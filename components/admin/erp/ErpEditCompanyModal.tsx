@@ -13,7 +13,6 @@ import { EnabledModules, OrganizationRow } from '@/app/actions/superadmin';
 import {
   estimateChatsFromTokens,
   formatTokenDetailed,
-  formatTokenQuota,
 } from '@/lib/billing/plan-defaults';
 
 export interface ErpEditCompanyModalProps {
@@ -186,25 +185,23 @@ export function ErpEditCompanyModal({
                 </div>
               </div>
 
-              {/* Columna Derecha: Gestión de Tokens IA y Boosters */}
+              {/* Columna Derecha: Consumo Actual y Umbrales Push */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-3">
                 <div className="space-y-3">
-                  {/* Cabecera con consumo actual y porcentaje */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                       <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-                      Límite Mensual de Tokens IA
+                      Cuota Mensual de Tokens IA
                     </span>
                     <span className="text-[11px] font-mono text-slate-600 font-semibold bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                      {Math.min(100, Math.round(((editingOrg.ai_tokens_used || 0) / editTokensLimit) * 100))}% consumido
+                      {Math.min(100, Math.round(((editingOrg.ai_tokens_used || 0) / Math.max(1, editTokensLimit)) * 100))}% consumido
                     </span>
                   </div>
 
-                  {/* Tarjeta destacada con el límite actual seleccionado en texto legible y estimación */}
                   <div className="p-3 bg-white rounded-xl border border-blue-100 shadow-xs flex items-center justify-between">
                     <div>
                       <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                        Cuota Asignada
+                        Cuota Base Mensual
                       </span>
                       <div className="text-base font-black text-[#0052FF]">
                         {formatTokenDetailed(editTokensLimit)}
@@ -220,112 +217,23 @@ export function ErpEditCompanyModal({
                     </div>
                   </div>
 
-                  {/* Chips de selección rápida por niveles oficiales */}
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-600 block mb-1">
-                      Niveles Predefinidos (1 Clic):
-                    </span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[
-                        { tokens: 500000, label: '500k', sub: 'Starter' },
-                        { tokens: 1000000, label: '1M', sub: '1 Millón' },
-                        { tokens: 2500000, label: '2.5M', sub: 'Pro' },
-                        { tokens: 5000000, label: '5M', sub: '5 Millones' },
-                        { tokens: 7500000, label: '7.5M', sub: 'Enterprise' },
-                        { tokens: 10000000, label: '10M', sub: '10 Millones' },
-                      ].map((tier) => {
-                        const isSelected = editTokensLimit === tier.tokens;
-                        return (
-                          <button
-                            key={tier.tokens}
-                            type="button"
-                            onClick={() => setEditTokensLimit(tier.tokens)}
-                            className={`py-1 px-2 rounded-xl text-center border transition cursor-pointer ${
-                              isSelected
-                                ? 'bg-[#0052FF] text-white border-[#0052FF] shadow-xs'
-                                : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50'
-                            }`}
-                          >
-                            <span className="block text-xs font-bold leading-tight">{tier.label}</span>
-                            <span className={`block text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                              {tier.sub}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Boosters Rápidos de 1 Clic (+1M, +500k, Restablecer base) */}
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-600 block mb-1">
-                      Paquetes Booster (Mes en Curso):
-                    </span>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setEditTokensLimit((prev) => prev + 1000000)}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer flex items-center gap-1"
-                        title="Suma 1 Millón de tokens (1M) al límite del mes actual"
-                      >
-                        +1M Booster
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setEditTokensLimit((prev) => prev + 500000)}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
-                        title="Suma 500k tokens al límite del mes actual"
-                      >
-                        +500k Extra
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setEditTokensLimit(500000)}
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
-                        title="Restablece a la cuota base de 500k tokens"
-                      >
-                        ↺ 500k Base
-                      </button>
-                    </div>
-                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Para adicionar tokens temporales o aumentar el límite permanente con su cobro, usa la pestaña{' '}
+                    <strong className="text-slate-700">Billetera &amp; Tokens IA</strong>.
+                  </p>
                 </div>
 
-                {/* Input manual alternativo para custom exacto */}
                 <div className="pt-2 border-t border-slate-200/80 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      step={100000}
-                      min={100000}
-                      max={100000000}
-                      value={editTokensLimit}
-                      onChange={(e) => setEditTokensLimit(parseInt(e.target.value, 10) || 100000)}
-                      placeholder="Cantidad manual..."
-                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono font-semibold text-slate-800"
-                    />
-                    <span className="text-xs font-bold text-slate-700 bg-white px-2.5 py-1.5 rounded-xl border border-gray-300 font-mono flex-shrink-0 shadow-2xs">
-                      {formatTokenQuota(editTokensLimit)}
-                    </span>
-                  </div>
-
-                  <p className="text-[10px] text-slate-500 italic">
-                    Asigna la cuota base mensual de tokens IA (en Modo Excedente el bot no se detiene al 100%).
-                  </p>
-
-                  <div className="pt-2">
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                      Umbrales Push de Aviso (% separados por coma):
-                    </label>
-                    <input
-                      type="text"
-                      value={editTokenAlertThresholds}
-                      onChange={(e) => setEditTokenAlertThresholds(e.target.value)}
-                      placeholder="80, 90, 100"
-                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono text-slate-800"
-                    />
-                  </div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                    Umbrales Push de Aviso (% separados por coma):
+                  </label>
+                  <input
+                    type="text"
+                    value={editTokenAlertThresholds}
+                    onChange={(e) => setEditTokenAlertThresholds(e.target.value)}
+                    placeholder="80, 90, 100"
+                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF] bg-white font-mono text-slate-800"
+                  />
                 </div>
               </div>
             </div>
@@ -354,12 +262,12 @@ export function ErpEditCompanyModal({
                   {
                     id: 'services' as const,
                     title: 'Vende Servicios',
-                    desc: 'Activa Calendario Nativo, Recordatorios y Google Meet.',
+                    desc: 'Activa Agenda de Citas, Recordatorios y Google Meet.',
                   },
                   {
                     id: 'hybrid' as const,
                     title: 'Modelo Híbrido',
-                    desc: 'Activa Pedidos + Calendario Nativo unificados.',
+                    desc: 'Activa Pedidos + Agenda de Citas & Google Meet unificados.',
                   },
                 ].map((opt) => (
                   <button
