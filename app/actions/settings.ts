@@ -965,6 +965,61 @@ export async function saveOrganizationShippingSettings(
 }
 
 /**
+ * Guarda o actualiza la modalidad de atención (Presencial / Virtual / Ambas),
+ * dirección física de sede y enlace predeterminado de videollamada.
+ * Configurable por cualquier tipo de negocio (productos, servicios o híbridos).
+ */
+export async function saveAttendanceModalitySettings(input: {
+  modality: 'in_person' | 'virtual' | 'both';
+  physicalAddress?: string | null;
+  virtualMeetingUrl?: string | null;
+}): Promise<{ success: boolean; error?: string }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: 'No autorizado' };
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    return { success: false, error: 'Solo administradores pueden configurar la modalidad de atención.' };
+  }
+
+  const orgId = profile.organization_id;
+  const { data: org, error: orgErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', orgId)
+    .single();
+
+  if (orgErr || !org) return { success: false, error: 'Organización no encontrada.' };
+
+  const currentSettings = (org.appointment_settings as any) || {};
+  const updatedSettings = {
+    ...currentSettings,
+    attendance_modality: input.modality,
+    physical_address: input.physicalAddress ? input.physicalAddress.trim().slice(0, 200) : null,
+    virtual_meeting_url: input.virtualMeetingUrl ? input.virtualMeetingUrl.trim().slice(0, 300) : null,
+  };
+
+  const { error: updateErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: updatedSettings,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateErr) {
+    return { success: false, error: `Error guardando modalidad: ${updateErr.message}` };
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true };
+}
+
+/**
  * Simulador Sandbox del Bot: Permite a los administradores interactuar con el bot
  * de su empresa en tiempo real para validar el comportamiento del prompt
  * sin enviar mensajes reales a WhatsApp ni crear leads ficticios en la base de datos.

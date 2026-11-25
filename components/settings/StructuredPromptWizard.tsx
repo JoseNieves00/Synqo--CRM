@@ -143,6 +143,10 @@ export function StructuredPromptWizard({
   const [catalogPage, setCatalogPage] = useState(1);
   const ITEMS_PER_PAGE = 12;
 
+  // Estado para importar catálogo desde Excel (.xlsx) o CSV
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
+
   const filteredCatalogProducts = React.useMemo(() => {
     if (!catalogSearch.trim()) return groupedProducts;
     const q = catalogSearch.toLowerCase().trim();
@@ -568,6 +572,65 @@ export function StructuredPromptWizard({
     }
   };
 
+  const handleImportExcelFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setIsImportingExcel(true);
+    setFeedbackBanner({
+      type: 'success',
+      text: `Procesando archivo ${file.name} con IA...`,
+    });
+
+    try {
+      const fd = new FormData();
+      fd.append('kind', 'spreadsheet');
+      fd.append('file', file);
+
+      const res = await fetch('/api/settings/prompt-assistant/import', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.items || data.items.length === 0) {
+        throw new Error(data?.error || 'No se encontraron filas válidas en el archivo Excel.');
+      }
+
+      // Convertir items importados a entradas de catálogo
+      const newItems: GalleryPhotoItem[] = data.items.map((item: any, idx: number) => ({
+        id: `imported-${Date.now()}-${idx}`,
+        url: item.matchedPhotoUrl || 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80',
+        name: item.name,
+        price: item.price || '',
+        description: item.specs || item.includes || '',
+        isAvailable: true,
+        keywords: item.variants ? [item.variants] : [],
+        productName: item.name,
+      }));
+
+      const mergedGallery = [...gallery, ...newItems];
+      setGallery(mergedGallery);
+      const { compiled } = compileAndPropagate(textPrompt, mergedGallery);
+      await saveProductGallery(mergedGallery, compiled);
+
+      setFeedbackBanner({
+        type: 'success',
+        text: `¡Éxito! Se importaron y sincronizaron ${newItems.length} productos desde Excel.`,
+      });
+      setTimeout(() => setFeedbackBanner(null), 6000);
+    } catch (err: any) {
+      setFeedbackBanner({
+        type: 'error',
+        text: err?.message || 'Error importando productos desde Excel.',
+      });
+      setTimeout(() => setFeedbackBanner(null), 6000);
+    } finally {
+      setIsImportingExcel(false);
+    }
+  };
+
   const handleDeletePhoto = async (id: string, name: string) => {
     if (!window.confirm(`¿Estás seguro de que deseas eliminar la foto de "${name}" del catálogo?`)) {
       return;
@@ -812,7 +875,29 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+            <input
+              ref={excelFileInputRef}
+              type="file"
+              accept=".xlsx,.csv"
+              onChange={handleImportExcelFile}
+              className="hidden"
+            />
+            <button
+              type="button"
+              disabled={isImportingExcel}
+              onClick={() => excelFileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
+              title="Importar lista de productos desde archivo Excel (.xlsx o .csv)"
+            >
+              {isImportingExcel ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0052FF]" />
+              ) : (
+                <Upload className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <span>{isImportingExcel ? 'Importando...' : 'Importar Excel'}</span>
+            </button>
+
             {groupedProducts.length > 0 && (
               <button
                 type="button"

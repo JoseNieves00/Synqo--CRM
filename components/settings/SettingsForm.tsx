@@ -43,6 +43,8 @@ import {
   RefreshCw,
   FileText,
   Plus,
+  Building2,
+  AlertTriangle,
   Pencil,
   Trash2,
   Save,
@@ -155,6 +157,9 @@ interface SettingsFormProps {
     googleCalendarId?: string;
     googleCalendarSyncEnabled?: boolean;
     googleCalendarBlockBusy?: boolean;
+    attendanceModality?: 'in_person' | 'virtual' | 'both';
+    physicalAddress?: string;
+    virtualMeetingUrl?: string;
     instagramAccountId?: string;
     hasInstagramToken?: boolean;
     whatsappProvider?: 'meta' | 'evolution';
@@ -336,6 +341,15 @@ export function SettingsForm({
   const [showManualGoogle, setShowManualGoogle] = useState(false);
   const [gcalFeedback, setGcalFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Modalidad de Atención y Sede (Universal: Productos, Servicios e Híbridos)
+  const [attendanceModality, setAttendanceModality] = useState<'in_person' | 'virtual' | 'both'>(
+    initialData.attendanceModality || 'both'
+  );
+  const [physicalAddressInput, setPhysicalAddressInput] = useState(initialData.physicalAddress || '');
+  const [virtualMeetingUrlInput, setVirtualMeetingUrlInput] = useState(initialData.virtualMeetingUrl || '');
+  const [savingModality, setSavingModality] = useState(false);
+  const [modalityFeedback, setModalityFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
   // Instagram Direct state
   const [igAccountId, setIgAccountId] = useState(initialData.instagramAccountId || '');
   const [igToken, setIgToken] = useState('');
@@ -437,6 +451,34 @@ export function SettingsForm({
       setGcalFeedback({ success: false, message: err?.message || 'Error al desconectar.' });
     } finally {
       setDisconnectingGcal(false);
+    }
+  };
+
+  const handleSaveAttendanceModality = async () => {
+    setSavingModality(true);
+    setModalityFeedback(null);
+    try {
+      const { saveAttendanceModalitySettings } = await import('@/app/actions/settings');
+      const res = await saveAttendanceModalitySettings({
+        modality: attendanceModality,
+        physicalAddress: physicalAddressInput,
+        virtualMeetingUrl: virtualMeetingUrlInput,
+      });
+      if (res.success) {
+        setModalityFeedback({
+          success: true,
+          message: 'Modalidad de atención guardada y sincronizada con la IA.',
+        });
+      } else {
+        setModalityFeedback({
+          success: false,
+          message: res.error || 'No se pudo guardar la modalidad.',
+        });
+      }
+    } catch (err: any) {
+      setModalityFeedback({ success: false, message: err?.message || 'Error al guardar.' });
+    } finally {
+      setSavingModality(false);
     }
   };
 
@@ -2338,6 +2380,137 @@ export function SettingsForm({
                 )}
               </div>
             )}
+
+            {/* Modalidad de Atención y Sede (Universal: Productos, Servicios o Híbridos) */}
+            <div className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs">
+              <button
+                type="button"
+                onClick={() => toggleSection('modality')}
+                className="w-full p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50/50 dark:hover:bg-[#1A1F2C]/30 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2.5 bg-blue-50 dark:bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] border border-blue-200 dark:border-blue-500/20 rounded-xl shrink-0">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                        Modalidad de Atención y Sede
+                      </h2>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/30">
+                        {attendanceModality === 'in_person' ? 'Presencial' : attendanceModality === 'virtual' ? '100% Virtual' : 'Presencial y Virtual'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      Define cómo atiende tu negocio para que la IA informe la sede correcta o enlace virtual
+                    </p>
+                  </div>
+                </div>
+
+                <div className="shrink-0 ml-3">
+                  <div className={`p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${openSections.has('modality') ? 'rotate-180' : ''}`}>
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </button>
+
+              {openSections.has('modality') && (
+                <div className="p-4 sm:p-6 border-t border-slate-100 dark:border-[#232A3B] space-y-5 animate-in fade-in duration-150">
+                  {modalityFeedback && (
+                    <div
+                      className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                        modalityFeedback.success
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                      }`}
+                    >
+                      {modalityFeedback.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                      <span>{modalityFeedback.message}</span>
+                    </div>
+                  )}
+
+                  {/* Selector de Modalidad */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Modalidad de Atención del Negocio
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {[
+                        { id: 'in_person', label: 'Presencial en Sede', desc: 'Atención en tienda física, local o consultorio' },
+                        { id: 'virtual', label: '100% Virtual', desc: 'Despachos a domicilio o videollamadas remotas' },
+                        { id: 'both', label: 'Presencial y Virtual', desc: 'El cliente puede elegir acudir a sede o atención remota' },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setAttendanceModality(item.id as any)}
+                          className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                            attendanceModality === item.id
+                              ? 'border-[#0052FF] bg-blue-50/50 dark:bg-blue-950/30 text-slate-900 dark:text-white ring-1 ring-[#0052FF]'
+                              : 'border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#090A0F] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
+                          }`}
+                        >
+                          <span className="text-xs font-bold block">{item.label}</span>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug block mt-0.5">
+                            {item.desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dirección de Sede (Visible si es Presencial o Ambos) */}
+                  {(attendanceModality === 'in_person' || attendanceModality === 'both') && (
+                    <div className="space-y-1.5 animate-in fade-in duration-150">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Dirección Oficial de la Sede / Tienda Física
+                      </label>
+                      <input
+                        type="text"
+                        value={physicalAddressInput}
+                        onChange={(e) => setPhysicalAddressInput(e.target.value)}
+                        placeholder="Ej: Carrera 15 # 85-30, consultorio 402, Bogotá"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
+                      />
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        La IA compartirá esta dirección exacta cuando el cliente pregunte por ubicación o agende cita presencial.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Enlace Virtual (Visible si es Virtual o Ambos) */}
+                  {(attendanceModality === 'virtual' || attendanceModality === 'both') && (
+                    <div className="space-y-1.5 animate-in fade-in duration-150">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Enlace Predeterminado de Videollamada (Meet / Zoom)
+                      </label>
+                      <input
+                        type="url"
+                        value={virtualMeetingUrlInput}
+                        onChange={(e) => setVirtualMeetingUrlInput(e.target.value)}
+                        placeholder="Ej: https://meet.google.com/abc-defg-hij"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0052FF]/20 focus:border-[#0052FF]"
+                      />
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Si conectas tu Google Calendar (arriba), la IA genera enlaces únicos automáticos por cita. Si no, usará esta sala fija.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveAttendanceModality}
+                      disabled={savingModality}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-950 hover:bg-slate-800 dark:hover:bg-slate-100 transition shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      <Save className={`w-4 h-4 ${savingModality ? 'animate-spin' : ''}`} />
+                      <span>{savingModality ? 'Guardando...' : 'Guardar Modalidad de Atención'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Meta Instagram Direct Messaging (Preparado para próxima actualización - oculto en MVP) */}
             {SHOW_INSTAGRAM_MVP && (

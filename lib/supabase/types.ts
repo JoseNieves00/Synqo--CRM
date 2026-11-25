@@ -56,6 +56,8 @@ export interface EnabledModules {
 
 export type AppointmentCostPolicy = 'free' | 'first_free' | 'deposit' | 'paid_on_site';
 
+export type AttendanceModality = 'in_person' | 'virtual' | 'both';
+
 export interface AppointmentSettings {
   arrival_tolerance_minutes: number;
   confirmation_window_hours: number;
@@ -71,6 +73,9 @@ export interface AppointmentSettings {
   follow_up_sequences?: any;
   stage_labels?: Record<string, string>;
   stage_criteria?: Record<string, string>;
+  attendance_modality?: AttendanceModality;
+  physical_address?: string | null;
+  virtual_meeting_url?: string | null;
 }
 
 export interface Database {

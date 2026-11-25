@@ -83,21 +83,36 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
   const rawPrompt = systemPrompt || organization?.system_prompt || '';
   const promptText = rawPrompt.toLowerCase();
   const structuredPrompt = organization?.structured_prompt_data || {};
+  const appointmentSettings = organization?.appointment_settings || {};
+  const explicitModality = appointmentSettings.attendance_modality;
+  const configuredAddress = typeof appointmentSettings.physical_address === 'string' && appointmentSettings.physical_address.trim().length > 0
+    ? appointmentSettings.physical_address.trim()
+    : null;
   
-  // 1. Sede Física y Dirección Extraída
+  // 1. Sede Física y Dirección Extraída (prioriza dirección oficial de settings si existe)
   const isPhysicalLocationNegated =
     /no\s+[^.!?\n]*(?:sede|tienda|local\s*f[ií]sica)|prohibido\s+[^.!?\n]*(?:sede|visita)/i.test(promptText);
-  const physicalAddress = isPhysicalLocationNegated ? null : extractPhysicalAddressFromPrompt(rawPrompt);
+  const physicalAddress = configuredAddress || (isPhysicalLocationNegated ? null : extractPhysicalAddressFromPrompt(rawPrompt));
   const hasPhysicalLocation =
-    !isPhysicalLocationNegated &&
-    (Boolean(physicalAddress) ||
-      /sede\s*f[ií]sica|tienda\s*f[ií]sica|local\s*comercial|estamos\s*ubicados|vis[ií]tanos|consultorio|cl[ií]nica/i.test(
-        promptText
-      ));
+    explicitModality === 'in_person' ||
+    explicitModality === 'both' ||
+    Boolean(configuredAddress) ||
+    (!isPhysicalLocationNegated &&
+      (Boolean(physicalAddress) ||
+        /sede\s*f[ií]sica|tienda\s*f[ií]sica|local\s*comercial|estamos\s*ubicados|vis[ií]tanos|consultorio|cl[ií]nica/i.test(
+          promptText
+        )));
 
   // 2. Modalidades de Atención (Virtual vs Presencial)
-  const allowsVirtual = /virtual|zoom|meet|videollamada|teleconsulta|en l[ií]nea|remot[ao]/i.test(promptText);
-  const allowsInPerson = hasPhysicalLocation || /presencial|en\s*sede|instalaciones/i.test(promptText);
+  const allowsVirtual =
+    explicitModality === 'virtual' ||
+    explicitModality === 'both' ||
+    /virtual|zoom|meet|videollamada|teleconsulta|en l[ií]nea|remot[ao]/i.test(promptText);
+  const allowsInPerson =
+    explicitModality === 'in_person' ||
+    explicitModality === 'both' ||
+    hasPhysicalLocation ||
+    /presencial|en\s*sede|instalaciones/i.test(promptText);
 
   // 3. Detección de Modelo de Negocio (Servicios, Productos o Híbrido)
   const hasCalendarModule = organization?.enabled_modules?.native_calendar !== false;
@@ -608,7 +623,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
             ? 'Asesoría Consultiva de Servicios & Agenda'
             : 'Orientación de Servicio y Consulta de Agenda',
           copilotDirective: hasConsultativeDoubt
-            ? `El cliente formuló una duda o consulta sobre el servicio. Responde primero con empatía y asesoría clara (máx 2 mensajes cortos); luego recomienda la sesión adecuada usando check_native_availability.`
+            ? `El cliente formuló una duda o consulta sobre el servicio. Divide tu respuesta en máximo 2 mensajes: Mensaje 1: asesoría breve y empática (máx 1-2 oraciones, ~25 palabras); Mensaje 2: recomienda la sesión y verifica horarios con check_native_availability.`
             : (isFree
                 ? 'Presenta el servicio con su gancho de valoración inicial sin costo y ofrece verificar horarios disponibles con check_native_availability.'
                 : 'Presenta el servicio con claridad y ofrece verificar horarios disponibles con check_native_availability.'),
@@ -634,7 +649,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           ? 'Asesoría Consultiva Prioritaria & Tarjeta Visual'
           : 'Atención Visual con Tarjeta y Micro-Avance',
         copilotDirective: hasConsultativeDoubt
-          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Divide tu respuesta en máximo 2 mensajes cortos (separados por doble salto): Mensaje 1: responde primero su duda con asesoría honesta; Mensaje 2: recomienda el modelo ideal con su gancho comercial y pregunta de avance. Envía send_product_card.'
+          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Divide tu respuesta en máximo 2 mensajes cortos (separados por doble salto): Mensaje 1: responde primero su duda con empatía genuina en 1-2 oraciones breves (máx 25-30 palabras); Mensaje 2: recomienda el modelo ideal con su gancho comercial y pregunta de avance. Envía send_product_card.'
           : 'Envía send_product_card con foto oficial y precio. En tu mensaje (máx 1-2 líneas), presenta el beneficio y haz una pregunta de micro-avance hacia el despacho.',
         prohibitedActions: [
           ...prohibitedBase,
