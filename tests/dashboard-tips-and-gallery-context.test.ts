@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import {
+  stripRedundantCatalogListAfterCards,
+  extractSentInformationSummary,
+} from '../lib/media/format';
 import { DashboardTipsService } from '../services/dashboard-tips.service';
 import { buildYesterdayWindow, DailySummaryService } from '../services/daily-summary.service';
 import { findGalleryProductMatch, type EnrichedGalleryItem } from '../lib/ai/product-gallery';
@@ -110,5 +114,42 @@ assert.equal(strongMatch?.id, 'img-sede', 'Debe encontrar la imagen cuando el co
 
 const ambiguousMatch = findGalleryProductMatch(galleryItems, 'hola info');
 assert.equal(ambiguousMatch, null, 'Debe rechazar consultas ambiguas para evitar imágenes en contextos erróneos');
+
+// 4. Regresión: evitar duplicar frases enviadas en el caption de la foto (incluso con abono/plan separe)
+const sentCaption = [
+  'Cocina pequeña · $350.000',
+  'Cocina pequeña de MDF, ideal para juegos. Medidas: 1,07 m alto × 52 cm ancho × 26 cm prof. Recuerda que puedes apartar tu favorita con plan separe dando un abono inicial y pagando el saldo a tu ritmo! ✨',
+].join('\n');
+const rawAiReply =
+  '¡Recuerda que puedes apartar tu favorita con plan separe dando un abono inicial y pagando el saldo a tu ritmo! ✨\n¿Para entrega en qué ciudad sería?';
+const dedupedReply = stripRedundantCatalogListAfterCards(rawAiReply, {
+  stripCardSpecs: true,
+  sentCaptions: [sentCaption],
+});
+assert.equal(
+  dedupedReply,
+  '¿Para entrega en qué ciudad sería?',
+  'Debe podar la frase repetida del caption aunque incluya abono/plan separe y conservar solo la pregunta nueva'
+);
+
+// 5. Memoria de Plan Separe (sin monto) y solicitud de datos de envío para evitar insistencia
+const summaryMemory = extractSentInformationSummary([
+  {
+    sender_type: 'ai',
+    content: 'Recuerda que puedes apartar tu favorita con plan separe dando un abono inicial.',
+  },
+  {
+    sender_type: 'ai',
+    content: 'Necesito tu nombre completo, dirección y teléfono para confirmar el envío.',
+  },
+]);
+assert.ok(
+  summaryMemory.some((s) => s.includes('Abono inicial / plan separe ya informado')),
+  'Debe registrar Plan Separe aunque no lleve monto en $'
+);
+assert.ok(
+  summaryMemory.some((s) => s.includes('Datos de envío/pedido ya solicitados')),
+  'Debe registrar que ya se pidieron datos de envío'
+);
 
 console.log('✅ dashboard-tips-and-gallery-context.test.ts passed');

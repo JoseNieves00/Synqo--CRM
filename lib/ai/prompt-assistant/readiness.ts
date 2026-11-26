@@ -120,7 +120,7 @@ const BEHAVIOR_SUGGESTIONS: Record<string, { title: string; text: string }> = {
   },
   'tono.estilo': {
     title: 'Tono de comunicación',
-    text: 'Comunícate con tono cercano y profesional, tuteando al cliente, en mensajes cortos de 2 a 4 líneas, con máximo 1 emoji por mensaje y sin tecnicismos innecesarios.',
+    text: 'Comunícate con tono cercano y profesional, tuteando al cliente, en mensajes balanceados de 160 a 360 caracteres (precisos y completos sin abrumar, tope 450 caracteres), con máximo 1 emoji por mensaje y sin tecnicismos innecesarios.',
   },
   'cierre.datos': {
     title: 'Datos para cerrar la venta',

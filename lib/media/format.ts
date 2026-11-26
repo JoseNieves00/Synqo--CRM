@@ -390,18 +390,102 @@ export function parseQuoteMessageContent(content: string | null | undefined): Pa
  * garantizando que el usuario reciba ÚNICAMENTE la pregunta de cierre o el mensaje
  * conversacional limpio sin duplicar información.
  */
+function normalizeComparisonText(raw: string): string {
+  return String(raw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitIntoComparableSentences(raw: string): string[] {
+  return String(raw || '')
+    .split(/(?<=[.?!])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function isSentenceDuplicatedInReferences(sentence: string, normalizedRefs: string[]): boolean {
+  const norm = normalizeComparisonText(sentence);
+  if (norm.length < 18) return false;
+
+  const wordsA = new Set(norm.split(' ').filter((w) => w.length >= 3));
+  for (const ref of normalizedRefs) {
+    if (!ref || ref.length < 18) continue;
+    if (norm === ref || ref.includes(norm) || norm.includes(ref)) {
+      return true;
+    }
+    if (wordsA.size >= 4) {
+      const wordsB = new Set(ref.split(' ').filter((w) => w.length >= 3));
+      if (wordsB.size >= 4) {
+        let intersection = 0;
+        for (const w of wordsA) {
+          if (wordsB.has(w)) intersection++;
+        }
+        const overlap = intersection / Math.min(wordsA.size, wordsB.size);
+        if (overlap >= 0.72) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Elimina de la respuesta de texto cualquier oración que ya fue enviada literalmente
+ * (o con >72% de coincidencia) dentro del caption de las fotos enviadas en este turno.
+ */
+export function stripDuplicateSentencesFromCaptions(
+  text: string,
+  captions: string[]
+): string {
+  if (!text || !Array.isArray(captions) || captions.length === 0) return text;
+  const normalizedRefs = captions
+    .flatMap((c) => splitIntoComparableSentences(c))
+    .map((s) => normalizeComparisonText(s))
+    .filter((s) => s.length >= 18);
+
+  if (normalizedRefs.length === 0) return text;
+
+  const paragraphs = text.split(/\n{2,}/);
+  const keptParagraphs = paragraphs
+    .map((para) => {
+      const lines = para.split('\n');
+      const keptLines = lines
+        .map((line) => {
+          const sentences = line.split(/(?<=[.?!])\s+/);
+          const kept = sentences.filter(
+            (s) => s.trim() && !isSentenceDuplicatedInReferences(s, normalizedRefs)
+          );
+          return kept.join(' ').trim();
+        })
+        .filter(Boolean);
+      return keptLines.join('\n').trim();
+    })
+    .filter(Boolean);
+
+  return keptParagraphs.join('\n\n').trim();
+}
+
 export function stripRedundantCatalogListAfterCards(
   text: string,
   options?: {
     allowRedundancy?: boolean;
     customFallbackQuestion?: string;
     stripCardSpecs?: boolean;
+    sentCaptions?: string[];
   }
 ): string {
   if (!text || typeof text !== 'string') return text;
   if (options?.allowRedundancy) return text;
 
-  const lines = text.split('\n');
+  const sourceText =
+    options?.sentCaptions && options.sentCaptions.length > 0
+      ? stripDuplicateSentencesFromCaptions(text, options.sentCaptions)
+      : text;
+
+  const lines = sourceText.split('\n');
   const cleanedLines: string[] = [];
 
   // Patrones que identifican listas numeradas o con viñetas
@@ -533,13 +617,28 @@ export function extractSentInformationSummary(
       }
     }
 
-    // 4. Abono inicial / plan separe ya informado
-    if (/(abono\s+inicial|plan\s+separe|para\s+apartar(?:la|lo)?|anticipo)/i.test(text)) {
+    // 4. Abono inicial / plan separe ya informado (con o sin monto explícito)
+    if (/(abono\s+inicial|plan\s+separe|apartar(?:la|lo)?\s+con|anticipo)/i.test(text)) {
       const amountMatch = text.match(/\$\s*[\d.,]+(?:\s*COP)?/i);
-      if (amountMatch && !seenItems.has('abono_inicial')) {
+      if (!seenItems.has('abono_inicial')) {
         seenItems.add('abono_inicial');
-        sentSummaries.push(`Abono inicial / plan separe ya informado (${amountMatch[0].trim()})`);
+        sentSummaries.push(
+          `Abono inicial / plan separe ya informado${amountMatch ? ` (${amountMatch[0].trim()})` : ''} — NO volver a repetirlo salvo que el cliente pregunte cómo apartar`
+        );
       }
+    }
+
+    // 4.5. Solicitud de datos de envío/pedido ya realizada
+    if (
+      /(nombre\s+completo|direcci[oó]n\s+y\s+tel[eé]fono|datos\s+para\s+(?:confirmar\s+el\s+env[ií]o|tu\s+pedido))/i.test(
+        text
+      ) &&
+      !seenItems.has('solicitud_datos_pedido')
+    ) {
+      seenItems.add('solicitud_datos_pedido');
+      sentSummaries.push(
+        'Datos de envío/pedido ya solicitados — NO volver a pedirlos ni presionar si el cliente aún no confirma'
+      );
     }
 
     // 5. Opciones de personalización o fabricación ya explicadas

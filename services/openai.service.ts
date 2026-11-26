@@ -861,8 +861,13 @@ export function buildDynamicContextBlock(params: {
     sentInformationSummary.length > 0
       ? `\n<memoria_interna_informacion_ya_enviada>\nInformación clave que la empresa YA entregó al cliente en este chat:\n${sentInformationSummary
           .map((s) => `- ${s}`)
-          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla (incluyendo tarjetas con foto/precio/medidas, abonos, personalización, cuentas y envíos). Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados por iniciativa propia, a menos que el cliente vuelva a pedirlos explícitamente. Tampoco uses frases meta-referenciales ("He enviado...", "Te envié...", "Aquí tienes la tarjeta..."). Habla con fluidez natural, avanzando la conversación hacia el siguiente paso sin redundancias.\n</memoria_interna_informacion_ya_enviada>`
+          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla (incluyendo tarjetas con foto/precio/medidas, abonos, plan separe, solicitud de datos, personalización, cuentas y envíos). Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados por iniciativa propia (especialmente Plan Separe, abonos o pedir datos de envío si ya se mencionaron), a menos que el cliente vuelva a pedirlos explícitamente. Tampoco uses frases meta-referenciales ("He enviado...", "Te envié...", "Aquí tienes la tarjeta...").\n</memoria_interna_informacion_ya_enviada>`
       : '';
+
+  const zeroInsistenceRule = `\n<regla_cero_insistencia>
+- Menciona el Plan Separe / abono inicial MÁXIMO UNA VEZ en la conversación, únicamente cuando ayude a destrabar una objeción de precio o el cliente pregunte cómo separar. Nunca lo repitas en cada mensaje.
+- Si el cliente dice frases de espera o confirmación posterior ("yo le confirmo", "estoy atenta", "te aviso", "luego te escribo", "déjame revisar/consultar"), NO presiones ni pidas datos de envío ni repitas el Plan Separe. Responde en UN solo mensaje breve y cálido quedando atento (ej: "¡Con mucho gusto! Quedo muy atento por aquí cuando me confirmes. 😊").
+</regla_cero_insistencia>`;
 
   const pipelineRules = `\n<etapas_pipeline_comercial>
 Regla de avance del embudo: Si en la conversación el cliente cumple la condición, ejecuta update_pipeline_stage(new_stage, reason):
@@ -929,7 +934,7 @@ Regla Estricta de Modalidad: ${modalityStrictRule}
 Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
 Carril de Intención Activo: ${copilotPrescription.intentTrack || 'general'}
 Táctica Prescrita por el Copiloto: ${copilotPrescription.tacticName}
-Regla de Oro de Respuesta: Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y en el mismo mensaje haz una pregunta corta para extraer el siguiente dato útil.
+Regla de Oro de Respuesta y Extensión: Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y haz una pregunta corta de avance. Mantén tus respuestas entre 160 y 360 caracteres (precisas y completas, sin quedarte demasiado corto ni abrumar con bloques largos; tope absoluto 450 caracteres salvo al entregar cuentas de pago o resumen de pedido).
 Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
 Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
 Prohibiciones Estrictas de este Turno:
@@ -947,7 +952,7 @@ Objetivo comercial actual: ${recAction.label}
 Directriz de cierre: ${recAction.playbookTip}
 ${summaryText ? `Resumen previo: ${summaryText}` : ''}
 ${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${pendingDraftBlock}${sentInfoBlock}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</perfil_lead>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${pendingDraftBlock}${sentInfoBlock}${zeroInsistenceRule}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
 </contexto_actual>`.trim();
 }
 
@@ -1512,6 +1517,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         ? AI_OPERATIONAL_CONFIG.extendedMaxToolRounds
         : AI_OPERATIONAL_CONFIG.maxToolRounds;
       const dispatchedUrlsThisTurn = new Set<string>();
+      const dispatchedCaptionsThisTurn: string[] = [];
       let finalResponseText = '';
       let activeRoundChain: AiChainEntry[] | undefined = undefined;
 
@@ -1653,6 +1659,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   }
 
                   dispatchedUrlsThisTurn.add(matched.url);
+                  if (caption) dispatchedCaptionsThisTurn.push(caption);
 
                   await (supabaseAdmin.from('messages') as any).insert({
                     contact_id: contactId,
@@ -1669,8 +1676,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     product: matched.name,
                     price: formatGalleryPrice(matched.price),
                     already_visible_in_card: true,
+                    caption_already_sent: caption,
                     message:
-                      'Tarjeta visual despachada a WhatsApp con foto oficial, precio y detalles. Si el cliente formuló una duda, contexto o inquietud (ej: estatura, medidas, edad, gusto, idoneidad o uso), DEBES RESPONDER PRIMERO a su inquietud con asesoría honesta, cercana y empática orientada al modelo ideal. PROHIBIDO escribir "[Foto oficial enviada]" y PROHIBIDO transcribir en bloque fichas técnicas mecánicas redundantes; concluye con una alternativa de micro-avance hacia la compra o apartado.',
+                      'Tarjeta visual despachada a WhatsApp con foto oficial, precio y detalles. PROHIBIDO repetir cualquier frase, precio, medida o recordatorio que ya aparece en caption_already_sent. Responde únicamente lo que falte por aclarar o cierra con una pregunta corta de avance.',
                   });
                 }
               }
@@ -1723,6 +1731,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 }
 
                 dispatchedUrlsThisTurn.add(validated.image_url.trim());
+                if (validated.caption) dispatchedCaptionsThisTurn.push(validated.caption);
 
                 await (supabaseAdmin.from('messages') as any).insert({
                   contact_id: contactId,
@@ -1736,8 +1745,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
                 toolResult = JSON.stringify({
                   status: 'sent',
+                  caption_already_sent: validated.caption || '',
                   message:
-                    'Foto despachada con éxito. No incluyas URLs ni markdown en tu respuesta de texto.',
+                    'Foto despachada con éxito. No incluyas URLs ni markdown y NO repitas ninguna frase que ya enviaste en caption_already_sent.',
                 });
               }
             } else if (functionName === 'update_lead_profile') {
@@ -2782,10 +2792,11 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           .replace(/\[(?:Foto oficial enviada|Imagen enviada)\]:?\s*/gi, '')
           .trim();
 
-        // 2. Si se despacharon fotos en este turno o en turnos recientes, podar listas y atributos repetitivos
+        // 2. Si se despacharon fotos en este turno o en turnos recientes, podar listas, atributos y frases ya incluidas en el caption
         if (dispatchedUrlsThisTurn.size > 0 || sentInformationSummary.length > 0) {
           finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText, {
             stripCardSpecs: dispatchedUrlsThisTurn.size > 0,
+            sentCaptions: dispatchedCaptionsThisTurn,
           });
 
           // Si el texto resultante empieza repitiendo líneas de descripción de producto o medidas
@@ -2999,7 +3010,7 @@ Reglas obligatorias:
           } o si te ayudo a confirmarlo hoy 😊`);
 
     try {
-      const prompt = `Genera UN mensaje corto y natural por WhatsApp (máximo 2-3 líneas, tuteando, tono humano) para recontactar automáticamente a este cliente por inactividad.
+      const prompt = `Genera UN mensaje corto y natural por WhatsApp (entre 120 y 260 caracteres, tuteando, tono humano) para recontactar automáticamente a este cliente por inactividad.
 
 CRITERIO CLAVE DE PERSONALIZACIÓN Y NECESIDAD REAL:
 - Analiza la necesidad específica y duda concreta del cliente a partir de los últimos mensajes (prenda puntual, talla, modelo, costo de envío a su ciudad, medio de pago o reserva).

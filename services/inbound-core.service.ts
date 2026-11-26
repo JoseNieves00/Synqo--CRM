@@ -971,7 +971,7 @@ export class InboundCoreService {
         }
       }
 
-      // 🛡️ LOCK ATÓMICO POR CONTACTO (Pilar 4.1.3): Evitar concurrencia y no descartar mensajes que llegan en paralelo
+      // 🛡️ LOCK ATÓMICO POR CONTACTO (Pilar 4.1.3): Evitar concurrencia y respuestas duplicadas en ráfagas
       workerId = crypto.randomUUID();
       let hasLock = await this.acquireAiLock(contactId, workerId, 60);
       for (let retry = 0; !hasLock && retry < 2; retry++) {
@@ -993,6 +993,20 @@ export class InboundCoreService {
       if (!hasLock) {
         console.log(`[INBOUND CORE LOCK] Contacto ${contactId} ocupado; se preserva espera abierta para el mensaje.`);
         return;
+      }
+
+      // Re-verificar post-lock si otro worker respondió mientras esperábamos el lock
+      if (latestMsg) {
+        const { data: postLockOutbound } = await (supabaseAdmin.from('messages') as any)
+          .select('id')
+          .eq('contact_id', contactId)
+          .in('sender_type', ['ai', 'agent_manual'])
+          .gte('created_at', latestMsg.created_at)
+          .limit(1)
+          .maybeSingle();
+        if (postLockOutbound) {
+          return;
+        }
       }
 
       // Re-verificar si un asesor humano intervino o pausó la IA durante la espera

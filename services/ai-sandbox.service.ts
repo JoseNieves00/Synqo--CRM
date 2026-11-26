@@ -338,6 +338,7 @@ export class AiSandboxService {
       if (trace.productCardsSent.length > 0 || sentInformationSummary.length > 0) {
         trace.reply = stripRedundantCatalogListAfterCards(trace.reply, {
           stripCardSpecs: trace.productCardsSent.length > 0,
+          sentCaptions: trace.productCardsSent.map((c) => c.caption).filter(Boolean),
         });
 
         const lines = trace.reply.split('\n');

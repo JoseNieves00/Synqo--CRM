@@ -497,14 +497,14 @@ export class EvolutionService {
     const cleanTo = this.formatRecipient(to);
     const url = `${baseUrl}/message/sendText/${cleanInstance}`;
 
-    let delayMs = 1000;
+    let delayMs = 300;
     if (simulateTyping) {
       const cadence = calculateHumanCadence(message);
-      delayMs = cadence.delayTypingSeconds * 1000;
+      delayMs = Math.min(cadence.delayTypingSeconds * 1000, 900);
 
-      // Pausa de lectura biológica estimada
+      // Micro-pausa humana acotada para no generar desfase en el CRM
       if (cadence.readingDelayMs > 0) {
-        await sleep(Math.min(cadence.readingDelayMs, 2500));
+        await sleep(Math.min(cadence.readingDelayMs, 400));
       }
     }
 

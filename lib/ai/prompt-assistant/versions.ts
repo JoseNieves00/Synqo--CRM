@@ -683,10 +683,36 @@ export function buildCompactPromptOutline(prompt: string, maxChars = 1400): stri
 }
 
 /**
- * Elimina líneas/viñetas duplicadas exactas y exceso de saltos en TypeScript (0 tokens).
+ * Elimina automáticamente líneas meta/técnicas que ya controla el System Prompt de Synqo
+ * o que lo contradicen (límites de líneas/caracteres, nombres de tools, órdenes de insistencia),
+ * preservando SIEMPRE datos reales de productos, precios, medidas, cuentas, envíos y horarios.
+ */
+export function stripSystemRedundantPromptLines(promptBody: string): string {
+  const lines = String(promptBody || '').split('\n');
+  const redundantPatterns: RegExp[] = [
+    /^[-*•]?\s*(?:regla\s+de\s+oro\s*:?\s*)?(?:m[aá]ximo\s*\d+\s*l[ií]neas|cada\s+mensaje\s+tuyo\s+debe\s+tener\s+como\s+m[aá]ximo|menos\s+de\s+\d+\s+caracteres|cero\s+textos\s+largos)/i,
+    /^[-*•]?\s*ritmo\s+en\s+whatsapp\s*\(m[aá]ximo\s+2\s+mensajes\)/i,
+    /^[-*•]?\s*(?:cero\s+preguntas\s+de\s+permiso|precio\s+en\s+la\s+tarjeta\s+visual|cero\s+alucinaci[oó]n\s+de\s+precios|prohibido\s+desviar\s+a\s+un\s+asesor)\b/i,
+    /\b(?:send_product_card|request_human_handoff|check_native_availability|book_native_appointment)\b/i,
+    /^[-*•]?\s*gancho\s+comercial\s+obligatorio\b.*(?:cada\s+vez\s+que|en\s+cada\s+mensaje)/i,
+  ];
+
+  const out: string[] = [];
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (trimmed && redundantPatterns.some((p) => p.test(trimmed))) {
+      continue;
+    }
+    out.push(rawLine);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Elimina líneas/viñetas duplicadas exactas, redundancias de sistema y exceso de saltos en TypeScript (0 tokens).
  */
 export function dedupePromptLinesDeterministically(promptBody: string): string {
-  const lines = String(promptBody || '').split('\n');
+  const lines = stripSystemRedundantPromptLines(promptBody).split('\n');
   const seenNonEmpty = new Set<string>();
   const out: string[] = [];
 

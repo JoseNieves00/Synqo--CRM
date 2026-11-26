@@ -13,7 +13,7 @@ let isSyncingDelta = false;
  * bandejas con tráfico continuo; además se evita solapar peticiones y consultar con la
  * pestaña oculta (se refresca al volver vía performDeltaSync).
  */
-const COUNTS_MIN_INTERVAL_MS = 4000;
+const COUNTS_MIN_INTERVAL_MS = 1200;
 let lastCountsRefreshAt = 0;
 let countsRequestInFlight = false;
 let countsRefreshPending = false;
@@ -171,9 +171,13 @@ export function initSyncEngine(supabase: any, organizationId: string) {
         if (!belongsToOrg) return;
 
         if (payload.eventType === 'UPDATE') {
-          currentStore.updateMessageStatus(msg.id, msg.contact_id, msg.status || 'sent', msg.meta_message_id);
-          if (msg.reactions !== undefined) {
-            currentStore.updateMessageReaction(msg.id, msg.contact_id, msg.reactions);
+          if (msg.content !== undefined) {
+            currentStore.upsertMessage(msg);
+          } else {
+            currentStore.updateMessageStatus(msg.id, msg.contact_id, msg.status || 'sent', msg.meta_message_id);
+            if (msg.reactions !== undefined) {
+              currentStore.updateMessageReaction(msg.id, msg.contact_id, msg.reactions);
+            }
           }
           return;
         }

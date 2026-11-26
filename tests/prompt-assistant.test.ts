@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import { filterSuggestionsByContext } from '../lib/ai/prompt-assistant/contextual-tips';
 import fs from 'node:fs';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
@@ -380,7 +381,48 @@ async function runPromptAssistantTests() {
   assert.ok(outline.length <= 700, 'Esquema compacto debe respetar presupuesto estricto de caracteres');
   assert.ok(outline.includes('# RUTA DE CIERRE AGIL:'), 'Esquema compacto debe conservar títulos clave');
 
-  console.log('   ✅ Adaptador de formato nativo, cero duplicados, validación cruzada, cupo semanal y ahorro de tokens verificados.\n');
+  const filteredTips = filterSuggestionsByContext(
+    [
+      {
+        id: 't1',
+        category: 'nicho',
+        categoryLabel: 'Tip',
+        badge: '📅 Citas',
+        title: 'Agendar cita en Google Meet',
+        description: 'Propón dos horarios de cita.',
+        instructionToApply: 'Agenda cita por Google Meet.',
+        sectionTarget: 'cierre',
+      },
+      {
+        id: 't2',
+        category: 'objeciones',
+        categoryLabel: 'Tip',
+        badge: '🛡️ Abono',
+        title: 'Ofrecer abono inicial',
+        description: 'Permite separar con anticipo.',
+        instructionToApply: 'Ofrece abono del 50%.',
+        sectionTarget: 'politicas',
+      },
+      {
+        id: 't3',
+        category: 'anti_friccion',
+        categoryLabel: 'Tip',
+        badge: '📦 Envíos',
+        title: 'Aclarar tiempos de envío',
+        description: 'Explica despacho en 24-48h.',
+        instructionToApply: 'Indica tiempos de entrega.',
+        sectionTarget: 'politicas',
+      },
+    ],
+    {
+      preset: 'products',
+      currentPrompt: 'Aceptamos abono inicial del 50% para separar pedidos.',
+    }
+  );
+  assert.strictEqual(filteredTips.length, 1, 'Debe filtrar citas en products y abono ya existente');
+  assert.strictEqual(filteredTips[0]?.id, 't3');
+
+  console.log('   ✅ Adaptador de formato nativo, cero duplicados, filtro contextual y ahorro de tokens verificados.\n');
 }
 
 runPromptAssistantTests().catch((err) => {

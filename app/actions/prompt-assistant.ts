@@ -51,9 +51,9 @@ import {
 import { searchAssistantGuide } from '@/lib/ai/prompt-assistant/guide';
 import { ConversationAuditService } from '@/lib/ai/prompt-assistant/conversation-audit';
 import {
-  getSmartCommercialSuggestions,
   type SmartSuggestionItem,
 } from '@/lib/ai/prompt-assistant/smart-suggestions';
+import { buildContextualAssistantTips } from '@/lib/ai/prompt-assistant/contextual-tips';
 import {
   matchImportedItemsWithGallery,
   sanitizeImportedText,
@@ -203,6 +203,112 @@ function stripJsonFence(raw: string): string {
     .trim();
 }
 
+async function resolveContextualTipsForOrg(params: {
+  org: any;
+  structured: Record<string, any>;
+  activePrompt: string;
+  forceRefresh?: boolean;
+}): Promise<SmartSuggestionItem[]> {
+  const { org, structured, activePrompt, forceRefresh } = params;
+  const body = splitGalleryTail(activePrompt).body.trim();
+  const promptHash = crypto.createHash('sha1').update(body).digest('hex').slice(0, 12);
+  const today = new Date().toISOString().slice(0, 10);
+  const cache = structured.assistant_tips_cache;
+
+  if (
+    !forceRefresh &&
+    cache?.date === today &&
+    cache?.promptHash === promptHash &&
+    Array.isArray(cache?.tips) &&
+    cache.tips.length > 0
+  ) {
+    return cache.tips as SmartSuggestionItem[];
+  }
+
+  const preset = (org.industry_preset || 'custom') as IndustryPreset;
+  const galleryList = Array.isArray(structured.gallery) ? structured.gallery : [];
+  const galleryMissingContextCount = galleryList.filter(
+    (g: any) => !String(g?.contextRule || g?.description || '').trim()
+  ).length;
+  const followUpSeq = org.appointment_settings?.follow_up_sequences;
+  const activeFollowUpCount = Object.values(followUpSeq?.sequences || {}).filter(
+    (cat: any) => cat?.enabled && Array.isArray(cat?.steps) && cat.steps.length > 0
+  ).length;
+
+  const [gapsRes, handoffsRes] = await Promise.all([
+    (supabaseAdmin.from('knowledge_gaps') as any)
+      .select('question')
+      .eq('organization_id', org.id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(5),
+    (supabaseAdmin.from('contacts') as any)
+      .select('handoff_reason')
+      .eq('organization_id', org.id)
+      .not('handoff_reason', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(5),
+  ]);
+
+  const pendingGaps = (gapsRes?.data || [])
+    .map((r: any) => String(r?.question || '').trim())
+    .filter(Boolean);
+  const recentHandoffReasons = (handoffsRes?.data || [])
+    .map((r: any) => String(r?.handoff_reason || '').trim())
+    .filter(Boolean);
+
+  const { tips, engine } = await buildContextualAssistantTips({
+    orgName: org.name || 'Tu negocio',
+    preset,
+    currentPrompt: body,
+    galleryCount: galleryList.length,
+    galleryMissingContextCount,
+    followUpEnabled: Boolean(followUpSeq?.enabled),
+    activeFollowUpCount,
+    pendingGaps,
+    recentHandoffReasons,
+    hasPaymentAccounts:
+      Array.isArray(org.appointment_settings?.payment_accounts) &&
+      org.appointment_settings.payment_accounts.length > 0,
+    hasBusinessHours: Boolean(
+      org.business_hours && Object.keys(org.business_hours || {}).length > 0
+    ),
+  });
+
+  await (supabaseAdmin.from('organizations') as any)
+    .update({
+      structured_prompt_data: {
+        ...structured,
+        assistant_tips_cache: {
+          date: today,
+          promptHash,
+          engine,
+          tips,
+        },
+      },
+    })
+    .eq('id', org.id)
+    .catch(() => {});
+
+  return tips;
+}
+
+export async function refreshContextualTipsAction(params?: { currentPrompt?: string }) {
+  const { org } = await getAuthorizedOrgForAssistant();
+  const structured =
+    org.structured_prompt_data && typeof org.structured_prompt_data === 'object'
+      ? org.structured_prompt_data
+      : {};
+  const activePrompt = params?.currentPrompt ?? org.system_prompt ?? '';
+  const tips = await resolveContextualTipsForOrg({
+    org,
+    structured,
+    activePrompt,
+    forceRefresh: true,
+  });
+  return { smartSuggestions: tips };
+}
+
 export async function getPromptAssistantBootstrapAction(params?: { currentPrompt?: string }) {
   const { org } = await getAuthorizedOrgForAssistant();
   const structured =
@@ -249,10 +355,10 @@ export async function getPromptAssistantBootstrapAction(params?: { currentPrompt
   const behaviorContract: BehaviorContract = buildBehaviorContract(activePrompt, galleryList);
   const behaviorProposals = buildMissingBehaviorProposals(activePrompt, galleryList);
 
-  const smartSuggestions: SmartSuggestionItem[] = getSmartCommercialSuggestions({
-    preset,
-    currentPrompt: activePrompt,
-    hasCatalog: Boolean(structured.catalog?.length || structured.gallery?.length),
+  const smartSuggestions: SmartSuggestionItem[] = await resolveContextualTipsForOrg({
+    org,
+    structured,
+    activePrompt,
   });
 
   return {
@@ -1004,12 +1110,16 @@ export async function polishPromptDraftAction(input: { currentPrompt: string; pr
     messages: [
       {
         role: 'system',
-        content: `Simplifica y unifica este prompt comercial para lograr el MISMO comportamiento con menos tokens y cero redundancias.
+        content: `Simplifica y depura este prompt comercial para lograr el MISMO comportamiento con menos tokens, cero redundancias y cero contradicciones con el motor del sistema.
 REGLAS ESTRICTAS:
 1. ADÁPTATE al formato actual del cliente (${formatProfile.styleDescription}): NO impongas encabezados diferentes si el cliente ya tiene su propio estilo claro.
-2. FUSIONA y ELIMINA reglas repetidas, redundancias, párrafos duplicados o instrucciones genéricas obvias (como "no inventes precios") manteniendo exactamente el mismo efecto comercial.
-3. REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, variante, ciudad, número de cuenta, tiempo de envío, garantía ni ninguna regla operativa o ruta de cierre específica del cliente.
-4. Devuelve únicamente el texto final limpio sin comentarios introductorios.`,
+2. ELIMINA instrucciones que YA maneja automáticamente el System Prompt de Synqo o que lo contradicen:
+   - Reglas de longitud/líneas ("máximo 2-4 líneas", "respuestas de X caracteres") → ya las controla el sistema (160–360 caracteres).
+   - Reglas técnicas de formato o herramientas ("no uses markdown", "no inventes URLs/precios", "no repitas el caption de la foto", nombres de herramientas internas).
+   - Reglas de insistencia excesiva ("menciona Plan Separe en cada mensaje", "pide datos de envío en todas las respuestas", "insiste hasta cerrar") → contradicen la regla anti-insistencia del sistema. (Conserva el dato real de qué es el Plan Separe o cuánto es el abono, solo quita la orden de repetirlo en cada mensaje).
+3. FUSIONA y ELIMINA líneas repetidas o párrafos duplicados.
+4. REGLA SAGRADA: NO elimines ni alteres ningún precio, producto, medida, variante, ciudad, número de cuenta, tiempo de envío, garantía ni condición comercial real del negocio.
+5. Devuelve únicamente el texto final limpio sin comentarios introductorios.`,
       },
       { role: 'user', content: dedupedBody.slice(0, 5800) },
     ],

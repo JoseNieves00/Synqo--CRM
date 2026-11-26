@@ -268,75 +268,71 @@ export async function POST(request: NextRequest) {
       msgObj.buttonsResponseMessage?.selectedDisplayText ||
       '';
 
+    let pendingMediaJob: (() => Promise<string | null>) | null = null;
     if (!rawText) {
       const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
       if (msgObj.imageMessage) {
         const caption = (msgObj.imageMessage.caption || '').trim();
-        let imageUrl: string | null = null;
-        try {
-          const media = await EvolutionService.getBase64Media({
-            apiUrl: organization.evolution_api_url,
-            apiKey: finalApiKey,
-            instanceName: cleanInstance,
-            messageId,
-          });
-          if (media?.base64) {
-            imageUrl = await uploadIncomingChatMedia({
-              buffer: Buffer.from(media.base64, 'base64'),
-              mimeType: media.mimetype || 'image/jpeg',
-              organizationId: orgId,
-              contactId: leadPhone || 'mobile-outbound',
-            });
-          }
-        } catch {}
-        rawText = imageUrl
-          ? formatImageMessageContent(imageUrl, caption)
-          : caption
-          ? `📷 [Foto]: ${caption}`
-          : '📷 [Foto enviada]';
-      } else if (msgObj.audioMessage) {
-        let audioBuffer: Buffer | null = null;
-        let audioMime = msgObj.audioMessage.mimetype || 'audio/ogg; codecs=opus';
-        try {
-          if (messageData.base64) audioBuffer = Buffer.from(messageData.base64, 'base64');
-          else if (msgObj.audioMessage.base64) audioBuffer = Buffer.from(msgObj.audioMessage.base64, 'base64');
-          else {
-            const media = await EvolutionService.getBase64Audio({
+        rawText = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto enviada]';
+        pendingMediaJob = async () => {
+          try {
+            const media = await EvolutionService.getBase64Media({
               apiUrl: organization.evolution_api_url,
               apiKey: finalApiKey,
               instanceName: cleanInstance,
               messageId,
-              messagePayload: messageData,
             });
             if (media?.base64) {
-              audioBuffer = Buffer.from(media.base64, 'base64');
-              audioMime = media.mimetype || audioMime;
+              const imageUrl = await uploadIncomingChatMedia({
+                buffer: Buffer.from(media.base64, 'base64'),
+                mimeType: media.mimetype || 'image/jpeg',
+                organizationId: orgId,
+                contactId: leadPhone || 'mobile-outbound',
+              });
+              if (imageUrl) return formatImageMessageContent(imageUrl, caption);
             }
-          }
-        } catch {}
-        let audioUrl: string | null = null;
-        let transcription = '';
-        if (audioBuffer) {
+          } catch {}
+          return null;
+        };
+      } else if (msgObj.audioMessage) {
+        rawText = '🎤 [Nota de voz enviada]';
+        pendingMediaJob = async () => {
+          let audioBuffer: Buffer | null = null;
+          let audioMime = msgObj.audioMessage.mimetype || 'audio/ogg; codecs=opus';
           try {
-            audioUrl = await uploadIncomingChatMedia({
+            if (messageData.base64) audioBuffer = Buffer.from(messageData.base64, 'base64');
+            else if (msgObj.audioMessage.base64) audioBuffer = Buffer.from(msgObj.audioMessage.base64, 'base64');
+            else {
+              const media = await EvolutionService.getBase64Audio({
+                apiUrl: organization.evolution_api_url,
+                apiKey: finalApiKey,
+                instanceName: cleanInstance,
+                messageId,
+                messagePayload: messageData,
+              });
+              if (media?.base64) {
+                audioBuffer = Buffer.from(media.base64, 'base64');
+                audioMime = media.mimetype || audioMime;
+              }
+            }
+          } catch {}
+          if (!audioBuffer) return null;
+          const [audioUrl, transcription] = await Promise.all([
+            uploadIncomingChatMedia({
               buffer: audioBuffer,
               mimeType: audioMime,
               organizationId: orgId,
               contactId: leadPhone || 'mobile-outbound',
-            });
-          } catch {}
-          try {
-            transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime, {
+            }).catch(() => null),
+            OpenAIService.transcribeAudio(audioBuffer, audioMime, {
               organizationId: orgId,
               contactId: leadPhone || undefined,
-            });
-          } catch {}
-        }
-        rawText = audioUrl
-          ? formatAudioMessageContent(audioUrl, transcription || undefined)
-          : transcription
-          ? `🎤 [Nota de voz]: "${transcription}"`
-          : '🎤 [Nota de voz enviada]';
+            }).catch(() => ''),
+          ]);
+          if (audioUrl) return formatAudioMessageContent(audioUrl, transcription || undefined);
+          if (transcription) return `🎤 [Nota de voz]: "${transcription}"`;
+          return null;
+        };
       } else if (msgObj.videoMessage) {
         rawText = msgObj.videoMessage.caption ? `📹 [Video]: ${msgObj.videoMessage.caption}` : '📹 [Video enviado]';
       } else if (msgObj.documentMessage) {
@@ -362,6 +358,18 @@ export async function POST(request: NextRequest) {
       rawContent: typeof rawText === 'string' ? rawText : JSON.stringify(rawText),
     });
 
+    if (pendingMediaJob && res.messageId) {
+      const msgRowId = res.messageId;
+      waitUntil(
+        pendingMediaJob().then(async (resolvedContent) => {
+          if (!resolvedContent) return;
+          await (supabaseAdmin.from('messages') as any)
+            .update({ content: resolvedContent })
+            .eq('id', msgRowId);
+        })
+      );
+    }
+
     return NextResponse.json({ status: res.status, contactId: res.contactId, messageId: res.messageId }, { status: 200 });
   }
 
@@ -372,21 +380,23 @@ export async function POST(request: NextRequest) {
     console.warn(`[RATE LIMIT EXCEEDED] Remitente ${leadPhone} excedió el límite de mensajes. Se guardará sin invocar a la IA.`);
   }
 
-  // 7. Extracción Robusta de Contenido del Mensaje
+  // 7. Extracción Rápida de Contenido (Instant-Insert; media/thumbnails pesados se hidratan en waitUntil)
   const msgObj = messageData.message || {};
   let rawContent = '';
+  let pendingInboundMediaJob: (() => Promise<string | null>) | null = null;
+  const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
 
   if (typeof msgObj.conversation === 'string' && msgObj.conversation.trim()) {
     const convText = msgObj.conversation.trim();
+    rawContent = convText;
     if (/https?:\/\//i.test(convText)) {
-      rawContent = await resolveInboundThumbnailMessage({
-        organizationId: orgId,
-        contactKey: leadPhone || 'incoming',
-        text: convText,
-        labelPrefix: 'Enlace compartido',
-      });
-    } else {
-      rawContent = convText;
+      pendingInboundMediaJob = async () =>
+        resolveInboundThumbnailMessage({
+          organizationId: orgId,
+          contactKey: leadPhone || 'incoming',
+          text: convText,
+          labelPrefix: 'Enlace compartido',
+        }).catch(() => null);
     }
   } else if (msgObj.extendedTextMessage) {
     const text = (msgObj.extendedTextMessage.text || '').trim();
@@ -406,153 +416,123 @@ export async function POST(request: NextRequest) {
         : '';
     const sourceUrl = (adReply?.sourceUrl || msgObj.extendedTextMessage.matchedText || '').trim();
 
+    rawContent = text || (adTitle ? `📌 ${adTitle}` : 'Enlace compartido');
     if (adTitle || adBody || adThumbnail || adThumbnailB64 || sourceUrl || /https?:\/\//i.test(text)) {
-      rawContent = await resolveInboundThumbnailMessage({
-        organizationId: orgId,
-        contactKey: leadPhone || 'incoming',
-        text,
-        labelPrefix: 'Publicación/Anuncio compartido',
-        title: adTitle,
-        body: adBody,
-        thumbnailUrl: adThumbnail,
-        thumbnailBase64: adThumbnailB64,
-        sourceUrl,
-      });
-    } else {
-      rawContent = text;
+      pendingInboundMediaJob = async () =>
+        resolveInboundThumbnailMessage({
+          organizationId: orgId,
+          contactKey: leadPhone || 'incoming',
+          text,
+          labelPrefix: 'Publicación/Anuncio compartido',
+          title: adTitle,
+          body: adBody,
+          thumbnailUrl: adThumbnail,
+          thumbnailBase64: adThumbnailB64,
+          sourceUrl,
+        }).catch(() => null);
     }
   } else if (msgObj.buttonsResponseMessage?.selectedButtonId) {
     rawContent = msgObj.buttonsResponseMessage.selectedButtonId.trim();
   } else if (msgObj.listResponseMessage?.singleSelectReply?.selectedRowId) {
     rawContent = msgObj.listResponseMessage.singleSelectReply.selectedRowId.trim();
   } else if (msgObj.audioMessage) {
-    // 🎙️ Nota de voz entrante vía Evolution API -> Transcripción con OpenAI Whisper y almacenamiento de audio
-    try {
-      let audioBuffer: Buffer | null = null;
-      let audioMime = msgObj.audioMessage.mimetype || 'audio/ogg; codecs=opus';
+    rawContent = '🎤 [Procesando nota de voz...]';
+    pendingInboundMediaJob = async () => {
+      try {
+        let audioBuffer: Buffer | null = null;
+        let audioMime = msgObj.audioMessage.mimetype || 'audio/ogg; codecs=opus';
 
-      // 1. Detección directa de base64 en el webhook si Evolution lo incluye
-      if (messageData.base64) {
-        audioBuffer = Buffer.from(messageData.base64, 'base64');
-      } else if (msgObj.audioMessage.base64) {
-        audioBuffer = Buffer.from(msgObj.audioMessage.base64, 'base64');
-      }
-
-      // 2. Si no venía en el webhook, solicitarlo a Evolution API pasando el payload del mensaje
-      if (!audioBuffer) {
-        const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
-        const media = await EvolutionService.getBase64Audio({
-          apiUrl: organization.evolution_api_url,
-          apiKey: finalApiKey,
-          instanceName: cleanInstance,
-          messageId,
-          messagePayload: messageData,
-        });
-
-        if (media?.base64) {
-          audioBuffer = Buffer.from(media.base64, 'base64');
-          audioMime = media.mimetype || audioMime;
+        if (messageData.base64) {
+          audioBuffer = Buffer.from(messageData.base64, 'base64');
+        } else if (msgObj.audioMessage.base64) {
+          audioBuffer = Buffer.from(msgObj.audioMessage.base64, 'base64');
+        } else {
+          const media = await EvolutionService.getBase64Audio({
+            apiUrl: organization.evolution_api_url,
+            apiKey: finalApiKey,
+            instanceName: cleanInstance,
+            messageId,
+            messagePayload: messageData,
+          });
+          if (media?.base64) {
+            audioBuffer = Buffer.from(media.base64, 'base64');
+            audioMime = media.mimetype || audioMime;
+          }
         }
-      }
 
-      let audioUrl: string | null = null;
-      let transcription = '';
+        if (!audioBuffer) return '🎤 [Nota de voz inaudible]';
 
-      if (audioBuffer) {
-        // Subir nota de voz a Supabase Storage para que los asesores puedan escuchar el audio directamente en el CRM
-        try {
-          audioUrl = await uploadIncomingChatMedia({
+        const [audioUrl, transcription] = await Promise.all([
+          uploadIncomingChatMedia({
             buffer: audioBuffer,
             mimeType: audioMime,
             organizationId: orgId,
             contactId: leadPhone || 'incoming',
-          });
-        } catch (uploadErr) {
-          console.warn('[EVOLUTION AUDIO UPLOAD WARN]', uploadErr);
-        }
-
-        // Transcripción de alta fidelidad con OpenAI Whisper
-        try {
-          transcription = await OpenAIService.transcribeAudio(audioBuffer, audioMime, {
+          }).catch(() => null),
+          OpenAIService.transcribeAudio(audioBuffer, audioMime, {
             organizationId: orgId,
             contactId: leadPhone || undefined,
-          });
-        } catch (transcribeErr) {
-          console.warn('[EVOLUTION AUDIO TRANSCRIPTION WARN]', transcribeErr);
-        }
-      }
+          }).catch(() => ''),
+        ]);
 
-      if (audioUrl) {
-        rawContent = formatAudioMessageContent(audioUrl, transcription || undefined);
-      } else if (transcription) {
-        rawContent = `🎤 [Nota de voz]: "${transcription}"`;
-      } else {
-        rawContent = '🎤 [Nota de voz inaudible]';
+        if (audioUrl) return formatAudioMessageContent(audioUrl, transcription || undefined);
+        if (transcription) return `🎤 [Nota de voz]: "${transcription}"`;
+        return '🎤 [Nota de voz inaudible]';
+      } catch (audioErr) {
+        console.warn('[EVOLUTION AUDIO HANDLING ERROR]', audioErr);
+        return '🎤 [Nota de voz inaudible]';
       }
-    } catch (audioErr) {
-      console.warn('[EVOLUTION AUDIO HANDLING ERROR]', audioErr);
-      rawContent = '🎤 [Nota de voz inaudible]';
-    }
+    };
   } else if (msgObj.imageMessage) {
     const caption = (msgObj.imageMessage.caption || '').trim();
-    let imageUrl: string | null = null;
-
-    try {
-      const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
-      const media = await EvolutionService.getBase64Media({
-        apiUrl: organization.evolution_api_url,
-        apiKey: finalApiKey,
-        instanceName: cleanInstance,
-        messageId,
-      });
-
-      if (media?.base64) {
-        const imageBuffer = Buffer.from(media.base64, 'base64');
-        imageUrl = await uploadIncomingChatMedia({
-          buffer: imageBuffer,
-          mimeType: media.mimetype || 'image/jpeg',
-          organizationId: orgId,
-          contactId: leadPhone || 'incoming',
+    rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Cargando foto...]';
+    pendingInboundMediaJob = async () => {
+      try {
+        const media = await EvolutionService.getBase64Media({
+          apiUrl: organization.evolution_api_url,
+          apiKey: finalApiKey,
+          instanceName: cleanInstance,
+          messageId,
         });
+        if (media?.base64) {
+          const imageUrl = await uploadIncomingChatMedia({
+            buffer: Buffer.from(media.base64, 'base64'),
+            mimeType: media.mimetype || 'image/jpeg',
+            organizationId: orgId,
+            contactId: leadPhone || 'incoming',
+          });
+          if (imageUrl) return formatImageMessageContent(imageUrl, caption);
+        }
+      } catch (imgErr) {
+        console.warn('[EVOLUTION IMAGE DOWNLOAD WARN]', imgErr);
       }
-    } catch (imgErr) {
-      console.warn('[EVOLUTION IMAGE DOWNLOAD WARN]', imgErr);
-    }
-
-    if (imageUrl) {
-      rawContent = formatImageMessageContent(imageUrl, caption);
-    } else {
-      rawContent = caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
-    }
+      return caption ? `📷 [Foto]: ${caption}` : '📷 [Foto recibida]';
+    };
   } else if (msgObj.videoMessage) {
     const caption = (msgObj.videoMessage.caption || '').trim();
-    let videoUrl: string | null = null;
-    try {
-      const media = await EvolutionService.getBase64Media({
-        apiUrl: organization.evolution_api_url,
-        apiKey: decryptedApiKey || '',
-        instanceName: cleanInstance,
-        messageId,
-      });
-
-      if (media?.base64) {
-        const videoBuffer = Buffer.from(media.base64, 'base64');
-        videoUrl = await uploadIncomingChatMedia({
-          buffer: videoBuffer,
-          mimeType: media.mimetype || 'video/mp4',
-          organizationId: orgId,
-          contactId: leadPhone || 'incoming',
+    rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Cargando video...]';
+    pendingInboundMediaJob = async () => {
+      try {
+        const media = await EvolutionService.getBase64Media({
+          apiUrl: organization.evolution_api_url,
+          apiKey: finalApiKey,
+          instanceName: cleanInstance,
+          messageId,
         });
+        if (media?.base64) {
+          const videoUrl = await uploadIncomingChatMedia({
+            buffer: Buffer.from(media.base64, 'base64'),
+            mimeType: media.mimetype || 'video/mp4',
+            organizationId: orgId,
+            contactId: leadPhone || 'incoming',
+          });
+          if (videoUrl) return formatVideoMessageContent(videoUrl, caption);
+        }
+      } catch (vidErr) {
+        console.warn('[EVOLUTION VIDEO DOWNLOAD WARN]', vidErr);
       }
-    } catch (vidErr) {
-      console.warn('[EVOLUTION VIDEO DOWNLOAD WARN]', vidErr);
-    }
-
-    if (videoUrl) {
-      rawContent = formatVideoMessageContent(videoUrl, caption);
-    } else {
-      rawContent = caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
-    }
+      return caption ? `📹 [Video]: ${caption}` : '📹 [Video recibido]';
+    };
   } else if (msgObj.stickerMessage) {
     rawContent = '🏷️ [Sticker recibido]';
   } else if (msgObj.contactMessage || msgObj.contactsArrayMessage) {
@@ -613,13 +593,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: "duplicate_message_ignored" }, { status: 200 });
   }
 
-  // Ejecución asíncrona de IA en segundo plano
+  // Ejecución asíncrona de hidratación de media + IA en segundo plano
   if (result.status === "success" && result.contactId && result.messageId && !isRateLimited) {
+    const targetContactId = result.contactId;
+    const targetMsgId = result.messageId;
     waitUntil(
-      InboundCoreService.runAiWorker({
-        payload: inboundPayload,
-        contactId: result.contactId,
-        insertedMessageId: result.messageId,
+      (async () => {
+        if (pendingInboundMediaJob) {
+          const resolvedMediaContent = await pendingInboundMediaJob();
+          if (resolvedMediaContent && resolvedMediaContent !== rawContent) {
+            inboundPayload.rawContent = resolvedMediaContent;
+            await (supabaseAdmin.from('messages') as any)
+              .update({ content: resolvedMediaContent })
+              .eq('id', targetMsgId);
+          }
+        }
+        await InboundCoreService.runAiWorker({
+          payload: inboundPayload,
+          contactId: targetContactId,
+          insertedMessageId: targetMsgId,
+        });
+      })()
+    );
+  } else if (pendingInboundMediaJob && result.messageId) {
+    const targetMsgId = result.messageId;
+    waitUntil(
+      pendingInboundMediaJob().then(async (resolvedMediaContent) => {
+        if (resolvedMediaContent && resolvedMediaContent !== rawContent) {
+          await (supabaseAdmin.from('messages') as any)
+            .update({ content: resolvedMediaContent })
+            .eq('id', targetMsgId);
+        }
       })
     );
   }
