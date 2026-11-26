@@ -158,6 +158,10 @@ export interface GalleryPhotoItem {
    * Rol o etiqueta de la vista (ej: "principal", "personalizada", "de lado", "accesorios", "abierta").
    */
   imageRole?: string;
+  /**
+   * Regla libre de contexto: cuándo SÍ y cuándo NO debe enviarla la IA.
+   */
+  contextRule?: string;
 }
 
 /**

@@ -248,6 +248,7 @@ export interface OrganizationRow {
   whatsapp_phone_number_id: string | null;
   created_at: string;
   users_count: number;
+  online_users_count?: number;
   contacts_count: number;
   admin_email?: string;
   admin_name?: string;
@@ -301,7 +302,7 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       .select('*')
       .order('created_at', { ascending: false }),
     (supabaseAdmin.from('profiles') as any)
-      .select('id, organization_id, email, full_name, role'),
+      .select('id, organization_id, email, full_name, role, last_seen_at, availability_status'),
     (supabaseAdmin.from('contacts') as any)
       .select('id, organization_id'),
   ]);
@@ -314,8 +315,16 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
   const profiles = profilesRes.data || [];
   const contacts = contactsRes.data || [];
 
+  const nowMs = Date.now();
+  const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+
   const rows: OrganizationRow[] = orgs.map((org: any) => {
     const orgProfiles = profiles.filter((p: any) => p.organization_id === org.id);
+    const onlineUsersCount = orgProfiles.filter((p: any) => {
+      if (!p.last_seen_at || p.availability_status === 'offline') return false;
+      const seenMs = new Date(p.last_seen_at).getTime();
+      return Number.isFinite(seenMs) && nowMs - seenMs <= ONLINE_WINDOW_MS;
+    }).length;
     const orgContacts = contacts.filter((c: any) => c.organization_id === org.id);
     const adminUser = orgProfiles.find((p: any) => p.role === 'admin') || orgProfiles[0];
     const isSuperAdminOrg = orgProfiles.some((p: any) =>
@@ -337,6 +346,7 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
       whatsapp_phone_number_id: org.whatsapp_phone_number_id || null,
       created_at: org.created_at,
       users_count: orgProfiles.length,
+      online_users_count: onlineUsersCount,
       contacts_count: orgContacts.length,
       admin_email: adminUser?.email,
       admin_name: adminUser?.full_name,

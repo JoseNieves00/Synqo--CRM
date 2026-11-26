@@ -15,7 +15,10 @@ import {
 } from 'lucide-react';
 import {
   createContactReminder,
+  getReminderDraftContextAction,
+  generateReminderDraftAction,
   type ReminderType,
+  type ReminderDispatchMode,
   type ActiveReminderData,
 } from '@/app/actions/reminders';
 
@@ -41,6 +44,17 @@ export function ScheduleReminderModal({
   );
   const [scheduledFor, setScheduledFor] = useState<string>('');
   const [note, setNote] = useState<string>(existingReminder?.note || '');
+  const [dispatchMode, setDispatchMode] = useState<ReminderDispatchMode>(
+    existingReminder?.dispatchMode || 'ai_contextual'
+  );
+  const [suggestedMessage, setSuggestedMessage] = useState<string>(
+    existingReminder?.suggestedMessage || ''
+  );
+  const [generatingDraft, setGeneratingDraft] = useState(false);
+  const [metaWarningCtx, setMetaWarningCtx] = useState<{
+    isMetaChannel: boolean;
+    metaWindowExpiresAt: string | null;
+  }>({ isMetaChannel: false, metaWindowExpiresAt: null });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -62,7 +76,20 @@ export function ScheduleReminderModal({
       tomorrow.setHours(9, 0, 0, 0);
       setScheduledFor(formatToDateTimeLocal(tomorrow));
     }
-  }, [existingReminder, isOpen]);
+    if (isOpen && contactId) {
+      getReminderDraftContextAction(contactId)
+        .then((ctx) => {
+          setMetaWarningCtx({
+            isMetaChannel: ctx.isMetaChannel,
+            metaWindowExpiresAt: ctx.metaWindowExpiresAt,
+          });
+          if (!existingReminder?.note && ctx.suggestedNote) {
+            setNote((prev) => prev || ctx.suggestedNote);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [existingReminder, isOpen, contactId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -102,10 +129,35 @@ export function ScheduleReminderModal({
     setScheduledFor(formatToDateTimeLocal(now));
   };
 
+  const isOutsideMeta24h = Boolean(
+    metaWarningCtx.isMetaChannel &&
+      scheduledFor &&
+      (!metaWarningCtx.metaWindowExpiresAt ||
+        new Date(scheduledFor).getTime() > new Date(metaWarningCtx.metaWindowExpiresAt).getTime())
+  );
+
+  const handleGenerateDraft = async () => {
+    setGeneratingDraft(true);
+    setError(null);
+    try {
+      const res = await generateReminderDraftAction({ contactId, note });
+      setSuggestedMessage(res.draft);
+      setDispatchMode('manual_exact');
+    } catch (err: any) {
+      setError(err?.message || 'No se pudo generar el borrador con IA.');
+    } finally {
+      setGeneratingDraft(false);
+    }
+  };
+
   const handleSave = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (!scheduledFor) {
       setError('Por favor selecciona una fecha y hora para el recordatorio.');
+      return;
+    }
+    if (dispatchMode === 'manual_exact' && !suggestedMessage.trim()) {
+      setError('Escribe o genera el mensaje exacto que se enviará.');
       return;
     }
 
@@ -124,6 +176,8 @@ export function ScheduleReminderModal({
         reminderType,
         scheduledFor: targetDate.toISOString(),
         note: note.trim() || undefined,
+        dispatchMode,
+        suggestedMessage: dispatchMode === 'manual_exact' ? suggestedMessage.trim() : undefined,
       });
 
       if (res.reminder) {
@@ -274,12 +328,76 @@ export function ScheduleReminderModal({
               onChange={(e) => setScheduledFor(e.target.value)}
               className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
             />
+
+            {isOutsideMeta24h && (
+              <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700/40 text-[11px] text-amber-800 dark:text-amber-200 flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                <span>
+                  Esta hora supera la ventana de 24h de Meta. Si no tienes plantilla aprobada en Seguimientos, prográmalo dentro de las próximas 24h.
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* 3. Nota o detalle del recordatorio */}
+          {/* 3. Modo de envío: IA Contextual vs Mensaje Exacto */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Cómo enviar el seguimiento:
+              </label>
+              <button
+                type="button"
+                onClick={handleGenerateDraft}
+                disabled={generatingDraft}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:underline cursor-pointer disabled:opacity-50"
+              >
+                {generatingDraft ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                <span>{generatingDraft ? 'Redactando...' : 'Generar borrador IA editable'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setDispatchMode('ai_contextual')}
+                className={`p-2 rounded-xl border text-left text-[11px] transition cursor-pointer ${
+                  dispatchMode === 'ai_contextual'
+                    ? 'border-[#0052FF] bg-blue-50/70 dark:bg-blue-900/30 text-[#0052FF] dark:text-[#00D2FF] font-bold'
+                    : 'border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <div>IA Contextual</div>
+                <div className="text-[10px] font-normal opacity-80">Redacta según chat y prompt</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDispatchMode('manual_exact')}
+                className={`p-2 rounded-xl border text-left text-[11px] transition cursor-pointer ${
+                  dispatchMode === 'manual_exact'
+                    ? 'border-[#0052FF] bg-blue-50/70 dark:bg-blue-900/30 text-[#0052FF] dark:text-[#00D2FF] font-bold'
+                    : 'border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <div>Mensaje Exacto</div>
+                <div className="text-[10px] font-normal opacity-80">Se envía tal cual lo escribas</div>
+              </button>
+            </div>
+
+            {dispatchMode === 'manual_exact' && (
+              <textarea
+                rows={3}
+                value={suggestedMessage}
+                onChange={(e) => setSuggestedMessage(e.target.value)}
+                placeholder="Escribe el mensaje exacto o pulsa 'Generar borrador IA editable' arriba..."
+                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
+              />
+            )}
+          </div>
+
+          {/* 4. Nota o detalle del recordatorio */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Nota o detalle para recordar (opcional):
+              Objetivo / nota breve {dispatchMode === 'ai_contextual' ? '(guía para la IA)' : '(opcional)'}:
             </label>
             <input
               type="text"
@@ -287,7 +405,7 @@ export function ScheduleReminderModal({
                 reminderType === 'shipping'
                   ? 'Ej: Enviar número de guía de Coordinadora / Interrapidísimo'
                   : reminderType === 'reactivation'
-                  ? 'Ej: Preguntar si revisó cotización de la cocinita'
+                  ? 'Ej: Confirmar si revisó la cotización'
                   : 'Ej: Confirmar método de pago pactado'
               }
               value={note}
@@ -296,7 +414,9 @@ export function ScheduleReminderModal({
               className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0052FF]"
             />
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-              Esta nota se registrará en el historial de la conversación para auditoría del administrador.
+              {dispatchMode === 'ai_contextual'
+                ? 'La IA usará esta guía junto con las reglas de tu prompt y los últimos mensajes (y se cancela si el cliente responde antes).'
+                : 'Se enviará tu texto exacto a la hora programada (y se cancela si el cliente responde antes).'}
             </p>
           </div>
         </div>

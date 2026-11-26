@@ -181,6 +181,11 @@ export function PromptAssistantPanel({
   };
 
   const handleSubmitAnswer = async (slot: BlueprintSlot | null, answer: string) => {
+    const historySnapshot = feed
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-6)
+      .map((m) => ({ role: m.role as 'user' | 'assistant', text: m.text }));
+
     setFeed((prev) => [
       ...prev.slice(-14),
       { id: `u-${Date.now()}`, role: 'user', text: answer },
@@ -192,6 +197,7 @@ export function PromptAssistantPanel({
         slotId: slot ? slot.id : 'free',
         answer,
         currentPrompt,
+        chatHistory: historySnapshot,
       });
 
       if (res.limitReached) {

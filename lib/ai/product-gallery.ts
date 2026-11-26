@@ -201,7 +201,8 @@ export function findGalleryProductMatch(
     const parentTokens = tokenizeSearch(parentName);
     const kwTokens = item.searchKeywords.flatMap((k) => tokenizeSearch(k));
     const roleTokens = item.imageRole ? tokenizeSearch(item.imageRole) : [];
-    const allItemTokens = Array.from(new Set([...nameTokens, ...parentTokens, ...kwTokens, ...roleTokens]));
+    const contextTokens = item.contextRule ? tokenizeSearch(item.contextRule) : [];
+    const allItemTokens = Array.from(new Set([...nameTokens, ...parentTokens, ...kwTokens, ...roleTokens, ...contextTokens]));
 
     let score = 0;
     if (
@@ -243,7 +244,8 @@ export function findGalleryProductMatch(
     }
   }
 
-  return bestScore >= 1.5 ? bestItem : null;
+  // Exigir un umbral estricto para evitar enviar imágenes en contextos ambiguos o erróneos
+  return bestScore >= 2.2 ? bestItem : null;
 }
 
 export function buildProductCardCaption(params: {

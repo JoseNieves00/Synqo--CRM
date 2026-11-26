@@ -15,14 +15,21 @@ import {
 } from 'lucide-react';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
 import type { EnabledModules } from '@/lib/supabase/types';
+import type { BusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 
 interface MobileBottomNavProps {
   isAdmin: boolean;
   isSuperAdmin?: boolean;
   enabledModules?: EnabledModules;
+  businessCompatibility?: BusinessFeatureCompatibility;
 }
 
-export function MobileBottomNav({ isAdmin, isSuperAdmin = false, enabledModules }: MobileBottomNavProps) {
+export function MobileBottomNav({
+  isAdmin,
+  isSuperAdmin = false,
+  enabledModules,
+  businessCompatibility,
+}: MobileBottomNavProps) {
   const pathname = usePathname();
   const [unattendedCount, setUnattendedCount] = useState(0);
 
@@ -50,12 +57,12 @@ export function MobileBottomNav({ isAdmin, isSuperAdmin = false, enabledModules 
     isSuperAdminOnly?: boolean;
   }> = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-    { href: '/pipeline', label: 'Pipeline', icon: Kanban, exact: true },
+    { href: '/inbox', label: 'Inbox', icon: MessageSquare, exact: false, isInbox: true },
     { href: '/clientes', label: 'Clientes', icon: Users, exact: false },
-    ...(enabledModules?.native_calendar !== false
+    ...(enabledModules?.native_calendar !== false && businessCompatibility?.supportsCalendar !== false
       ? [{ href: '/calendar', label: 'Agenda', icon: Calendar, exact: false }]
       : []),
-    ...(enabledModules?.orders !== false
+    ...(enabledModules?.orders !== false && businessCompatibility?.supportsOrders !== false
       ? [{ href: '/pedidos', label: 'Pedidos', icon: ShoppingBag, exact: false }]
       : []),
     ...(isAdmin ? [{ href: '/settings', label: 'Ajustes', icon: Settings, exact: false }] : []),

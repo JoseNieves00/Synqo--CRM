@@ -309,14 +309,18 @@ export async function checkTokenQuota(organizationId: string): Promise<{
     }
 
     const effectiveLimit = (Number(org.ai_tokens_limit) || 5000000) + Math.max(0, Number(org.extra_tokens_balance || 0));
+    const policy = normalizeTokenPolicy(org.appointment_settings?.token_policy);
     const status = computeTokenStatus({
       used: Number(org.ai_tokens_used || 0),
       limit: effectiveLimit,
-      policy: org.appointment_settings?.token_policy,
+      policy,
     });
 
+    const graceCap = Math.round(effectiveLimit * (1 + Math.max(0, policy.gracePct ?? 20) / 100));
+    const hardStopReached = Boolean(policy.hardStopAfterGrace !== false && status.used >= graceCap);
+
     return {
-      allowed: true, // Siempre Modo Excedente al 100%
+      allowed: !hardStopReached,
       used: status.used,
       limit: status.limit,
       percentage: status.displayPercentage,
@@ -365,7 +369,7 @@ export async function checkBackupTokenQuota(organizationId: string): Promise<{
     const percentage = Math.min(100, Math.round((used / limit) * 100));
 
     return {
-      allowed: used < limit,
+      allowed: true, // OpenAI es ahora el motor principal de mensajería; no se bloquea por cuota de backup
       used,
       limit,
       percentage,

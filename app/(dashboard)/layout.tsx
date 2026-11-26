@@ -15,6 +15,7 @@ import { WhatsAppConnectionIndicator } from '@/components/dashboard/WhatsAppConn
 import { MobileHeaderControls } from '@/components/dashboard/MobileHeaderControls';
 import { UsageQuotaBanner } from '@/components/dashboard/UsageQuotaBanner';
 import { InboxSyncProvider } from '@/components/inbox/InboxSyncProvider';
+import { getBusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 
 const MustChangePasswordModal = nextDynamic(
   () => import('@/components/profile/MustChangePasswordModal').then((m) => m.MustChangePasswordModal),
@@ -66,6 +67,10 @@ export default async function DashboardLayout({
   const rawUsagePct = Math.round((usedTokens / limitTokens) * 100);
   const isUsageWarning = rawUsagePct >= minWarnPct && usedTokens < limitTokens;
   const isUsageExceeded = usedTokens >= limitTokens;
+  const businessCompatibility = getBusinessFeatureCompatibility(
+    current?.organization,
+    current?.organization?.system_prompt
+  );
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-slate-100 transition-colors">
@@ -74,6 +79,7 @@ export default async function DashboardLayout({
         isSuperAdmin={isSuperAdmin}
         isAdmin={isAdmin}
         enabledModules={current?.organization?.enabled_modules}
+        businessCompatibility={businessCompatibility}
         subStatus={subStatus}
         userFullName={userFullName}
         userEmail={userEmail}
@@ -172,6 +178,7 @@ export default async function DashboardLayout({
           isAdmin={isAdmin}
           isSuperAdmin={isSuperAdmin}
           enabledModules={current?.organization?.enabled_modules}
+          businessCompatibility={businessCompatibility}
         />
 
         {/* Modal y Botón Flotante de Ayuda & Reporte de Fallas */}

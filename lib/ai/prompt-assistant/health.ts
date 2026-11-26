@@ -1,5 +1,6 @@
 import type { IndustryPreset } from '@/lib/ai/prompt-compiler';
 import { PROMPT_ASSISTANT_CONFIG } from '@/lib/ai/config';
+import { getBusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 import { PROMPT_BLUEPRINT_SLOTS } from './blueprint';
 import { isSlotApplicable, type PromptAssistantState } from './state';
 import { estimatePromptTokens, splitGalleryTail } from './versions';
@@ -32,7 +33,8 @@ export function evaluatePromptHealth(params: {
   prompt: string;
   state: PromptAssistantState;
   preset?: IndustryPreset;
-  gallery?: Array<{ name?: string; price?: string }>;
+  enabledModules?: any;
+  gallery?: Array<{ name?: string; price?: string; keywords?: string[]; contextRule?: string }>;
   paymentAccounts?: Array<{ label?: string; bank?: string; provider?: string; account_number?: string }>;
   businessHours?: { enabled?: boolean; start?: string; end?: string } | null;
   pendingGapsCount?: number;
@@ -44,10 +46,16 @@ export function evaluatePromptHealth(params: {
   const estimatedTokens = estimatePromptTokens(body);
   const targetTokens = PROMPT_ASSISTANT_CONFIG.targetPromptTokens;
   const lowerPrompt = body.toLowerCase();
-
-  const applicableSlots = PROMPT_BLUEPRINT_SLOTS.filter((s) =>
-    isSlotApplicable(s, params.state.slots, params.preset)
+  const compat = getBusinessFeatureCompatibility(
+    { enabled_modules: params.enabledModules, industry_preset: params.preset },
+    body
   );
+
+  const applicableSlots = PROMPT_BLUEPRINT_SLOTS.filter((s) => {
+    if (!isSlotApplicable(s, params.state.slots, params.preset)) return false;
+    if (s.sectionId === 'envios' && !compat.supportsShipping) return false;
+    return true;
+  });
   const requiredSlots = applicableSlots.filter((s) => s.required);
 
   // En modo sin slots llenos todavía, estimamos presencia heurística básica por secciones/palabras clave en el prompt
@@ -103,18 +111,22 @@ export function evaluatePromptHealth(params: {
     actionLabel: estimatedTokens > targetTokens ? 'Optimizar' : undefined,
   });
 
+  const galleryWithoutContextCount = galleryList.filter(
+    (g) => (!Array.isArray(g?.keywords) || g.keywords.length === 0) && !String(g?.contextRule || '').trim()
+  ).length;
+
   checks.push({
     id: 'gallery_prices',
-    label: 'Precios en galería visual',
-    status: galleryWithoutPriceCount === 0 ? 'ok' : 'warning',
+    label: 'Contexto en galería visual',
+    status: galleryWithoutContextCount === 0 ? 'ok' : 'warning',
     detail:
-      galleryWithoutPriceCount === 0
+      galleryWithoutContextCount === 0
         ? galleryList.length > 0
-          ? `${galleryList.length} fotos con precio verificado.`
-          : 'Sin fotos cargadas en galería todavía.'
-        : `${galleryWithoutPriceCount} foto(s) de tu galería no tienen precio cargado.`,
-    actionTarget: galleryWithoutPriceCount > 0 ? 'gallery' : undefined,
-    actionLabel: galleryWithoutPriceCount > 0 ? 'Revisar galería' : undefined,
+          ? `${galleryList.length} imagen(es) con contexto y palabras clave listas.`
+          : 'Sin imágenes cargadas en galería todavía.'
+        : `${galleryWithoutContextCount} imagen(es) de tu galería aún no tienen palabras clave ni regla de contexto.`,
+    actionTarget: galleryWithoutContextCount > 0 ? 'gallery' : undefined,
+    actionLabel: galleryWithoutContextCount > 0 ? 'Revisar galería' : undefined,
   });
 
   checks.push({

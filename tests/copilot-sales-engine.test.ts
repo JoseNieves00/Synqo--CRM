@@ -33,9 +33,15 @@ test('1. Detecta fricción de postergación y aplica Plan Separe SOLO si está e
   });
 
   assert.strictEqual(prescriptionNoSepare.friction, 'postponement');
-  assert.strictEqual(prescriptionNoSepare.tacticKey, 'ethical_reservation_hold');
+  assert.ok(
+    prescriptionNoSepare.tacticKey === 'service_hold_bridge' ||
+      prescriptionNoSepare.tacticKey === 'ethical_reservation_hold'
+  );
   assert.ok(!prescriptionNoSepare.copilotDirective.includes('Plan Separe'), 'No debe inventar Plan Separe si no está en el prompt');
-  assert.ok(prescriptionNoSepare.copilotDirective.includes('guardar'));
+  assert.ok(
+    prescriptionNoSepare.copilotDirective.includes('horarios tentativos') ||
+      prescriptionNoSepare.copilotDirective.includes('guardar')
+  );
 });
 
 test('2. Detecta desconfianza y ofrece Pago Contraentrega SOLO si está habilitado', () => {

@@ -257,7 +257,7 @@ export function DashboardKpiInteractive({
                   }`}
                 >
                   <TrendingUp className="w-3.5 h-3.5" />
-                  <span>Conversión & Embudo</span>
+                  <span>Conversión & Clasificación</span>
                 </button>
 
                 <button
@@ -463,46 +463,55 @@ export function DashboardKpiInteractive({
                 </div>
               )}
 
-              {/* TAB 2: CONVERSIÓN & EMBUDO */}
+              {/* TAB 2: CONVERSIÓN & CLASIFICACIÓN IA */}
               {activeTab === 'conversion' && (
                 <div className="space-y-5 animate-in fade-in">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                       <TrendingUp className="w-4 h-4 text-purple-600" />
-                      <span>Embudo Comercial de Conversión</span>
+                      <span>Conversión por Clasificación IA</span>
                     </h3>
                     <p className="text-slate-500 dark:text-slate-400 mt-0.5">
-                      Flujo de prospectos a través de las etapas del pipeline durante {metrics?.periodLabel || 'el periodo'}.
+                      Distribución de prospectos según intención y Lead Score durante {metrics?.periodLabel || 'el periodo'}.
                     </p>
                   </div>
 
-                  {/* Barras de Embudo */}
+                  {/* Barras por Clasificación IA */}
                   <div className="space-y-2.5 bg-slate-50/70 dark:bg-[#090A0F]/60 p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B]">
-                    {[
-                      { label: 'Nuevos Leads', count: funnel.nuevo, color: 'bg-blue-500' },
-                      { label: 'Calificados', count: funnel.calificado, color: 'bg-purple-500' },
-                      { label: 'Citas / Cotizados', count: funnel.cita_agendada, color: 'bg-amber-500' },
-                      { label: 'Cierres Ganados', count: funnel.ganado, color: 'bg-emerald-500' },
-                      { label: 'Perdidos', count: funnel.perdido, color: 'bg-slate-400' },
-                    ].map((step, idx) => {
-                      const pct = Math.max(3, Math.round((step.count / totalInFunnel) * 100));
-                      return (
-                        <div key={idx} className="space-y-1">
-                          <div className="flex items-center justify-between text-xs font-semibold">
-                            <span>{step.label}</span>
-                            <span className="font-mono text-slate-600 dark:text-slate-400">
-                              {step.count} ({pct}%)
-                            </span>
+                    {(() => {
+                      const cats = metrics?.categories;
+                      const catTotal =
+                        (cats?.hot || 0) +
+                          (cats?.qualifiedDoubt || 0) +
+                          (cats?.warm || 0) +
+                          (cats?.cold || 0) +
+                          (cats?.buyers || 0) || 1;
+                      return [
+                        { label: 'Calificados · Compra', count: cats?.hot || 0, color: 'bg-rose-500' },
+                        { label: 'Con Dudas Puntuales', count: cats?.qualifiedDoubt || 0, color: 'bg-orange-500' },
+                        { label: 'Tibios Evaluando', count: cats?.warm || 0, color: 'bg-amber-500' },
+                        { label: 'Fríos / Descartados', count: cats?.cold || 0, color: 'bg-sky-500' },
+                        { label: 'Cerrados / Ganados', count: cats?.buyers || 0, color: 'bg-emerald-500' },
+                      ].map((step, idx) => {
+                        const pct = Math.max(3, Math.round((step.count / catTotal) * 100));
+                        return (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs font-semibold">
+                              <span>{step.label}</span>
+                              <span className="font-mono text-slate-600 dark:text-slate-400">
+                                {step.count} ({pct}%)
+                              </span>
+                            </div>
+                            <div className="h-3 w-full bg-slate-200 dark:bg-[#1E2433] rounded-full overflow-hidden">
+                              <div
+                                className={`h-full ${step.color} rounded-full transition-all duration-500`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-3 w-full bg-slate-200 dark:bg-[#1E2433] rounded-full overflow-hidden">
-                            <div
-                              className={`h-full ${step.color} rounded-full transition-all duration-500`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </div>
 
                   {/* Motivos de Pérdida Frecuentes */}

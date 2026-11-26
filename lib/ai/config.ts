@@ -143,9 +143,9 @@ export function getAiChatChain(aiProviderPreference?: string | null): AiChainEnt
   const rawEntries = envChain
     ? envChain.split(',').map(parseChainEntry).filter((x): x is AiChainEntry => Boolean(x))
     : [
+        { provider: 'openai' as const, model: defaultOpenAi },
         { provider: 'google' as const, model: defaultPrimaryGemini },
         { provider: 'google' as const, model: 'gemini-2.5-flash' },
-        { provider: 'openai' as const, model: defaultOpenAi },
       ];
 
   // Deduplicar manteniendo orden
@@ -159,11 +159,11 @@ export function getAiChatChain(aiProviderPreference?: string | null): AiChainEnt
     }
   }
 
-  // Respetar preferencia explícita del tenant por OpenAI si fue configurada
-  if (aiProviderPreference?.toLowerCase() === 'openai') {
-    const openAiEntries = deduped.filter((e) => e.provider === 'openai');
+  // Respetar preferencia explícita del tenant por Google si fue configurada
+  if (aiProviderPreference?.toLowerCase() === 'google') {
     const googleEntries = deduped.filter((e) => e.provider === 'google');
-    return [...openAiEntries, ...googleEntries];
+    const openAiEntries = deduped.filter((e) => e.provider === 'openai');
+    return [...googleEntries, ...openAiEntries];
   }
 
   return deduped;

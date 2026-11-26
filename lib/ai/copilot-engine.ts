@@ -28,6 +28,30 @@ export type HookCategory =
   | 'virtual_or_inperson'
   | 'custom';
 
+export interface BusinessFeatureCompatibility {
+  businessModel: BusinessModelType;
+  supportsShipping: boolean;
+  supportsOrders: boolean;
+  supportsCalendar: boolean;
+  supportsProductGalleryPrompt: boolean;
+}
+
+export function getBusinessFeatureCompatibility(
+  organization?: any,
+  systemPrompt?: string
+): BusinessFeatureCompatibility {
+  const caps = extractOrganizationCapabilities(organization, systemPrompt);
+  const isServicesOnly = caps.businessModel === 'services';
+  const isProductsOnly = caps.businessModel === 'products';
+  return {
+    businessModel: caps.businessModel,
+    supportsShipping: !isServicesOnly,
+    supportsOrders: !isServicesOnly,
+    supportsCalendar: !isProductsOnly,
+    supportsProductGalleryPrompt: !isServicesOnly,
+  };
+}
+
 export interface OrganizationCapabilities {
   businessModel: BusinessModelType;
   allowsVirtual: boolean;
@@ -42,6 +66,8 @@ export interface OrganizationCapabilities {
   hasOfficialGuarantee: boolean;
 }
 
+export type HybridIntentTrack = 'order' | 'appointment' | 'integrated' | 'clarify';
+
 export interface CopilotPrescription {
   friction: CustomerFriction;
   frictionLabel: string;
@@ -52,6 +78,7 @@ export interface CopilotPrescription {
   prohibitedActions: string[];
   suggestedClosingQuestion: string;
   allowedCapabilities: OrganizationCapabilities;
+  intentTrack?: HybridIntentTrack;
 }
 
 export interface CopilotEngineInput {
@@ -115,22 +142,30 @@ export function extractOrganizationCapabilities(organization?: any, systemPrompt
     /presencial|en\s*sede|instalaciones/i.test(promptText);
 
   // 3. Detección de Modelo de Negocio (Servicios, Productos o Híbrido)
-  const hasCalendarModule = organization?.enabled_modules?.native_calendar !== false;
-  const hasCalendarIntent = /agenda|agendar|cita|reserva|turno|horario|calendario|visita/i.test(promptText);
-  const hasServicesIndicator = hasCalendarModule || hasCalendarIntent;
+  const explicitCalendar = organization?.enabled_modules?.native_calendar;
+  const hasCalendarIntent = /agenda|agendar|cita|reserva|turno|horario|calendario|visita|consulta|sesi[oó]n|valoraci[oó]n/i.test(promptText);
+  const hasServicesIndicator =
+    explicitCalendar === true || (explicitCalendar !== false && hasCalendarIntent);
 
-  const hasOrdersModule = organization?.enabled_modules?.orders !== false;
+  const explicitOrders = organization?.enabled_modules?.orders;
+  const hasProductsIntent = /env[ií]os?|despacho|flete|paquete|transportadora|contraentrega|producto|cat[aá]logo|tienda|talla|stock|f[aá]brica|comercializamos|vendemos|plan\s*separe|apartar|mercanc[ií]a|art[ií]culo/i.test(promptText);
+  const hasShippingSettings = Boolean(organization?.appointment_settings?.shipping_settings);
   const hasProductsIndicator =
-    hasOrdersModule ||
-    /env[ií]os?|despacho|flete|paquete|transportadora|contraentrega|producto|cat[aá]logo/i.test(promptText);
+    explicitOrders === true ||
+    (explicitOrders !== false && (hasProductsIntent || hasShippingSettings));
 
+  const presetNorm = String(organization?.industry_preset || '').toLowerCase();
   let businessModel: BusinessModelType = 'services';
   if (hasProductsIndicator && hasServicesIndicator) {
     businessModel = 'hybrid';
   } else if (hasProductsIndicator) {
     businessModel = 'products';
-  } else {
+  } else if (hasServicesIndicator) {
     businessModel = 'services';
+  } else if (/salud|estetica|servicios|consultoria|educacion|legal|clinica|agencia/.test(presetNorm)) {
+    businessModel = 'services';
+  } else {
+    businessModel = 'products';
   }
 
   // 4. Plan Separe / Abono
@@ -299,15 +334,121 @@ export function detectCustomerFriction(params: {
 }
 
 /**
+ * Enrutador determinístico de alta precisión (0 tokens) para negocios híbridos y multi-intención.
+ * Soporta carril integrado (ej. remodelación: estimación/visita + venta del proyecto) y cambio dinámico sin bloqueo pegajoso.
+ */
+export function resolveHybridIntentTrack(params: {
+  businessModel: BusinessModelType;
+  history: Array<{ sender_type: string; content: string }>;
+  contactData?: any;
+}): HybridIntentTrack {
+  const { businessModel, history, contactData } = params;
+  if (businessModel === 'products') return 'order';
+  if (businessModel === 'services') return 'appointment';
+
+  const leadMsgs = (history || [])
+    .filter((m) => m.sender_type === 'lead' && typeof m.content === 'string')
+    .slice(-3);
+  if (leadMsgs.length === 0) {
+    const saved = contactData?.custom_fields?.active_intent_track;
+    return saved === 'order' || saved === 'appointment' || saved === 'integrated' ? saved : 'clarify';
+  }
+
+  const orderPhraseRx =
+    /\b(?:cu[aá]nto\s+(?:vale|cuesta|sale)|precio\s+de|cotizar\s+env[ií]o|pago\s+contraentrega|contra\s*entrega|plan\s+separe|hacer\s+pedido|comprar|quiero\s+pedir|a\s+qu[eé]\s+cuenta\s+(?:pago|transfiero)|transferencia|nequi|daviplata|bancolombia|anticipo|abono|talla|color|cat[aá]logo|env[ií]o\s+a\s+domicilio|despacho|flete)\b/gi;
+  const apptPhraseRx =
+    /\b(?:agendar\s+(?:cita|visita)|sacar\s+cita|programar\s+(?:cita|visita)|venir\s+a\s+medir|ir\s+a\s+medir|toma\s+de\s+medidas|visita\s+(?:t[eé]cnica|de\s+estimaci[oó]n)|disponibilidad|horarios?\s+disponibles?|qu[eé]\s+d[ií]a\s+pueden|cu[aá]ndo\s+pueden\s+venir|valoraci[oó]n|consulta|sesi[oó]n|cita|sede\s+f[ií]sica|videollamada|zoom|meet)\b/gi;
+
+  let orderScore = 0;
+  let apptScore = 0;
+
+  leadMsgs.forEach((m, idx) => {
+    const isLatest = idx === leadMsgs.length - 1;
+    const weight = isLatest ? 2.5 : 1.0;
+    const text = m.content.toLowerCase();
+    const oMatches = text.match(orderPhraseRx)?.length || 0;
+    const aMatches = text.match(apptPhraseRx)?.length || 0;
+    orderScore += oMatches * weight;
+    apptScore += aMatches * weight;
+  });
+
+  const latestText = leadMsgs[leadMsgs.length - 1].content.toLowerCase();
+  const latestHasExplicitOrder = (latestText.match(orderPhraseRx)?.length || 0) > 0;
+  const latestHasExplicitAppt = (latestText.match(apptPhraseRx)?.length || 0) > 0;
+  const prevTrack = contactData?.custom_fields?.active_intent_track;
+
+  if (!latestHasExplicitOrder && !latestHasExplicitAppt) {
+    if (prevTrack === 'order') orderScore += 0.8;
+    else if (prevTrack === 'appointment') apptScore += 0.8;
+    else if (prevTrack === 'integrated') return 'integrated';
+  }
+
+  if (orderScore >= 2.0 && apptScore >= 2.0) return 'integrated';
+  if (orderScore >= 1.5 && orderScore - apptScore >= 1.0) return 'order';
+  if (apptScore >= 1.5 && apptScore - orderScore >= 1.0) return 'appointment';
+  if (orderScore > 0 && apptScore > 0) return 'integrated';
+  if (orderScore > apptScore && orderScore >= 0.8) return 'order';
+  if (apptScore > orderScore && apptScore >= 0.8) return 'appointment';
+
+  return 'clarify';
+}
+
+/**
  * Genera la prescripción táctica del Copiloto para guiar a la IA o al asesor.
  * Respeta al 100% las capacidades autorizadas en el prompt/configuración.
  */
 export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescription {
+  const capabilities = extractOrganizationCapabilities(input.organization, input.organization?.system_prompt || '');
+  const intentTrack = resolveHybridIntentTrack({
+    businessModel: capabilities.businessModel,
+    history: input.history,
+    contactData: input.contactData,
+  });
+
+  const basePrescription = buildBaseCopilotPrescription(input, capabilities, intentTrack);
+  if (capabilities.businessModel !== 'hybrid') {
+    return { ...basePrescription, intentTrack };
+  }
+
+  const trackOverlay: Record<HybridIntentTrack, { directive: string; prohibited?: string }> = {
+    order: {
+      directive:
+        ' [Carril activo: VENTA / PEDIDO — Entrega lo que pide (precio/foto) y extrae dato de cierre (ciudad, talla o medio de pago). Prohibido ofrecer citas o calendario en este turno.]',
+      prohibited: 'Prohibido ofrecer citas o calendario cuando el cliente está en carril de compra directa.',
+    },
+    appointment: {
+      directive:
+        ' [Carril activo: AGENDA / CITA — Responde su duda y propón 2 horarios o modalidad. Prohibido pedir dirección de envío de paquetería o fletes en este turno.]',
+      prohibited: 'Prohibido pedir dirección de envío de paquetería cuando el cliente está en carril de cita.',
+    },
+    integrated: {
+      directive:
+        ' [Carril activo: PROYECTO INTEGRADO — Responde primero lo que el cliente pidió (rango o detalle del proyecto/producto según tu prompt) y propón la visita/estimación como siguiente paso natural con 2 opciones de horario.]',
+    },
+    clarify: {
+      directive:
+        ' [Intención abierta en negocio híbrido — Responde brevemente y pregunta en 1 línea si busca comprar un producto para envío o agendar una cita/visita.]',
+    },
+  };
+
+  const overlay = trackOverlay[intentTrack];
+  return {
+    ...basePrescription,
+    intentTrack,
+    copilotDirective: `${basePrescription.copilotDirective}${overlay.directive}`,
+    prohibitedActions: overlay.prohibited
+      ? [...basePrescription.prohibitedActions, overlay.prohibited]
+      : basePrescription.prohibitedActions,
+  };
+}
+
+function buildBaseCopilotPrescription(
+  input: CopilotEngineInput,
+  capabilities: OrganizationCapabilities,
+  intentTrack: HybridIntentTrack
+): CopilotPrescription {
   const { history, contactData, organization, leadScore } = input;
   const cf = (contactData?.custom_fields as Record<string, any>) || {};
-  const promptText = organization?.system_prompt || '';
-
-  const capabilities = extractOrganizationCapabilities(organization, promptText);
 
   // Obtener último texto del lead
   const lastLeadMsg = [...history].reverse().find((m) => m.sender_type === 'lead');
@@ -503,6 +644,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           ],
           suggestedClosingQuestion: '¿Te gustaría asegurar el tuyo desde hoy con un abono inicial?',
           allowedCapabilities: capabilities,
+          intentTrack,
         };
       }
       return {
@@ -519,6 +661,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         ],
         suggestedClosingQuestion: '¿Tienes alguna duda sobre las opciones que te ayude a resolver hoy?',
         allowedCapabilities: capabilities,
+        intentTrack,
       };
     }
 
@@ -541,6 +684,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           ? '¿Cuál de las dos alternativas va más acorde a lo que buscas?'
           : '¿Prefieres la opción favorita de nuestros clientes o buscas un detalle puntual?',
         allowedCapabilities: capabilities,
+        intentTrack,
       };
     }
 
@@ -558,6 +702,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
             prohibitedActions: [...prohibitedBase, 'Prohibido prometer rebajas no autorizadas.'],
             suggestedClosingQuestion: '¿Te gustaría agendar tu valoración sin costo para evaluar tu caso puntual?',
             allowedCapabilities: capabilities,
+            intentTrack,
           };
         }
         if (capabilities.canOfferPlanSepare) {
@@ -572,6 +717,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
             prohibitedActions: [...prohibitedBase],
             suggestedClosingQuestion: '¿Te quedaría cómodo congelar tu cupo hoy con un anticipo inicial?',
             allowedCapabilities: capabilities,
+            intentTrack,
           };
         }
       }
@@ -591,6 +737,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           ],
           suggestedClosingQuestion: '¿Te quedaría cómodo apartarlo hoy con un abono inicial y pagar el saldo después?',
           allowedCapabilities: capabilities,
+          intentTrack,
         };
       }
       return {
@@ -607,6 +754,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
         ],
         suggestedClosingQuestion: '¿Te gustaría revisar el detalle de lo que incluye para ver si se ajusta a lo que buscas?',
         allowedCapabilities: capabilities,
+        intentTrack,
       };
     }
 
@@ -637,6 +785,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
                 ? '¿Te gustaría agendar tu valoración inicial sin costo para esta semana?'
                 : '¿Para qué día te quedaría mejor programar tu sesión?'),
           allowedCapabilities: capabilities,
+          intentTrack,
         };
       }
 
@@ -660,6 +809,7 @@ export function diagnoseCopilotTurn(input: CopilotEngineInput): CopilotPrescript
           ? '¿Te gustaría apartarla desde hoy con Plan Separe o prefieres conocer algún detalle adicional?'
           : '¿Para entrega en qué ciudad sería?',
         allowedCapabilities: capabilities,
+        intentTrack,
       };
     }
   }

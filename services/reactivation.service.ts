@@ -539,6 +539,20 @@ export class LeadReactivationService {
     existingImageUrls?: string[];
   }): Promise<{ bodyMessage: string; imageUrls: string[] }> {
     const { org, contact, cf, existingImageUrls = [] } = params;
+
+    if (
+      cf.active_reminder?.dispatchMode === 'manual_exact' &&
+      typeof cf.active_reminder?.suggestedMessage === 'string' &&
+      cf.active_reminder.suggestedMessage.trim().length > 0
+    ) {
+      const exactBody = interpolateFollowUpText(cf.active_reminder.suggestedMessage.trim(), {
+        contactName: contact.name,
+        productName: cf.product_interest || cf.last_quoted_product || '',
+        companyName: org.name,
+      });
+      return { bodyMessage: exactBody, imageUrls: [...existingImageUrls] };
+    }
+
     const { data: recentMsgs } = await (supabaseAdmin.from('messages') as any)
       .select('sender_type, content')
       .eq('contact_id', contact.id)

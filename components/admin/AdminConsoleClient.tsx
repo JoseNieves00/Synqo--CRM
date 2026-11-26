@@ -41,6 +41,7 @@ import {
 import { AdminTicketsTab } from './AdminTicketsTab';
 import { AdminCopilotTab } from './AdminCopilotTab';
 import { ErpCreditsTab } from './erp/ErpCreditsTab';
+import { ErpBillingQuoteTab } from './erp/ErpBillingQuoteTab';
 import { ErpEditCompanyModal } from './erp/ErpEditCompanyModal';
 import { ProvisionWizard } from './ProvisionWizard';
 import { SuperAdminCompanyConfigModal } from './SuperAdminCompanyConfigModal';
@@ -104,7 +105,7 @@ export default function AdminConsoleClient({
   initialOrganizations,
   initialTickets = [],
 }: AdminConsoleClientProps) {
-  const [mainTab, setMainTab] = useState<'companies' | 'credits' | 'tickets' | 'copilot'>('companies');
+  const [mainTab, setMainTab] = useState<'companies' | 'credits' | 'billing_quote' | 'tickets' | 'copilot'>('companies');
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [organizations, setOrganizations] = useState<OrganizationRow[]>(initialOrganizations);
   const [searchQuery, setSearchQuery] = useState('');
@@ -494,7 +495,7 @@ export default function AdminConsoleClient({
       )}
 
       {/* Pestañas Principales del Super Admin */}
-      <div className="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto scrollbar-none whitespace-nowrap -mx-3.5 px-3.5 sm:mx-0 sm:px-0">
+      <div className="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden whitespace-nowrap -mx-3.5 px-3.5 sm:mx-0 sm:px-0">
         <button
           type="button"
           onClick={() => setMainTab('companies')}
@@ -522,8 +523,24 @@ export default function AdminConsoleClient({
         >
           <Zap className="w-4 h-4 text-amber-500" />
           <span>
-            <span className="hidden sm:inline">Créditos OpenAI & Packs</span>
+            <span className="hidden sm:inline">Créditos OpenAI &amp; Packs</span>
             <span className="sm:hidden">Créditos</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMainTab('billing_quote')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex-shrink-0 ${
+            mainTab === 'billing_quote'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <DollarSign className="w-4 h-4 text-emerald-500" />
+          <span>
+            <span className="hidden sm:inline">Cotizar &amp; Cobrar</span>
+            <span className="sm:hidden">Cobros</span>
           </span>
         </button>
 
@@ -825,7 +842,106 @@ export default function AdminConsoleClient({
         </div>
 
         {/* Tabla */}
-        <div className="overflow-x-auto">
+        {/* Vista Móvil PWA (Tarjetas táctiles sin scroll horizontal) */}
+        <div className="md:hidden divide-y divide-gray-100">
+          {filteredOrgs.length === 0 ? (
+            <div className="py-10 text-center text-gray-400 text-sm">
+              No se encontraron organizaciones registradas.
+            </div>
+          ) : (
+            filteredOrgs.map((org) => {
+              const used = org.ai_tokens_used || 0;
+              const limit = org.ai_tokens_limit || 5_000_000;
+              const pct = Math.min(100, Math.round((used / limit) * 100));
+              const isWarn = pct >= 80 && pct < 100;
+              const isOver = pct >= 100;
+              const modelLabel =
+                org.enabled_modules?.orders === false
+                  ? 'Servicios'
+                  : org.enabled_modules?.native_calendar === false
+                  ? 'Productos'
+                  : 'Híbrido';
+
+              return (
+                <div key={org.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-gray-900 text-sm truncate">{org.name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500 flex-wrap">
+                        <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-semibold text-[10px]">
+                          {modelLabel}
+                        </span>
+                        <span>• {org.users_count}/{org.max_users} usr</span>
+                        {(org.online_users_count ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            {org.online_users_count} en línea
+                          </span>
+                        )}
+                        <span>• Día pago: {(org as any).billing_due_day || '—'}</span>
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                        org.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                      }`}
+                    >
+                      {org.is_active ? 'Activa' : 'Suspendida'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono font-semibold text-gray-700">
+                        {formatTokenQuota(used)} / {formatTokenQuota(limit)}
+                      </span>
+                      <span className="font-bold text-gray-600">{pct}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          isOver ? 'bg-rose-500' : isWarn ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedConfigOrg(org);
+                        setIsConfigModalOpen(true);
+                      }}
+                      className="flex-1 min-h-[38px] px-3 rounded-xl text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 cursor-pointer"
+                    >
+                      Asistir
+                    </button>
+                    {!org.is_exempt && (
+                      <button
+                        type="button"
+                        onClick={() => setMainTab('billing_quote')}
+                        className="flex-1 min-h-[38px] px-3 rounded-xl text-xs font-bold text-[#0052FF] bg-blue-50 border border-blue-200 cursor-pointer"
+                      >
+                        Cobrar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(org)}
+                      className="min-h-[38px] px-3 rounded-xl text-xs font-semibold text-gray-700 bg-gray-100 cursor-pointer"
+                    >
+                      Editar
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-gray-50/70 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider">
@@ -894,26 +1010,14 @@ export default function AdminConsoleClient({
                         </div>
                         <div className="text-[11px] text-gray-400 font-mono flex items-center gap-2 mt-0.5">
                           <span>{org.id.slice(0, 8)}...</span>
-                          {org.company_code && (
-                            <span className="text-purple-700 font-semibold font-mono flex items-center gap-1">
-                              • <KeyRound className="w-3 h-3 text-purple-500" /> {org.company_code}
-                            </span>
-                          )}
+                          <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-sans text-[10px] font-semibold">
+                            {org.enabled_modules?.orders === false
+                              ? 'Servicios'
+                              : org.enabled_modules?.native_calendar === false
+                              ? 'Productos'
+                              : 'Híbrido'}
+                          </span>
                         </div>
-                        {(org.specialist_label || org.room_label) && (
-                          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-500 flex-wrap">
-                            {org.specialist_label && (
-                              <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
-                                👥 {org.specialist_label}s
-                              </span>
-                            )}
-                            {org.room_label && (
-                              <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
-                                🏠 {org.room_label}s
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </td>
 
                       <td className="py-3.5 px-5">
@@ -923,9 +1027,20 @@ export default function AdminConsoleClient({
 
                       <td className="py-3.5 px-5 min-w-[150px]">
                         <div className="flex items-center justify-between mb-1">
-                          <span className={`font-semibold ${seatsFull ? 'text-amber-600' : 'text-gray-700'}`}>
-                            {org.users_count} / {org.max_users} usuarios
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`font-semibold ${seatsFull ? 'text-amber-600' : 'text-gray-700'}`}>
+                              {org.users_count} / {org.max_users} usuarios
+                            </span>
+                            {(org.online_users_count ?? 0) > 0 && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold"
+                                title="Usuarios activos en los últimos 5 minutos"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                {org.online_users_count} en línea
+                              </span>
+                            )}
+                          </div>
                           <button
                             onClick={() => handleOpenEditModal(org)}
                             title="Editar empresa y límite de usuarios"
@@ -947,15 +1062,10 @@ export default function AdminConsoleClient({
                       <td className="py-3.5 px-5 min-w-[155px]">
                         {(() => {
                           const used = org.ai_tokens_used || 0;
-                          const limit = org.ai_tokens_limit || 100000;
+                          const limit = org.ai_tokens_limit || 5_000_000;
                           const pct = Math.min(100, Math.round((used / limit) * 100));
                           const isWarn = pct >= 80 && pct < 100;
                           const isOver = pct >= 100;
-
-                          const googleUsed = org.ai_tokens_google_used ?? (org.ai_tokens_used ? Math.max(0, org.ai_tokens_used - (org.ai_tokens_openai_used || 0)) : 0);
-                          const openaiUsed = org.ai_tokens_openai_used || 0;
-                          const openaiLimit = org.ai_tokens_openai_backup_limit || 50000;
-                          const hasUsedBackup = openaiUsed > 0;
 
                           return (
                             <div className="space-y-1">
@@ -980,45 +1090,6 @@ export default function AdminConsoleClient({
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
-
-                              {/* Trazabilidad Dual: Google (Costo $0) vs OpenAI (Backup Emergencia) */}
-                              <div className="flex items-center gap-1.5 text-[10px] pt-0.5">
-                                <span
-                                  className="inline-flex items-center gap-1 text-emerald-700 font-medium"
-                                  title={`Google Gemini Flash (Costo $0): ${googleUsed.toLocaleString()} tokens consumidos`}
-                                >
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                  G: {formatTokenQuota(googleUsed)}
-                                </span>
-
-                                <span
-                                  className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded ${
-                                    hasUsedBackup
-                                      ? 'bg-amber-100 text-amber-800 font-semibold border border-amber-200'
-                                      : 'text-gray-400'
-                                  }`}
-                                  title={`OpenAI Backup (Emergencia): ${openaiUsed.toLocaleString()} / ${openaiLimit.toLocaleString()} tokens`}
-                                >
-                                  <span className={`w-1.5 h-1.5 rounded-full ${hasUsedBackup ? 'bg-amber-500 animate-pulse' : 'bg-gray-300'}`} />
-                                  OpenAI: {formatTokenQuota(openaiUsed)}
-                                </span>
-                              </div>
-
-                              {org.prompt_assistant_stats && (org.prompt_assistant_stats.tokensToday > 0 || org.prompt_assistant_stats.totalTokens > 0) && (
-                                <div className="flex items-center gap-1.5 text-[10px] pt-0.5">
-                                  <span
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded border ${
-                                      org.prompt_assistant_stats.capExceededToday
-                                        ? 'bg-rose-100 text-rose-700 border-rose-200 font-bold'
-                                        : 'bg-slate-50 text-slate-600 border-slate-200'
-                                    }`}
-                                    title={`Uso del Asistente de Prompt (cortesía Synqo): ${org.prompt_assistant_stats.tokensToday.toLocaleString()} / ${org.prompt_assistant_stats.dailyCap.toLocaleString()} tokens hoy (${org.prompt_assistant_stats.totalTokens.toLocaleString()} acumulados)`}
-                                  >
-                                    {org.prompt_assistant_stats.capExceededToday ? '⚠️ Tope Asistente:' : 'Asist:'}{' '}
-                                    {formatTokenQuota(org.prompt_assistant_stats.tokensToday)} / {formatTokenQuota(org.prompt_assistant_stats.dailyCap)} hoy
-                                  </span>
-                                </div>
-                              )}
                             </div>
                           );
                         })()}
@@ -1061,11 +1132,11 @@ export default function AdminConsoleClient({
                             </span>
                           ) : (
                             <button
-                              onClick={() => handleOpenPayModal(org)}
+                              type="button"
+                              onClick={() => setMainTab('billing_quote')}
                               className="text-[11px] font-semibold text-[#0052FF] hover:text-[#0047E0] hover:underline flex items-center gap-1 cursor-pointer w-fit mt-0.5"
                             >
-                              <Receipt className="w-3 h-3" />
-                              Registrar pago
+                              <span>Día pago: {(org as any).billing_due_day || '—'} · Cobrar →</span>
                             </button>
                           )}
                         </div>
@@ -1090,20 +1161,6 @@ export default function AdminConsoleClient({
                       </td>
 
                       <td className="py-3.5 px-5 text-right flex items-center justify-end gap-1">
-                        {isHighUsage && (
-                          <a
-                            href={`https://wa.me/?text=${encodeURIComponent(
-                              `Hola ${org.admin_name || 'Admin'} de ${org.name}, te escribo de Synqo CRM. Vemos que tu negocio ha tenido alta demanda este mes (${tokenPct}% de capacidad de IA alcanzada). ¿Deseas activar un paquete de expansión de conversaciones para no pausar la IA?`
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-lg text-xs font-semibold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer"
-                            title="Contactar al Administrador por WhatsApp para ofrecer Paquete de Expansión (Upsell)"
-                          >
-                            <MessageSquare className="w-4 h-4" />
-                          </a>
-                        )}
-
                         {/* Modo Asistencia SuperAdmin: 1-clic para Prompt, Seguimientos, Equipo */}
                         <button
                           onClick={() => {
@@ -1172,6 +1229,13 @@ export default function AdminConsoleClient({
 
   {mainTab === 'credits' && (
     <ErpCreditsTab organizations={organizations} />
+  )}
+
+  {mainTab === 'billing_quote' && (
+    <ErpBillingQuoteTab
+      organizations={organizations}
+      onOpenCreditsTab={() => setMainTab('credits')}
+    />
   )}
 
   {mainTab === 'tickets' && (

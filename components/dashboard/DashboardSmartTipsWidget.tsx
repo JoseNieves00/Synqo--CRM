@@ -22,6 +22,7 @@ interface DashboardSmartTipsWidgetProps {
 
 export function DashboardSmartTipsWidget({ tips = [] }: DashboardSmartTipsWidgetProps) {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     try {
@@ -45,6 +46,7 @@ export function DashboardSmartTipsWidget({ tips = [] }: DashboardSmartTipsWidget
   };
 
   const visibleTips = tips.filter((t) => !dismissedIds.includes(t.id));
+  const displayedTips = showAll ? visibleTips : visibleTips.slice(0, 3);
 
   if (visibleTips.length === 0) {
     return (
@@ -117,20 +119,29 @@ export function DashboardSmartTipsWidget({ tips = [] }: DashboardSmartTipsWidget
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              Recomendaciones & Tips Clave
+              Recomendaciones Clave
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#1E2433] text-slate-600 dark:text-slate-300">
                 {visibleTips.length}
               </span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Diagnóstico automático de tu negocio para cerrar más ventas y evitar fricciones operativas.
+              Acciones concretas basadas en tu prompt, rubro y operación actual.
             </p>
           </div>
         </div>
+        {visibleTips.length > 3 && (
+          <button
+            type="button"
+            onClick={() => setShowAll((prev) => !prev)}
+            className="text-xs font-semibold text-[#0052FF] dark:text-[#00D2FF] hover:underline cursor-pointer"
+          >
+            {showAll ? 'Ver menos' : `Ver ${visibleTips.length - 3} más`}
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {visibleTips.map((tip) => (
+        {displayedTips.map((tip) => (
           <div
             key={tip.id}
             className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/50 dark:bg-[#0E121B] hover:border-slate-300 dark:hover:border-slate-700 transition flex flex-col justify-between gap-3 relative group"

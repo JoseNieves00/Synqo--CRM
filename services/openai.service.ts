@@ -774,18 +774,29 @@ export function buildDynamicContextBlock(params: {
 
   // Agrupar items de galería por producto canónico para que la IA entienda claramente
   // qué fotos son del mismo producto y qué vista representan (ej: principal, de lado, personalizada).
-  const groupedGallery = new Map<string, { price?: string; description?: string; isAvailable?: boolean; views: string[] }>();
+  const groupedGallery = new Map<
+    string,
+    { price?: string; description?: string; contextRule?: string; keywords: string[]; isAvailable?: boolean; views: string[] }
+  >();
   for (const g of galleryItems) {
     const canonicalName = (g.productName || g.name).trim();
-    const existing: { price?: string; description?: string; isAvailable?: boolean; views: string[] } = groupedGallery.get(canonicalName) || {
+    const existing = groupedGallery.get(canonicalName) || {
       price: g.price,
       description: (g as any).description || g.catalogDescription,
+      contextRule: g.contextRule,
+      keywords: [...(Array.isArray(g.keywords) ? g.keywords : [])],
       isAvailable: (g as any).isAvailable !== false,
       views: [] as string[],
     };
     if (!existing.price && g.price) existing.price = g.price;
     if (!existing.description && ((g as any).description || g.catalogDescription)) {
       existing.description = (g as any).description || g.catalogDescription;
+    }
+    if (!existing.contextRule && g.contextRule) existing.contextRule = g.contextRule;
+    if (Array.isArray(g.keywords)) {
+      for (const kw of g.keywords) {
+        if (kw && !existing.keywords.includes(kw)) existing.keywords.push(kw);
+      }
     }
     if ((g as any).isAvailable !== undefined) {
       existing.isAvailable = (g as any).isAvailable !== false;
@@ -799,15 +810,17 @@ export function buildDynamicContextBlock(params: {
 
   const gallerySummary =
     groupedGallery.size > 0
-      ? `\nProductos y servicios con foto oficial en galería para usar con send_product_card:\n${Array.from(groupedGallery.entries())
+      ? `\nGalería de imágenes disponibles para usar con send_product_card:\n${Array.from(groupedGallery.entries())
           .map(([prodName, data]) => {
-            const priceStr = formatGalleryPrice(data.price) || 'precio en catálogo';
+            const priceStr = data.price ? ` (${formatGalleryPrice(data.price)})` : '';
             const statusStr = data.isAvailable === false ? ' · [ESTADO: AGOTADO / NO DISPONIBLE]' : ' · [ESTADO: DISPONIBLE]';
-            const descStr = data.description ? ` · [Detalles/Medidas: ${data.description}]` : '';
+            const descStr = data.description ? ` · [Detalles: ${data.description}]` : '';
+            const kwStr = data.keywords.length > 0 ? ` · [Keywords: ${data.keywords.slice(0, 8).join(', ')}]` : '';
+            const ctxStr = data.contextRule ? ` · [Cuándo enviar: ${data.contextRule}]` : '';
             const viewsDesc = data.views.length > 1 ? ` · [${data.views.length} vistas: ${data.views.join(', ')}]` : '';
-            return `- "${prodName}" (${priceStr})${statusStr}${descStr}${viewsDesc}`;
+            return `- "${prodName}"${priceStr}${statusStr}${descStr}${kwStr}${ctxStr}${viewsDesc}`;
           })
-          .join('\n')}\nREGLA ESTRICTA DE DISPONIBILIDAD: Si un producto o servicio está marcado como [ESTADO: AGOTADO / NO DISPONIBLE], NUNCA lo confirmes para despacho o entrega inmediata. Informa amablemente que está temporalmente agotado y ofrece alternativas disponibles del catálogo o pedido por encargo.`
+          .join('\n')}\nREGLA ESTRICTA DE CONTEXTO PARA IMÁGENES (CERTEZA ≥ 95%): Solo invoca send_product_card cuando estés seguro al 95% o más de qué busca exactamente el cliente y de que la imagen coincide con sus palabras clave y su regla de contexto. Si la consulta es ambigua o general (ej. "¿qué tienen?" o "¿cuánto vale?" sin especificar), NO envíes imagen todavía: pregunta o aclara primero. Si un ítem está [ESTADO: AGOTADO / NO DISPONIBLE], NUNCA lo confirmes para despacho.`
       : '';
 
   const delayInstruction =
@@ -914,7 +927,9 @@ Regla Estricta de Modalidad: ${modalityStrictRule}
 
   const copilotBlock = `\n<copiloto_estrategico_de_ventas>
 Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
+Carril de Intención Activo: ${copilotPrescription.intentTrack || 'general'}
 Táctica Prescrita por el Copiloto: ${copilotPrescription.tacticName}
+Regla de Oro de Respuesta: Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y en el mismo mensaje haz una pregunta corta para extraer el siguiente dato útil.
 Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
 Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
 Prohibiciones Estrictas de este Turno:

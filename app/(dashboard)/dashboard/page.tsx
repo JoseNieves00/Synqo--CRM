@@ -13,6 +13,7 @@ import { AiActivityFeed } from '@/components/dashboard/AiActivityFeed';
 import { ClassifyLeadsButton } from '@/components/dashboard/ClassifyLeadsButton';
 import { DashboardKpiInteractive } from '@/components/dashboard/DashboardKpiInteractive';
 import { DashboardSmartTipsWidget } from '@/components/dashboard/DashboardSmartTipsWidget';
+import { DailyAdminSummaryCard } from '@/components/dashboard/DailyAdminSummaryCard';
 import { redirect } from 'next/navigation';
 
 const NewLeadModal = nextDynamic(
@@ -175,21 +176,6 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {/* Alerta operativa: pasos de seguimiento saltados en Meta por falta de plantilla */}
-      {(metrics?.followUp.skippedNoTemplateCount ?? 0) > 0 && (
-        <div className="p-3.5 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50/70 dark:bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>
-              <strong>{metrics?.followUp.skippedNoTemplateCount}</strong> contactos tuvieron pasos de seguimiento omitidos por superar la ventana de 24h en Meta sin plantilla vinculada.
-            </span>
-          </div>
-          <Link href="/settings" className="text-amber-800 dark:text-amber-300 font-bold underline shrink-0">
-            Vincular plantillas
-          </Link>
-        </div>
-      )}
-
       {/* KPIs Principales Interactivos (con Vistas Detalladas y Gráfico de Tokenización) */}
       <DashboardKpiInteractive
         metrics={metrics}
@@ -198,6 +184,9 @@ export default async function DashboardPage({
         aiActiveLeads={aiActiveLeads}
         needsHumanCount={needsHumanCount}
       />
+
+      {/* Resumen Diario Matutino (ayer) */}
+      <DailyAdminSummaryCard summary={metrics?.dailyAdminSummary} />
 
       {/* Recomendaciones & Tips Clave del Copiloto (Fases 1 & 2 · 0 Tokens) */}
       <DashboardSmartTipsWidget tips={metrics?.smartTips || []} />
@@ -243,7 +232,6 @@ export default async function DashboardPage({
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.hot || 0}
               </div>
-              <p className="text-[10px] text-rose-700/80 dark:text-rose-300/80 font-medium">Ver en Inbox →</p>
             </Link>
 
             <Link
@@ -261,7 +249,6 @@ export default async function DashboardPage({
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.qualifiedDoubt || 0}
               </div>
-              <p className="text-[10px] text-orange-700/80 dark:text-orange-300/80 font-medium">Ver en Inbox →</p>
             </Link>
 
             <Link
@@ -279,7 +266,6 @@ export default async function DashboardPage({
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.warm || 0}
               </div>
-              <p className="text-[10px] text-amber-700/80 dark:text-amber-300/80 font-medium">Ver en Inbox →</p>
             </Link>
 
             <Link
@@ -297,7 +283,6 @@ export default async function DashboardPage({
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.cold || 0}
               </div>
-              <p className="text-[10px] text-sky-700/80 dark:text-sky-300/80 font-medium">En Clientes →</p>
             </Link>
 
             <Link
@@ -315,39 +300,7 @@ export default async function DashboardPage({
               <div className="text-2xl font-black text-slate-900 dark:text-white mt-1 font-tabular">
                 {metrics?.categories.buyers || 0}
               </div>
-              <p className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 font-medium">
-                {metrics?.isCalendarBusiness ? 'Citas cerradas →' : 'Cierres ganados →'}
-              </p>
             </Link>
-          </div>
-
-          {/* Embudo por Etapa */}
-          <div className="pt-2 space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Embudo por etapa comercial (clic para filtrar)
-            </div>
-            <div className="grid grid-cols-5 gap-2 text-center">
-              {(
-                [
-                  { id: 'nuevo', label: 'Nuevo', view: 'ia_atendiendo' },
-                  { id: 'calificado', label: 'Calificado', view: 'ia_atendiendo' },
-                  { id: 'cita_agendada', label: 'Agendado', view: 'ia_atendiendo' },
-                  { id: 'ganado', label: 'Ganado', view: 'cerrados' },
-                  { id: 'perdido', label: 'Perdido', view: 'cerrados' },
-                ] as const
-              ).map((st) => (
-                <Link
-                  key={st.id}
-                  href={`/inbox?view=${st.view}&stage=${st.id}`}
-                  className="p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF]/50 transition block"
-                >
-                  <div className="text-base font-black text-slate-900 dark:text-white font-tabular">
-                    {metrics?.funnelCounts[st.id] || 0}
-                  </div>
-                  <div className="text-[10px] text-slate-500 truncate">{st.label}</div>
-                </Link>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -401,24 +354,14 @@ export default async function DashboardPage({
             )}
 
             {metrics?.costs && (
-              <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] space-y-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Motor IA Activo (p50: {(metrics.aiPerformance.p50LatencyMs / 1000).toFixed(1)}s · p90: {(metrics.aiPerformance.p90LatencyMs / 1000).toFixed(1)}s{metrics.costs.tokensPerSale > 0 ? ` · ${metrics.costs.tokensPerSale.toLocaleString('es-CO')} tok/cierre` : ''})
-                </div>
-                <div className="flex items-center justify-between text-[11px] font-mono p-2 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200/80 dark:border-[#232A3B]">
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                    <span className="text-slate-800 dark:text-slate-200 font-medium truncate">
-                      Synqo IA
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-[#0052FF] dark:text-[#00D2FF] font-sans font-bold">
-                      Motor Principal
-                    </span>
-                  </div>
-                  <span className="text-slate-900 dark:text-white font-bold shrink-0 ml-2">
-                    {(metrics.costs.totalTokensPeriod || 0).toLocaleString('es-CO')} tok
-                  </span>
-                </div>
+              <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] flex items-center justify-between text-xs">
+                <span className="text-slate-500 dark:text-slate-400">
+                  Consumo IA del periodo
+                </span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                  {(metrics.costs.totalTokensPeriod || 0).toLocaleString('es-CO')} tok
+                  {metrics.costs.tokensPerSale > 0 ? ` · ${metrics.costs.tokensPerSale.toLocaleString('es-CO')}/cierre` : ''}
+                </span>
               </div>
             )}
           </div>

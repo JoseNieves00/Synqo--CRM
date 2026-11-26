@@ -16,15 +16,23 @@ import {
 } from 'lucide-react';
 import { getUnattendedHandoffs } from '@/app/actions/chat';
 import type { EnabledModules } from '@/lib/supabase/types';
+import type { BusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 
 interface SidebarNavProps {
   isSuperAdmin: boolean;
   isAdmin: boolean;
   enabledModules?: EnabledModules;
+  businessCompatibility?: BusinessFeatureCompatibility;
   isCollapsed?: boolean;
 }
 
-export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules, isCollapsed = false }: SidebarNavProps) {
+export function SidebarNav({
+  isSuperAdmin,
+  isAdmin,
+  enabledModules,
+  businessCompatibility,
+  isCollapsed = false,
+}: SidebarNavProps) {
   const pathname = usePathname();
   const [unattendedCount, setUnattendedCount] = useState<number>(0);
 
@@ -84,7 +92,7 @@ export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules, isCollapsed 
       iconColor: 'text-[#0052FF]',
       matchExact: false,
     },
-    ...(enabledModules?.native_calendar !== false
+    ...(enabledModules?.native_calendar !== false && businessCompatibility?.supportsCalendar !== false
       ? [
           {
             href: '/calendar',
@@ -97,7 +105,7 @@ export function SidebarNav({ isSuperAdmin, isAdmin, enabledModules, isCollapsed 
           },
         ]
       : []),
-    ...(enabledModules?.orders !== false
+    ...(enabledModules?.orders !== false && businessCompatibility?.supportsOrders !== false
       ? [
           {
             href: '/pedidos',

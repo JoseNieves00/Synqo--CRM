@@ -6,6 +6,7 @@ import { calculateTurnCostUsd, AI_OPERATIONAL_CONFIG } from '@/lib/ai/config';
 import { resolveLeadTemperature } from '@/lib/ai/follow-up-types';
 import type { LeadScoreFactor } from '@/lib/leads/lead-score';
 import { DashboardTipsService, type DashboardSmartTip } from '@/services/dashboard-tips.service';
+import type { DailyAdminSummaryPayload } from '@/services/daily-summary.service';
 
 export type { DashboardSmartTip };
 
@@ -110,6 +111,9 @@ export interface DashboardMetrics {
     totalRunsPeriod: number;
     byModel: ModelCostBreakdown[];
   };
+
+  // Resumen Diario Matutino (persistido en structured_prompt_data)
+  dailyAdminSummary?: DailyAdminSummaryPayload | null;
 
   // Recomendaciones Inteligentes del Copiloto (Fases 1 y 2 · 0 Tokens)
   smartTips: DashboardSmartTip[];
@@ -585,11 +589,16 @@ export async function getDashboardMetrics(
       totalRunsPeriod: runs.length,
       byModel: Array.from(modelMap.values()).sort((a, b) => b.totalTokens - a.totalTokens),
     },
+    dailyAdminSummary: (org?.structured_prompt_data as any)?.daily_admin_summary || null,
     smartTips: DashboardTipsService.generateTips({
       organization: org,
       metrics: {
-        categories: { hot, qualifiedDoubt, warm, cold },
-        followUp: { sentInPeriod: followUpSentInPeriod, responseRatePct },
+        categories: { hot, qualifiedDoubt, warm, cold, unclassified },
+        followUp: {
+          sentInPeriod: followUpSentInPeriod,
+          responseRatePct,
+          skippedNoTemplateCount,
+        },
         aiPerformance: {
           handoffReasons: Array.from(handoffReasonMap.entries())
             .map(([reason, count]) => ({ reason, count }))
@@ -598,6 +607,9 @@ export async function getDashboardMetrics(
           autonomyPct,
         },
         needsHumanCount: needsHumanLeads.length,
+        wonCount: wonInPeriod,
+        avgTicket,
+        totalContacts: contacts.length,
       },
       exemptContactCount: contacts.filter((c: any) => {
         const cf = (c.custom_fields || {}) as Record<string, any>;

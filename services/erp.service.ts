@@ -179,3 +179,129 @@ export function evaluateBillingCycleRollover(
 
   return { action: 'none' };
 }
+
+export interface SmartBillingQuote {
+  mode: 'end_of_month' | 'mid_month_recharge';
+  daysRemainingInCycle: number;
+  daysElapsedInCycle: number;
+  dailyBurnRate: number;
+  effectiveLimit: number;
+  usedTokens: number;
+  overageTokens: number;
+  overageCop: number;
+  recommendedRechargeTokens: number;
+  recommendedRechargeCop: number;
+  monthlyBaseCop: number;
+  totalToCollectCop: number;
+}
+
+/**
+ * Calcula excedente acumulado, proyección estadística para cerrar el mes
+ * y el monto sugerido (editable en UI) para Cotizar & Cobrar.
+ */
+export function calculateSmartOverageAndRechargeQuote(params: {
+  usedTokens: number;
+  baseLimit: number;
+  extraBalance?: number;
+  billingDueDay?: number | null;
+  billingCycleEndsAt?: string | null;
+  monthlyBasePriceCop?: number;
+  overagePricePer1MCop?: number;
+  now?: Date;
+}): SmartBillingQuote {
+  const now = params.now || new Date();
+  const effectiveLimit = Math.max(1, Number(params.baseLimit || 5_000_000)) + Math.max(0, Number(params.extraBalance || 0));
+  const usedTokens = Math.max(0, Number(params.usedTokens || 0));
+  const overageTokens = Math.max(0, usedTokens - effectiveLimit);
+
+  const monthlyBaseCop = Math.max(0, Math.round(Number(params.monthlyBasePriceCop ?? 169000)));
+  const pricePer1M = Math.max(1, Math.round(Number(params.overagePricePer1MCop ?? 20000)));
+
+  let daysRemainingInCycle = 15;
+  if (params.billingCycleEndsAt) {
+    const endMs = new Date(params.billingCycleEndsAt).getTime();
+    if (Number.isFinite(endMs)) {
+      daysRemainingInCycle = Math.max(0, Math.ceil((endMs - now.getTime()) / (24 * 60 * 60 * 1000)));
+    }
+  } else if (params.billingDueDay && params.billingDueDay >= 1 && params.billingDueDay <= 31) {
+    const target = new Date(now.getFullYear(), now.getMonth(), params.billingDueDay);
+    if (target.getTime() < now.getTime()) {
+      target.setMonth(target.getMonth() + 1);
+    }
+    daysRemainingInCycle = Math.max(0, Math.ceil((target.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
+  }
+
+  const daysElapsedInCycle = Math.max(1, 30 - Math.min(30, daysRemainingInCycle));
+  const dailyBurnRate = Math.round(usedTokens / daysElapsedInCycle);
+
+  const mode: 'end_of_month' | 'mid_month_recharge' =
+    daysRemainingInCycle <= 5 ? 'end_of_month' : 'mid_month_recharge';
+
+  const overageCop = Math.round((overageTokens / 1_000_000) * pricePer1M);
+
+  let recommendedRechargeTokens = 0;
+  if (mode === 'mid_month_recharge') {
+    const projectedNeed = Math.max(0, dailyBurnRate * daysRemainingInCycle * 1.15 - Math.max(0, effectiveLimit - usedTokens));
+    if (projectedNeed > 0 || overageTokens > 0) {
+      const rawBlocks = Math.ceil(Math.max(1_000_000, projectedNeed) / 500_000);
+      recommendedRechargeTokens = rawBlocks * 500_000;
+    }
+  }
+
+  const recommendedRechargeCop = Math.round((recommendedRechargeTokens / 1_000_000) * pricePer1M);
+  const totalToCollectCop =
+    mode === 'end_of_month'
+      ? monthlyBaseCop + overageCop
+      : overageCop + recommendedRechargeCop;
+
+  return {
+    mode,
+    daysRemainingInCycle,
+    daysElapsedInCycle,
+    dailyBurnRate,
+    effectiveLimit,
+    usedTokens,
+    overageTokens,
+    overageCop,
+    recommendedRechargeTokens,
+    recommendedRechargeCop,
+    monthlyBaseCop,
+    totalToCollectCop,
+  };
+}
+
+export function buildQuoteWhatsAppUrl(params: {
+  phone?: string | null;
+  companyName: string;
+  contactName?: string | null;
+  mode: 'end_of_month' | 'mid_month_recharge';
+  overageTokens: number;
+  overageCop: number;
+  rechargeTokens: number;
+  rechargeCop: number;
+  monthlyBaseCop: number;
+  totalCop: number;
+  daysRemaining: number;
+}): string {
+  const cleanPhone = String(params.phone || '').replace(/[^0-9]/g, '');
+  const greeting = params.contactName ? `Hola ${params.contactName}` : 'Hola';
+  const lines =
+    params.mode === 'end_of_month'
+      ? [
+          `${greeting}, te comparto la cuenta de cobro de *${params.companyName}* en Synqo:`,
+          `• Mensualidad base: *$${params.monthlyBaseCop.toLocaleString('es-CO')} COP*`,
+          ...(params.overageTokens > 0
+            ? [`• Excedente del ciclo (+${params.overageTokens.toLocaleString('es-CO')} tok): *$${params.overageCop.toLocaleString('es-CO')} COP*`]
+            : []),
+          `• Total a pagar: *$${params.totalCop.toLocaleString('es-CO')} COP*`,
+          `Apenas confirmemos el pago queda renovado tu ciclo. ¿Confirmamos?`,
+        ]
+      : [
+          `${greeting}, *${params.companyName}* superó su cuota base del mes${params.overageTokens > 0 ? ` (excedente: +${params.overageTokens.toLocaleString('es-CO')} tok = $${params.overageCop.toLocaleString('es-CO')} COP)` : ''}.`,
+          `Para cubrir los ${params.daysRemaining} días restantes del mes te recomiendo sumar *${params.rechargeTokens.toLocaleString('es-CO')} tokens* ($${params.rechargeCop.toLocaleString('es-CO')} COP).`,
+          `Total excedente + recarga mes en curso: *$${params.totalCop.toLocaleString('es-CO')} COP* (aplica solo para este ciclo). ¿Confirmamos?`,
+        ];
+
+  const text = encodeURIComponent(lines.join('\n'));
+  return cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
+}

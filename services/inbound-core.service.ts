@@ -16,6 +16,7 @@ import { NotificationService } from '@/lib/notifications/resend';
 import { decryptSecret } from '@/lib/security/encryption';
 import { AI_OPERATIONAL_CONFIG, AI_TEXT_TEMPLATES, getAiChatChain } from '@/lib/ai/config';
 import { resolveLeadTemperature, resolveProductInterest } from '@/lib/ai/follow-up-types';
+import { extractOrganizationCapabilities, resolveHybridIntentTrack } from '@/lib/ai/copilot-engine';
 
 export type InboundChannel = 'whatsapp_meta' | 'whatsapp_evolution' | 'instagram';
 
@@ -501,8 +502,26 @@ export class InboundCoreService {
         }
         updatedCustomFields.follow_up = nextFu;
       }
-      if (updatedCustomFields.active_reminder?.reminderType === 'reactivation') {
+      if (
+        updatedCustomFields.active_reminder?.reminderType === 'reactivation' ||
+        updatedCustomFields.active_reminder?.reminderType === 'custom'
+      ) {
         delete updatedCustomFields.active_reminder;
+        await (supabaseAdmin.from('scheduled_reminders') as any)
+          .update({ status: 'cancelled' })
+          .eq('contact_id', existingContact.id)
+          .eq('status', 'pending')
+          .in('reminder_type', ['reactivation', 'custom']);
+      }
+
+      const orgCaps = extractOrganizationCapabilities(payload.organization, payload.organization?.system_prompt || '');
+      const nextIntentTrack = resolveHybridIntentTrack({
+        businessModel: orgCaps.businessModel,
+        history: [{ sender_type: 'lead', content: lowerInbound }],
+        contactData: { custom_fields: updatedCustomFields },
+      });
+      if (nextIntentTrack !== 'clarify') {
+        updatedCustomFields.active_intent_track = nextIntentTrack;
       }
 
       await (supabaseAdmin.from('contacts') as any)

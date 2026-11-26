@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { MessagingService } from '@/services/messaging.service';
+import { DailySummaryService } from '@/services/daily-summary.service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -56,7 +57,7 @@ async function handleDailyBriefing(request: NextRequest) {
 
   try {
     let orgsQuery = (supabaseAdmin.from('organizations') as any)
-      .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, appointment_settings, enabled_modules')
+      .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour, appointment_settings, enabled_modules, system_prompt, structured_prompt_data, industry_preset, ai_provider')
       .eq('is_active', true);
 
     if (targetOrgId) {
@@ -71,11 +72,35 @@ async function handleDailyBriefing(request: NextRequest) {
 
     for (const org of orgs || []) {
       const enabledModules = org.enabled_modules || {};
-      // Si la empresa tiene apagado el módulo de citas, no requiere briefing de citas
-      if (enabledModules.native_calendar === false) continue;
-
       const appSettings = (org.appointment_settings as Record<string, any>) || {};
       const timezone = appSettings.timezone || 'America/Bogota';
+      const notificationPhone = appSettings.notification_phone;
+
+      // 1. Resumen Diario Matutino de Operación (del día anterior) -> Dashboard + WhatsApp Admin
+      try {
+        const dailySummary = await DailySummaryService.generateAndPersistForOrg(org);
+        if (notificationPhone) {
+          const summaryBody = DailySummaryService.formatWhatsAppMessage(org.name || 'Tu Negocio', dailySummary);
+          await MessagingService.sendTextMessage({
+            organization: org,
+            to: notificationPhone,
+            body: summaryBody,
+            simulateTyping: false,
+          });
+          totalNotificationsSent++;
+          details.push({
+            orgId: org.id,
+            orgName: org.name,
+            sentTo: `Admin Resumen (${notificationPhone})`,
+            count: 1,
+          });
+        }
+      } catch (summaryErr: any) {
+        console.warn(`[Daily Briefing] Error generando/enviando resumen diario para ${org.name}:`, summaryErr.message);
+      }
+
+      // 2. Si la empresa tiene apagado el módulo de citas, no requiere briefing de citas
+      if (enabledModules.native_calendar === false) continue;
 
       // Calcular inicio y fin del día local (00:00:00 a 23:59:59)
       const now = new Date();
@@ -168,8 +193,7 @@ async function handleDailyBriefing(request: NextRequest) {
         }
       }
 
-      // 2. Si hay citas sin especialista o se configuró notification_phone global, enviar resumen al negocio
-      const notificationPhone = appSettings.notification_phone;
+      // 3. Si hay citas sin especialista o se configuró notification_phone global, enviar resumen de agenda al negocio
       if (notificationPhone && appointments.length > 0) {
         const dateHeader = new Intl.DateTimeFormat('es-CO', {
           timeZone: timezone,

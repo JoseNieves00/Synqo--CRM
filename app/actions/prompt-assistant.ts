@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PROMPT_ASSISTANT_CONFIG, getAiUtilityChain } from '@/lib/ai/config';
+import { getBusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 import type { IndustryPreset } from '@/lib/ai/prompt-compiler';
 import { createChatCompletionWithFallback, OpenAIService } from '@/services/openai.service';
 import { PlatformAlertService } from '@/services/platform-alert.service';
@@ -275,6 +276,7 @@ export async function interpretAssistantAnswerAction(input: {
   slotId: string;
   answer: string;
   currentPrompt: string;
+  chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>;
 }) {
   const { org } = await getAuthorizedOrgForAssistant();
   const structured =
@@ -311,6 +313,8 @@ export async function interpretAssistantAnswerAction(input: {
   let alsoDetected: Record<string, any> = {};
   const mergedSections: Record<string, string> = {};
   let followUpQuestion: string | null = null;
+  let consultantReply: string | null = null;
+  let isSimplification = false;
   let skippedSlot = false;
 
   if (freeLocalRoute.handled && freeLocalRoute.sectionId && freeLocalRoute.slotId && freeLocalRoute.mergedBody) {
@@ -349,25 +353,34 @@ export async function interpretAssistantAnswerAction(input: {
       ? `\nEstilo del cliente: ${formatProfile.styleDescription}.\n${headingsList}Esquema actual:\n---\n${compactOutline}\n---`
       : '';
 
+    const compat = getBusinessFeatureCompatibility(org, input.currentPrompt || '');
+    const modelGuidance =
+      compat.businessModel === 'hybrid'
+        ? 'Modelo HÍBRIDO (vende productos Y agenda servicios/visitas): asesora al dueño para mantener separadas las reglas de venta/envío de productos de las reglas de agenda/citas, sin contradicciones.'
+        : compat.businessModel === 'services'
+        ? 'Modelo SOLO SERVICIOS: enfócate en servicios, precios/planes, modalidad (presencial/virtual), horarios y agendamiento; PROHIBIDO sugerir envíos, fletes o catálogo físico.'
+        : 'Modelo SOLO PRODUCTOS: enfócate en productos, variantes, precios, envíos/entregas, pagos y cierre de pedido; PROHIBIDO sugerir citas o calendario.';
+
     const systemMsg = isFreeMode
-      ? `Eres un editor quirúrgico de prompts comerciales multi-nicho para empresas en WhatsApp.
-El administrador escribió o dictó libremente una instrucción, dato, producto, corrección o regla de venta.
-Slots disponibles:
+      ? `Eres un consultor comercial humano experto en ventas por WhatsApp e Instagram para CRM Synqo.
+Tu rol es conversar de forma cercana, clara y práctica con el dueño del negocio para ayudarle a construir o perfeccionar su prompt sin tecnicismos.
+Contexto del negocio: "${org.name || 'Negocio'}" (rubro: ${preset}).
+${modelGuidance}
+Slots / secciones disponibles:
 ${allSlotsHint}
 ${existingContextHint}
 
-REGLAS CRÍTICAS:
-1. Identifica a qué slot(s) pertenece y devuelve el dato en "also_detected" (para "catalogo.items", array [{"name","price","specs","variants","includes"}]).
-2. REGLA ESTRICTA DE MODIFICACIÓN IN-PLACE: Cuando el usuario pida corregir o agregar una regla (ej. no repetir precios tras enviar fotos, pasar al asesor al cotizar envíos a ciudades específicas, enviar fotos ante consultas generales), debes integrarla DIRECTAMENTE DENTRO de la sección existente correspondiente ('catalogo', 'envios', 'relevo', 'pagos', 'politicas', 'cierre', 'tono') mediante "merged_sections". NUNCA la envíes a "adicional" ni crees secciones al final si el tema ya tiene una sección en el prompt del cliente, para evitar contradicciones entre el inicio y el final del prompt.
-3. REGLA DE NO-TECNICISMOS (LENGUAJE 100% HUMANO Y COMERCIAL):
-   - PROHIBIDO usar nombres técnicos en inglés como "send_product_card", "request_human_handoff", "tools", "JSON" o "API".
-   - Redacta SIEMPRE en español comercial natural: "envía de inmediato las fotos de los productos con sus precios", "transfiere la conversación a un asesor humano", "no repitas en texto precios ni medidas si ya enviaste las fotos".
-4. Si ya existe un prompt arriba, en "merged_sections" escribe para el sectionId tocado el cuerpo ACTUALIZADO de esa sección: FUSIONA lo que ya tenía esa sección con la nueva instrucción, EVITA duplicados o redundancias, y ADÁPTATE exactamente al estilo del cliente (${formatProfile.styleDescription}) sin borrar reglas previas vigentes.
-5. REGLA ANTI-DUPLICADOS DE SECCIÓN: Si el prompt del cliente ya tiene una sección compuesta que engloba el contenido (ej. "${exactHeadings[0] || '## POLÍTICAS, ENVÍOS Y PAGOS:'}"), usa el sectionId más relevante — el sistema fusionará el contenido en su lugar automáticamente. NUNCA inventes una clave de sectionId fuera de los slots disponibles.
-6. Redacta SIEMPRE como instrucciones directas ejecutables por el bot (PROHIBIDO meta-consejos como "Es recomendable...").
-7. Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una pregunta breve en "follow_up_question", si no null.
+CÓMO DEBES ACTUAR COMO CONSULTOR:
+1. Si el cliente te cuenta sobre su negocio (productos, servicios, precios, cómo vende), demuestra que lo entendiste, resume brevemente qué captaste y qué le falta para cerrar ventas (anticipando preguntas típicas de sus clientes finales).
+2. Si el cliente pide simplificar, limpiar, quitar duplicados o corregir reglas, analiza qué está repetido o sobra y propón la versión depurada en "merged_sections" marcando "is_simplification": true.
+3. REGLA ESTRICTA DE SECCIÓN IN-PLACE:
+   - Mapea SIEMPRE cada cambio a la sección existente más cercana en "Encabezados EXACTOS del prompt del cliente" usando el sectionId correspondiente ('empresa', 'catalogo', 'pagos', 'envios', 'politicas', 'faq', 'tono', 'cierre', 'relevo', 'seguimiento', 'adicional').
+   - Crea una sección nueva SI Y SOLO SI no existe ninguna sección equivalente que cubra ese tema en el prompt actual. NUNCA envíes todo a "adicional" ni dupliques secciones.
+4. REGLA DE NO-TECNICISMOS: Cero nombres técnicos en inglés ("tools", "JSON", "API", "send_product_card", "slots"). Habla en español comercial natural.
+5. En "merged_sections" escribe SOLO texto ejecutable para el bot (nunca consejos como "Es recomendable...").
+6. En "consultant_reply" responde directamente al dueño en tono humano (2-4 frases): qué entendiste o qué propones cambiar/simplificar/eliminar y qué pregunta clave de un cliente final conviene cubrir. Si no hace falta editar el prompt aún (porque solo están conversando o explorando), deja "merged_sections" vacío {} y guía con una pregunta útil.
 Responde ÚNICAMENTE JSON válido:
-{ "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "follow_up_question": string | null }`
+{ "consultant_reply": string, "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "is_simplification": boolean, "follow_up_question": string | null }`
       : `Eres un extractor estructurado para configurar un asistente comercial multi-nicho en lenguaje 100% natural y comercial (cero tecnicismos de programación ni nombres de herramientas en inglés).
 Sección actual: "${PROMPT_SECTIONS.find((s) => s.id === slot!.sectionId)?.title || slot!.sectionTitle}" (slot "${slot!.id}", tipo "${slot!.type}").
 Pregunta realizada: "${slot!.question}"
@@ -379,13 +392,24 @@ Si falta un dato esencial (ej. precio de un producto mencionado), sugiere una so
 Responde ÚNICAMENTE JSON válido:
 { "filled_value": string | string[] | object[], "also_detected": Record<string, any>, "merged_sections": Record<string, string>, "follow_up_question": string | null }`;
 
+    const historyTurns = Array.isArray(input.chatHistory)
+      ? input.chatHistory
+          .slice(-6)
+          .filter((m) => m && typeof m.text === 'string' && m.text.trim())
+          .map((m) => ({
+            role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: m.text.trim().slice(0, 500),
+          }))
+      : [];
+
     const llmRes = await createChatCompletionWithFallback({
       messages: [
         { role: 'system', content: systemMsg },
+        ...historyTurns,
         { role: 'user', content: cleanAnswer.slice(0, 2000) },
       ],
-      temperature: 0.15,
-      maxTokens: 450,
+      temperature: isFreeMode ? 0.25 : 0.15,
+      maxTokens: isFreeMode ? 650 : 450,
       chainOverride: getAiUtilityChain(),
       aiProvider: org.ai_provider,
       organizationId: org.id,
@@ -423,6 +447,12 @@ Responde ÚNICAMENTE JSON válido:
           }
         }
       }
+      if (typeof parsed.consultant_reply === 'string' && parsed.consultant_reply.trim()) {
+        consultantReply = parsed.consultant_reply.trim();
+      }
+      if (parsed.is_simplification === true) {
+        isSimplification = true;
+      }
       if (typeof parsed.follow_up_question === 'string' && parsed.follow_up_question.trim()) {
         followUpQuestion = parsed.follow_up_question.trim();
       }
@@ -434,7 +464,12 @@ Responde ÚNICAMENTE JSON válido:
       }
     }
 
-    if (isFreeMode && Object.keys(alsoDetected).length === 0) {
+    if (
+      isFreeMode &&
+      Object.keys(alsoDetected).length === 0 &&
+      Object.keys(mergedSections).length === 0 &&
+      !consultantReply
+    ) {
       alsoDetected['adicional.notas'] = cleanAnswer;
     }
   }
@@ -544,7 +579,7 @@ Responde ÚNICAMENTE JSON válido:
                     .filter((l) => l.trim().length > 15)
                     .every((l) => proposedNorm.includes(l.trim())));
 
-          if (!containsExisting) {
+          if (!containsExisting && !isSimplification) {
             // El LLM o slot solo redactó el cambio puntual; conservar intacto lo existente y anexar lo nuevo al final
             const adaptedNew = adaptBulletStyle(proposedBody, formatProfile.bulletStyle);
             const newLines = adaptedNew
@@ -621,18 +656,23 @@ Responde ÚNICAMENTE JSON válido:
 
   const endBudget = getAssistantBudgetStatus(state);
 
-  return {
-    limitReached: endBudget.limitReached,
-    budgetNotice: toClientBudgetNotice(endBudget),
-    assistantMessage:
-      followUpQuestion ||
+  const formattedAssistantMessage = consultantReply
+    ? followUpQuestion && !consultantReply.includes(followUpQuestion)
+      ? `${consultantReply}\n\n${followUpQuestion}`
+      : consultantReply
+    : followUpQuestion ||
       (skippedSlot && slot
         ? `Perfecto, dejamos "${slot.sectionTitle}" para después.`
         : createdProposal
         ? `Listo, preparé la propuesta para **${firstTouchedTitle}**. Revísala arriba y dale **Aplicar en sección** para sumarla sin perder nada de tu prompt actual.`
         : touchedSectionIds.length > 1
         ? `¡Anotado en **${firstTouchedTitle}** y en ${touchedSectionIds.length - 1} sección(es) relacionada(s)!`
-        : `¡Anotado en **${firstTouchedTitle}**!`),
+        : `¡Anotado en **${firstTouchedTitle}**!`);
+
+  return {
+    limitReached: endBudget.limitReached,
+    budgetNotice: toClientBudgetNotice(endBudget),
+    assistantMessage: formattedAssistantMessage,
     patchedPrompt,
     highlightedSection: patchedPrompt ? firstTouchedTitle : null,
     proposal: createdProposal,

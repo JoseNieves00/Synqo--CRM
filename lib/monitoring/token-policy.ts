@@ -16,6 +16,14 @@ export interface TokenPolicyConfig {
   alertsSentInCycle: Record<string, string>;
   /** Tarifa de referencia por cada 500k tokens extra en COP (opcional para mostrar en aviso) */
   overagePricePer500kCop?: number | null;
+  /** Tarifa mensual base editable del software en COP (default 169000) */
+  monthlyBasePriceCop?: number | null;
+  /** Tarifa editable por cada 1M de tokens extra / excedente en COP (default 20000) */
+  overagePricePer1MCop?: number | null;
+  /** Margen de gracia operativo sobre el límite antes de pausar IA (default 20%) */
+  gracePct?: number;
+  /** Si true, pausa la IA automática al superar el margen de gracia para evitar deuda incobrable */
+  hardStopAfterGrace?: boolean;
   /** En Synqo el bot continúa operando en Modo Excedente al superar el 100% */
   overageAllowed: boolean;
 }
@@ -94,11 +102,21 @@ export function normalizeTokenPolicy(raw?: any): TokenPolicyConfig {
   }
 
   const priceNum = Number(src.overagePricePer500kCop);
+  const monthlyBaseNum = Number(src.monthlyBasePriceCop);
+  const overage1MNum = Number(src.overagePricePer1MCop);
+  const graceNum = Number(src.gracePct);
   return {
     alertThresholds: normalizeAlertThresholds(src.alertThresholds),
     alertsSentInCycle,
     overagePricePer500kCop:
       Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum) : null,
+    monthlyBasePriceCop:
+      Number.isFinite(monthlyBaseNum) && monthlyBaseNum > 0 ? Math.round(monthlyBaseNum) : 169000,
+    overagePricePer1MCop:
+      Number.isFinite(overage1MNum) && overage1MNum > 0 ? Math.round(overage1MNum) : 20000,
+    gracePct:
+      Number.isFinite(graceNum) && graceNum >= 0 && graceNum <= 100 ? Math.round(graceNum) : 20,
+    hardStopAfterGrace: src.hardStopAfterGrace !== false,
     overageAllowed: src.overageAllowed !== false,
   };
 }

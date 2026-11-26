@@ -6,11 +6,13 @@ import { PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
 import { SidebarNav } from '@/components/dashboard/SidebarNav';
 import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
 import type { EnabledModules } from '@/lib/supabase/types';
+import type { BusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 
 interface DashboardSidebarProps {
   isSuperAdmin: boolean;
   isAdmin: boolean;
   enabledModules?: EnabledModules;
+  businessCompatibility?: BusinessFeatureCompatibility;
   subStatus: string;
   userFullName: string;
   userEmail: string;
@@ -22,6 +24,7 @@ export function DashboardSidebar({
   isSuperAdmin,
   isAdmin,
   enabledModules,
+  businessCompatibility,
   subStatus,
   userFullName,
   userEmail,
@@ -100,6 +103,7 @@ export function DashboardSidebar({
         isSuperAdmin={isSuperAdmin}
         isAdmin={isAdmin}
         enabledModules={enabledModules}
+        businessCompatibility={businessCompatibility}
         isCollapsed={isCollapsed}
       />
 

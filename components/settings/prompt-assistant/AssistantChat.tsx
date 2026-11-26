@@ -197,51 +197,26 @@ export function AssistantChat({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Modo libre vs guía opcional + botón analizar prompt existente */}
+      {/* Barra superior limpia: acciones consultivas naturales */}
       <div className="px-3 py-2 border-b border-slate-100 dark:border-[#1E2433] bg-slate-50/70 dark:bg-[#090A0F] flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <div className="inline-flex rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] p-0.5 text-[11px] font-semibold">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+          <button
+            type="button"
+            onClick={() => handleSend('Analiza mi negocio y dime qué preguntas haría un cliente final que aún no cubro en el prompt.')}
+            disabled={sending || dailyLimitReached}
+            className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#131722] hover:bg-slate-100 dark:hover:bg-[#1E2433] border border-slate-200 dark:border-[#232A3B] text-[11px] font-medium text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50"
+          >
+            ¿Qué preguntaría un cliente?
+          </button>
+          {hasPromptBody && (
             <button
               type="button"
-              onClick={() => onSelectSlot('free')}
-              className={`px-2 py-1 rounded-md transition cursor-pointer ${
-                isFreeMode
-                  ? 'bg-[#0052FF] text-white'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              onClick={() => handleSend('Revisa mi prompt para simplificarlo, quitar duplicados y decirme qué sobra o se puede mejorar.')}
+              disabled={sending || dailyLimitReached}
+              className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#131722] hover:bg-slate-100 dark:hover:bg-[#1E2433] border border-slate-200 dark:border-[#232A3B] text-[11px] font-medium text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50"
             >
-              Chat libre
+              Simplificar y depurar
             </button>
-            <button
-              type="button"
-              onClick={() => onSelectSlot(PROMPT_BLUEPRINT_SLOTS[0].id)}
-              className={`px-2 py-1 rounded-md transition cursor-pointer ${
-                !isFreeMode
-                  ? 'bg-[#0052FF] text-white'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Guía
-            </button>
-          </div>
-
-          {!isFreeMode && (
-            <select
-              value={activeSlot?.id || ''}
-              onChange={(e) => onSelectSlot(e.target.value)}
-              className="text-[11px] font-medium px-2 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-200 max-w-[155px]"
-              title="Cambiar de tema en la guía"
-            >
-              {PROMPT_BLUEPRINT_SLOTS.map((slot) => {
-                const done = state.sectionStatus[slot.sectionId] === 'complete';
-                return (
-                  <option key={slot.id} value={slot.id}>
-                    {done ? '✓ ' : ''}
-                    {PROMPT_SECTIONS.find((sec) => sec.id === slot.sectionId)?.order}. {slot.sectionTitle}
-                  </option>
-                );
-              })}
-            </select>
           )}
         </div>
 

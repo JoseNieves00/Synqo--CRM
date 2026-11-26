@@ -1,22 +1,25 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Loader2, Plus, Trash2, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Image as ImageIcon, Loader2, Plus, Trash2, Upload, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import type { GalleryPhotoItem } from '@/lib/media/format';
 import { getOrganizationCatalogGallery, saveAiImageGallery } from '@/app/actions/settings';
 import { uploadChatMedia } from '@/app/actions/chat';
+import { suggestProductCatalogAi } from '@/app/actions/ai-catalog';
 
 export function AiGalleryTab() {
   const [items, setItems] = useState<GalleryPhotoItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzingAi, setIsAnalyzingAi] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [keywordsInput, setKeywordsInput] = useState('');
+  const [contextRule, setContextRule] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -49,6 +52,32 @@ export function AiGalleryTab() {
     }
   };
 
+  const runGeminiAutofill = async (targetUrl: string, fallbackName?: string) => {
+    if (!targetUrl.trim()) return;
+    setIsAnalyzingAi(true);
+    try {
+      const res = await suggestProductCatalogAi({
+        imageUrl: targetUrl.trim(),
+        productName: name.trim() || fallbackName,
+        description: description.trim() || undefined,
+      });
+      if (res.success && res.data) {
+        if (res.data.name) setName(res.data.name);
+        if (res.data.description) setDescription(res.data.description);
+        if (res.data.keywords?.length) setKeywordsInput(res.data.keywords.join(', '));
+        if (res.data.contextRule) setContextRule(res.data.contextRule);
+        setFeedback({
+          type: 'success',
+          text: 'Gemini analizó la imagen y prellenó los campos. Revísalos o edítalos antes de guardar.',
+        });
+      }
+    } catch {
+      // silencioso: el usuario puede llenar manualmente
+    } finally {
+      setIsAnalyzingAi(false);
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -60,9 +89,11 @@ export function AiGalleryTab() {
       const res = await uploadChatMedia(formData);
       if (res?.url) {
         setImageUrl(res.url);
+        const cleanFileName = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
         if (!name.trim()) {
-          setName(file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '));
+          setName(cleanFileName);
         }
+        await runGeminiAutofill(res.url, cleanFileName);
       } else {
         setFeedback({ type: 'error', text: 'No se pudo subir la imagen.' });
       }
@@ -93,6 +124,7 @@ export function AiGalleryTab() {
       description: description.trim() || undefined,
       price: price.trim() || undefined,
       keywords: keywords.length > 0 ? keywords : undefined,
+      contextRule: contextRule.trim() || undefined,
       isAvailable: true,
     };
 
@@ -102,6 +134,7 @@ export function AiGalleryTab() {
     setDescription('');
     setPrice('');
     setKeywordsInput('');
+    setContextRule('');
     setImageUrl('');
   };
 
@@ -196,29 +229,42 @@ export function AiGalleryTab() {
 
           <div className="md:col-span-6">
             <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Descripción breve (opcional)
+              Regla de contexto (cuándo SÍ y cuándo NO enviarla)
             </label>
             <input
               type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Contexto que acompaña la foto"
+              value={contextRule}
+              onChange={(e) => setContextRule(e.target.value)}
+              placeholder="Ej. Enviar solo si pregunta por ubicación; NO enviar si pregunta precios"
               className="w-full h-9 px-3 text-xs rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
             />
           </div>
 
           <div className="md:col-span-6">
             <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Subir imagen o pegar URL *
+              Descripción breve (opcional)
             </label>
-            <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Contexto adicional que acompaña la foto"
+              className="w-full h-9 px-3 text-xs rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="md:col-span-12">
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Subir imagen o pegar URL * (Gemini autocompletará los campos antes de guardar)
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="url"
                 required
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
                 placeholder="https://..."
-                className="flex-1 h-9 px-3 text-xs rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
+                className="flex-1 min-w-[200px] h-9 px-3 text-xs rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] text-slate-900 dark:text-white"
               />
               <input
                 ref={fileInputRef}
@@ -229,20 +275,31 @@ export function AiGalleryTab() {
               />
               <button
                 type="button"
-                disabled={isUploading}
+                disabled={isUploading || isAnalyzingAi}
                 onClick={() => fileInputRef.current?.click()}
                 className="h-9 px-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 cursor-pointer shrink-0"
               >
                 {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                 <span>{isUploading ? 'Subiendo...' : 'Subir'}</span>
               </button>
+              {imageUrl.trim() && (
+                <button
+                  type="button"
+                  disabled={isAnalyzingAi || isUploading}
+                  onClick={() => runGeminiAutofill(imageUrl)}
+                  className="h-9 px-3 rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-xs font-semibold text-[#0052FF] dark:text-[#00D2FF] inline-flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  {isAnalyzingAi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>{isAnalyzingAi ? 'Analizando...' : 'Autocompletar'}</span>
+                </button>
+              )}
               <button
                 type="submit"
-                disabled={isSaving || isUploading}
+                disabled={isSaving || isUploading || isAnalyzingAi}
                 className="h-9 px-4 rounded-xl bg-[#0052FF] hover:bg-[#0043D4] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Agregar</span>
+                <span>Guardar en Galería</span>
               </button>
             </div>
           </div>
@@ -289,6 +346,11 @@ export function AiGalleryTab() {
                     {item.keywords && item.keywords.length > 0 && (
                       <p className="text-[10px] text-[#0052FF] dark:text-[#00D2FF] mt-1 truncate">
                         Claves: {item.keywords.join(', ')}
+                      </p>
+                    )}
+                    {item.contextRule && (
+                      <p className="text-[10px] text-slate-600 dark:text-slate-300 mt-1 line-clamp-2">
+                        <span className="font-semibold">Contexto:</span> {item.contextRule}
                       </p>
                     )}
                   </div>

@@ -23,11 +23,13 @@ export interface ProductAiSuggestion {
   name: string;
   description: string;
   keywords: string[];
+  contextRule: string;
 }
 
 /**
- * Analiza un producto (texto o imagen multimodal) usando la cadena configurada en AI_UTILITY_MODEL
- * y genera automáticamente el nombre comercial, descripción vendedora y palabras clave de WhatsApp.
+ * Analiza una imagen o recurso visual (producto, servicio, ubicación, tabla de medidas, promo, etc.)
+ * usando la cadena configurada en AI_UTILITY_MODEL y genera automáticamente título, descripción,
+ * palabras clave y regla estricta de contexto para WhatsApp.
  */
 export async function suggestProductCatalogAi(input: {
   productName?: string;
@@ -45,19 +47,23 @@ export async function suggestProductCatalogAi(input: {
     }
 
     const chain = getAiUtilityChain();
+    const orgName = current.organization?.name || 'el negocio';
+    const industry = current.organization?.industry_preset || 'comercial';
 
-    const systemPrompt = `Eres un estratega experto en ventas por WhatsApp y comercio conversacional.
-Tu objetivo es analizar la foto y/o el nombre de un producto y generar su ficha de catálogo optimizada para WhatsApp.
-Genera un objeto JSON con:
-1. "name": Nombre comercial claro y atractivo (máximo 40 caracteres, ej: "Plan Profesional Mensual" o "Combo Ejecutivo").
-2. "description": Descripción vendedora de 2 líneas adaptada a WhatsApp (destaca qué incluye, características o beneficio).
-3. "keywords": Lista de 6 a 10 sinónimos coloquiales, atributos, variantes o frases cortas que los compradores reales escribirían en WhatsApp para preguntar por esta opción (ej: ["plan pro", "mensual", "estándar", "incluye", "promoción", "cotización"]).
+    const systemPrompt = `Eres un estratega experto en atención y ventas por WhatsApp para "${orgName}" (rubro: ${industry}).
+Analiza la imagen y/o datos proporcionados (puede ser un producto, un servicio, un antes/después, una sede/mapa, una tabla de tallas/medidas, un catálogo o una promoción).
+Genera un JSON válido para que la IA sepa exactamente qué es y en qué contexto enviarla SIN equivocarse:
+1. "name": Título claro y corto (máx. 45 caracteres).
+2. "description": Descripción breve y útil de 1-2 líneas para acompañar la imagen si hace falta.
+3. "keywords": Lista de 6 a 10 palabras clave, sinónimos o intenciones reales que un cliente escribiría en WhatsApp cuando necesita ver esta imagen.
+4. "contextRule": Regla precisa de uso en 1 frase: "Enviar solo cuando [condición exacta]. NO enviar si [contexto incorrecto o pregunta ambigua]."
 
-Responde ÚNICAMENTE un JSON válido con este formato:
+Responde ÚNICAMENTE un JSON válido:
 {
   "name": "...",
   "description": "...",
-  "keywords": ["...", "..."]
+  "keywords": ["...", "..."],
+  "contextRule": "..."
 }`;
 
     const userContent: Array<any> = [];
@@ -107,9 +113,10 @@ Responde ÚNICAMENTE un JSON válido con este formato:
     return {
       success: true,
       data: {
-        name: parsed.name || input.productName || 'Producto',
+        name: parsed.name || input.productName || 'Imagen de galería',
         description: parsed.description || input.description || '',
         keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+        contextRule: typeof parsed.contextRule === 'string' ? parsed.contextRule.trim() : '',
       },
     };
   } catch (err: any) {

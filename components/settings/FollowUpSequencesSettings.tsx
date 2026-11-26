@@ -94,12 +94,20 @@ export function FollowUpSequencesSettings({
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string | null>(null);
   const isInitialMountRef = useRef(true);
+  const lastSavedSnapshotRef = useRef<string | null>(null);
   const lastExternalNonceRef = useRef<number>(0);
 
-  // Guardado automático debounced (1200ms) al editar secuencias
+  // Guardado automático debounced (1200ms) solo cuando haya cambios reales en las secuencias
   useEffect(() => {
+    const currentSnapshot = JSON.stringify(config);
+
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
+      lastSavedSnapshotRef.current = currentSnapshot;
+      return;
+    }
+
+    if (currentSnapshot === lastSavedSnapshotRef.current) {
       return;
     }
 
@@ -108,6 +116,7 @@ export function FollowUpSequencesSettings({
       try {
         const res = await saveFollowUpSequences(config);
         if (res.success) {
+          lastSavedSnapshotRef.current = currentSnapshot;
           setAutoSaveStatus('saved');
           const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           setLastAutoSavedAt(timeStr);
@@ -303,16 +312,6 @@ export function FollowUpSequencesSettings({
             >
               {isSuggesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               <span>Sugerir con IA</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-[#0052FF] hover:bg-[#0043D4] text-white transition cursor-pointer shadow-xs disabled:opacity-60"
-            >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              <span>Guardar Secuencias</span>
             </button>
           </div>
         </div>

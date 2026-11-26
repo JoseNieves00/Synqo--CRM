@@ -5,12 +5,15 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 
 export type ReminderType = 'shipping' | 'reactivation' | 'custom';
+export type ReminderDispatchMode = 'ai_contextual' | 'manual_exact';
 
 export interface CreateReminderInput {
   contactId: string;
   reminderType: ReminderType;
   scheduledFor: string; // ISO 8601 string
   note?: string;
+  dispatchMode?: ReminderDispatchMode;
+  suggestedMessage?: string;
 }
 
 export interface ActiveReminderData {
@@ -18,6 +21,8 @@ export interface ActiveReminderData {
   reminderType: ReminderType;
   scheduledFor: string;
   note?: string;
+  dispatchMode?: ReminderDispatchMode;
+  suggestedMessage?: string;
   createdByName?: string;
   createdAt: string;
 }
@@ -88,6 +93,8 @@ export async function createContactReminder(input: CreateReminderInput) {
     reminderType: input.reminderType,
     scheduledFor: reminder.scheduled_for,
     note: input.note?.trim() || undefined,
+    dispatchMode: input.dispatchMode || 'ai_contextual',
+    suggestedMessage: input.suggestedMessage?.trim() || undefined,
     createdByName: profile.full_name || 'Asesor',
     createdAt: reminder.created_at,
   };
@@ -131,6 +138,108 @@ export async function createContactReminder(input: CreateReminderInput) {
   revalidatePath('/dashboard');
 
   return { success: true, reminder: reminderData };
+}
+
+export async function getReminderDraftContextAction(contactId: string): Promise<{
+  suggestedNote: string;
+  isMetaChannel: boolean;
+  metaWindowExpiresAt: string | null;
+}> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { suggestedNote: '', isMetaChannel: false, metaWindowExpiresAt: null };
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+  if (!profile?.organization_id) return { suggestedNote: '', isMetaChannel: false, metaWindowExpiresAt: null };
+
+  const [{ data: org }, { data: contact }] = await Promise.all([
+    (supabaseAdmin.from('organizations') as any)
+      .select('whatsapp_provider')
+      .eq('id', profile.organization_id)
+      .single(),
+    (supabaseAdmin.from('contacts') as any)
+      .select('channel, last_lead_message_at, custom_fields')
+      .eq('id', contactId)
+      .eq('organization_id', profile.organization_id)
+      .single(),
+  ]);
+
+  if (!contact) return { suggestedNote: '', isMetaChannel: false, metaWindowExpiresAt: null };
+
+  const cf = (contact.custom_fields || {}) as Record<string, any>;
+  const interest = cf.product_interest || cf.last_quoted_product || '';
+  const objection = cf.objection || cf.last_objection || '';
+  const track = cf.active_intent_track;
+
+  let suggestedNote = '';
+  if (interest && objection) {
+    suggestedNote = `Retomar ${interest} (duda: ${String(objection).slice(0, 60)})`;
+  } else if (interest) {
+    suggestedNote = track === 'appointment' ? `Confirmar cita de ${interest}` : `Retomar interés en ${interest}`;
+  } else if (objection) {
+    suggestedNote = `Resolver duda: ${String(objection).slice(0, 80)}`;
+  }
+
+  const isMetaChannel = contact.channel !== 'instagram' && (org?.whatsapp_provider || 'meta') === 'meta';
+  const anchor = contact.last_lead_message_at || cf.last_lead_message_at || null;
+  const metaWindowExpiresAt = anchor
+    ? new Date(new Date(anchor).getTime() + 24 * 60 * 60 * 1000).toISOString()
+    : null;
+
+  return { suggestedNote, isMetaChannel, metaWindowExpiresAt };
+}
+
+export async function generateReminderDraftAction(params: {
+  contactId: string;
+  note?: string;
+}): Promise<{ draft: string }> {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id')
+    .eq('id', user.id)
+    .single();
+  if (!profile?.organization_id) throw new Error('Organización no encontrada');
+
+  const [{ data: org }, { data: contact }, { data: recentMsgs }] = await Promise.all([
+    (supabaseAdmin.from('organizations') as any)
+      .select('id, name, system_prompt, structured_prompt_data, ai_provider, appointment_settings, enabled_modules, industry_preset')
+      .eq('id', profile.organization_id)
+      .single(),
+    (supabaseAdmin.from('contacts') as any)
+      .select('id, name, lead_score, custom_fields')
+      .eq('id', params.contactId)
+      .eq('organization_id', profile.organization_id)
+      .single(),
+    (supabaseAdmin.from('messages') as any)
+      .select('sender_type, content')
+      .eq('contact_id', params.contactId)
+      .in('sender_type', ['lead', 'ai', 'agent_manual'])
+      .order('created_at', { ascending: false })
+      .limit(6),
+  ]);
+
+  if (!org || !contact) throw new Error('Contacto no encontrado');
+
+  const { OpenAIService } = await import('@/services/openai.service');
+  const cf = (contact.custom_fields || {}) as Record<string, any>;
+  const aiDraft = await OpenAIService.generateAutonomousReminderMessage({
+    organization: org,
+    contactId: contact.id,
+    leadName: contact.name,
+    history: (recentMsgs || []).slice().reverse(),
+    reminderNote: params.note || cf.active_reminder?.note || null,
+    productInterest: cf.product_interest || cf.last_quoted_product || null,
+    lastObjection: cf.last_objection || cf.objection || null,
+    leadScore: typeof contact.lead_score === 'number' ? contact.lead_score : null,
+  });
+
+  return { draft: aiDraft.message };
 }
 
 /**

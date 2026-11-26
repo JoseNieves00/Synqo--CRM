@@ -123,6 +123,7 @@ import { type QuickSnippet } from '@/lib/chat/snippets';
 import { type FollowUpSettingsConfig } from '@/lib/ai/follow-up-types';
 import { type TokenPolicyConfig } from '@/lib/monitoring/token-policy';
 import { TokenAlertsAndPinCard } from './TokenAlertsAndPinCard';
+import { getBusinessFeatureCompatibility } from '@/lib/ai/copilot-engine';
 
 interface SettingsFormProps {
   initialData: {
@@ -213,9 +214,20 @@ export function SettingsForm({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'integrations' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const validTabs = ['integrations', 'gallery', 'team', 'payments', 'shipping', 'quick_replies', 'follow_ups'] as const;
+    if (tab && (validTabs as readonly string[]).includes(tab)) {
+      if (tab === 'shipping' && !businessCompat.supportsShipping) return;
+      setActiveTab(tab as typeof validTabs[number]);
+    }
+  }, []);
+
   // Estado multi-acordeón: permite abrir o plegar múltiples secciones en simultáneo
   const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(['capacity', 'whatsapp', 'assistant'])
+    () => new Set(['whatsapp', 'assistant'])
   );
   const [showAllModules, setShowAllModules] = useState(false);
 
@@ -292,13 +304,25 @@ export function SettingsForm({
   );
 
   const isPromptInitialMountRef = useRef(true);
+  const lastSavedPromptSnapshotRef = useRef<string | null>(null);
   const [promptAutosaveStatus, setPromptAutosaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [promptLastSavedAt, setPromptLastSavedAt] = useState<string | null>(null);
 
-  // Guardado automático debounced (1500ms) de prompt y configuración comercial
+  // Guardado automático debounced (1500ms) solo cuando haya cambios reales
   useEffect(() => {
+    const currentSnapshot = JSON.stringify({
+      systemPrompt: systemPrompt || '',
+      structuredPromptData: structuredPromptData || null,
+      mobileCoexistence,
+    });
+
     if (isPromptInitialMountRef.current) {
       isPromptInitialMountRef.current = false;
+      lastSavedPromptSnapshotRef.current = currentSnapshot;
+      return;
+    }
+
+    if (currentSnapshot === lastSavedPromptSnapshotRef.current) {
       return;
     }
 
@@ -310,6 +334,7 @@ export function SettingsForm({
           structuredPromptData: structuredPromptData || undefined,
           mobileCoexistence,
         });
+        lastSavedPromptSnapshotRef.current = currentSnapshot;
         setPromptAutosaveStatus('saved');
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setPromptLastSavedAt(timeStr);
@@ -1095,6 +1120,10 @@ export function SettingsForm({
     quick_pay: false,
     anti_no_show: true,
   };
+  const businessCompat = getBusinessFeatureCompatibility(
+    { enabled_modules: enabledModules, industry_preset: initialData.industryPreset },
+    initialData.systemPrompt || ''
+  );
 
   return (
     <div className="max-w-5xl space-y-6 text-slate-900 dark:text-white transition-colors">
@@ -1135,23 +1164,25 @@ export function SettingsForm({
           <span>Galería de Imágenes</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('shipping')}
-          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
-            activeTab === 'shipping'
-              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
-          }`}
-        >
-          <Truck className="w-4 h-4 text-blue-500" />
-          <span>Políticas de Envío</span>
-          {shippingSettingsData?.cityRates && shippingSettingsData.cityRates.length > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold">
-              {shippingSettingsData.cityRates.length}
-            </span>
-          )}
-        </button>
+        {businessCompat.supportsShipping && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('shipping')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+              activeTab === 'shipping'
+                ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+            }`}
+          >
+            <Truck className="w-4 h-4 text-blue-500" />
+            <span>Políticas de Envío</span>
+            {shippingSettingsData?.cityRates && shippingSettingsData.cityRates.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold">
+                {shippingSettingsData.cityRates.length}
+              </span>
+            )}
+          </button>
+        )}
 
         <button
           type="button"
@@ -1245,94 +1276,6 @@ export function SettingsForm({
               <span>{feedback.message}</span>
             </div>
           )}
-
-          {/* Accesos Directos Comerciales: Envíos & Pagos (Para ajustar fletes, contraentrega y cuentas) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/40 dark:from-blue-950/20 dark:to-indigo-950/10 border border-blue-200/60 dark:border-blue-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 shadow-xs">
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="p-2.5 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0">
-                  <Truck className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      Políticas & Tarifas de Envío
-                    </h3>
-                    <span className="inline-flex items-center whitespace-nowrap shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                      {shippingSettingsData?.cityRates?.length || 0} {shippingSettingsData?.cityRates?.length === 1 ? 'flete' : 'fletes'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    Fletes por ciudad, tiempos de entrega y Pago Contraentrega
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('shipping');
-                  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs whitespace-nowrap"
-              >
-                <span>Ajustar Envíos</span>
-              </button>
-            </div>
-
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 to-teal-50/40 dark:from-emerald-950/20 dark:to-teal-950/10 border border-emerald-200/60 dark:border-emerald-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 shadow-xs">
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
-                  <CreditCard className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      Cuentas de Pago & Plan Separe
-                    </h3>
-                    <span className="inline-flex items-center whitespace-nowrap shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                      {paymentAccountsData?.length || 0} {paymentAccountsData?.length === 1 ? 'activa' : 'activas'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    Bancolombia, Nequi y Daviplata para abonos y compras
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('payments');
-                  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs whitespace-nowrap"
-              >
-                <span>Configurar Cuentas</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Barra de Control de Acordeones */}
-          <div className="flex items-center justify-between gap-3 pt-1">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Secciones de Configuración ({openSections.size} abiertas)
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={expandAllSections}
-                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition font-medium cursor-pointer"
-              >
-                Expandir todas
-              </button>
-              <button
-                type="button"
-                onClick={collapseAllSections}
-                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] transition font-medium cursor-pointer"
-              >
-                Colapsar todas
-              </button>
-            </div>
-          </div>
 
           {/* ACORDEÓN 1: Capacidad & Consumo del Plan */}
           {(() => {
@@ -2058,7 +2001,7 @@ export function SettingsForm({
     </div>
 
             {/* ACORDEÓN: Google Calendar & Google Meet (Oficial) */}
-            {Boolean(enabledModules.native_calendar) && (
+            {Boolean(enabledModules.native_calendar) && businessCompat.supportsCalendar && (
               <div id="google-calendar" className="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200 dark:border-[#232A3B] overflow-hidden shadow-xs transition-all">
                 <button
                   type="button"
@@ -2926,10 +2869,6 @@ export function SettingsForm({
                       <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
                         Asistente Comercial & Catálogo de IA
                       </h2>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/30">
-                        <Sparkles className="w-3 h-3" />
-                        {promptAutosaveStatus === 'saving' ? 'Guardando...' : promptAutosaveStatus === 'saved' ? 'Guardado autom.' : 'Configurado'}
-                      </span>
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                       Catálogo de productos, precios, políticas de venta y respuestas automáticas

@@ -246,7 +246,7 @@ export async function grantTokenPackAction(input: {
   const mode = input.mode === 'permanent' ? 'permanent' : 'temporary';
 
   const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, ai_tokens_limit, extra_tokens_balance')
+    .select('id, ai_tokens_limit, extra_tokens_balance, appointment_settings')
     .eq('id', input.organizationId)
     .single();
 
@@ -259,9 +259,29 @@ export async function grantTokenPackAction(input: {
   const nextExtra = mode === 'temporary' ? currentExtra + tokens : currentExtra;
   const effectiveAfter = nextBase + nextExtra;
 
+  const existingAppSettings = (org.appointment_settings || {}) as Record<string, any>;
+  const existingPolicy = (existingAppSettings.token_policy || {}) as Record<string, any>;
+  const pricePer1M = Math.max(1000, Number(existingPolicy.overagePricePer1MCop || 20000));
+  const currentMonthlyBaseCop = Math.max(0, Number(existingPolicy.monthlyBasePriceCop || 169000));
+  const permanentAddonCop = mode === 'permanent' ? Math.round((tokens / 1_000_000) * pricePer1M) : 0;
+
+  const nextAppointmentSettings =
+    mode === 'permanent'
+      ? {
+          ...existingAppSettings,
+          token_policy: {
+            ...existingPolicy,
+            monthlyBasePriceCop: currentMonthlyBaseCop + permanentAddonCop,
+            overagePricePer1MCop: pricePer1M,
+          },
+        }
+      : existingAppSettings;
+
   const { error: updErr } = await (supabaseAdmin.from('organizations') as any)
     .update({
-      ...(mode === 'permanent' ? { ai_tokens_limit: nextBase } : { extra_tokens_balance: nextExtra }),
+      ...(mode === 'permanent'
+        ? { ai_tokens_limit: nextBase, appointment_settings: nextAppointmentSettings }
+        : { extra_tokens_balance: nextExtra }),
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.organizationId);
@@ -310,6 +330,73 @@ export async function grantTokenPackAction(input: {
     mode,
     aiTokensLimit: nextBase,
     extraTokensBalance: nextExtra,
+    monthlyBasePriceCop:
+      mode === 'permanent'
+        ? (nextAppointmentSettings.token_policy?.monthlyBasePriceCop as number)
+        : undefined,
+  };
+}
+
+/**
+ * Permite ajustar o revertir la cuota base permanente de una empresa (piso mínimo 5.000.000 tokens)
+ * recalculando automáticamente el valor mensual en COP para futuras facturas.
+ */
+export async function adjustPermanentTokensAction(input: {
+  organizationId: string;
+  targetBaseLimit: number;
+  basePlanCop?: number;
+}) {
+  const actor = await requireStrictSuperAdmin();
+  const FLOOR_LIMIT = 5_000_000;
+  const safeTarget = Math.max(FLOOR_LIMIT, Math.round(input.targetBaseLimit));
+
+  const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
+    .select('id, ai_tokens_limit, extra_tokens_balance, appointment_settings')
+    .eq('id', input.organizationId)
+    .single();
+  if (fetchErr || !org) throw new Error('Empresa no encontrada.');
+
+  const currentBase = Number(org.ai_tokens_limit) || FLOOR_LIMIT;
+  const delta = safeTarget - currentBase;
+
+  const existingAppSettings = (org.appointment_settings || {}) as Record<string, any>;
+  const existingPolicy = (existingAppSettings.token_policy || {}) as Record<string, any>;
+  const pricePer1M = Math.max(1000, Number(existingPolicy.overagePricePer1MCop || 20000));
+  const baseCop = Math.max(0, Number(input.basePlanCop ?? 169000));
+  const extraMillions = Math.max(0, (safeTarget - FLOOR_LIMIT) / 1_000_000);
+  const nextMonthlyBaseCop = Math.round(baseCop + extraMillions * pricePer1M);
+
+  const { error: updErr } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      ai_tokens_limit: safeTarget,
+      appointment_settings: {
+        ...existingAppSettings,
+        token_policy: {
+          ...existingPolicy,
+          monthlyBasePriceCop: nextMonthlyBaseCop,
+          overagePricePer1MCop: pricePer1M,
+        },
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.organizationId);
+
+  if (updErr) throw new Error(`Error ajustando cuota base: ${updErr.message}`);
+
+  await (supabaseAdmin.from('token_ledger') as any).insert({
+    organization_id: input.organizationId,
+    entry_type: 'manual_adjustment',
+    tokens_delta: delta,
+    balance_after_limit: safeTarget + Math.max(0, Number(org.extra_tokens_balance || 0)),
+    notes: `Ajuste/reversión de cuota base permanente a ${safeTarget.toLocaleString('es-CO')} tokens ($${nextMonthlyBaseCop.toLocaleString('es-CO')} COP/mes)`,
+    created_by: actor.userId === 'test-super-admin' ? null : actor.userId,
+  });
+
+  revalidatePath('/admin');
+  return {
+    success: true,
+    aiTokensLimit: safeTarget,
+    monthlyBasePriceCop: nextMonthlyBaseCop,
   };
 }
 
