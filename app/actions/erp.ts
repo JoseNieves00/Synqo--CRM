@@ -7,7 +7,9 @@ import {
   calculateOpenAiLiquidityForecast,
   evaluateBillingCycleRollover,
   fetchLiveUsdToCopRate,
+  prunePendingQuotes,
   type OpenAiLiquidityForecast,
+  type PendingQuoteRecord,
 } from '@/services/erp.service';
 import { calculateTurnCostUsd } from '@/lib/ai/config';
 import { TOKEN_PACK_CATALOG } from '@/lib/billing/plan-defaults';
@@ -163,6 +165,63 @@ export async function updateOpenAiWalletAction(input: {
   return { success: true };
 }
 
+export async function getErpGlobalPricingAction(): Promise<{
+  monthlyBaseCop: number;
+  pricePer1MCop: number;
+}> {
+  await requireStrictSuperAdmin();
+  try {
+    const { data } = await (supabaseAdmin.from('ai_provider_wallet') as any)
+      .select('notes')
+      .eq('id', 'erp_pricing')
+      .maybeSingle();
+    if (data?.notes) {
+      const parsed = JSON.parse(String(data.notes));
+      const base = Number(parsed?.monthlyBaseCop);
+      const per1M = Number(parsed?.pricePer1MCop);
+      return {
+        monthlyBaseCop: Number.isFinite(base) && base >= 0 ? Math.round(base) : 200000,
+        pricePer1MCop: Number.isFinite(per1M) && per1M >= 1000 ? Math.round(per1M) : 20000,
+      };
+    }
+  } catch {
+    // fallback seguro
+  }
+  return { monthlyBaseCop: 200000, pricePer1MCop: 20000 };
+}
+
+export async function saveErpGlobalPricingAction(input: {
+  monthlyBaseCop: number;
+  pricePer1MCop: number;
+}): Promise<{ monthlyBaseCop: number; pricePer1MCop: number }> {
+  const actor = await requireStrictSuperAdmin();
+  const monthlyBaseCop = Math.max(0, Math.round(Number(input.monthlyBaseCop) || 0));
+  const pricePer1MCop = Math.max(1000, Math.round(Number(input.pricePer1MCop) || 20000));
+
+  const payload = JSON.stringify({ monthlyBaseCop, pricePer1MCop });
+  const { error } = await (supabaseAdmin.from('ai_provider_wallet') as any).upsert({
+    id: 'erp_pricing',
+    provider: 'erp_pricing',
+    balance_usd: 0,
+    trm_cop_per_usd: 4200,
+    safety_buffer_pct: 15,
+    notes: payload,
+    updated_by: actor.userId === 'test-super-admin' ? null : actor.userId,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error) throw new Error(`Error guardando tarifas ERP: ${error.message}`);
+
+  await (supabaseAdmin.from('admin_audit_log') as any).insert({
+    actor_id: actor.userId === 'test-super-admin' ? null : actor.userId,
+    actor_email: actor.email,
+    action: 'update_erp_global_pricing',
+    metadata: { monthlyBaseCop, pricePer1MCop },
+  });
+
+  return { monthlyBaseCop, pricePer1MCop };
+}
+
 export async function grantCycleOrTrialAction(input: {
   organizationId: string;
   cycleKind: 'trial' | 'paid';
@@ -174,6 +233,16 @@ export async function grantCycleOrTrialAction(input: {
   idempotencyKey?: string;
 }) {
   const actor = await requireStrictSuperAdmin();
+  if (input.idempotencyKey) {
+    const { data: existingLedger } = await (supabaseAdmin.from('token_ledger') as any)
+      .select('id')
+      .eq('idempotency_key', input.idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existingLedger) {
+      return { success: true, billingCycleEndsAt: null, deduplicated: true };
+    }
+  }
   const days = Math.max(1, Math.min(365, Math.round(input.days)));
   const tokensLimit = Math.max(100_000, Math.round(input.tokensLimit));
 
@@ -194,6 +263,19 @@ export async function grantCycleOrTrialAction(input: {
   if (input.resetTokensUsed) {
     updatePayload.ai_tokens_used = 0;
     updatePayload.extra_tokens_balance = 0;
+    const { data: orgForReset } = await (supabaseAdmin.from('organizations') as any)
+      .select('appointment_settings')
+      .eq('id', input.organizationId)
+      .maybeSingle();
+    if (orgForReset?.appointment_settings?.token_policy?.alertsSentInCycle) {
+      updatePayload.appointment_settings = {
+        ...orgForReset.appointment_settings,
+        token_policy: {
+          ...orgForReset.appointment_settings.token_policy,
+          alertsSentInCycle: {},
+        },
+      };
+    }
   }
 
   const { error: orgErr } = await (supabaseAdmin.from('organizations') as any)
@@ -235,6 +317,7 @@ export async function grantCycleOrTrialAction(input: {
 export async function grantTokenPackAction(input: {
   organizationId: string;
   tokensAmount: number;
+  overageSettledTokens?: number;
   amountCop: number;
   mode?: 'temporary' | 'permanent';
   packageId?: string | null;
@@ -242,11 +325,27 @@ export async function grantTokenPackAction(input: {
   idempotencyKey?: string;
 }) {
   const actor = await requireStrictSuperAdmin();
-  const tokens = Math.max(100_000, Math.round(input.tokensAmount));
+  if (input.idempotencyKey) {
+    const { data: existingLedger } = await (supabaseAdmin.from('token_ledger') as any)
+      .select('id')
+      .eq('idempotency_key', input.idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existingLedger) {
+      return { success: true, mode: input.mode === 'permanent' ? 'permanent' : 'temporary', deduplicated: true };
+    }
+  }
+
+  const tokens = Math.max(0, Math.round(input.tokensAmount));
+  const settledOverage = Math.max(0, Math.round(input.overageSettledTokens || 0));
+  if (tokens < 100_000 && settledOverage <= 0) {
+    throw new Error('La recarga mínima es de 100.000 tokens.');
+  }
+  const safeAmountCop = Math.max(0, Math.round(Number(input.amountCop) || 0));
   const mode = input.mode === 'permanent' ? 'permanent' : 'temporary';
 
   const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, ai_tokens_limit, extra_tokens_balance, appointment_settings')
+    .select('id, ai_tokens_used, ai_tokens_limit, extra_tokens_balance, appointment_settings')
     .eq('id', input.organizationId)
     .single();
 
@@ -256,7 +355,12 @@ export async function grantTokenPackAction(input: {
   const currentExtra = Math.max(0, Number(org.extra_tokens_balance || 0));
 
   const nextBase = mode === 'permanent' ? currentBase + tokens : currentBase;
-  const nextExtra = mode === 'temporary' ? currentExtra + tokens : currentExtra;
+  // Si se cobró excedente/gracia consumida, se suma también a extra_tokens_balance para saldar el ciclo
+  // sin descontar tokens de la recarga neta que compró el cliente.
+  const nextExtra =
+    mode === 'temporary'
+      ? currentExtra + tokens + settledOverage
+      : currentExtra + settledOverage;
   const effectiveAfter = nextBase + nextExtra;
 
   const existingAppSettings = (org.appointment_settings || {}) as Record<string, any>;
@@ -265,14 +369,34 @@ export async function grantTokenPackAction(input: {
   const currentMonthlyBaseCop = Math.max(0, Number(existingPolicy.monthlyBasePriceCop || 169000));
   const permanentAddonCop = mode === 'permanent' ? Math.round((tokens / 1_000_000) * pricePer1M) : 0;
 
+  // Limpiar umbrales de alerta que ahora queden por encima del nuevo % de consumo tras la recarga
+  const newUsagePct = Math.round((Math.max(0, Number(org.ai_tokens_used || 0)) / Math.max(1, effectiveAfter)) * 100);
+  const existingAlerts =
+    existingPolicy.alertsSentInCycle && typeof existingPolicy.alertsSentInCycle === 'object'
+      ? { ...existingPolicy.alertsSentInCycle }
+      : {};
+  let alertsUpdated = false;
+  for (const key of Object.keys(existingAlerts)) {
+    const thresholdNum = Number(key);
+    if (Number.isFinite(thresholdNum) && thresholdNum > newUsagePct) {
+      delete existingAlerts[key];
+      alertsUpdated = true;
+    }
+  }
+
   const nextAppointmentSettings =
-    mode === 'permanent'
+    mode === 'permanent' || alertsUpdated
       ? {
           ...existingAppSettings,
           token_policy: {
             ...existingPolicy,
-            monthlyBasePriceCop: currentMonthlyBaseCop + permanentAddonCop,
-            overagePricePer1MCop: pricePer1M,
+            ...(mode === 'permanent'
+              ? {
+                  monthlyBasePriceCop: currentMonthlyBaseCop + permanentAddonCop,
+                  overagePricePer1MCop: pricePer1M,
+                }
+              : {}),
+            ...(alertsUpdated ? { alertsSentInCycle: existingAlerts } : {}),
           },
         }
       : existingAppSettings;
@@ -280,41 +404,49 @@ export async function grantTokenPackAction(input: {
   const { error: updErr } = await (supabaseAdmin.from('organizations') as any)
     .update({
       ...(mode === 'permanent'
-        ? { ai_tokens_limit: nextBase, appointment_settings: nextAppointmentSettings }
-        : { extra_tokens_balance: nextExtra }),
+        ? {
+            ai_tokens_limit: nextBase,
+            appointment_settings: nextAppointmentSettings,
+            ...(settledOverage > 0 ? { extra_tokens_balance: nextExtra } : {}),
+          }
+        : {
+            extra_tokens_balance: nextExtra,
+            ...(alertsUpdated ? { appointment_settings: nextAppointmentSettings } : {}),
+          }),
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.organizationId);
 
   if (updErr) throw new Error(`Error acreditando tokens: ${updErr.message}`);
 
+  const totalDelta = tokens + settledOverage;
   await (supabaseAdmin.from('token_ledger') as any).insert({
     organization_id: input.organizationId,
     entry_type: mode === 'permanent' ? 'manual_adjustment' : 'pack_purchase',
-    tokens_delta: tokens,
+    tokens_delta: totalDelta,
     balance_after_limit: effectiveAfter,
     package_id: input.packageId || null,
     idempotency_key: input.idempotencyKey || null,
     notes:
       input.notes?.trim() ||
       (mode === 'permanent'
-        ? `Aumento permanente de plan (+${tokens.toLocaleString('es-CO')} tokens/mes)`
-        : `Paquete adicional este mes (+${tokens.toLocaleString('es-CO')} tokens)`),
+        ? `Aumento permanente de plan (+${tokens.toLocaleString('es-CO')} tokens/mes${settledOverage > 0 ? ` + ${settledOverage.toLocaleString('es-CO')} excedente saldado` : ''})`
+        : `Paquete adicional este mes (+${tokens.toLocaleString('es-CO')} tokens${settledOverage > 0 ? ` + ${settledOverage.toLocaleString('es-CO')} excedente saldado` : ''})`),
     created_by: actor.userId === 'test-super-admin' ? null : actor.userId,
   });
 
-  if (input.amountCop > 0) {
+  if (safeAmountCop > 0) {
     const now = new Date();
     const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     await (supabaseAdmin.from('organization_payments') as any).insert({
       organization_id: input.organizationId,
-      amount: input.amountCop,
-      amount_cop: input.amountCop,
+      amount: safeAmountCop,
+      amount_cop: safeAmountCop,
       currency: 'COP',
       period_month: ym,
       concept_type: mode === 'permanent' ? 'monthly_base' : 'token_pack',
       status: 'paid',
-      tokens_granted: tokens,
+      tokens_granted: totalDelta,
       payment_method: 'transferencia',
       notes:
         input.notes?.trim() ||
@@ -351,7 +483,7 @@ export async function adjustPermanentTokensAction(input: {
   const safeTarget = Math.max(FLOOR_LIMIT, Math.round(input.targetBaseLimit));
 
   const { data: org, error: fetchErr } = await (supabaseAdmin.from('organizations') as any)
-    .select('id, ai_tokens_limit, extra_tokens_balance, appointment_settings')
+    .select('id, ai_tokens_used, ai_tokens_limit, extra_tokens_balance, appointment_settings')
     .eq('id', input.organizationId)
     .single();
   if (fetchErr || !org) throw new Error('Empresa no encontrada.');
@@ -410,7 +542,7 @@ export async function runMonthlyBillingCycleRollover(targetOrgId?: string): Prom
   expiredTrialsCount: number;
 }> {
   let query = (supabaseAdmin.from('organizations') as any)
-    .select('id, is_active, cycle_kind, billing_cycle_ends_at, paid_until_month, subscription_status, ai_tokens_used, ai_tokens_limit')
+    .select('id, is_active, cycle_kind, billing_cycle_ends_at, paid_until_month, subscription_status, ai_tokens_used, ai_tokens_limit, appointment_settings')
     .eq('is_active', true)
     .not('billing_cycle_ends_at', 'is', null);
 
@@ -436,11 +568,21 @@ export async function runMonthlyBillingCycleRollover(targetOrgId?: string): Prom
         balance_after_limit: Number(org.ai_tokens_limit || 5_000_000),
         notes: `Cierre automático de ciclo (${org.billing_cycle_ends_at})`,
       });
+      const nextRolloverSettings = org.appointment_settings?.token_policy?.alertsSentInCycle
+        ? {
+            ...org.appointment_settings,
+            token_policy: {
+              ...org.appointment_settings.token_policy,
+              alertsSentInCycle: {},
+            },
+          }
+        : undefined;
       await (supabaseAdmin.from('organizations') as any)
         .update({
           ai_tokens_used: 0,
           extra_tokens_balance: 0,
           billing_cycle_ends_at: decision.nextCycleEndsAt,
+          ...(nextRolloverSettings ? { appointment_settings: nextRolloverSettings } : {}),
           updated_at: now.toISOString(),
         })
         .eq('id', org.id);
@@ -448,5 +590,138 @@ export async function runMonthlyBillingCycleRollover(targetOrgId?: string): Prom
     }
   }
 
+  try {
+    await purgeExpiredPendingQuotesInternal();
+  } catch {
+    // No bloquear rollover si la tabla opcional aún no existe en BD
+  }
+
   return { resetCount, expiredTrialsCount };
+}
+
+async function purgeExpiredPendingQuotesInternal(): Promise<void> {
+  const nowIso = new Date().toISOString();
+  await (supabaseAdmin.from('erp_pending_quotes') as any)
+    .delete()
+    .lt('expires_at', nowIso);
+
+  const { data: rows } = await (supabaseAdmin.from('erp_pending_quotes') as any)
+    .select('id, admin_email, updated_at')
+    .order('updated_at', { ascending: false });
+
+  if (!Array.isArray(rows) || rows.length === 0) return;
+
+  const emails = rows.map((r: any) => String(r.admin_email || '').trim().toLowerCase()).filter(Boolean);
+  const { data: existingProfiles } = await (supabaseAdmin.from('profiles') as any)
+    .select('email')
+    .in('email', emails);
+
+  const existingSet = new Set(
+    (existingProfiles || []).map((p: any) => String(p.email || '').trim().toLowerCase())
+  );
+
+  const idsToDelete: string[] = [];
+  rows.forEach((r: any, idx: number) => {
+    const email = String(r.admin_email || '').trim().toLowerCase();
+    if (!email || existingSet.has(email) || idx >= 30) {
+      idsToDelete.push(r.id);
+    }
+  });
+
+  if (idsToDelete.length > 0) {
+    await (supabaseAdmin.from('erp_pending_quotes') as any)
+      .delete()
+      .in('id', idsToDelete);
+  }
+}
+
+export async function getPendingQuotesAction(): Promise<{
+  supported: boolean;
+  quotes: PendingQuoteRecord[];
+}> {
+  await requireStrictSuperAdmin();
+  try {
+    await purgeExpiredPendingQuotesInternal();
+    const { data, error } = await (supabaseAdmin.from('erp_pending_quotes') as any)
+      .select('id, admin_email, company_name, admin_name, phone, business_model, max_users, ai_tokens_limit, monthly_base_cop, created_at, expires_at')
+      .order('updated_at', { ascending: false })
+      .limit(30);
+
+    if (error) return { supported: false, quotes: [] };
+
+    const mapped: PendingQuoteRecord[] = (data || []).map((row: any) => ({
+      id: String(row.id),
+      companyName: String(row.company_name || ''),
+      adminName: String(row.admin_name || ''),
+      adminEmail: String(row.admin_email || ''),
+      phone: String(row.phone || ''),
+      businessModel:
+        row.business_model === 'services' || row.business_model === 'hybrid'
+          ? row.business_model
+          : 'products',
+      maxUsers: Math.max(1, Number(row.max_users || 2)),
+      aiTokensLimit: Math.max(5_000_000, Number(row.ai_tokens_limit || 5_000_000)),
+      monthlyBaseCop: Math.max(0, Number(row.monthly_base_cop || 169000)),
+      createdAt: String(row.created_at || new Date().toISOString()),
+      expiresAt: row.expires_at ? String(row.expires_at) : undefined,
+    }));
+
+    return { supported: true, quotes: prunePendingQuotes(mapped) };
+  } catch {
+    return { supported: false, quotes: [] };
+  }
+}
+
+export async function upsertPendingQuoteAction(input: {
+  companyName: string;
+  adminName: string;
+  adminEmail: string;
+  phone: string;
+  businessModel: 'products' | 'services' | 'hybrid';
+  maxUsers: number;
+  aiTokensLimit: number;
+  monthlyBaseCop: number;
+}): Promise<{ supported: boolean }> {
+  await requireStrictSuperAdmin();
+  const normalizedEmail = input.adminEmail.trim().toLowerCase();
+  if (!normalizedEmail || !input.companyName.trim()) {
+    return { supported: true };
+  }
+
+  try {
+    const expiresAt = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
+    const { error } = await (supabaseAdmin.from('erp_pending_quotes') as any).upsert(
+      {
+        admin_email: normalizedEmail,
+        company_name: input.companyName.trim(),
+        admin_name: input.adminName.trim() || input.companyName.trim(),
+        phone: input.phone.trim(),
+        business_model: input.businessModel,
+        max_users: Math.max(1, Math.round(input.maxUsers || 2)),
+        ai_tokens_limit: Math.max(5_000_000, Math.round(input.aiTokensLimit || 5_000_000)),
+        monthly_base_cop: Math.max(0, Math.round(input.monthlyBaseCop || 0)),
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'admin_email' }
+    );
+    if (error) return { supported: false };
+    await purgeExpiredPendingQuotesInternal();
+    return { supported: true };
+  } catch {
+    return { supported: false };
+  }
+}
+
+export async function deletePendingQuoteAction(adminEmail: string): Promise<void> {
+  await requireStrictSuperAdmin();
+  const normalized = adminEmail.trim().toLowerCase();
+  if (!normalized) return;
+  try {
+    await (supabaseAdmin.from('erp_pending_quotes') as any)
+      .delete()
+      .eq('admin_email', normalized);
+  } catch {
+    // Silencioso si la tabla opcional aún no existe
+  }
 }

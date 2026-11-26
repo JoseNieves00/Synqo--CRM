@@ -1,6 +1,7 @@
 /**
  * Servicio puro de cálculo financiero y liquidez de créditos IA para Synqo Master ERP.
  */
+import { estimateChatsFromTokens } from '@/lib/billing/plan-defaults';
 
 export interface OrgTokenCommitmentInput {
   id: string;
@@ -274,7 +275,7 @@ export function buildQuoteWhatsAppUrl(params: {
   phone?: string | null;
   companyName: string;
   contactName?: string | null;
-  mode: 'end_of_month' | 'mid_month_recharge';
+  mode: 'end_of_month' | 'mid_month_recharge' | 'new_client';
   overageTokens: number;
   overageCop: number;
   rechargeTokens: number;
@@ -282,26 +283,106 @@ export function buildQuoteWhatsAppUrl(params: {
   monthlyBaseCop: number;
   totalCop: number;
   daysRemaining: number;
+  baseTokensLimit?: number;
+  maxUsers?: number;
+  discountCop?: number;
 }): string {
   const cleanPhone = String(params.phone || '').replace(/[^0-9]/g, '');
   const greeting = params.contactName ? `Hola ${params.contactName}` : 'Hola';
+  const baseTokens = Math.max(5_000_000, Number(params.baseTokensLimit || 5_000_000));
+  const baseChatsLabel = estimateChatsFromTokens(baseTokens);
+  const overageChatsLabel = params.overageTokens > 0 ? estimateChatsFromTokens(params.overageTokens) : '';
+  const rechargeChatsLabel = params.rechargeTokens > 0 ? estimateChatsFromTokens(params.rechargeTokens) : '';
+  const discountLine =
+    params.discountCop && params.discountCop > 0
+      ? [`• Descuento aplicado: *-$${params.discountCop.toLocaleString('es-CO')} COP*`]
+      : [];
+
   const lines =
-    params.mode === 'end_of_month'
+    params.mode === 'new_client'
+      ? [
+          `${greeting}, te comparto la cotización de *Synqo CRM* para *${params.companyName}*:`,
+          `• Capacidad mensual: *${baseChatsLabel}* (${baseTokens.toLocaleString('es-CO')} tokens IA)`,
+          ...(params.maxUsers ? [`• Usuarios incluidos: *hasta ${params.maxUsers}*`] : []),
+          `• Mensualidad: *$${params.monthlyBaseCop.toLocaleString('es-CO')} COP/mes*`,
+          ...discountLine,
+          ...(params.discountCop && params.discountCop > 0
+            ? [`• Total con descuento: *$${params.totalCop.toLocaleString('es-CO')} COP*`]
+            : []),
+          `Una vez confirmemos el pago activamos tu cuenta de inmediato y ese día queda como tu fecha de pago mensual. ¿Confirmamos?`,
+        ]
+      : params.mode === 'end_of_month'
       ? [
           `${greeting}, te comparto la cuenta de cobro de *${params.companyName}* en Synqo:`,
-          `• Mensualidad base: *$${params.monthlyBaseCop.toLocaleString('es-CO')} COP*`,
+          `• Mensualidad base (${baseChatsLabel}): *$${params.monthlyBaseCop.toLocaleString('es-CO')} COP*`,
           ...(params.overageTokens > 0
-            ? [`• Excedente del ciclo (+${params.overageTokens.toLocaleString('es-CO')} tok): *$${params.overageCop.toLocaleString('es-CO')} COP*`]
+            ? [
+                `• Excedente del ciclo (${overageChatsLabel} · +${params.overageTokens.toLocaleString('es-CO')} tok): *$${params.overageCop.toLocaleString('es-CO')} COP*`,
+              ]
             : []),
+          ...discountLine,
           `• Total a pagar: *$${params.totalCop.toLocaleString('es-CO')} COP*`,
           `Apenas confirmemos el pago queda renovado tu ciclo. ¿Confirmamos?`,
         ]
       : [
-          `${greeting}, *${params.companyName}* superó su cuota base del mes${params.overageTokens > 0 ? ` (excedente: +${params.overageTokens.toLocaleString('es-CO')} tok = $${params.overageCop.toLocaleString('es-CO')} COP)` : ''}.`,
-          `Para cubrir los ${params.daysRemaining} días restantes del mes te recomiendo sumar *${params.rechargeTokens.toLocaleString('es-CO')} tokens* ($${params.rechargeCop.toLocaleString('es-CO')} COP).`,
-          `Total excedente + recarga mes en curso: *$${params.totalCop.toLocaleString('es-CO')} COP* (aplica solo para este ciclo). ¿Confirmamos?`,
+          `${greeting}, *${params.companyName}* superó su capacidad base del mes${
+            params.overageTokens > 0
+              ? ` (consumo adicional: ${overageChatsLabel} · +${params.overageTokens.toLocaleString('es-CO')} tok = $${params.overageCop.toLocaleString('es-CO')} COP)`
+              : ''
+          }.`,
+          `Para cubrir los ${params.daysRemaining} días restantes del mes te recomiendo sumar *${rechargeChatsLabel}* (${params.rechargeTokens.toLocaleString('es-CO')} tokens IA) por *$${params.rechargeCop.toLocaleString('es-CO')} COP*.`,
+          ...discountLine,
+          `Total a pagar: *$${params.totalCop.toLocaleString('es-CO')} COP*. ¿Confirmamos?`,
         ];
 
   const text = encodeURIComponent(lines.join('\n'));
   return cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`;
+}
+
+export interface PendingQuoteRecord {
+  id: string;
+  companyName: string;
+  adminName: string;
+  adminEmail: string;
+  phone: string;
+  businessModel: 'products' | 'services' | 'hybrid';
+  maxUsers: number;
+  aiTokensLimit: number;
+  monthlyBaseCop: number;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+/**
+ * Depura cotizaciones duplicadas, expiradas (>15 días) o ya creadas como empresas,
+ * manteniendo un tope máximo de 30 borradores ordenados del más reciente al más antiguo.
+ */
+export function prunePendingQuotes(
+  quotes: PendingQuoteRecord[],
+  options?: { existingEmails?: Set<string>; now?: Date; maxItems?: number }
+): PendingQuoteRecord[] {
+  const nowMs = (options?.now || new Date()).getTime();
+  const maxItems = options?.maxItems ?? 30;
+  const existing = options?.existingEmails;
+  const seen = new Set<string>();
+  const valid: PendingQuoteRecord[] = [];
+
+  const sorted = [...quotes].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
+  for (const q of sorted) {
+    const emailKey = String(q.adminEmail || '').trim().toLowerCase();
+    if (!emailKey || seen.has(emailKey)) continue;
+    if (existing?.has(emailKey)) continue;
+    const expMs = q.expiresAt
+      ? new Date(q.expiresAt).getTime()
+      : new Date(q.createdAt).getTime() + 15 * 24 * 60 * 60 * 1000;
+    if (Number.isFinite(expMs) && expMs < nowMs) continue;
+    seen.add(emailKey);
+    valid.push(q);
+    if (valid.length >= maxItems) break;
+  }
+
+  return valid;
 }

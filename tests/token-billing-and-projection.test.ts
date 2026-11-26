@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { getAiChatChain, getAiUtilityChain } from '../lib/ai/config';
-import { normalizeTokenPolicy } from '../lib/monitoring/token-policy';
+import { normalizeTokenPolicy, computeTokenStatus } from '../lib/monitoring/token-policy';
 import {
   calculateSmartOverageAndRechargeQuote,
   buildQuoteWhatsAppUrl,
+  prunePendingQuotes,
+  type PendingQuoteRecord,
 } from '../services/erp.service';
 
 // 1. Enrutamiento de motores IA
@@ -50,7 +52,7 @@ const endMonthQuote = calculateSmartOverageAndRechargeQuote({
 assert.equal(endMonthQuote.mode, 'end_of_month');
 assert.equal(endMonthQuote.totalToCollectCop, 169000 + 4000);
 
-// 5. Enlace wa.me
+// 5. Enlace wa.me en lenguaje de conversaciones + tokens
 const waUrl = buildQuoteWhatsAppUrl({
   phone: '573001234567',
   companyName: 'Tienda Nova',
@@ -64,5 +66,107 @@ const waUrl = buildQuoteWhatsAppUrl({
   daysRemaining: 11,
 });
 assert.ok(waUrl.startsWith('https://wa.me/573001234567?text='));
+const decodedWa = decodeURIComponent(waUrl.split('text=')[1] || '');
+assert.ok(decodedWa.includes('chats'), 'El mensaje wa.me debe hablar de conversaciones/chats');
+
+const waNewClientUrl = buildQuoteWhatsAppUrl({
+  phone: '573001234567',
+  companyName: 'Clínica Sol',
+  mode: 'new_client',
+  overageTokens: 0,
+  overageCop: 0,
+  rechargeTokens: 0,
+  rechargeCop: 0,
+  monthlyBaseCop: 219000,
+  totalCop: 219000,
+  daysRemaining: 30,
+  baseTokensLimit: 7_500_000,
+  maxUsers: 4,
+});
+const decodedNewClient = decodeURIComponent(waNewClientUrl.split('text=')[1] || '');
+assert.ok(decodedNewClient.includes('7.500.000') || decodedNewClient.includes('7,500,000'));
+assert.ok(decodedNewClient.includes('chats'));
+
+// 6. Simulación de depuración automática de cotizaciones pendientes
+const sampleQuotes: PendingQuoteRecord[] = [
+  {
+    id: 'q1',
+    companyName: 'Vencida',
+    adminName: 'Admin 1',
+    adminEmail: 'vencida@test.com',
+    phone: '57300',
+    businessModel: 'products',
+    maxUsers: 2,
+    aiTokensLimit: 5_000_000,
+    monthlyBaseCop: 169000,
+    createdAt: '2026-10-01T12:00:00.000Z',
+    expiresAt: '2026-10-16T12:00:00.000Z',
+  },
+  {
+    id: 'q2',
+    companyName: 'Ya Creada',
+    adminName: 'Admin 2',
+    adminEmail: 'creada@test.com',
+    phone: '57300',
+    businessModel: 'services',
+    maxUsers: 2,
+    aiTokensLimit: 5_000_000,
+    monthlyBaseCop: 169000,
+    createdAt: '2026-11-18T12:00:00.000Z',
+  },
+  {
+    id: 'q3-old',
+    companyName: 'Duplicada Vieja',
+    adminName: 'Admin 3',
+    adminEmail: 'dup@test.com',
+    phone: '57300',
+    businessModel: 'hybrid',
+    maxUsers: 2,
+    aiTokensLimit: 5_000_000,
+    monthlyBaseCop: 169000,
+    createdAt: '2026-11-17T12:00:00.000Z',
+  },
+  {
+    id: 'q3-new',
+    companyName: 'Duplicada Nueva',
+    adminName: 'Admin 3',
+    adminEmail: 'DUP@test.com',
+    phone: '57300',
+    businessModel: 'hybrid',
+    maxUsers: 3,
+    aiTokensLimit: 7_500_000,
+    monthlyBaseCop: 219000,
+    createdAt: '2026-11-19T10:00:00.000Z',
+  },
+];
+const pruned = prunePendingQuotes(sampleQuotes, {
+  existingEmails: new Set(['creada@test.com']),
+  now,
+});
+assert.equal(pruned.length, 1);
+assert.equal(pruned[0]?.id, 'q3-new');
+
+// 7. Simulación de saldo en gracia/excedente + recarga neta
+const overageSettled = calculateSmartOverageAndRechargeQuote({
+  usedTokens: 5_600_000,
+  baseLimit: 5_000_000,
+  extraBalance: 600_000 + 1_000_000, // excedente saldado + recarga neta 1M
+  billingCycleEndsAt: '2026-11-30T12:00:00.000Z',
+  now,
+});
+assert.equal(overageSettled.overageTokens, 0, 'Al saldar excedente + recarga, el excedente queda en 0');
+assert.equal(overageSettled.effectiveLimit - overageSettled.usedTokens, 1_000_000, 'Quedan 1M tokens netos libres');
+
+// 8. Simulación de Hard-Stop al superar 20% de gracia y desbloqueo tras recarga
+const graceLimit = 5_000_000;
+const graceCap = Math.round(graceLimit * (1 + (policy.gracePct ?? 20) / 100));
+assert.equal(graceCap, 6_000_000);
+const statusAtHardStop = computeTokenStatus({ used: 6_050_000, limit: graceLimit, policy });
+assert.equal(statusAtHardStop.isOverage, true);
+assert.ok(statusAtHardStop.used >= graceCap, 'Debe activar hard-stop al superar 120%');
+
+const unlockedEffectiveLimit = graceLimit + statusAtHardStop.overageTokens + 1_000_000;
+const unlockedGraceCap = Math.round(unlockedEffectiveLimit * (1 + (policy.gracePct ?? 20) / 100));
+assert.ok(statusAtHardStop.used < unlockedGraceCap, 'Tras acreditar excedente + recarga, se desbloquea inmediatamente');
 
 console.log('✅ token-billing-and-projection.test.ts passed');

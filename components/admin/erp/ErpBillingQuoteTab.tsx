@@ -14,14 +14,28 @@ import {
 } from 'lucide-react';
 import type { OrganizationRow } from '@/app/actions/superadmin';
 import { provisionCompany } from '@/app/actions/superadmin';
-import { grantTokenPackAction, adjustPermanentTokensAction } from '@/app/actions/erp';
+import {
+  grantTokenPackAction,
+  grantCycleOrTrialAction,
+  adjustPermanentTokensAction,
+  getPendingQuotesAction,
+  upsertPendingQuoteAction,
+  deletePendingQuoteAction,
+  getErpGlobalPricingAction,
+  saveErpGlobalPricingAction,
+} from '@/app/actions/erp';
 import {
   calculateSmartOverageAndRechargeQuote,
   buildQuoteWhatsAppUrl,
+  prunePendingQuotes,
+  type PendingQuoteRecord,
 } from '@/services/erp.service';
+import { estimateChatsFromTokens, formatTokenQuota } from '@/lib/billing/plan-defaults';
 
 interface ErpBillingQuoteTabProps {
   organizations: OrganizationRow[];
+  initialOrgId?: string | null;
+  onConsumeInitialOrg?: () => void;
   onRefresh?: () => void;
   onOpenCreditsTab?: () => void;
 }
@@ -39,18 +53,40 @@ function parseCopInput(raw: string): number {
   return digits ? Number(digits) : 0;
 }
 
-export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab }: ErpBillingQuoteTabProps) {
+function escapeHtml(raw: string): string {
+  return String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function ErpBillingQuoteTab({
+  organizations,
+  initialOrgId,
+  onConsumeInitialOrg,
+  onRefresh,
+  onOpenCreditsTab,
+}: ErpBillingQuoteTabProps) {
   const [filter, setFilter] = useState<QueueFilter>('all');
-  const [selectedOrgId, setSelectedOrgId] = useState<string>(organizations[0]?.id || '');
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(initialOrgId || organizations[0]?.id || '');
 
-  // Precios editables en vivo
-  const [monthlyBaseCop, setMonthlyBaseCop] = useState<number>(169000);
+  // Precios globales persistidos automáticamente en BD
+  const [monthlyBaseCop, setMonthlyBaseCop] = useState<number>(200000);
   const [pricePer1MCop, setPricePer1MCop] = useState<number>(20000);
+  const [pricingLoaded, setPricingLoaded] = useState<boolean>(false);
+  const [pricingSaveStatus, setPricingSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const pricingDirtyRef = useRef<boolean>(false);
 
-  // Tipo de cobro inteligente
-  const [chargeKind, setChargeKind] = useState<ChargeKind>('monthly_plan');
+  // Tipo de cobro inteligente + descuento puntual
+  const [chargeKind, setChargeKind] = useState<ChargeKind>(initialOrgId ? 'token_pack' : 'monthly_plan');
+  const [rechargeScope, setRechargeScope] = useState<'temporary' | 'permanent'>('temporary');
   const [customPhone, setCustomPhone] = useState<string>('');
   const [customRechargeTokens, setCustomRechargeTokens] = useState<number | null>(null);
+  const [customRechargeCop, setCustomRechargeCop] = useState<number | null>(null);
+  const [discountType, setDiscountType] = useState<'cop' | 'pct'>('cop');
+  const [discountValue, setDiscountValue] = useState<number>(0);
 
   // Campos rápidos para cotizar empresa nueva sin crearla aún
   const [newClientName, setNewClientName] = useState<string>('');
@@ -58,19 +94,8 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
   const [newClientEmail, setNewClientEmail] = useState<string>('');
   const [newClientBusinessModel, setNewClientBusinessModel] = useState<'products' | 'services' | 'hybrid'>('products');
   const [newClientMaxUsers, setNewClientMaxUsers] = useState<number>(2);
-  const [newClientDueDay, setNewClientDueDay] = useState<number>(new Date().getDate());
-  const [pendingQuotes, setPendingQuotes] = useState<Array<{
-    id: string;
-    companyName: string;
-    adminName: string;
-    adminEmail: string;
-    phone: string;
-    businessModel: 'products' | 'services' | 'hybrid';
-    maxUsers: number;
-    dueDay: number;
-    monthlyBaseCop: number;
-    createdAt: string;
-  }>>([]);
+  const [newClientTokensLimit, setNewClientTokensLimit] = useState<number>(5_000_000);
+  const [pendingQuotes, setPendingQuotes] = useState<PendingQuoteRecord[]>([]);
   const [createdCredentials, setCreatedCredentials] = useState<{
     companyName: string;
     email: string;
@@ -78,19 +103,70 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
     phone: string;
   } | null>(null);
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('synqo_pending_company_quotes');
-      if (saved) setPendingQuotes(JSON.parse(saved));
-    } catch {}
-  }, []);
-
-  const persistPendingQuotes = (next: typeof pendingQuotes) => {
+  const persistLocalQuotes = (next: PendingQuoteRecord[]) => {
     setPendingQuotes(next);
     try {
       localStorage.setItem('synqo_pending_company_quotes', JSON.stringify(next));
     } catch {}
   };
+
+  useEffect(() => {
+    let active = true;
+    const loadQuotes = async () => {
+      let localList: PendingQuoteRecord[] = [];
+      try {
+        const saved = localStorage.getItem('synqo_pending_company_quotes');
+        if (saved) localList = prunePendingQuotes(JSON.parse(saved));
+      } catch {}
+      if (active && localList.length > 0) setPendingQuotes(localList);
+
+      try {
+        const remote = await getPendingQuotesAction();
+        if (active && remote.supported) {
+          persistLocalQuotes(remote.quotes);
+        }
+      } catch {}
+    };
+    loadQuotes();
+    getErpGlobalPricingAction()
+      .then((res) => {
+        if (!active) return;
+        setMonthlyBaseCop(res.monthlyBaseCop);
+        setPricePer1MCop(res.pricePer1MCop);
+        setPricingLoaded(true);
+      })
+      .catch(() => {
+        if (active) setPricingLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Auto-guardado en BD con debounce al editar tarifas globales
+  useEffect(() => {
+    if (!pricingLoaded || !pricingDirtyRef.current) return;
+    setPricingSaveStatus('saving');
+    const timer = setTimeout(() => {
+      saveErpGlobalPricingAction({ monthlyBaseCop, pricePer1MCop })
+        .then(() => {
+          pricingDirtyRef.current = false;
+          setPricingSaveStatus('saved');
+        })
+        .catch(() => setPricingSaveStatus('idle'));
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [monthlyBaseCop, pricePer1MCop, pricingLoaded]);
+
+  useEffect(() => {
+    if (initialOrgId) {
+      setSelectedOrgId(initialOrgId);
+      setChargeKind('token_pack');
+      setCustomRechargeTokens(null);
+      setCustomRechargeCop(null);
+      onConsumeInitialOrg?.();
+    }
+  }, [initialOrgId, onConsumeInitialOrg]);
 
   const [processing, setProcessing] = useState(false);
   const [revertStepOpen, setRevertStepOpen] = useState(false);
@@ -153,7 +229,10 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
       setMonthlyBaseCop(savedBaseCop);
     }
     setChargeKind(activeItem.quote.mode === 'end_of_month' ? 'monthly_plan' : 'token_pack');
+    setRechargeScope('temporary');
     setCustomRechargeTokens(null);
+    setCustomRechargeCop(null);
+    setDiscountValue(0);
     setFeedback(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItem?.org.id]);
@@ -168,12 +247,23 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
     ? customRechargeTokens
     : activeItem?.quote.recommendedRechargeTokens || 1_000_000;
 
-  const effectiveRechargeCop = Math.round((effectiveRechargeTokens / 1_000_000) * pricePer1MCop);
+  const autoRechargeCop = Math.round((effectiveRechargeTokens / 1_000_000) * pricePer1MCop);
+  const effectiveRechargeCop =
+    customRechargeCop !== null ? Math.max(0, customRechargeCop) : autoRechargeCop;
   const effectiveBaseCop =
     isNewClient || chargeKind === 'monthly_plan' ? monthlyBaseCop : 0;
   const effectiveOverageTokens = isNewClient ? 0 : activeItem?.quote.overageTokens || 0;
   const effectiveOverageCop = isNewClient ? 0 : activeItem?.quote.overageCop || 0;
-  const effectiveTotalCop = effectiveBaseCop + effectiveOverageCop + effectiveRechargeCop;
+  const subtotalCop = effectiveBaseCop + effectiveOverageCop + effectiveRechargeCop;
+  const effectiveDiscountCop = Math.min(
+    subtotalCop,
+    discountValue > 0
+      ? discountType === 'pct'
+        ? Math.round((subtotalCop * Math.min(100, discountValue)) / 100)
+        : Math.round(discountValue)
+      : 0
+  );
+  const effectiveTotalCop = Math.max(0, subtotalCop - effectiveDiscountCop);
 
   const canGeneratePdf =
     effectiveTotalCop > 0 && (!isNewClient || newClientName.trim().length > 0);
@@ -196,12 +286,21 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
       return;
     }
 
-    const targetName = isNewClient ? newClientName.trim() : activeItem?.org.name || 'Cliente Synqo';
+    const rawName = isNewClient ? newClientName.trim() : activeItem?.org.name || 'Cliente Synqo';
+    const targetName = escapeHtml(rawName);
+    const safeEmail = escapeHtml(newClientEmail.trim());
     const dueDayLabel = isNewClient
       ? 'Se fija al confirmar el pago'
       : `${(activeItem?.org as any)?.billing_due_day || new Date().getDate()} de cada mes`;
     const docNum = `SYNQO-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
     const logoUrl = `${window.location.origin}/brand/isotipo-128w.png`;
+
+    const baseTokens = isNewClient
+      ? Math.max(5_000_000, newClientTokensLimit)
+      : Number(activeItem?.org.ai_tokens_limit || 5_000_000);
+    const baseChats = estimateChatsFromTokens(baseTokens);
+    const overageChats = effectiveOverageTokens > 0 ? estimateChatsFromTokens(effectiveOverageTokens) : '';
+    const rechargeChats = effectiveRechargeTokens > 0 ? estimateChatsFromTokens(effectiveRechargeTokens) : '';
 
     const win = window.open('', '_blank', 'width=820,height=900');
     if (!win) return;
@@ -244,23 +343,24 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
   </div>
   <div class="box">
     <div><strong>Cliente:</strong> ${targetName}</div>
-    ${isNewClient && newClientEmail.trim() ? `<div><strong>Usuario / Correo asignado:</strong> ${newClientEmail.trim()} <em>(se activa al confirmar pago)</em></div>` : ''}
+    ${isNewClient && safeEmail ? `<div><strong>Usuario / Correo asignado:</strong> ${safeEmail} <em>(se activa al confirmar pago)</em></div>` : ''}
     ${!isNewClient && activeItem ? `<div><strong>Consumo actual:</strong> ${activeItem.quote.usedTokens.toLocaleString('es-CO')} / ${activeItem.quote.effectiveLimit.toLocaleString('es-CO')} tokens</div>` : ''}
   </div>
   <table>
     <thead>
-      <tr><th>Concepto</th><th class="right">Detalle</th><th class="right">Valor (COP)</th></tr>
+      <tr><th>Concepto</th><th class="right">Capacidad / Detalle</th><th class="right">Valor (COP)</th></tr>
     </thead>
     <tbody>
-      ${effectiveBaseCop > 0 ? `<tr><td>Mensualidad Base Synqo CRM + 5.000.000 tokens IA</td><td class="right">Ciclo mensual completo</td><td class="right">$${effectiveBaseCop.toLocaleString('es-CO')}</td></tr>` : ''}
-      ${effectiveOverageTokens > 0 ? `<tr><td>Excedente de tokens acumulado</td><td class="right">+${effectiveOverageTokens.toLocaleString('es-CO')} tok</td><td class="right">$${effectiveOverageCop.toLocaleString('es-CO')}</td></tr>` : ''}
-      ${effectiveRechargeTokens > 0 ? `<tr><td>Paquete extra de tokens (mes en curso)</td><td class="right">+${effectiveRechargeTokens.toLocaleString('es-CO')} tok</td><td class="right">$${effectiveRechargeCop.toLocaleString('es-CO')}</td></tr>` : ''}
+      ${effectiveBaseCop > 0 ? `<tr><td>Mensualidad Synqo CRM (${baseChats})</td><td class="right">${baseTokens.toLocaleString('es-CO')} tokens IA/mes</td><td class="right">$${effectiveBaseCop.toLocaleString('es-CO')}</td></tr>` : ''}
+      ${effectiveOverageTokens > 0 ? `<tr><td>Consumo adicional del ciclo (${overageChats})</td><td class="right">+${effectiveOverageTokens.toLocaleString('es-CO')} tokens</td><td class="right">$${effectiveOverageCop.toLocaleString('es-CO')}</td></tr>` : ''}
+      ${effectiveRechargeTokens > 0 ? `<tr><td>${rechargeScope === 'permanent' ? 'Ampliación permanente mensual' : 'Paquete adicional mes en curso'} (${rechargeChats})</td><td class="right">+${effectiveRechargeTokens.toLocaleString('es-CO')} tokens</td><td class="right">$${effectiveRechargeCop.toLocaleString('es-CO')}</td></tr>` : ''}
+      ${effectiveDiscountCop > 0 ? `<tr><td>Descuento aplicado</td><td class="right">${discountType === 'pct' ? `${discountValue}%` : 'Ajuste comercial'}</td><td class="right">-$${effectiveDiscountCop.toLocaleString('es-CO')}</td></tr>` : ''}
     </tbody>
   </table>
   <div class="total">TOTAL A PAGAR: $${effectiveTotalCop.toLocaleString('es-CO')} COP</div>
   <div class="note">
-    Documento informativo de cobro de servicio. ${effectiveRechargeTokens > 0 ? 'Las recargas de tokens aplican exclusivamente para el ciclo mensual en curso. ' : ''}
-    Una vez confirmado el pago, el servicio y/o los tokens quedan activos de inmediato.
+    Documento informativo de cobro de servicio. ${effectiveRechargeTokens > 0 && rechargeScope === 'temporary' ? 'Las recargas puntuales aplican exclusivamente para el ciclo mensual en curso. ' : ''}
+    Una vez confirmado el pago, el servicio y/o la capacidad quedan activos de inmediato.
   </div>
   <script>window.onload = () => { window.print(); };</script>
 </body>
@@ -269,28 +369,50 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
   };
 
   const handleApplyChargeAndRecharge = async () => {
-    if (!activeItem || isNewClient) return;
-    if (effectiveTotalCop <= 0) {
-      setFeedback({ type: 'error', text: 'El total a cobrar debe ser mayor a $0.' });
+    if (!activeItem || isNewClient || processing) return;
+    if (effectiveTotalCop <= 0 && effectiveRechargeTokens <= 0) {
+      setFeedback({ type: 'error', text: 'Ingresa una recarga o un valor mayor a $0 COP.' });
+      return;
+    }
+    if (chargeKind === 'token_pack' && effectiveRechargeTokens < 100_000 && effectiveOverageTokens <= 0) {
+      setFeedback({ type: 'error', text: 'La recarga mínima es de 100.000 tokens.' });
       return;
     }
     setProcessing(true);
     setFeedback(null);
+    const idempotencyKey = `erp-${chargeKind}-${activeItem.org.id}-${Date.now()}`;
+    const discountNote =
+      effectiveDiscountCop > 0
+        ? ` | Lista $${subtotalCop.toLocaleString('es-CO')} - Desc. $${effectiveDiscountCop.toLocaleString('es-CO')} COP`
+        : '';
     try {
-      const tokensToGrant =
-        chargeKind === 'token_pack'
-          ? Math.max(500_000, effectiveRechargeTokens || 1_000_000)
-          : 0;
-      await grantTokenPackAction({
-        organizationId: activeItem.org.id,
-        tokensAmount: tokensToGrant > 0 ? tokensToGrant : 5_000_000,
-        mode: chargeKind === 'token_pack' ? 'temporary' : 'permanent',
-        amountCop: effectiveTotalCop,
-        notes:
-          chargeKind === 'monthly_plan'
-            ? 'Cobro ERP: Mensualidad Normal'
-            : 'Cobro ERP: Paquete Extra de Tokens (mes en curso)',
-      });
+      if (chargeKind === 'monthly_plan') {
+        await grantCycleOrTrialAction({
+          organizationId: activeItem.org.id,
+          cycleKind: 'paid',
+          days: 30,
+          tokensLimit: Math.max(5_000_000, Number(activeItem.org.ai_tokens_limit || 5_000_000)),
+          resetTokensUsed: true,
+          amountCop: effectiveTotalCop,
+          notes: `Cobro ERP: Mensualidad Normal${effectiveOverageTokens > 0 ? ` + excedente ${effectiveOverageTokens.toLocaleString('es-CO')} tok` : ''}${discountNote}`,
+          idempotencyKey,
+        });
+      } else {
+        await grantTokenPackAction({
+          organizationId: activeItem.org.id,
+          tokensAmount: effectiveRechargeTokens,
+          overageSettledTokens: effectiveOverageTokens,
+          mode: rechargeScope,
+          amountCop: effectiveTotalCop,
+          notes:
+            (rechargeScope === 'permanent'
+              ? `Cobro ERP: Ampliación permanente +${effectiveRechargeTokens.toLocaleString('es-CO')} tokens/mes`
+              : `Cobro ERP: Recarga mes en curso +${effectiveRechargeTokens.toLocaleString('es-CO')} tokens`) + discountNote,
+          idempotencyKey,
+        });
+      }
+      setCustomRechargeCop(null);
+      setDiscountValue(0);
       setFeedback({
         type: 'success',
         text: `Cobro registrado ($${effectiveTotalCop.toLocaleString('es-CO')} COP) para ${activeItem.org.name}.`,
@@ -303,27 +425,38 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
     }
   };
 
-  const handleSaveAndSendQuote = () => {
+  const handleSaveAndSendQuote = async () => {
     if (!newClientName.trim() || !newClientEmail.trim()) {
       setFeedback({ type: 'error', text: 'Ingresa al menos Nombre del Negocio y Correo para guardar y enviar la cotización.' });
       return;
     }
-    const entry = {
+    const safeLimit = Math.max(5_000_000, newClientTokensLimit);
+    const entry: PendingQuoteRecord = {
       id: `q-${Date.now()}`,
       companyName: newClientName.trim(),
       adminName: newClientAdminName.trim() || newClientName.trim(),
-      adminEmail: newClientEmail.trim(),
+      adminEmail: newClientEmail.trim().toLowerCase(),
       phone: customPhone.trim(),
       businessModel: newClientBusinessModel,
       maxUsers: newClientMaxUsers,
-      dueDay: newClientDueDay,
-      monthlyBaseCop,
+      aiTokensLimit: safeLimit,
+      monthlyBaseCop: effectiveTotalCop,
       createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
     };
-    const filteredPrev = pendingQuotes.filter(
-      (q) => q.adminEmail.toLowerCase() !== entry.adminEmail.toLowerCase()
-    );
-    persistPendingQuotes([entry, ...filteredPrev]);
+    const nextList = prunePendingQuotes([entry, ...pendingQuotes]);
+    persistLocalQuotes(nextList);
+    upsertPendingQuoteAction({
+      companyName: entry.companyName,
+      adminName: entry.adminName,
+      adminEmail: entry.adminEmail,
+      phone: entry.phone,
+      businessModel: entry.businessModel,
+      maxUsers: entry.maxUsers,
+      aiTokensLimit: entry.aiTokensLimit,
+      monthlyBaseCop: entry.monthlyBaseCop,
+    }).catch(() => {});
+
     setFeedback({ type: 'success', text: `Cotización guardada para ${entry.companyName}.` });
     setQuoteSentModalUrl(waUrl);
     if (typeof window !== 'undefined') {
@@ -345,6 +478,8 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
     setProcessing(true);
     setFeedback(null);
     const tempPassword = `Synqo${Math.floor(1000 + Math.random() * 9000)}!`;
+    const safeLimit = Math.max(5_000_000, newClientTokensLimit);
+    const approvalDueDay = new Date().getDate();
     try {
       await provisionCompany({
         companyName: newClientName.trim(),
@@ -353,6 +488,9 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
         adminPassword: tempPassword,
         maxUsers: newClientMaxUsers,
         industryPreset: newClientBusinessModel,
+        aiTokensLimit: safeLimit,
+        monthlyBasePriceCop: effectiveTotalCop,
+        billingDueDay: approvalDueDay,
         enabledModules: {
           native_calendar: newClientBusinessModel !== 'products',
           orders: newClientBusinessModel !== 'services',
@@ -368,12 +506,14 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
         tempPassword,
         phone: customPhone.trim(),
       });
-      persistPendingQuotes(
-        pendingQuotes.filter((q) => q.adminEmail.toLowerCase() !== newClientEmail.trim().toLowerCase())
+      const emailKey = newClientEmail.trim().toLowerCase();
+      persistLocalQuotes(
+        pendingQuotes.filter((q) => q.adminEmail.toLowerCase() !== emailKey)
       );
+      deletePendingQuoteAction(emailKey).catch(() => {});
       setFeedback({
         type: 'success',
-        text: `¡Empresa "${newClientName.trim()}" creada y activada! Ya puedes enviar sus accesos por WhatsApp.`,
+        text: `¡Empresa "${newClientName.trim()}" creada y activada (día de pago: ${approvalDueDay} de cada mes)!`,
       });
       onRefresh?.();
     } catch (err: any) {
@@ -387,7 +527,7 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
     ? buildQuoteWhatsAppUrl({
         phone: customPhone,
         companyName: newClientName.trim() || 'tu negocio',
-        mode: 'end_of_month',
+        mode: 'new_client',
         overageTokens: 0,
         overageCop: 0,
         rechargeTokens: 0,
@@ -395,6 +535,9 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
         monthlyBaseCop: monthlyBaseCop,
         totalCop: effectiveTotalCop,
         daysRemaining: 30,
+        baseTokensLimit: Math.max(5_000_000, newClientTokensLimit),
+        maxUsers: newClientMaxUsers,
+        discountCop: effectiveDiscountCop,
       })
     : activeItem
     ? buildQuoteWhatsAppUrl({
@@ -408,6 +551,8 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
         monthlyBaseCop: effectiveBaseCop || monthlyBaseCop,
         totalCop: effectiveTotalCop,
         daysRemaining: activeItem.quote.daysRemainingInCycle,
+        baseTokensLimit: Number(activeItem.org.ai_tokens_limit || 5_000_000),
+        discountCop: effectiveDiscountCop,
       })
     : '#';
 
@@ -449,7 +594,10 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
               type="text"
               inputMode="numeric"
               value={formatCopInput(monthlyBaseCop)}
-              onChange={(e) => setMonthlyBaseCop(parseCopInput(e.target.value))}
+              onChange={(e) => {
+                pricingDirtyRef.current = true;
+                setMonthlyBaseCop(parseCopInput(e.target.value));
+              }}
               className="w-32 h-8 pl-6 pr-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] font-mono text-xs"
             />
           </div>
@@ -462,11 +610,19 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
               type="text"
               inputMode="numeric"
               value={formatCopInput(pricePer1MCop)}
-              onChange={(e) => setPricePer1MCop(Math.max(1000, parseCopInput(e.target.value)))}
+              onChange={(e) => {
+                pricingDirtyRef.current = true;
+                setPricePer1MCop(Math.max(1000, parseCopInput(e.target.value)));
+              }}
               className="w-28 h-8 pl-6 pr-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] font-mono text-xs"
             />
           </div>
         </label>
+        {pricingSaveStatus !== 'idle' && (
+          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+            {pricingSaveStatus === 'saving' ? 'Guardando tarifas...' : 'Guardado en BD'}
+          </span>
+        )}
         {onOpenCreditsTab && (
           <button
             type="button"
@@ -788,6 +944,63 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
                     className="mt-1 w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F]"
                   />
                 </label>
+
+                <div className="sm:col-span-3 p-3 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      Capacidad Mensual Inicial (Tokens / Conversaciones)
+                    </span>
+                    <span className="text-[11px] font-bold text-[#0052FF] dark:text-[#00D2FF]">
+                      {estimateChatsFromTokens(Math.max(5_000_000, newClientTokensLimit))} / mes
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[5_000_000, 7_500_000, 10_000_000, 15_000_000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => {
+                          setNewClientTokensLimit(amt);
+                          const extraM = Math.max(0, (amt - 5_000_000) / 1_000_000);
+                          setMonthlyBaseCop(Math.round(169000 + extraM * pricePer1MCop));
+                        }}
+                        className={`h-8 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
+                          newClientTokensLimit === amt
+                            ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                            : 'bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B]'
+                        }`}
+                      >
+                        {formatTokenQuota(amt)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={newClientTokensLimit > 0 ? newClientTokensLimit.toLocaleString('es-CO') : ''}
+                      onChange={(e) => {
+                        const parsed = parseCopInput(e.target.value);
+                        setNewClientTokensLimit(parsed);
+                        const extraM = Math.max(0, (Math.max(5_000_000, parsed) - 5_000_000) / 1_000_000);
+                        setMonthlyBaseCop(Math.round(169000 + extraM * pricePer1MCop));
+                      }}
+                      placeholder="5.000.000"
+                      className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs font-bold"
+                    />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatCopInput(monthlyBaseCop)}
+                      onChange={(e) => setMonthlyBaseCop(parseCopInput(e.target.value))}
+                      placeholder="Mensualidad COP (editable)"
+                      className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs font-bold"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Por defecto 5.000.000 tokens (~400 a 667 conversaciones). Puedes ajustar capacidad o precio especial libremente.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -805,38 +1018,206 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
             </label>
 
             {!isNewClient && chargeKind === 'token_pack' && activeItem && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B]">
-                  <div className="text-[10px] text-slate-500 uppercase">Excedente acumulado</div>
-                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">
-                    +{effectiveOverageTokens.toLocaleString('es-CO')} tok
-                  </div>
-                  <div className="text-[11px] text-rose-600 font-semibold">
-                    ${effectiveOverageCop.toLocaleString('es-CO')} COP
-                  </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRechargeScope('temporary')}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition ${
+                      rechargeScope === 'temporary'
+                        ? 'border-[#0052FF] bg-blue-50/70 dark:bg-blue-900/30 text-[#0052FF] dark:text-[#00D2FF] font-bold'
+                        : 'border-slate-200 dark:border-[#232A3B] text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    <div>Solo este mes</div>
+                    <div className="text-[10px] font-normal opacity-80">Se suma al saldo extra del ciclo</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRechargeScope('permanent')}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition ${
+                      rechargeScope === 'permanent'
+                        ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-bold'
+                        : 'border-slate-200 dark:border-[#232A3B] text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    <div>Permanente</div>
+                    <div className="text-[10px] font-normal opacity-80">Amplía cuota y tarifa mensual</div>
+                  </button>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B]">
-                  <div className="text-[10px] text-slate-500 uppercase">Recarga proyectada</div>
-                  <input
-                    type="number"
-                    step={500000}
-                    value={effectiveRechargeTokens}
-                    onChange={(e) => setCustomRechargeTokens(Math.max(0, Number(e.target.value)))}
-                    className="mt-1 w-full h-7 px-2 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs"
-                  />
-                  <div className="text-[11px] text-[#0052FF] font-semibold mt-0.5">
-                    ${effectiveRechargeCop.toLocaleString('es-CO')} COP
+                {effectiveOverageTokens > 0 && (
+                  <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/40 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[10px] text-rose-700 dark:text-rose-300 uppercase font-bold">
+                        Excedente / gracia consumida
+                      </div>
+                      <div className="text-[11px] text-slate-700 dark:text-slate-200">
+                        +{effectiveOverageTokens.toLocaleString('es-CO')} tok ({estimateChatsFromTokens(effectiveOverageTokens)}) · se salda al acreditar
+                      </div>
+                    </div>
+                    <div className="text-xs font-black text-rose-600 dark:text-rose-400 font-tabular shrink-0">
+                      ${effectiveOverageCop.toLocaleString('es-CO')} COP
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-500 uppercase font-bold">Recarga proyectada (Tokens)</span>
+                    <span className="text-[11px] font-bold text-[#0052FF] dark:text-[#00D2FF]">
+                      {estimateChatsFromTokens(effectiveRechargeTokens)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {[
+                      {
+                        label: `Sug. ${formatTokenQuota(activeItem.quote.recommendedRechargeTokens || 1_000_000)}`,
+                        amt: activeItem.quote.recommendedRechargeTokens || 1_000_000,
+                      },
+                      { label: '+500k', amt: 500_000 },
+                      { label: '+1M', amt: 1_000_000 },
+                      { label: '+2M', amt: 2_000_000 },
+                      { label: '+5M', amt: 5_000_000 },
+                    ].map((chip) => (
+                      <button
+                        key={chip.label}
+                        type="button"
+                        onClick={() => {
+                          setCustomRechargeTokens(chip.amt);
+                          setCustomRechargeCop(null);
+                        }}
+                        className={`h-8 px-2 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
+                          effectiveRechargeTokens === chip.amt
+                            ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                            : 'bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B]'
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomRechargeTokens(Math.max(0, effectiveRechargeTokens - 500_000));
+                        setCustomRechargeCop(null);
+                      }}
+                      className="h-9 w-9 shrink-0 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-bold text-sm cursor-pointer hover:bg-slate-100"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={effectiveRechargeTokens > 0 ? effectiveRechargeTokens.toLocaleString('es-CO') : ''}
+                      onChange={(e) => {
+                        setCustomRechargeTokens(parseCopInput(e.target.value));
+                        setCustomRechargeCop(null);
+                      }}
+                      placeholder="1.000.000"
+                      className="flex-1 h-9 px-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomRechargeTokens(effectiveRechargeTokens + 500_000);
+                        setCustomRechargeCop(null);
+                      }}
+                      className="h-9 w-9 shrink-0 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-bold text-sm cursor-pointer hover:bg-slate-100"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] text-slate-500">
+                      Valor recarga COP (editable para descuento):
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatCopInput(effectiveRechargeCop)}
+                      onChange={(e) => setCustomRechargeCop(parseCopInput(e.target.value))}
+                      placeholder="0"
+                      className="w-32 h-8 px-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs font-bold text-right text-[#0052FF]"
+                    />
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/40 flex items-center justify-between">
-              <span className="font-bold text-slate-900 dark:text-white">TOTAL A COBRAR</span>
-              <span className="text-lg font-black text-[#0052FF] dark:text-[#00D2FF] font-tabular">
-                ${effectiveTotalCop.toLocaleString('es-CO')} COP
-              </span>
+            {/* Descuento puntual (opcional) */}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">Descuento:</span>
+                <div className="inline-flex rounded-lg border border-slate-200 dark:border-[#232A3B] overflow-hidden text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDiscountType('cop');
+                      setDiscountValue(0);
+                    }}
+                    className={`px-2 py-1 cursor-pointer ${
+                      discountType === 'cop'
+                        ? 'bg-[#0052FF] text-white'
+                        : 'bg-white dark:bg-[#131722] text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    $ COP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDiscountType('pct');
+                      setDiscountValue(0);
+                    }}
+                    className={`px-2 py-1 cursor-pointer ${
+                      discountType === 'pct'
+                        ? 'bg-[#0052FF] text-white'
+                        : 'bg-white dark:bg-[#131722] text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    %
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={discountValue > 0 ? (discountType === 'cop' ? formatCopInput(discountValue) : String(discountValue)) : ''}
+                  onChange={(e) => {
+                    const parsed = parseCopInput(e.target.value);
+                    setDiscountValue(discountType === 'pct' ? Math.min(100, parsed) : parsed);
+                  }}
+                  placeholder={discountType === 'pct' ? '0 %' : '$ 0'}
+                  className="w-28 h-8 px-2.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs font-bold text-right"
+                />
+                {effectiveDiscountCop > 0 && (
+                  <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                    -${effectiveDiscountCop.toLocaleString('es-CO')}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/40 space-y-1">
+              {effectiveDiscountCop > 0 && (
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Subtotal: ${subtotalCop.toLocaleString('es-CO')} COP</span>
+                  <span className="text-emerald-600 font-semibold">Desc: -${effectiveDiscountCop.toLocaleString('es-CO')} COP</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-900 dark:text-white">TOTAL A COBRAR</span>
+                <span className="text-lg font-black text-[#0052FF] dark:text-[#00D2FF] font-tabular">
+                  ${effectiveTotalCop.toLocaleString('es-CO')} COP
+                </span>
+              </div>
             </div>
           </div>
 
@@ -926,12 +1307,14 @@ export function ErpBillingQuoteTab({ organizations, onRefresh, onOpenCreditsTab 
                     setCustomPhone(q.phone);
                     setNewClientBusinessModel(q.businessModel);
                     setNewClientMaxUsers(q.maxUsers);
-                    setNewClientDueDay(q.dueDay);
+                    setNewClientTokensLimit(q.aiTokensLimit || 5_000_000);
                     setMonthlyBaseCop(q.monthlyBaseCop);
                   }}
                   className="p-2 rounded-lg border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF] cursor-pointer flex items-center justify-between text-[11px]"
                 >
-                  <span className="font-semibold">{q.companyName} ({q.adminEmail})</span>
+                  <span className="font-semibold">
+                    {q.companyName} ({q.adminEmail}) · {formatTokenQuota(q.aiTokensLimit || 5_000_000)}
+                  </span>
                   <span className="font-mono text-[#0052FF]">${q.monthlyBaseCop.toLocaleString('es-CO')}</span>
                 </div>
               ))}

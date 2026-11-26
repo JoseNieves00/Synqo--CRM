@@ -1237,8 +1237,23 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         };
       }
 
-      // 0. Consultar estado de cuota (Modo Excedente activo: nunca detiene al bot, alertas Push en recordTokenUsage)
-      await checkTokenQuota(organizationId);
+      // 0. Consultar estado de cuota (al superar el margen de gracia hardStopAfterGrace, pausa la IA hasta recargar)
+      const quota = await checkTokenQuota(organizationId);
+      if (!quota.allowed) {
+        console.warn(
+          `[Token Guard] Hard-stop alcanzado para org ${organizationId} (${quota.used}/${quota.limit}). IA pausada hasta recarga.`
+        );
+        return {
+          text: '',
+          modelUsed: metaModel,
+          provider: metaProvider,
+          isFallback: false,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          cachedTokens: 0,
+        };
+      }
 
       // 1. Obtener historial reciente, perfil del contacto, total de mensajes y organización (si falta gallery) en paralelo
       const needsOrgFetch = !organization || organization.structured_prompt_data === undefined;

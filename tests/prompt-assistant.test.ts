@@ -205,13 +205,13 @@ async function runPromptAssistantTests() {
   const actionsSrc = fs.readFileSync(path.join(root, 'app/actions/prompt-assistant.ts'), 'utf8');
   const dashboardSrc = fs.readFileSync(path.join(root, 'app/actions/dashboard.ts'), 'utf8');
   const activitySrc = fs.readFileSync(path.join(root, 'app/actions/ai-activity.ts'), 'utf8');
-  const adminSrc = fs.readFileSync(path.join(root, 'components/admin/AdminConsoleClient.tsx'), 'utf8');
+  const superadminSrc = fs.readFileSync(path.join(root, 'app/actions/superadmin.ts'), 'utf8');
   const panelSrc = fs.readFileSync(path.join(root, 'components/settings/prompt-assistant/PromptAssistantPanel.tsx'), 'utf8');
 
   assert.ok(actionsSrc.includes('skipQuotaDeduction: true'), 'Asistente nunca debe descontar ai_tokens_used del cliente');
   assert.ok(dashboardSrc.includes("neq('channel', 'prompt_assistant')"), 'Dashboard debe excluir uso del asistente');
   assert.ok(activitySrc.includes("neq('channel', 'prompt_assistant')"), 'AI Activity debe excluir uso del asistente');
-  assert.ok(adminSrc.includes('prompt_assistant_stats'), 'SuperAdmin debe visualizar consumo del asistente por org');
+  assert.ok(superadminSrc.includes('prompt_assistant_stats'), 'SuperAdmin debe calcular consumo del asistente por org');
   assert.ok(!panelSrc.includes('incluido por Synqo'), 'UI del cliente no debe mostrar etiquetas de incluido/cuota');
   assert.ok(!panelSrc.includes('totalAssistantTokens'), 'UI del cliente no debe exponer consumo acumulado de tokens');
   console.log('   ✅ Invariantes de aislamiento de tokens (Synqo vs Cliente) y SuperAdmin verificados.');

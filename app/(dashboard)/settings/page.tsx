@@ -62,25 +62,18 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     console.warn('[SETTINGS] Could not load knowledge gaps:', err);
   }
 
-  // Cargar colaboradores y salones físicos
+  // Cargar colaboradores
   let specialists: any[] = [];
-  let rooms: any[] = [];
+  const rooms: any[] = [];
   if (org?.id) {
     try {
-      const [specRes, roomsRes] = await Promise.all([
-        (supabaseAdmin.from('specialists') as any)
-          .select('id, name, phone, specialty, access_pin, approval_status, is_active, created_at')
-          .eq('organization_id', org.id)
-          .order('created_at', { ascending: false }),
-        (supabaseAdmin.from('physical_rooms') as any)
-          .select('id, name, capacity, description, is_active')
-          .eq('organization_id', org.id)
-          .order('name', { ascending: true }),
-      ]);
+      const specRes = await (supabaseAdmin.from('specialists') as any)
+        .select('id, name, phone, specialty, access_pin, approval_status, is_active, created_at')
+        .eq('organization_id', org.id)
+        .order('created_at', { ascending: false });
       specialists = specRes.data || [];
-      rooms = roomsRes.data || [];
     } catch (err) {
-      console.warn('[SETTINGS] Could not load specialists or rooms:', err);
+      console.warn('[SETTINGS] Could not load specialists:', err);
     }
   }
 
@@ -130,9 +123,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         roomLabel: (org as any)?.room_label || 'Espacio',
         enabledModules: (org as any)?.enabled_modules || {
           native_calendar: true,
-          physical_rooms: false,
-          staff_mobile_portal: false,
-          quick_pay: false,
+          orders: true,
           anti_no_show: true,
         },
       }}

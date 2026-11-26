@@ -140,7 +140,7 @@ export async function recordTokenUsage(input: RecordTokenUsageInput) {
     // 1. Obtener la organización para leer tokens actuales, política de umbrales y canal WhatsApp
     const { data: org } = await (supabaseAdmin.from('organizations') as any)
       .select(
-        'id, name, ai_tokens_used, ai_tokens_limit, ai_tokens_google_used, ai_tokens_openai_used, appointment_settings, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour'
+        'id, name, ai_tokens_used, ai_tokens_limit, extra_tokens_balance, ai_tokens_google_used, ai_tokens_openai_used, appointment_settings, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode, evolution_max_outbound_per_hour'
       )
       .eq('id', organizationId)
       .single();

@@ -110,6 +110,7 @@ export default function AdminConsoleClient({
   const [organizations, setOrganizations] = useState<OrganizationRow[]>(initialOrganizations);
   const [searchQuery, setSearchQuery] = useState('');
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
+  const [preselectedBillingOrgId, setPreselectedBillingOrgId] = useState<string | null>(null);
   const [editingOrg, setEditingOrg] = useState<OrganizationRow | null>(null);
   const [selectedConfigOrg, setSelectedConfigOrg] = useState<OrganizationRow | null>(null);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -157,30 +158,14 @@ export default function AdminConsoleClient({
   // Filtro de alta demanda / consumo de IA
   const [usageFilter, setUsageFilter] = useState<'all' | 'warning_80'>('all');
 
-  // Estado para modal de actualización de cobertura/pago
-  const [payingOrg, setPayingOrg] = useState<OrganizationRow | null>(null);
-  const [payMonth, setPayMonth] = useState<string>(currentMonthStr);
-
   useEffect(() => {
-    if (editingOrg || payingOrg) {
+    if (editingOrg) {
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = '';
       };
     }
-  }, [editingOrg, payingOrg]);
-
-  const getNextMonthStr = () => {
-    const now = new Date();
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    return `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
-  };
-
-  const getNextYearStr = () => {
-    const now = new Date();
-    const nextYear = new Date(now.getFullYear() + 1, now.getMonth(), 1);
-    return `${nextYear.getFullYear()}-${String(nextYear.getMonth() + 1).padStart(2, '0')}`;
-  };
+  }, [editingOrg]);
 
   // Filtrado de organizaciones
   const filteredOrgs = organizations.filter((org) => {
@@ -220,54 +205,6 @@ export default function AdminConsoleClient({
     const limit = org.ai_tokens_limit || 100000;
     return used / limit >= 0.8;
   }).length;
-
-  const handleOpenPayModal = (org: OrganizationRow) => {
-    setPayingOrg(org);
-    const isAlreadyCovered = org.paid_until_month && org.paid_until_month >= currentMonthStr;
-    setPayMonth(isAlreadyCovered ? getNextMonthStr() : currentMonthStr);
-  };
-
-  const handlePaymentSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!payingOrg) return;
-    setIsSubmitting(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    try {
-      await registerCompanyPayment({
-        organizationId: payingOrg.id,
-        periodMonth: payMonth,
-      });
-
-      const isFuture = payMonth > currentMonthStr;
-      const newLabel = isFuture ? `Al día (hasta ${payMonth})` : `Al día (${payMonth})`;
-
-      setSuccessMsg(`Estado actualizado para "${payingOrg.name}" hasta ${payMonth}. Cuenta al día.`);
-      setOrganizations((prev) =>
-        prev.map((o) =>
-          o.id === payingOrg.id
-            ? {
-                ...o,
-                is_active: true,
-                subscription_status: 'active',
-                paid_until_month: payMonth,
-                days_past_due: 0,
-                billing_status: 'al_dia',
-                billing_status_label: newLabel,
-                billing_status_color: 'emerald',
-                ai_tokens_used: 0,
-              }
-            : o
-        )
-      );
-      setPayingOrg(null);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error al actualizar estado.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const handleOpenEditModal = (org: OrganizationRow) => {
     setEditingOrg(org);
@@ -1228,12 +1165,20 @@ export default function AdminConsoleClient({
   )}
 
   {mainTab === 'credits' && (
-    <ErpCreditsTab organizations={organizations} />
+    <ErpCreditsTab
+      organizations={organizations}
+      onGoToBilling={(orgId) => {
+        setPreselectedBillingOrgId(orgId);
+        setMainTab('billing_quote');
+      }}
+    />
   )}
 
   {mainTab === 'billing_quote' && (
     <ErpBillingQuoteTab
       organizations={organizations}
+      initialOrgId={preselectedBillingOrgId}
+      onConsumeInitialOrg={() => setPreselectedBillingOrgId(null)}
       onOpenCreditsTab={() => setMainTab('credits')}
     />
   )}
@@ -1295,125 +1240,6 @@ export default function AdminConsoleClient({
           editEvolutionMaxOutbound={editEvolutionMaxOutbound}
           setEditEvolutionMaxOutbound={setEditEvolutionMaxOutbound}
         />
-      )}
-
-      {/* Mini-Modal: Actualizar Cobertura de Pago (Mensual o Anual) */}
-      {payingOrg && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="shrink-0 p-5 border-b border-gray-200 bg-gray-50/50 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-emerald-600" />
-                  Actualizar Estado de Pago
-                </h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  Empresa: <strong className="text-gray-900">{payingOrg.name}</strong>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPayingOrg(null)}
-                className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handlePaymentSubmit} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4 [scrollbar-width:thin]">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-2">
-                  Selecciona el período cubierto:
-                </label>
-                
-                {/* Botones de Selección Rápida */}
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setPayMonth(currentMonthStr)}
-                    className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer flex flex-col items-center gap-0.5 ${
-                      payMonth === currentMonthStr
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-500 ring-2 ring-emerald-500/20'
-                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                    }`}
-                  >
-                    <span>Mes Actual</span>
-                    <span className="text-[10px] text-gray-400 font-mono font-normal">({currentMonthStr})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPayMonth(getNextMonthStr())}
-                    className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer flex flex-col items-center gap-0.5 ${
-                      payMonth === getNextMonthStr()
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-500 ring-2 ring-emerald-500/20'
-                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                    }`}
-                  >
-                    <span>+1 Mes Siguiente</span>
-                    <span className="text-[10px] text-gray-400 font-mono font-normal">({getNextMonthStr()})</span>
-                  </button>
-                </div>
-
-                {/* Botón Destacado: Pago Anual (12 Meses) */}
-                <button
-                  type="button"
-                  onClick={() => setPayMonth(getNextYearStr())}
-                  className={`w-full py-2.5 px-3 mb-3 text-xs rounded-xl border font-bold transition cursor-pointer flex items-center justify-between ${
-                    payMonth === getNextYearStr()
-                      ? 'bg-purple-500/10 text-purple-700 border-purple-500 ring-2 ring-purple-500/20'
-                      : 'bg-purple-50/50 text-purple-700 border-purple-200 hover:bg-purple-50'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <span>Pago Anual Anticipado</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-mono font-normal">12 meses</span>
-                  </span>
-                  <span className="font-mono text-[11px] text-purple-600 font-bold">({getNextYearStr()})</span>
-                </button>
-
-                {/* Selector Manual */}
-                <div>
-                  <span className="text-[11px] text-gray-500 block mb-1">O define un mes específico:</span>
-                  <input
-                    type="month"
-                    required
-                    value={payMonth}
-                    onChange={(e) => setPayMonth(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono font-semibold text-gray-800 bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-                <p>• La empresa quedará en verde <strong>Al día</strong> hasta el final de <strong>{payMonth}</strong>.</p>
-                <p>• Si estaba suspendida, se <strong>reactiva de inmediato</strong>.</p>
-                <p>• Los tokens de OpenAI se <strong>reinician a 0</strong> para el nuevo ciclo.</p>
-              </div>
-
-              </div>
-
-              <div className="shrink-0 px-5 py-3.5 flex items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/50">
-                <button
-                  type="button"
-                  onClick={() => setPayingOrg(null)}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  <Check className="w-4 h-4" />
-                  {isSubmitting ? 'Guardando...' : 'Confirmar y Activar'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
       {/* Modal: Modo Asistencia SuperAdmin (Prompt, Seguimientos, Equipo, WhatsApp) */}
       {isConfigModalOpen && selectedConfigOrg && (

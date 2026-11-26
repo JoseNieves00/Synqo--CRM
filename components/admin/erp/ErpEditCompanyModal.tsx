@@ -174,11 +174,11 @@ export function ErpEditCompanyModal({
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-600 font-medium flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full ${editingOrg.ai_tokens_openai_used ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
-                        OpenAI Backup (Emergencia):
+                        <span className={`w-2 h-2 rounded-full ${editingOrg.ai_tokens_openai_used ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                        OpenAI (Mensajería):
                       </span>
                       <strong className="font-mono text-slate-800">
-                        {(editingOrg.ai_tokens_openai_used || 0).toLocaleString()} / {(editingOrg.ai_tokens_openai_backup_limit || 25000).toLocaleString()} tokens
+                        {(editingOrg.ai_tokens_openai_used || 0).toLocaleString()} tokens
                       </strong>
                     </div>
                   </div>
@@ -361,73 +361,80 @@ export function ErpEditCompanyModal({
                 </div>
 
                 {editWaProvider === 'evolution' && (
-                  <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-200 space-y-3">
+                  <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-200 space-y-2.5">
                     <p className="text-[11px] text-indigo-950 font-medium">
-                      Credenciales Evolution API v2 (Deja la clave en blanco para conservar la existente):
+                      Usa automáticamente el VPS central de Synqo y genera su instancia. El cliente solo escanea el QR desde Ajustes.
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                          URL del VPS
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="https://evolution.synqo.dev o http://ip:8080"
-                          value={editEvolutionApiUrl}
-                          onChange={(e) => setEditEvolutionApiUrl(e.target.value)}
-                          className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                          Nombre de Instancia <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="ej: empresa_synqo"
-                          value={editEvolutionInstanceName}
-                          onChange={(e) => setEditEvolutionInstanceName(e.target.value)}
-                          className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-gray-700 block mb-1">
-                          Nueva API Key
-                        </label>
-                        <input
-                          type="password"
-                          placeholder="Dejar en blanco para mantener..."
-                          value={editEvolutionApiKey}
-                          onChange={(e) => setEditEvolutionApiKey(e.target.value)}
-                          className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                    </div>
+                    <details className="group">
+                      <summary className="text-[11px] font-bold text-indigo-700 cursor-pointer select-none list-none flex items-center gap-1">
+                        <span>▸ Configuración avanzada / VPS dedicado (opcional)</span>
+                      </summary>
+                      <div className="mt-2.5 space-y-2.5 pt-2 border-t border-indigo-200/60">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                              URL del VPS
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Opcional (usa VPS global)"
+                              value={editEvolutionApiUrl}
+                              onChange={(e) => setEditEvolutionApiUrl(e.target.value)}
+                              className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                              Nombre de Instancia
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Auto-generado"
+                              value={editEvolutionInstanceName}
+                              onChange={(e) => setEditEvolutionInstanceName(e.target.value)}
+                              className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-gray-700 block mb-1">
+                              API Key propia
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="Opcional (usa global)"
+                              value={editEvolutionApiKey}
+                              onChange={(e) => setEditEvolutionApiKey(e.target.value)}
+                              className="w-full text-xs font-mono border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-900 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-indigo-200/60 text-xs">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editEvolutionAntiBan}
-                          onChange={(e) => setEditEvolutionAntiBan(e.target.checked)}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-[11px] font-semibold text-indigo-950">
-                          Heurística Anti-Ban (Jitter humano y demoras realistas)
-                        </span>
-                      </label>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-gray-500">Tope/hora:</span>
-                        <input
-                          type="number"
-                          min={5}
-                          max={500}
-                          value={editEvolutionMaxOutbound}
-                          onChange={(e) => setEditEvolutionMaxOutbound(Number(e.target.value))}
-                          className="w-16 text-xs text-center border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-900 font-semibold"
-                        />
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editEvolutionAntiBan}
+                              onChange={(e) => setEditEvolutionAntiBan(e.target.checked)}
+                              className="rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="text-[11px] font-semibold text-indigo-950">
+                              Heurística Anti-Ban
+                            </span>
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-gray-500">Tope/hora:</span>
+                            <input
+                              type="number"
+                              min={5}
+                              max={500}
+                              value={editEvolutionMaxOutbound}
+                              onChange={(e) => setEditEvolutionMaxOutbound(Number(e.target.value))}
+                              className="w-16 text-xs text-center border border-gray-300 rounded px-1.5 py-0.5 bg-white text-gray-900 font-semibold"
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    </details>
                   </div>
                 )}
               </div>

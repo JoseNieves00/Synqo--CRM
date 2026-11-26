@@ -256,7 +256,6 @@ export interface OrganizationRow {
   ai_tokens_limit?: number;
   ai_tokens_google_used?: number;
   ai_tokens_openai_used?: number;
-  ai_tokens_openai_backup_limit?: number;
   paid_until_month?: string | null;
   billing_due_day?: number;
   past_due_since?: string | null;
@@ -356,9 +355,6 @@ export async function listAllOrganizations(): Promise<OrganizationRow[]> {
         org.ai_tokens_google_used || (org.ai_tokens_used ? Math.max(0, Number(org.ai_tokens_used) - Number(org.ai_tokens_openai_used || 0)) : 0)
       ),
       ai_tokens_openai_used: Number(org.ai_tokens_openai_used || 0),
-      ai_tokens_openai_backup_limit: Number(
-        org.ai_tokens_openai_backup_limit || 25000
-      ),
       paid_until_month: org.paid_until_month || null,
       billing_due_day: org.billing_due_day || 5,
       past_due_since: org.past_due_since || null,
@@ -421,6 +417,9 @@ const ProvisionSchema = z.object({
   evolutionMaxOutboundPerHour: z.number().int().optional(),
   specialistLabel: z.string().optional(),
   roomLabel: z.string().optional(),
+  aiTokensLimit: z.number().int().min(5_000_000).optional(),
+  monthlyBasePriceCop: z.number().int().min(0).optional(),
+  billingDueDay: z.number().int().min(1).max(31).optional(),
 });
 
 /**
@@ -447,6 +446,9 @@ export async function provisionCompany(input: {
   roomLabel?: string;
   tokenAlertThresholds?: number[] | string;
   overagePricePer500kCop?: number | null;
+  aiTokensLimit?: number;
+  monthlyBasePriceCop?: number;
+  billingDueDay?: number;
 }) {
   await requireSuperAdmin();
 
@@ -474,6 +476,10 @@ export async function provisionCompany(input: {
   const generatedCode = validated.companyCode?.trim().toUpperCase() ||
     `EMPR${Math.floor(1000 + Math.random() * 9000)}`;
 
+  const initialTokensLimit = Math.max(5_000_000, Number(validated.aiTokensLimit || 5_000_000));
+  const initialDueDay = validated.billingDueDay || now.getDate();
+  const initialCycleEndsAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
   // 1. Crear Organización (intenta con el plan seleccionado y fallback a 'core' si la BD aún tiene el constraint original)
   let planToInsert = validated.planType;
   let insertPayload: Record<string, any> = {
@@ -483,7 +489,9 @@ export async function provisionCompany(input: {
     max_users: validated.maxUsers,
     is_active: true,
     paid_until_month: paidUntilMonth,
-    billing_due_day: 5,
+    billing_due_day: initialDueDay,
+    cycle_kind: 'paid',
+    billing_cycle_ends_at: initialCycleEndsAt,
     company_code: generatedCode,
     enabled_modules: defaultModules,
     industry_preset: validated.industryPreset || 'services',
@@ -496,11 +504,23 @@ export async function provisionCompany(input: {
     specialist_label: validated.specialistLabel || 'Asesor Comercial',
     room_label: validated.roomLabel || 'Reunión',
     ai_tokens_used: 0,
-    ai_tokens_limit: 500000,
+    ai_tokens_limit: initialTokensLimit,
     ai_tokens_google_used: 0,
     ai_tokens_openai_used: 0,
-    ai_tokens_openai_backup_limit: 25000,
     system_prompt: generateStarterPromptFromName(validated.companyName),
+    ...(typeof validated.monthlyBasePriceCop === 'number'
+      ? {
+          appointment_settings: {
+            token_policy: {
+              monthlyBasePriceCop: Math.max(0, Math.round(validated.monthlyBasePriceCop)),
+              overagePricePer1MCop: 20000,
+              gracePct: 20,
+              hardStopAfterGrace: true,
+              overageAllowed: true,
+            },
+          },
+        }
+      : {}),
   };
 
   let { data: org, error: orgError } = await (supabaseAdmin.from('organizations') as any)
