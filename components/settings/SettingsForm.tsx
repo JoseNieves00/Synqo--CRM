@@ -1279,7 +1279,11 @@ export function SettingsForm({
       </div>
 
       {activeTab === 'workflow' ? (
-        <WorkflowPolicySettings initialPolicy={(initialData as any).workflowPolicy} />
+        <WorkflowPolicySettings
+          initialPolicy={(initialData as any).workflowPolicy}
+          supportsOrders={businessCompat.supportsShipping}
+          supportsAppointments={businessCompat.supportsCalendar}
+        />
       ) : activeTab === 'catalog' ? (
         <CatalogCrudTab
           onCatalogUpdated={(nextGallery) => {

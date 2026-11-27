@@ -14,22 +14,59 @@ import { saveWorkflowPolicy } from '@/app/actions/settings';
 
 interface WorkflowPolicySettingsProps {
   initialPolicy?: Partial<WorkflowPolicy> | null;
+  supportsOrders?: boolean;
+  supportsAppointments?: boolean;
 }
 
-const REQUIRED_FIELD_OPTIONS: Array<{ id: RequiredLeadField; label: string }> = [
-  { id: 'product_or_service', label: 'Producto o Servicio de interés' },
-  { id: 'city', label: 'Ciudad de entrega' },
-  { id: 'modality', label: 'Modalidad (presencial / virtual)' },
-  { id: 'date_preference', label: 'Fecha u horario preferido' },
+const REQUIRED_FIELD_OPTIONS: Array<{
+  id: RequiredLeadField;
+  label: string;
+  scope: 'all' | 'orders' | 'appointments';
+}> = [
+  { id: 'product_or_service', label: 'Producto o Servicio de interés', scope: 'all' },
+  { id: 'city', label: 'Ciudad de entrega', scope: 'orders' },
+  { id: 'modality', label: 'Modalidad (presencial / virtual)', scope: 'appointments' },
+  { id: 'date_preference', label: 'Fecha u horario preferido', scope: 'appointments' },
 ];
 
-export function WorkflowPolicySettings({ initialPolicy }: WorkflowPolicySettingsProps) {
+export function WorkflowPolicySettings({
+  initialPolicy,
+  supportsOrders = true,
+  supportsAppointments = true,
+}: WorkflowPolicySettingsProps) {
   const [policy, setPolicy] = useState<WorkflowPolicy>(() => normalizeWorkflowPolicy(initialPolicy));
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const applyPreset = (presetKey: keyof typeof WORKFLOW_PRESETS) => {
-    setPolicy({ ...WORKFLOW_PRESETS[presetKey].policy });
+  const visibleRequiredFields = REQUIRED_FIELD_OPTIONS.filter((opt) => {
+    if (opt.scope === 'orders') return supportsOrders;
+    if (opt.scope === 'appointments') return supportsAppointments;
+    return true;
+  });
+
+  const applyModePreset = (mode: 'autonomous' | 'handoff') => {
+    if (mode === 'autonomous') {
+      const base =
+        !supportsOrders && supportsAppointments
+          ? WORKFLOW_PRESETS.appointments.policy
+          : WORKFLOW_PRESETS.autonomous_24_7.policy;
+      setPolicy({
+        ...base,
+        allowAiOrders: supportsOrders,
+        allowAiAppointments: supportsAppointments,
+        requiredFields: supportsOrders && !supportsAppointments ? ['product_or_service'] : base.requiredFields,
+      });
+    } else {
+      const base = WORKFLOW_PRESETS.qualifier_handoff.policy;
+      setPolicy({
+        ...base,
+        allowAiOrders: false,
+        allowAiAppointments: false,
+        requiredFields: supportsOrders
+          ? ['product_or_service', 'city']
+          : ['product_or_service', 'modality'],
+      });
+    }
     setFeedback(null);
   };
 
@@ -101,31 +138,49 @@ export function WorkflowPolicySettings({ initialPolicy }: WorkflowPolicySettings
           </div>
         )}
 
-        {/* Presets de 1 clic */}
+        {/* 2 Modos Universales adaptados al tipo de negocio */}
         <div className="space-y-2">
           <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
-            Plantillas rápidas (1 clic):
+            Modo de atención principal (1 clic):
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {(Object.keys(WORKFLOW_PRESETS) as Array<keyof typeof WORKFLOW_PRESETS>).map((key) => {
-              const preset = WORKFLOW_PRESETS[key];
-              const isActive = policy.presetId === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => applyPreset(key)}
-                  className={`text-left p-3.5 rounded-xl border transition cursor-pointer ${
-                    isActive
-                      ? 'border-[#0052FF] bg-blue-50/60 dark:bg-blue-950/20'
-                      : 'border-slate-200 dark:border-[#232A3B] hover:border-slate-300 dark:hover:border-slate-700'
-                  }`}
-                >
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">{preset.label}</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{preset.description}</p>
-                </button>
-              );
-            })}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => applyModePreset('autonomous')}
+              className={`text-left p-4 rounded-xl border transition cursor-pointer ${
+                policy.presetId === 'autonomous_24_7' || policy.presetId === 'appointments'
+                  ? 'border-[#0052FF] bg-blue-50/60 dark:bg-blue-950/20'
+                  : 'border-slate-200 dark:border-[#232A3B] hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <p className="text-xs font-bold text-slate-900 dark:text-white">
+                Atención Autónoma 24/7
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                {supportsOrders && supportsAppointments
+                  ? 'La IA asesora, da precios, cierra pedidos y agenda citas sola todo el día.'
+                  : supportsAppointments
+                  ? 'La IA asesora, da precios, consulta disponibilidad y agenda citas sola 24/7.'
+                  : 'La IA asesora, da precios, cotiza y cierra pedidos sola todo el día.'}
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyModePreset('handoff')}
+              className={`text-left p-4 rounded-xl border transition cursor-pointer ${
+                policy.presetId === 'qualifier_handoff'
+                  ? 'border-[#0052FF] bg-blue-50/60 dark:bg-blue-950/20'
+                  : 'border-slate-200 dark:border-[#232A3B] hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <p className="text-xs font-bold text-slate-900 dark:text-white">
+                Recepción + Relevo a Asesor (Horario Laboral)
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                En horario laboral captura {supportsOrders ? 'producto + ciudad' : 'servicio + modalidad'} y pasa al asesor sin dar precios. Fuera de horario responde dudas, da precios y deja el cierre pendiente en Inbox.
+              </p>
+            </button>
           </div>
         </div>
       </div>
@@ -222,7 +277,7 @@ export function WorkflowPolicySettings({ initialPolicy }: WorkflowPolicySettings
             3. Datos obligatorios antes de cotizar o relevar
           </p>
           <div className="space-y-2">
-            {REQUIRED_FIELD_OPTIONS.map((opt) => (
+            {visibleRequiredFields.map((opt) => (
               <label key={opt.id} className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
                 <input
                   type="checkbox"
@@ -264,27 +319,31 @@ export function WorkflowPolicySettings({ initialPolicy }: WorkflowPolicySettings
             <span>Pasar directo a asesor al responder campaña o seguimiento</span>
           </label>
 
-          <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={policy.allowAiOrders}
-              onChange={(e) => setPolicy((p) => ({ ...p, presetId: 'custom', allowAiOrders: e.target.checked }))}
-              className="rounded border-slate-300 text-[#0052FF]"
-            />
-            <span>Permitir que la IA cree pedidos</span>
-          </label>
+          {supportsOrders && (
+            <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={policy.allowAiOrders}
+                onChange={(e) => setPolicy((p) => ({ ...p, presetId: 'custom', allowAiOrders: e.target.checked }))}
+                className="rounded border-slate-300 text-[#0052FF]"
+              />
+              <span>Permitir que la IA cree pedidos</span>
+            </label>
+          )}
 
-          <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={policy.allowAiAppointments}
-              onChange={(e) =>
-                setPolicy((p) => ({ ...p, presetId: 'custom', allowAiAppointments: e.target.checked }))
-              }
-              className="rounded border-slate-300 text-[#0052FF]"
-            />
-            <span>Permitir que la IA agende citas</span>
-          </label>
+          {supportsAppointments && (
+            <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={policy.allowAiAppointments}
+                onChange={(e) =>
+                  setPolicy((p) => ({ ...p, presetId: 'custom', allowAiAppointments: e.target.checked }))
+                }
+                className="rounded border-slate-300 text-[#0052FF]"
+              />
+              <span>Permitir que la IA agende citas</span>
+            </label>
+          )}
         </div>
       </div>
     </div>
