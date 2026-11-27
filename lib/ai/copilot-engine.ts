@@ -853,7 +853,7 @@ function buildBaseCopilotPrescription(
         copilotDirective: suppressCardResend
           ? `El cliente ya vio fotos en el chat${activeProductFocus ? ` (producto en foco: ${activeProductFocus})` : ''}. Responde directamente su consulta puntual en 1 solo mensaje claro (160–360 caracteres) sin reenviar fotos ni repetir el catálogo.`
           : hasAdOrVisualRef
-          ? 'El cliente viene de un anuncio/publicación o envió referencia visual. Extrae e identifica el producto exacto del anuncio o imagen comparándolo con el catálogo y responde directamente sobre ESE producto (con su tarjeta visual si aún no la tiene y su precio). PROHIBIDO preguntarle qué producto busca.'
+          ? 'El cliente viene de un anuncio/publicación o envió referencia visual. Extrae e identifica el producto exacto del anuncio o imagen comparándolo con el catálogo y responde directamente sobre ESE producto (enviando su foto con send_product_card si aún no la tiene y su precio). PROHIBIDO preguntarle qué producto busca y PROHIBIDO decirle que "enviaste tarjetas visuales".'
           : isGenericBroadInquiry
           ? 'El cliente hizo una consulta abierta ("quiero más información" / "precio") sin indicar modelo ni traer referencia de anuncio. PROHIBIDO adivinar un solo producto al azar; presenta brevemente las opciones del catálogo con sus precios y pregúntale cuál le interesa.'
           : hasConsultativeDoubt

@@ -1373,7 +1373,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           const parsed = parseImageMessageContent(contentText);
           if (parsed.isImage) {
             const firstLine = (parsed.caption || '').split('\n')[0].trim();
-            compactText = `[Tarjeta visual de producto ya enviada y vista por el cliente${firstLine ? `: "${firstLine}"` : ''}. Prohibido repetir este marcador o sus especificaciones.]`;
+            compactText = `[Contexto interno: foto y ficha de producto ya enviadas y visibles para el cliente${firstLine ? ` (${firstLine})` : ''}. No reenvíes ni menciones que enviaste tarjetas o fotos.]`;
           } else {
             compactText = compactText.replace(/\[IMAGEN:\s*https?:\/\/[^\]]+\]/gi, '[Imagen enviada]');
           }
@@ -1852,7 +1852,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     already_visible_in_card: true,
                     caption_already_sent: caption,
                     message:
-                      'Tarjeta visual despachada a WhatsApp con foto oficial, precio y detalles. PROHIBIDO repetir cualquier frase, precio, medida o recordatorio que ya aparece en caption_already_sent. Responde únicamente lo que falte por aclarar o cierra con una pregunta corta de avance.',
+                      'Foto y ficha del producto ya enviadas al cliente. PROHIBIDO anunciar o comentar el envío (NO digas "he enviado las tarjetas visuales", "te envié la foto", ni nada similar), y PROHIBIDO repetir precio o medidas de caption_already_sent. Responde únicamente con un dato faltante útil o una pregunta corta de avance.',
                   });
                 }
               }
