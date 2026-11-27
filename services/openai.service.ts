@@ -847,7 +847,8 @@ export function buildDynamicContextBlock(params: {
     groupedGallery.size > 0
       ? `\nGalería de imágenes disponibles para usar con send_product_card:\n${Array.from(groupedGallery.entries())
           .map(([prodName, data]) => {
-            const priceStr = data.price ? ` (${formatGalleryPrice(data.price)})` : '';
+            const allowPriceInPrompt = !effectiveWorkflow || effectiveWorkflow.canDisclosePrices;
+            const priceStr = allowPriceInPrompt && data.price ? ` (${formatGalleryPrice(data.price)})` : '';
             const statusStr = data.isAvailable === false ? ' · [ESTADO: AGOTADO / NO DISPONIBLE]' : ' · [ESTADO: DISPONIBLE]';
             const descStr = data.description ? ` · [Detalles: ${data.description}]` : '';
             const kwStr = data.keywords.length > 0 ? ` · [Keywords: ${data.keywords.slice(0, 8).join(', ')}]` : '';
