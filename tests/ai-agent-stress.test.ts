@@ -176,14 +176,14 @@ const dedupedCaptionText = stripRedundantCatalogListAfterCards(
 );
 assert.equal(dedupedCaptionText, '¿Para entrega en qué ciudad sería?');
 
-// 11b. Poda de frases meta-referenciales ("He enviado las tarjetas visuales...")
+// 11b. Poda de frases meta-referenciales y prosa redundante: solo queda la pregunta de avance
 const strippedMetaCards = stripRedundantCatalogListAfterCards(
   '(Fabricada en MDF de 12 milímetros).\nHe enviado las tarjetas visuales de la cocina pequeña y la mediana con sus detalles. ¿Te gustaría saber más sobre algún modelo en particular o prefieres apartar uno?',
   { stripCardSpecs: true }
 );
 assert.equal(
   strippedMetaCards,
-  '(Fabricada en MDF de 12 milímetros). ¿Te gustaría saber más sobre algún modelo en particular o prefieres apartar uno?'
+  '¿Te gustaría saber más sobre algún modelo en particular o prefieres apartar uno?'
 );
 
 // 12. Memoria de Plan Separe (sin $) y solicitud de datos

@@ -1852,7 +1852,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                     already_visible_in_card: true,
                     caption_already_sent: caption,
                     message:
-                      'Foto y ficha del producto ya enviadas al cliente. PROHIBIDO anunciar o comentar el envío (NO digas "he enviado las tarjetas visuales", "te envié la foto", ni nada similar), y PROHIBIDO repetir precio o medidas de caption_already_sent. Responde únicamente con un dato faltante útil o una pregunta corta de avance.',
+                      'Foto y ficha del producto ya enviadas al cliente (contexto interno). PROHIBIDO anunciar o comentar el envío y PROHIBIDO agregar descripciones, precios o medidas. Responde ÚNICAMENTE con una pregunta corta de avance (ej. "¿Te gustaría apartar este modelo o tienes alguna duda?").',
                   });
                 }
               }

@@ -536,29 +536,15 @@ export function stripRedundantCatalogListAfterCards(
     .replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF\s]+(?=[A-ZÁÉÍÓÚÑ¿¡])/u, '')
     .trim();
 
-  // Cuando se acaba de despachar una tarjeta visual en este mismo turno, podar oraciones en prosa
-  // que repiten el precio o las medidas ya visibles en la tarjeta (sin tocar abonos, envíos ni personalización).
+  // Cuando se acaba de despachar una tarjeta visual en este mismo turno, dejar únicamente la pregunta de avance
+  // (el cliente ya está viendo la foto y ficha completa; el contexto de envío es 100% interno).
   if (options?.stripCardSpecs && result) {
-    const paragraphs = result.split(/\n{2,}/);
-    const cleanedParagraphs = paragraphs
-      .map((para) => {
-        const sentences = para.split(/(?<=[.?!])\s+/);
-        const kept = sentences.filter((sentence) => {
-          const s = sentence.trim();
-          if (!s) return false;
-          // Nunca eliminar información de abono/separe o envío que no viene en la tarjeta
-          if (/\b(abono|separe|anticipo|env[ií]o|flete|domicilio|contraentrega)\b/i.test(s)) {
-            return true;
-          }
-          const repeatsPriceOrMeasure =
-            (/\$\s*\d+[\d.,]*/.test(s) && /\b(precio|valor|cuesta|vale|mide|medidas?)\b/i.test(s)) ||
-            (/\b\d+\s*(?:cm|mm|m)\b/i.test(s) && /\b(alto|ancho|profundidad|largo|mide|medidas?)\b/i.test(s));
-          return !repeatsPriceOrMeasure;
-        });
-        return kept.join(' ').trim();
-      })
+    const sentences = result
+      .split(/(?<=[.?!])\s+/)
+      .map((s) => s.trim())
       .filter(Boolean);
-    result = cleanedParagraphs.join('\n\n').trim();
+    const questions = sentences.filter((s) => s.includes('?'));
+    result = questions.length > 0 ? questions.join(' ').trim() : '';
   }
 
   const fallbackQuestion = options?.customFallbackQuestion || '¿Cuál de estas opciones se adapta mejor a lo que buscas?';
