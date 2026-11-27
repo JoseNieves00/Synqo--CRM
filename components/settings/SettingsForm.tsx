@@ -212,7 +212,7 @@ export function SettingsForm({
   isSuperAdmin = false,
 }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'catalog' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1153,6 +1153,19 @@ export function SettingsForm({
 
         <button
           type="button"
+          onClick={() => setActiveTab('catalog')}
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+            activeTab === 'catalog'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-500" />
+          <span>Catálogo</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('gallery')}
           className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'gallery'
@@ -1239,7 +1252,22 @@ export function SettingsForm({
         )}
       </div>
 
-      {activeTab === 'gallery' ? (
+      {activeTab === 'catalog' ? (
+        <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-4 sm:p-6 shadow-2xs">
+          <StructuredPromptWizard
+            initialPrompt={systemPrompt}
+            initialStructuredData={structuredPromptData}
+            companyName={initialData.orgName || 'Mi Empresa'}
+            externalPromptText={assistantSyncState.promptText}
+            externalSyncNonce={assistantSyncState.nonce}
+            highlightedSection={assistantSyncState.highlightedSection}
+            onPromptCompiled={(compiledXml, newStructuredData) => {
+              setSystemPrompt(compiledXml);
+              setStructuredPromptData(newStructuredData);
+            }}
+          />
+        </div>
+      ) : activeTab === 'gallery' ? (
         <AiGalleryTab />
       ) : activeTab === 'follow_ups' ? (
         <FollowUpSequencesSettings
