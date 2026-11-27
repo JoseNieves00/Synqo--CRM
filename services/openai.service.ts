@@ -1584,7 +1584,19 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       });
 
       // 3. Bucle multi-ronda de inferencia + herramientas (hasta AI_MAX_TOOL_ROUNDS)
-      const activeTools = getAvailableTools(enabledModules);
+      const activeTools = getAvailableTools(enabledModules).filter((t) => {
+        const fnName = t.type === 'function' ? t.function?.name : '';
+        if (!effectiveWorkflow.canCreateOrders && (fnName === 'create_order' || fnName === 'update_order')) {
+          return false;
+        }
+        if (
+          !effectiveWorkflow.canBookAppointments &&
+          (fnName === 'book_native_appointment' || fnName === 'reschedule_native_appointment')
+        ) {
+          return false;
+        }
+        return true;
+      });
       // Flujos de agenda nativa (disponibilidad → reservar → confirmar) requieren más rondas
       const calendarToolsActive = activeTools.some(
         (t: any) => typeof t?.function?.name === 'string' && t.function.name.includes('_native_')

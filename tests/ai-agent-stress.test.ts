@@ -359,4 +359,20 @@ assert.ok(
   'Con anuncio adjunto debe extraer el producto del anuncio sin volver a preguntar qué busca'
 );
 
-console.log('✅ ai-agent-stress.test.ts: 27/27 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');
+// 28. Filippo Kids (qualifier_handoff) en Horario Laboral: sin precios, sin create_order, releva al calificar
+const { WORKFLOW_PRESETS, resolveEffectiveWorkflowState } = require('../lib/types/workflow');
+const filippoDay = resolveEffectiveWorkflowState(WORKFLOW_PRESETS.qualifier_handoff.policy, true);
+assert.equal(filippoDay.role, 'qualify_and_handoff');
+assert.equal(filippoDay.canDisclosePrices, false);
+assert.equal(filippoDay.canCreateOrders, false);
+assert.equal(filippoDay.shouldHandoffOnQualified, true);
+assert.equal(filippoDay.shouldHandoffOnCampaignReply, true);
+
+// 29. Filippo Kids (qualifier_handoff) Fuera de Horario: sí da precios, no cierra orden, deja pendiente al asesor
+const filippoNight = resolveEffectiveWorkflowState(WORKFLOW_PRESETS.qualifier_handoff.policy, false);
+assert.equal(filippoNight.role, 'assist_only');
+assert.equal(filippoNight.canDisclosePrices, true);
+assert.equal(filippoNight.canCreateOrders, false);
+assert.equal(filippoNight.shouldHandoffOnQualified, false);
+
+console.log('✅ ai-agent-stress.test.ts: 29/29 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y Filippo Kids pasaron');
