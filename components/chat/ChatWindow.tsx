@@ -7,6 +7,7 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { ChatHeader } from './ChatHeader';
+import { CreateOrderModal } from './CreateOrderModal';
 const ContactPanel = dynamic(
   () => import('./ContactPanel').then((m) => m.ContactPanel),
   { ssr: false }
@@ -173,6 +174,7 @@ export const ChatWindow = React.memo(function ChatWindow({
 
   // Estados de Recordatorio Comercial
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
   const [isAiSummaryModalOpen, setIsAiSummaryModalOpen] = useState(false);
   const [activeReminder, setActiveReminder] = useState<ActiveReminderData | null>(
     contact.custom_fields?.active_reminder || null
@@ -1275,6 +1277,7 @@ export const ChatWindow = React.memo(function ChatWindow({
           onCloseChat={() => setIsEndChatModalOpen(true)}
           onReopenChat={handleReopenChat}
           onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+          onOpenCreateOrder={() => setIsCreateOrderModalOpen(true)}
           onOpenSendTemplate={() => setIsTemplatesModalOpen(true)}
           onDeleteChat={() => setShowDeleteModal(true)}
           onBack={onBack}
@@ -1565,14 +1568,14 @@ export const ChatWindow = React.memo(function ChatWindow({
         </div>
       )}
 
-      {/* Banner de Atención Pendiente */}
-      {isWaitingForHuman && (
-        <div className="mx-4 mt-2.5 p-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3">
+      {/* Banner de Atención Pendiente (solo cuando la IA sigue activa pero lleva >3 min sin responder; en manual se muestra abajo) */}
+      {isWaitingForHuman && contact.is_ai_active && (
+        <div className="mx-4 mt-2 p-2 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-lg text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
             <div>
               <span className="font-semibold text-rose-700 dark:text-rose-300">Atención requerida:</span>{' '}
-              <span className="text-slate-600 dark:text-slate-300">El cliente está esperando respuesta de un asesor.</span>
+              <span className="text-slate-600 dark:text-slate-300">El cliente está esperando respuesta.</span>
             </div>
           </div>
         </div>
@@ -1688,50 +1691,61 @@ export const ChatWindow = React.memo(function ChatWindow({
 
           {/* Banner de Estado de la IA / Sugerencia de Reactivación antes del Input */}
           {contact.is_ai_active && !isReadOnly ? (
-            <div className="px-4 py-1.5 bg-slate-100 dark:bg-[#0E121B] border-t border-slate-200 dark:border-[#1E2433] flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
-              <Bot className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] flex-shrink-0" />
-              <span>
-                <strong>IA Activa:</strong> La IA está respondiendo automáticamente. Al enviar un mensaje tomarás el control manual.
-              </span>
+            <div className="px-4 py-1.5 bg-slate-100 dark:bg-[#0E121B] border-t border-slate-200 dark:border-[#1E2433] flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+              <div className="flex items-center gap-2 min-w-0">
+                <Bot className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] flex-shrink-0" />
+                <span className="truncate">
+                  <strong>IA Activa:</strong> Respondiendo automáticamente. Al escribir tomarás control manual.
+                </span>
+              </div>
+              {isWaitingForResponse && !isReactivationEligible && (
+                <button
+                  type="button"
+                  onClick={handleApplyApologyMessage}
+                  className="px-2 py-0.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 cursor-pointer shrink-0 transition"
+                >
+                  <Zap className="w-3 h-3" />
+                  <span>Disculpar demora</span>
+                </button>
+              )}
             </div>
           ) : !isReadOnly ? (
-            <div className="px-4 py-2 bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-blue-50/90 dark:from-[#0052FF]/10 dark:via-[#1A1F2C] dark:to-[#0052FF]/10 border-t border-blue-200 dark:border-blue-500/20 flex items-center justify-between gap-3 text-xs">
+            <div className="px-4 py-1.5 bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-blue-50/90 dark:from-[#0052FF]/10 dark:via-[#1A1F2C] dark:to-[#0052FF]/10 border-t border-blue-200 dark:border-blue-500/20 flex items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 min-w-0">
-                <Sparkles className="w-4 h-4 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
+                <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] shrink-0" />
                 <span className="truncate">
-                  <strong className="text-slate-900 dark:text-white">Asesor en control manual:</strong> ¿Duda del cliente resuelta? Puedes reactivar la IA para que continúe la conversación.
+                  <strong className="text-slate-900 dark:text-white">Control manual</strong>
+                  {isWaitingForResponse && !isReactivationEligible ? (
+                    <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[10px] font-semibold">
+                      · Cliente esperando
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400"> · ¿Listo? Puedes reactivar la IA.</span>
+                  )}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => handleToggleAi(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#0052FF] hover:bg-[#0043D4] text-white rounded-lg text-xs font-semibold shrink-0 transition shadow-xs cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Reactivar IA</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isWaitingForResponse && !isReactivationEligible && (
+                  <button
+                    type="button"
+                    onClick={handleApplyApologyMessage}
+                    className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shrink-0 shadow-xs transition"
+                  >
+                    <Zap className="w-3 h-3" />
+                    <span>Disculpar demora</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleToggleAi(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#0052FF] hover:bg-[#0043D4] text-white rounded-lg text-xs font-semibold shrink-0 transition shadow-xs cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Reactivar IA</span>
+                </button>
+              </div>
             </div>
           ) : null}
-
-          {/* Banner de Disculpa Rápida si el cliente está esperando respuesta */}
-          {isWaitingForResponse && !isReadOnly && !isReactivationEligible && (
-            <div className="mx-4 my-1.5 p-2 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 flex items-center justify-between gap-2 text-xs shadow-2xs animate-in fade-in">
-              <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 min-w-0">
-                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span className="truncate">
-                  <strong>Cliente esperando:</strong> Puedes insertar una disculpa y tomar el chat con 1 clic.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleApplyApologyMessage}
-                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shrink-0 shadow-xs transition"
-              >
-                <Zap className="w-3 h-3" />
-                <span>Disculpar demora</span>
-              </button>
-            </div>
-          )}
 
           {/* Banner de Reactivación Inteligente con IA según Interés del Lead */}
           {isReactivationEligible && (
@@ -1779,6 +1793,7 @@ export const ChatWindow = React.memo(function ChatWindow({
             teamMembers={teamMembers}
             onContactUpdate={onContactUpdate}
             onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+            onOpenCreateOrder={() => setIsCreateOrderModalOpen(true)}
             onClosePanel={() => setIsRightPanelOpen(false)}
           />
         </div>
@@ -1799,6 +1814,7 @@ export const ChatWindow = React.memo(function ChatWindow({
               teamMembers={teamMembers}
               onContactUpdate={onContactUpdate}
               onOpenScheduleReminder={() => setIsReminderModalOpen(true)}
+              onOpenCreateOrder={() => setIsCreateOrderModalOpen(true)}
               onClosePanel={() => setIsRightPanelOpen(false)}
               isMobileDrawer={true}
             />
@@ -1834,6 +1850,17 @@ export const ChatWindow = React.memo(function ChatWindow({
               ai_summary: newSummary,
             },
           });
+        }}
+      />
+
+      {/* Modal de Registrar Pedido desde el Chat */}
+      <CreateOrderModal
+        isOpen={isCreateOrderModalOpen}
+        mounted={mounted}
+        contact={contact as any}
+        onClose={() => setIsCreateOrderModalOpen(false)}
+        onSuccess={() => {
+          onContactUpdate?.({ updated_at: new Date().toISOString() });
         }}
       />
 

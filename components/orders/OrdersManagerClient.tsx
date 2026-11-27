@@ -27,6 +27,8 @@ import {
   Check,
   AlertTriangle,
   StickyNote,
+  Download,
+  PackageCheck,
 } from 'lucide-react';
 import {
   listOrdersAction,
@@ -100,7 +102,16 @@ function isContraentregaOrder(order: OrderListItem): boolean {
   return /contra\s*entrega/i.test(String(order.payment_method || ''));
 }
 
+const DEFAULT_SHIPPING_CARRIERS = [
+  'Interrapidísimo',
+  'Servientrega',
+  'Coordinadora',
+  'Envía',
+  'Mensajería Local',
+];
+
 export function OrdersManagerClient({ initialOrders, initialStats, shippingCarriers = [] }: Props) {
+  const effectiveCarriers = shippingCarriers.length > 0 ? shippingCarriers : DEFAULT_SHIPPING_CARRIERS;
   const [orders, setOrders] = useState<OrderListItem[]>(initialOrders);
   const [stats, setStats] = useState(initialStats);
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
@@ -115,6 +126,7 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
   const [activeOrder, setActiveOrder] = useState<OrderListItem | null>(null);
   const [modalTab, setModalTab] = useState<ModalTab>('summary');
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  const [dragOverOrderId, setDragOverOrderId] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState({
     customer_name: '',
@@ -221,7 +233,7 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
       deposit_paid: String(order.deposit_paid || 0),
       balance_due: String(order.balance_due || Math.max(0, order.total - (order.deposit_paid || 0))),
     });
-    setGuideCarrier(order.carrier || shippingCarriers[0] || '');
+    setGuideCarrier(order.carrier || effectiveCarriers[0] || '');
     setGuideTracking(order.tracking_number || '');
     setGuideMarkShipped(true);
     setGuideNotifyClient(true);
@@ -388,6 +400,96 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
     }
   };
 
+  const handleDropGuideOnCard = (e: React.DragEvent, order: OrderListItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverOrderId(null);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      showToast('Sube una imagen o PDF de la guía.');
+      return;
+    }
+    openOrderModal(order, 'guide');
+    const reader = new FileReader();
+    reader.onload = () => {
+      setGuideFile({
+        base64: String(reader.result || ''),
+        name: file.name,
+        mime: file.type || 'image/jpeg',
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleExportCsv = () => {
+    if (filteredOrders.length === 0) {
+      showToast('No hay pedidos para exportar con el filtro actual.');
+      return;
+    }
+    const escapeCsv = (val: unknown) => {
+      const s = String(val ?? '').replace(/\r?\n/g, ' ');
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const headers = [
+      'Fecha',
+      'Cliente',
+      'Teléfono',
+      'Ciudad',
+      'Dirección',
+      'Productos',
+      'Medio de Pago',
+      'Modalidad',
+      'Subtotal',
+      'Flete',
+      'Total',
+      'Abono',
+      'Saldo Pendiente',
+      'Estado',
+      'Transportadora',
+      'Número de Guía',
+      'Observaciones',
+    ];
+    const rows = filteredOrders.map((o) => {
+      const modality = o.is_separe ? 'Plan Separe' : isContraentregaOrder(o) ? 'Contraentrega' : 'Anticipado';
+      const products = o.items.map((it) => `${it.quantity}x ${it.product_name}`).join('; ');
+      const statusLabel = STATUS_CONFIG[o.status]?.label || o.status;
+      return [
+        new Date(o.created_at).toLocaleString('es-CO'),
+        o.customer_name,
+        o.customer_phone || '',
+        o.city || '',
+        o.address || '',
+        products,
+        o.payment_method || '',
+        modality,
+        o.subtotal || o.total,
+        o.shipping_cost || 0,
+        o.total,
+        o.deposit_paid || 0,
+        o.is_separe ? o.balance_due || Math.max(0, o.total - (o.deposit_paid || 0)) : 0,
+        statusLabel,
+        o.carrier || '',
+        o.tracking_number || '',
+        o.notes || '',
+      ]
+        .map(escapeCsv)
+        .join(',');
+    });
+    const csvContent = '\uFEFF' + [headers.map(escapeCsv).join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateTag = new Date().toISOString().slice(0, 10);
+    link.download = `pedidos_${selectedStatus}_${dateTag}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(`Exportados ${filteredOrders.length} pedidos a CSV.`);
+  };
+
   const filteredOrders = orders.filter((order) => {
     if (selectedStatus !== 'all' && order.status !== selectedStatus) return false;
     if (modalityFilter === 'cod' && !isContraentregaOrder(order)) return false;
@@ -418,7 +520,7 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] px-3 py-1.5 rounded-xl cursor-pointer">
             <input
               type="checkbox"
@@ -429,6 +531,26 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
             <Send className="w-3.5 h-3.5 text-[#0052FF]" />
             <span>Avisar al cliente al cambiar estado</span>
           </label>
+          <button
+            type="button"
+            onClick={() => setSelectedStatus((cur) => (cur === 'confirmed' ? 'all' : 'confirmed'))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition cursor-pointer ${
+              selectedStatus === 'confirmed'
+                ? 'bg-[#0052FF] text-white border-[#0052FF]'
+                : 'bg-white dark:bg-[#131722] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#232A3B] hover:bg-slate-50 dark:hover:bg-[#1A1F2C]'
+            }`}
+          >
+            <PackageCheck className="w-3.5 h-3.5" />
+            <span>Listos para empacar ({stats.confirmedToShip})</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#131722] hover:bg-slate-50 dark:hover:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Exportar CSV ({filteredOrders.length})</span>
+          </button>
           <Link
             href="/inbox"
             className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#1A1F2C] dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-2 transition"
@@ -454,23 +576,35 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
           </span>
         </div>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] shadow-xs">
+        <button
+          type="button"
+          onClick={() => setSelectedStatus('confirmed')}
+          className="text-left p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-[#0052FF]/50 shadow-xs transition cursor-pointer"
+        >
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
             Por Despachar
           </span>
           <div className="text-xl font-extrabold text-[#0052FF] dark:text-[#00D2FF]">{stats.confirmedToShip}</div>
           <span className="text-[10px] text-slate-400 font-medium mt-1 block">Listos para guía o mensajería</span>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] shadow-xs">
+        <button
+          type="button"
+          onClick={() => setSelectedStatus('shipped')}
+          className="text-left p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-indigo-400/50 shadow-xs transition cursor-pointer"
+        >
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
             En Camino
           </span>
           <div className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">{stats.shipped || 0}</div>
           <span className="text-[10px] text-slate-400 font-medium mt-1 block">Con transportadora asignada</span>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] shadow-xs">
+        <button
+          type="button"
+          onClick={() => setSelectedStatus('pending')}
+          className="text-left p-4 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-amber-400/50 shadow-xs transition cursor-pointer"
+        >
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
             Por Validar Pago
           </span>
@@ -478,7 +612,7 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
           <span className="text-[10px] text-slate-400 font-medium mt-1 block">
             Total histórico: {stats.totalOrders} pedidos
           </span>
-        </div>
+        </button>
       </div>
 
       {/* Filtros y Buscador */}
@@ -600,7 +734,19 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
             return (
               <div
                 key={order.id}
-                className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] hover:border-slate-300 dark:hover:border-[#2F374A] transition shadow-xs space-y-4"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (dragOverOrderId !== order.id) setDragOverOrderId(order.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOverOrderId === order.id) setDragOverOrderId(null);
+                }}
+                onDrop={(e) => handleDropGuideOnCard(e, order)}
+                className={`p-4 sm:p-5 rounded-2xl border bg-white dark:bg-[#131722] transition shadow-xs space-y-4 ${
+                  dragOverOrderId === order.id
+                    ? 'border-[#0052FF] ring-2 ring-[#0052FF]/20 bg-indigo-50/30 dark:bg-indigo-950/20'
+                    : 'border-slate-200 dark:border-[#232A3B] hover:border-slate-300 dark:hover:border-[#2F374A]'
+                }`}
               >
                 {/* Fila Superior */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1248,25 +1394,28 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
                 {modalTab === 'guide' && (
                   <form onSubmit={handleSaveGuide} className="space-y-3.5">
                     <div>
-                      <label className="font-semibold block mb-1">Transportadora (desde Políticas de Envío)</label>
-                      {shippingCarriers.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-2">
-                          {shippingCarriers.map((c) => (
-                            <button
-                              key={c}
-                              type="button"
-                              onClick={() => setGuideCarrier(c)}
-                              className={`px-2.5 py-1 rounded-lg font-semibold cursor-pointer ${
-                                guideCarrier === c
-                                  ? 'bg-[#0052FF] text-white'
-                                  : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300'
-                              }`}
-                            >
-                              {c}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      <label className="font-semibold block mb-1">
+                        Transportadora{' '}
+                        <span className="text-slate-400 font-normal">
+                          ({shippingCarriers.length > 0 ? 'desde Políticas de Envío' : 'sugeridas'})
+                        </span>
+                      </label>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {effectiveCarriers.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setGuideCarrier(c)}
+                            className={`px-2.5 py-1 rounded-lg font-semibold cursor-pointer ${
+                              guideCarrier === c
+                                ? 'bg-[#0052FF] text-white'
+                                : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300'
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
                       <input
                         required
                         value={guideCarrier}

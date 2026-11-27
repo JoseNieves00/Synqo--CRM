@@ -474,9 +474,17 @@ export async function createManualOrderAction(input: {
   total: number;
   status?: OrderStatus;
   paymentMethod?: string;
+  customerName?: string;
+  customerPhone?: string;
   address?: string;
   city?: string;
   notes?: string;
+  subtotal?: number;
+  shippingCost?: number;
+  isSepare?: boolean;
+  depositPaid?: number;
+  balanceDue?: number;
+  notifyCustomer?: boolean;
 }) {
   const { user, profile } = await requireOrgMember();
   const orgId = profile.organization_id;
@@ -500,27 +508,37 @@ export async function createManualOrderAction(input: {
   const total = Math.max(0, Number(input.total) || 0);
   const status: OrderStatus = ORDER_STATUSES.includes(input.status as OrderStatus)
     ? (input.status as OrderStatus)
+    : input.isSepare
+    ? 'pending'
     : 'confirmed';
+
+  const resolvedName = input.customerName?.trim() || contact.name || null;
+  const resolvedPhone = input.customerPhone?.trim() || contact.phone || null;
 
   const recorded = await OrderService.recordOrder({
     organizationId: orgId,
     contactId: contact.id,
     items: cleanItems,
     total,
+    subtotal: input.subtotal !== undefined ? Math.max(0, Number(input.subtotal) || 0) : undefined,
+    shippingCost: input.shippingCost !== undefined ? Math.max(0, Number(input.shippingCost) || 0) : undefined,
     status,
     paymentMethod: input.paymentMethod?.trim() || null,
-    customerName: contact.name || null,
-    customerPhone: contact.phone || null,
+    customerName: resolvedName,
+    customerPhone: resolvedPhone,
     address: input.address?.trim() || null,
     city: input.city?.trim() || null,
     notes: input.notes?.trim() || null,
     source: 'human',
     createdBy: user.id,
+    isSepare: Boolean(input.isSepare),
+    depositPaid: input.isSepare ? Math.max(0, Number(input.depositPaid) || 0) : 0,
+    balanceDue: input.isSepare ? Math.max(0, Number(input.balanceDue) || 0) : 0,
   });
 
   if (!recorded) throw new Error('No se pudo guardar el pedido.');
 
-  // Actualizar valor comercial del contacto si el pedido está confirmado/pagado/entregado
+  // Actualizar valor comercial y datos de entrega del contacto
   if (status !== 'cancelled') {
     const { data: activeOrders } = await (supabaseAdmin.from('orders') as any)
       .select('total')
@@ -533,12 +551,15 @@ export async function createManualOrderAction(input: {
       ...(contact.custom_fields || {}),
       lead_temperature: 'hot',
       deal_value: ltv || total,
+      ...(input.city?.trim() ? { ciudad: input.city.trim() } : {}),
+      ...(input.address?.trim() ? { direccion: input.address.trim() } : {}),
     };
     delete nextCf.has_pending_receipt;
     delete nextCf.pending_order_draft;
     delete nextCf.unattended_handoff;
     delete nextCf.handoff_reason;
     const updatePayload: Record<string, any> = {
+      ...(input.customerName?.trim() && !contact.name ? { name: input.customerName.trim() } : {}),
       deal_value: ltv || total,
       custom_fields: nextCf,
       updated_at: new Date().toISOString(),
@@ -560,11 +581,27 @@ export async function createManualOrderAction(input: {
     await LeadScoreService.recompute(contact.id);
   }
 
+  let customerNotified = false;
+  let notifyWarning: string | undefined;
+  if (input.notifyCustomer) {
+    const firstName = (resolvedName || 'Cliente').split(' ')[0];
+    const itemsSummary = cleanItems.map((it) => `• ${it.quantity}x ${it.product_name}`).join('\n');
+    const body = `Hola ${firstName}, ¡tu pedido quedó registrado! 📦\n${itemsSummary}\n*Total:* $${total.toLocaleString('es-CO')} COP (${input.paymentMethod?.trim() || 'Contraentrega'})${input.city ? `\n*Ciudad:* ${input.city}` : ''}${input.address ? `\n*Dirección:* ${input.address}` : ''}\n\nTe avisaremos por aquí apenas salga a despacho.`;
+    const res = await notifyCustomerOrderUpdate({
+      orgId,
+      contactId: contact.id,
+      messageBody: body,
+    });
+    customerNotified = res.sent;
+    if (!res.sent) notifyWarning = res.reason;
+  }
+
   revalidatePath('/clientes');
   revalidatePath('/dashboard');
   revalidatePath('/pipeline');
   revalidatePath('/inbox');
-  return { success: true, orderId: recorded.id };
+  revalidatePath('/pedidos');
+  return { success: true, orderId: recorded.id, customerNotified, notifyWarning };
 }
 
 async function recalculateContactOrderSync(orgId: string, contactId: string) {

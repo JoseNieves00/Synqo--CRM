@@ -29,6 +29,7 @@ import {
   Check,
   Phone,
   ShieldAlert,
+  ShoppingBag,
 } from 'lucide-react';
 import { AiToggleSwitch } from './AiToggleSwitch';
 import { toggleContactAiExempt } from '@/app/actions/chat';
@@ -76,6 +77,7 @@ interface ChatHeaderProps {
   onCloseChat: () => void;
   onReopenChat?: () => void;
   onOpenScheduleReminder: () => void;
+  onOpenCreateOrder?: () => void;
   onOpenSendTemplate?: () => void;
   onDeleteChat?: () => void;
   onBack?: () => void;
@@ -101,6 +103,7 @@ export function ChatHeader({
   onCloseChat,
   onReopenChat,
   onOpenScheduleReminder,
+  onOpenCreateOrder,
   onOpenSendTemplate,
   onDeleteChat,
   onBack,
@@ -416,6 +419,17 @@ export function ChatHeader({
 
         {/* Toolbar Integrada de Iconos (h-8 w-8) */}
         <div className="flex items-center gap-1">
+          {onOpenCreateOrder && (
+            <button
+              type="button"
+              onClick={onOpenCreateOrder}
+              className="h-8 px-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              title="Registrar pedido para este contacto"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">+ Pedido</span>
+            </button>
+          )}
           {/* Botón Buscar en la Conversación */}
           {onToggleSearch && (
             <button

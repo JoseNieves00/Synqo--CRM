@@ -73,6 +73,7 @@ interface ContactPanelProps {
   teamMembers?: Array<{ id: string; full_name: string }>;
   onContactUpdate?: (fields: Partial<any>) => void;
   onOpenScheduleReminder?: () => void;
+  onOpenCreateOrder?: () => void;
   onClosePanel?: () => void;
   isMobileDrawer?: boolean;
 }
@@ -82,6 +83,7 @@ export function ContactPanel({
   teamMembers = [],
   onContactUpdate,
   onOpenScheduleReminder,
+  onOpenCreateOrder,
   onClosePanel,
   isMobileDrawer = false,
 }: ContactPanelProps) {
@@ -853,6 +855,25 @@ export function ContactPanel({
               <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400 truncate mt-0.5">
                 {formatCop(crmMini?.ltv ?? 0)}
               </div>
+              {onOpenCreateOrder && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenCreateOrder();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      onOpenCreateOrder();
+                    }
+                  }}
+                  className="mt-1 inline-block text-[10px] font-bold text-[#0052FF] hover:underline"
+                >
+                  + Registrar Pedido
+                </span>
+              )}
             </button>
             <button
               type="button"
