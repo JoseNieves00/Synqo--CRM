@@ -170,6 +170,7 @@ interface SettingsFormProps {
     physicalAddress?: string;
     virtualMeetingUrl?: string;
     workflowPolicy?: Partial<import('@/lib/types/workflow').WorkflowPolicy> | null;
+    businessHours?: { enabled?: boolean; start?: string; end?: string; days?: number[] } | null;
     instagramAccountId?: string;
     hasInstagramToken?: boolean;
     whatsappProvider?: 'meta' | 'evolution';
@@ -229,6 +230,9 @@ export function SettingsForm({
   const [activeTab, setActiveTab] = useState<'integrations' | 'workflow' | 'catalog' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
   const [workflowPolicyState, setWorkflowPolicyState] = useState<Partial<import('@/lib/types/workflow').WorkflowPolicy> | null>(
     () => (initialData as any).workflowPolicy || null
+  );
+  const [businessHoursState, setBusinessHoursState] = useState<any>(
+    () => (initialData as any).businessHours || null
   );
 
   useEffect(() => {
@@ -1285,9 +1289,13 @@ export function SettingsForm({
       {activeTab === 'workflow' ? (
         <WorkflowPolicySettings
           initialPolicy={workflowPolicyState}
+          initialBusinessHours={businessHoursState}
           supportsOrders={businessCompat.supportsShipping}
           supportsAppointments={businessCompat.supportsCalendar}
-          onPolicySaved={(saved) => setWorkflowPolicyState(saved)}
+          onPolicySaved={(saved, savedHours) => {
+            setWorkflowPolicyState(saved);
+            if (savedHours) setBusinessHoursState(savedHours);
+          }}
         />
       ) : activeTab === 'catalog' ? (
         <CatalogCrudTab

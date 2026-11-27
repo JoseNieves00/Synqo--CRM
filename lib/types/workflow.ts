@@ -14,6 +14,8 @@ export interface WorkflowPolicy {
   allowAiOrders: boolean;
   allowAiAppointments: boolean;
   responseStyle: ResponsePertinenceStyle;
+  /** Tope máximo de caracteres por respuesta (0 = sin límite, sigue el prompt del negocio). */
+  maxReplyChars?: number;
 }
 
 export const DEFAULT_WORKFLOW_POLICY: WorkflowPolicy = {
@@ -27,6 +29,7 @@ export const DEFAULT_WORKFLOW_POLICY: WorkflowPolicy = {
   allowAiOrders: true,
   allowAiAppointments: true,
   responseStyle: 'consultive',
+  maxReplyChars: 450,
 };
 
 export const WORKFLOW_PRESETS: Record<
@@ -83,6 +86,7 @@ export interface EffectiveWorkflowState {
   shouldHandoffOnCampaignReply: boolean;
   requiredFields: RequiredLeadField[];
   responseStyle: ResponsePertinenceStyle;
+  maxReplyChars: number;
 }
 
 export function normalizeWorkflowPolicy(raw?: Partial<WorkflowPolicy> | null): WorkflowPolicy {
@@ -105,6 +109,8 @@ export function normalizeWorkflowPolicy(raw?: Partial<WorkflowPolicy> | null): W
         ? raw.allowAiAppointments
         : DEFAULT_WORKFLOW_POLICY.allowAiAppointments,
     responseStyle: raw.responseStyle || DEFAULT_WORKFLOW_POLICY.responseStyle,
+    maxReplyChars:
+      typeof raw.maxReplyChars === 'number' ? raw.maxReplyChars : DEFAULT_WORKFLOW_POLICY.maxReplyChars,
   };
 }
 
@@ -133,5 +139,6 @@ export function resolveEffectiveWorkflowState(
     shouldHandoffOnCampaignReply: isWithinBusinessHours && policy.handoffOnCampaignReply,
     requiredFields: policy.requiredFields,
     responseStyle: policy.responseStyle,
+    maxReplyChars: typeof policy.maxReplyChars === 'number' ? policy.maxReplyChars : 450,
   };
 }

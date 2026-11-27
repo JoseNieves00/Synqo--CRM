@@ -376,7 +376,10 @@ export async function getOrganizationMediaGallery(): Promise<GalleryPhotoItem[]>
   }
 }
 
-export async function saveWorkflowPolicy(policy: import('@/lib/types/workflow').WorkflowPolicy) {
+export async function saveWorkflowPolicy(
+  policy: import('@/lib/types/workflow').WorkflowPolicy,
+  businessHours?: { enabled: boolean; start: string; end: string; days: number[] }
+) {
   const { getCurrentUserAndOrg } = await import('@/app/actions/auth');
   const current = await getCurrentUserAndOrg();
   if (!current) throw new Error('No autorizado');
@@ -399,14 +402,20 @@ export async function saveWorkflowPolicy(policy: import('@/lib/types/workflow').
       ? org.appointment_settings
       : {};
 
+  const updatePayload: Record<string, any> = {
+    appointment_settings: {
+      ...currentSettings,
+      workflow_policy: policy,
+    },
+    updated_at: new Date().toISOString(),
+  };
+
+  if (businessHours) {
+    updatePayload.business_hours = businessHours;
+  }
+
   const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
-    .update({
-      appointment_settings: {
-        ...currentSettings,
-        workflow_policy: policy,
-      },
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', orgId);
 
   if (updateError) {

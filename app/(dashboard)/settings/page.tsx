@@ -110,6 +110,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         physicalAddress: (org?.appointment_settings as any)?.physical_address || '',
         virtualMeetingUrl: (org?.appointment_settings as any)?.virtual_meeting_url || '',
         workflowPolicy: (org?.appointment_settings as any)?.workflow_policy || null,
+        businessHours: (org as any)?.business_hours || null,
         instagramAccountId: org?.instagram_account_id || '',
         hasInstagramToken: Boolean(org?.instagram_access_token),
         whatsappProvider: (org as any)?.whatsapp_provider || 'meta',

@@ -12,12 +12,37 @@ import {
 } from '@/lib/types/workflow';
 import { saveWorkflowPolicy } from '@/app/actions/settings';
 
+interface BusinessHoursConfig {
+  enabled: boolean;
+  start: string;
+  end: string;
+  days: number[];
+}
+
 interface WorkflowPolicySettingsProps {
   initialPolicy?: Partial<WorkflowPolicy> | null;
+  initialBusinessHours?: Partial<BusinessHoursConfig> | null;
   supportsOrders?: boolean;
   supportsAppointments?: boolean;
-  onPolicySaved?: (saved: WorkflowPolicy) => void;
+  onPolicySaved?: (saved: WorkflowPolicy, savedHours?: BusinessHoursConfig) => void;
 }
+
+const DEFAULT_HOURS: BusinessHoursConfig = {
+  enabled: false,
+  start: '08:00',
+  end: '21:00',
+  days: [1, 2, 3, 4, 5, 6],
+};
+
+const WEEK_DAYS = [
+  { id: 1, label: 'Lun' },
+  { id: 2, label: 'Mar' },
+  { id: 3, label: 'Mié' },
+  { id: 4, label: 'Jue' },
+  { id: 5, label: 'Vie' },
+  { id: 6, label: 'Sáb' },
+  { id: 0, label: 'Dom' },
+];
 
 const REQUIRED_FIELD_OPTIONS: Array<{
   id: RequiredLeadField;
@@ -32,11 +57,18 @@ const REQUIRED_FIELD_OPTIONS: Array<{
 
 export function WorkflowPolicySettings({
   initialPolicy,
+  initialBusinessHours,
   supportsOrders = true,
   supportsAppointments = true,
   onPolicySaved,
 }: WorkflowPolicySettingsProps) {
   const [policy, setPolicy] = useState<WorkflowPolicy>(() => normalizeWorkflowPolicy(initialPolicy));
+  const [hours, setHours] = useState<BusinessHoursConfig>(() => ({
+    enabled: Boolean(initialBusinessHours?.enabled),
+    start: initialBusinessHours?.start || DEFAULT_HOURS.start,
+    end: initialBusinessHours?.end || DEFAULT_HOURS.end,
+    days: Array.isArray(initialBusinessHours?.days) ? initialBusinessHours.days : DEFAULT_HOURS.days,
+  }));
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -85,13 +117,20 @@ export function WorkflowPolicySettings({
     });
   };
 
+  const toggleDay = (dayId: number) => {
+    setHours((prev) => ({
+      ...prev,
+      days: prev.days.includes(dayId) ? prev.days.filter((d) => d !== dayId) : [...prev.days, dayId],
+    }));
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setFeedback(null);
     try {
-      await saveWorkflowPolicy(policy);
-      onPolicySaved?.(policy);
-      setFeedback({ type: 'success', text: 'Flujo de trabajo guardado. La IA aplicará estas reglas de inmediato.' });
+      await saveWorkflowPolicy(policy, hours);
+      onPolicySaved?.(policy, hours);
+      setFeedback({ type: 'success', text: 'Flujo de trabajo y horario guardados. La IA aplicará estas reglas de inmediato.' });
     } catch (err: any) {
       setFeedback({ type: 'error', text: err?.message || 'Error guardando el flujo de trabajo.' });
     } finally {
@@ -229,6 +268,64 @@ export function WorkflowPolicySettings({
               <option value="autonomous_close">Cierra ventas / citas sola 24/7</option>
             </select>
           </div>
+
+          <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] space-y-2.5">
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                Activar horario laboral automático
+              </span>
+              <input
+                type="checkbox"
+                checked={hours.enabled}
+                onChange={(e) => setHours((h) => ({ ...h, enabled: e.target.checked }))}
+                className="rounded border-slate-300 text-[#0052FF]"
+              />
+            </label>
+
+            {hours.enabled && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] text-slate-500 mb-0.5">Hora inicio</label>
+                    <input
+                      type="time"
+                      value={hours.start}
+                      onChange={(e) => setHours((h) => ({ ...h, start: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-500 mb-0.5">Hora fin</label>
+                    <input
+                      type="time"
+                      value={hours.end}
+                      onChange={(e) => setHours((h) => ({ ...h, end: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {WEEK_DAYS.map((d) => {
+                    const active = hours.days.includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => toggleDay(d.id)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                          active
+                            ? 'bg-[#0052FF] text-white'
+                            : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-4 space-y-3">
@@ -271,6 +368,28 @@ export function WorkflowPolicySettings({
             >
               <option value="strict">Estricto (solo responde lo preguntado, cero extras)</option>
               <option value="consultive">Consultivo (asesora y sugiere opciones)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
+              Extensión máxima de cada respuesta
+            </label>
+            <select
+              value={String(policy.maxReplyChars ?? 450)}
+              onChange={(e) =>
+                setPolicy((p) => ({
+                  ...p,
+                  presetId: 'custom',
+                  maxReplyChars: Number(e.target.value),
+                }))
+              }
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
+            >
+              <option value="250">Muy corta (hasta 250 caracteres)</option>
+              <option value="450">Estándar WhatsApp (hasta 450 caracteres)</option>
+              <option value="800">Amplia (hasta 800 caracteres)</option>
+              <option value="0">Sin límite fijo (según el prompt del negocio)</option>
             </select>
           </div>
         </div>

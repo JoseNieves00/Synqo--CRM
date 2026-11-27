@@ -966,11 +966,21 @@ Gancho Comercial Activo: ${caps.primaryHook}
 Regla Estricta de Modalidad: ${modalityStrictRule}
 </modelo_y_gancho_comercial>`;
 
+  const maxChars = effectiveWorkflow?.maxReplyChars;
+  const lengthRuleText =
+    maxChars === 0
+      ? 'Respeta la extensión natural definida en <instrucciones_del_negocio>.'
+      : `Mantén tus respuestas concisas (tope ${maxChars ?? 450} caracteres salvo al entregar cuentas de pago o resumen de pedido).`;
+
   const copilotBlock = `\n<copiloto_estrategico_de_ventas>
 Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
 Carril de Intención Activo: ${copilotPrescription.intentTrack || 'general'}
 Táctica Prescrita por el Copiloto: ${copilotPrescription.tacticName}
-Regla de Oro de Respuesta y Extensión: Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y haz una pregunta corta de avance. Mantén tus respuestas entre 160 y 360 caracteres (precisas y completas, sin quedarte demasiado corto ni abrumar con bloques largos; tope absoluto 450 caracteres salvo al entregar cuentas de pago o resumen de pedido).
+Regla de Oro de Respuesta y Extensión: ${
+    !effectiveWorkflow || effectiveWorkflow.canDisclosePrices
+      ? 'Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y haz una pregunta corta de avance. '
+      : ''
+  }${lengthRuleText}
 Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
 Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
 Prohibiciones Estrictas de este Turno:
@@ -978,9 +988,14 @@ ${copilotPrescription.prohibitedActions.map((a) => `- ${a}`).join('\n')}
 REGLA DE ORO DE FIJACIÓN AL PROMPT: Cada argumento, sede física, garantía, precio, descuento o método de despacho DEBE existir explícitamente en el prompt o catálogo de la empresa. Prohibido inventar datos o asumir sedes físicas/garantías no descritas.
 </copiloto_estrategico_de_ventas>`;
 
+  const isFirstAiTurn = !history.some((m) => m.sender_type === 'ai' || m.sender_type === 'agent');
   const workflowRuntimeBlock = effectiveWorkflow
     ? `\n<flujo_operativo_actual prioridad="MAXIMA">
-Franja horaria: ${effectiveWorkflow.isWithinBusinessHours ? 'DENTRO DE HORARIO LABORAL' : 'FUERA DE HORARIO LABORAL'}.
+Franja horaria: ${effectiveWorkflow.isWithinBusinessHours ? 'DENTRO DE HORARIO LABORAL' : 'FUERA DE HORARIO LABORAL'}.${
+        isFirstAiTurn
+          ? '\nPRIMER CONTACTO: Usa obligatoriamente el saludo inicial configurado en <instrucciones_del_negocio> (respetando su tono, marca y estructura) antes de pedir el dato faltante.'
+          : ''
+      }
 Rol activo: ${
         effectiveWorkflow.role === 'qualify_and_handoff'
           ? 'RECEPCIÓN Y RELEVO A ASESOR (captura datos clave y llama request_human_handoff para pasar al asesor).'
