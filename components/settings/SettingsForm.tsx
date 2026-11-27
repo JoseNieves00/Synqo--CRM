@@ -69,6 +69,11 @@ const StructuredPromptWizard = dynamic(() => import('./StructuredPromptWizard').
   ssr: false,
 });
 
+const CatalogCrudTab = dynamic(() => import('./CatalogCrudTab').then((m) => m.CatalogCrudTab), {
+  loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando catálogo de productos...</div>,
+  ssr: false,
+});
+
 const KnowledgeGapsList = dynamic(() => import('./KnowledgeGapsList').then((m) => m.KnowledgeGapsList), {
   loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando preguntas pendientes...</div>,
   ssr: false,
@@ -1253,7 +1258,14 @@ export function SettingsForm({
       </div>
 
       {activeTab === 'catalog' ? (
-        <AiGalleryTab mode="catalog" />
+        <CatalogCrudTab
+          onCatalogUpdated={(nextGallery) => {
+            setStructuredPromptData((prev: any) => ({
+              ...(prev && typeof prev === 'object' ? prev : {}),
+              gallery: nextGallery,
+            }));
+          }}
+        />
       ) : activeTab === 'gallery' ? (
         <AiGalleryTab mode="media" />
       ) : activeTab === 'follow_ups' ? (
