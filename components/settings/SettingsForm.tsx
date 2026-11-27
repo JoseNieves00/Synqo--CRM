@@ -1253,22 +1253,9 @@ export function SettingsForm({
       </div>
 
       {activeTab === 'catalog' ? (
-        <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-4 sm:p-6 shadow-2xs">
-          <StructuredPromptWizard
-            initialPrompt={systemPrompt}
-            initialStructuredData={structuredPromptData}
-            companyName={initialData.orgName || 'Mi Empresa'}
-            externalPromptText={assistantSyncState.promptText}
-            externalSyncNonce={assistantSyncState.nonce}
-            highlightedSection={assistantSyncState.highlightedSection}
-            onPromptCompiled={(compiledXml, newStructuredData) => {
-              setSystemPrompt(compiledXml);
-              setStructuredPromptData(newStructuredData);
-            }}
-          />
-        </div>
+        <AiGalleryTab mode="catalog" />
       ) : activeTab === 'gallery' ? (
-        <AiGalleryTab />
+        <AiGalleryTab mode="media" />
       ) : activeTab === 'follow_ups' ? (
         <FollowUpSequencesSettings
           initialConfig={followUpSequencesData}

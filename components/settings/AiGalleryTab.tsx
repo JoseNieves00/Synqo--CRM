@@ -3,11 +3,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Loader2, Plus, Trash2, Upload, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import type { GalleryPhotoItem } from '@/lib/media/format';
-import { getOrganizationMediaGallery, saveAiMediaGallery } from '@/app/actions/settings';
+import {
+  getOrganizationCatalogGallery,
+  getOrganizationMediaGallery,
+  saveAiImageGallery,
+  saveAiMediaGallery,
+} from '@/app/actions/settings';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { suggestProductCatalogAi } from '@/app/actions/ai-catalog';
 
-export function AiGalleryTab() {
+export function AiGalleryTab({ mode = 'media' }: { mode?: 'catalog' | 'media' }) {
+  const isCatalog = mode === 'catalog';
   const [items, setItems] = useState<GalleryPhotoItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -25,7 +31,8 @@ export function AiGalleryTab() {
 
   useEffect(() => {
     let active = true;
-    getOrganizationMediaGallery()
+    const loader = isCatalog ? getOrganizationCatalogGallery : getOrganizationMediaGallery;
+    loader()
       .then((list) => {
         if (active) setItems(Array.isArray(list) ? list : []);
       })
@@ -36,13 +43,17 @@ export function AiGalleryTab() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isCatalog]);
 
   const persistGallery = async (next: GalleryPhotoItem[], successMessage: string) => {
     setIsSaving(true);
     setFeedback(null);
     try {
-      await saveAiMediaGallery(next);
+      if (isCatalog) {
+        await saveAiImageGallery(next);
+      } else {
+        await saveAiMediaGallery(next);
+      }
       setItems(next);
       setFeedback({ type: 'success', text: successMessage });
     } catch (err: any) {
