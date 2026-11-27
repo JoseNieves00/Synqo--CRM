@@ -707,6 +707,19 @@ export async function updateOrderStatusAction(input: {
 
   const ltv = await recalculateContactOrderSync(orgId, order.contact_id);
 
+  if (input.status === 'delivered') {
+    await (supabaseAdmin.from('contacts') as any)
+      .update({
+        pipeline_stage: 'ganado',
+        conversation_status: 'closed',
+        closed_at: nowIso,
+        close_reason: 'venta_entregada',
+        updated_at: nowIso,
+      })
+      .eq('id', order.contact_id)
+      .eq('organization_id', orgId);
+  }
+
   let customerNotified = false;
   let notifyWarning: string | undefined;
   if (input.notifyCustomer) {

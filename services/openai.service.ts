@@ -2201,13 +2201,21 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               const shouldUpdateName =
                 !latestC?.name || /^(lead whatsapp|lead instagram|usuario instagram|\+?[0-9\s-]+)$/i.test(latestC.name.trim());
 
+              const isCodOrder = /contra\s*entrega/i.test(String(validated.metodo_pago || ''));
+              if (isCodOrder) {
+                cf.conversation_status = 'open';
+                delete cf.closed_at;
+                delete cf.close_reason;
+              }
+
               await (supabaseAdmin.from('contacts') as any)
                 .update({
                   ...(shouldUpdateName ? { name: validated.nombre } : {}),
-                  pipeline_stage: 'ganado',
+                  pipeline_stage: isCodOrder ? 'calificado' : 'ganado',
                   deal_value: validated.total,
-                  closed_at: nowIso,
-                  close_reason: 'venta_ia',
+                  conversation_status: isCodOrder ? 'open' : 'closed',
+                  closed_at: isCodOrder ? null : nowIso,
+                  close_reason: isCodOrder ? null : 'venta_ia',
                   custom_fields: cf,
                   updated_at: nowIso,
                 })
