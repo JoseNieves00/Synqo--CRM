@@ -459,6 +459,27 @@ const createOrderTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   },
 };
 
+const updateOrderDataTool: OpenAI.Chat.Completions.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'update_order_data',
+    description:
+      'Corrige o actualiza datos (ciudad, dirección, teléfono, nombre, método de pago, notas o total) de un pedido ya registrado para este cliente cuando el cliente solicita un cambio o corrección.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nombre: { type: 'string' },
+        telefono: { type: 'string' },
+        ciudad: { type: 'string' },
+        direccion: { type: 'string' },
+        metodo_pago: { type: 'string' },
+        notas: { type: 'string' },
+        total: { type: 'number' },
+      },
+    },
+  },
+};
+
 const updatePipelineStageTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   type: 'function',
   function: {
@@ -591,6 +612,7 @@ export function getAvailableTools(enabledModules?: any): OpenAI.Chat.Completions
     updateLeadProfileTool,
     scheduleFollowUpTool,
     createOrderTool,
+    updateOrderDataTool,
     updatePipelineStageTool,
     requestHumanHandoffTool,
     recordKnowledgeGapTool,
@@ -2287,8 +2309,70 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 status: 'order_created',
                 total: validated.total,
                 items: itemsStr,
-                message: 'Pedido guardado y notificado al equipo. Confirma al cliente con entusiasmo y calidez.',
+                city: resolvedOrderCity || validated.ciudad || null,
+                message:
+                  'Pedido registrado y notificado al equipo. Envía al cliente un resumen claro y amable con: 1) Producto(s) + valor del flete/aprox (aclarando si no está incluido en el precio del producto) y Total, 2) Sus datos de entrega (nombre, teléfono, ciudad y dirección) para que confirme si todo está correcto o nos indique si desea corregir algún dato, y 3) Avísale que por este mismo chat podrá hacer seguimiento a su pedido.',
               });
+            } else if (functionName === 'update_order_data') {
+              const { data: activeOrder } = await (supabaseAdmin.from('orders') as any)
+                .select('id, total, city, address, customer_name, customer_phone, payment_method, notes')
+                .eq('organization_id', organizationId)
+                .eq('contact_id', contactId)
+                .neq('status', 'cancelled')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (!activeOrder) {
+                toolResult = JSON.stringify({ status: 'not_found', message: 'No hay pedido activo para actualizar; usa create_order si aplica.' });
+              } else {
+                const nowIso = new Date().toISOString();
+                const nextTotal = functionArgs.total !== undefined ? Math.max(0, Number(functionArgs.total) || 0) : Number(activeOrder.total || 0);
+                const updateFields: Record<string, any> = { updated_at: nowIso };
+                if (functionArgs.nombre) updateFields.customer_name = String(functionArgs.nombre).trim();
+                if (functionArgs.telefono) updateFields.customer_phone = String(functionArgs.telefono).trim();
+                if (functionArgs.ciudad) updateFields.city = String(functionArgs.ciudad).trim();
+                if (functionArgs.direccion) updateFields.address = String(functionArgs.direccion).trim();
+                if (functionArgs.metodo_pago) updateFields.payment_method = String(functionArgs.metodo_pago).trim();
+                if (functionArgs.notas) updateFields.notes = String(functionArgs.notas).trim();
+                if (functionArgs.total !== undefined) updateFields.total = nextTotal;
+
+                await (supabaseAdmin.from('orders') as any).update(updateFields).eq('id', activeOrder.id);
+
+                const { data: curC } = await (supabaseAdmin.from('contacts') as any)
+                  .select('custom_fields')
+                  .eq('id', contactId)
+                  .maybeSingle();
+                const nextCf = { ...(curC?.custom_fields || {}), deal_value: nextTotal };
+                if (nextCf.order) {
+                  nextCf.order = {
+                    ...nextCf.order,
+                    ...(functionArgs.nombre ? { nombre: updateFields.customer_name } : {}),
+                    ...(functionArgs.telefono ? { telefono: updateFields.customer_phone } : {}),
+                    ...(functionArgs.ciudad ? { ciudad: updateFields.city } : {}),
+                    ...(functionArgs.direccion ? { direccion: updateFields.address } : {}),
+                    ...(functionArgs.metodo_pago ? { metodo_pago: updateFields.payment_method } : {}),
+                    ...(functionArgs.notas ? { notas: updateFields.notes } : {}),
+                    total: nextTotal,
+                    updated_at: nowIso,
+                  };
+                }
+                await (supabaseAdmin.from('contacts') as any)
+                  .update({ deal_value: nextTotal, custom_fields: nextCf, updated_at: nowIso })
+                  .eq('id', contactId);
+
+                await (supabaseAdmin.from('messages') as any).insert({
+                  contact_id: contactId,
+                  organization_id: organizationId,
+                  sender_type: 'system',
+                  content: `[✏️ Pedido actualizado por IA: ${[updateFields.city, updateFields.address, updateFields.customer_phone].filter(Boolean).join(' · ') || 'datos corregidos'}]`,
+                });
+
+                toolResult = JSON.stringify({
+                  status: 'order_updated',
+                  message: 'Datos del pedido corregidos. Confirma al cliente que su pedido quedó actualizado y que por este mismo chat podrá hacer seguimiento.',
+                });
+              }
             } else if (functionName === 'update_pipeline_stage') {
               const validated = UpdateStageToolSchema.parse(functionArgs);
               const { data: stageContact } = await (supabaseAdmin.from('contacts') as any)
