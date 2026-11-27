@@ -25,6 +25,8 @@ import {
   formatImageMessageContent,
   stripRedundantCatalogListAfterCards,
   extractSentInformationSummary,
+  extractSentGalleryUrls,
+  stripOrBlockRepeatedReply,
   parseImageMessageContent,
 } from '@/lib/media/format';
 import { compileStructuredPrompt, resolveOrganizationSystemPrompt } from '@/lib/ai/prompt-compiler';
@@ -39,6 +41,7 @@ import {
   calculateTurnCostUsd,
   getAiChatChain,
   getAiUtilityChain,
+  selectTurnChain,
 } from '@/lib/ai/config';
 import { composePlaybookAndBusinessPrompt } from '@/lib/ai/sales-playbook';
 import {
@@ -230,7 +233,7 @@ export async function createChatCompletionWithFallback(params: {
         });
       }
 
-      const isFallback = idx > 0 && entry.provider !== primaryProvider;
+      const isFallback = idx > 0;
       return {
         response,
         modelUsed: entry.model,
@@ -629,6 +632,8 @@ export interface ProcessLeadResult {
   completionTokens: number;
   totalTokens: number;
   cachedTokens: number;
+  costUsd?: number;
+  guardFlags?: Record<string, any>;
   pauseAfterSend?: boolean;
   handoffReason?: string;
   failedAttempts?: FailedModelAttempt[];
@@ -944,15 +949,15 @@ REGLA DE ORO DE FIJACIÓN AL PROMPT: Cada argumento, sede física, garantía, pr
 
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
-<perfil_lead>
-Nombre: ${contactData?.name || leadName || 'No registrado'}
-Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}${leadScoreNum !== null ? ` | Score de compra: ${leadScoreNum}/100 (${bandMeta?.label || ''})` : ''}
-Interés detectado: ${interest}${painPointDisplay}${purchasingPowerDisplay}
-Objetivo comercial actual: ${recAction.label}
-Directriz de cierre: ${recAction.playbookTip}
-${summaryText ? `Resumen previo: ${summaryText}` : ''}
-${orderNote ? `${orderNote}` : ''}
-</perfil_lead>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${pendingDraftBlock}${sentInfoBlock}${zeroInsistenceRule}${gallerySummary}${extendedCatalogBlock}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+<estado_y_perfil>
+Nombre: ${contactData?.name || leadName || 'No registrado'} | Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}${leadScoreNum !== null ? ` | Score: ${leadScoreNum}/100 (${bandMeta?.label || ''})` : ''}
+Interés: ${interest}${painPointDisplay}${purchasingPowerDisplay}
+Objetivo: ${recAction.label} — ${recAction.playbookTip}${summaryText ? `\nResumen previo: ${summaryText}` : ''}${orderNote ? `\n${orderNote}` : ''}
+</estado_y_perfil>
+<catalogo_y_reglas>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${gallerySummary}${extendedCatalogBlock}
+</catalogo_y_reglas>
+<alertas_turno>${pendingDraftBlock}${sentInfoBlock}${zeroInsistenceRule}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+</alertas_turno>
 </contexto_actual>`.trim();
 }
 
@@ -1215,6 +1220,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     let totalCachedTokens = 0;
+    let totalCostUsd = 0;
+    const guardFlags: Record<string, any> = {};
     let pauseAfterSend = false;
     let leadProfileUpdatedThisTurn = false;
     let orderOrBookingCompletedThisTurn = false;
@@ -1518,8 +1525,70 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         : AI_OPERATIONAL_CONFIG.maxToolRounds;
       const dispatchedUrlsThisTurn = new Set<string>();
       const dispatchedCaptionsThisTurn: string[] = [];
+      const previouslySentGalleryUrls = extractSentGalleryUrls(dbMessages);
+      const lastLeadContentForGuards = String(lastLeadMsg?.content || '');
+      const wantsExplicitPhotoResend =
+        /\b(repite|de nuevo|otra vez|no me carga|no puedo ver|reenv[ií]a)\b/i.test(lastLeadContentForGuards);
+      let abortedByHumanTakeover = false;
       let finalResponseText = '';
-      let activeRoundChain: AiChainEntry[] | undefined = undefined;
+
+      const turnCopilot = diagnoseCopilotTurn({
+        history: dbMessages,
+        contactData: contactData || {},
+        organization: orgData,
+        leadScore: Number(contactData?.lead_score || 0),
+      });
+      const hasPaymentOrReceiptSignal =
+        Boolean((contactData?.custom_fields as any)?.has_pending_receipt) ||
+        /\b(comprobante|transferencia|nequi|daviplata|bancolombia|pse|abono|separe|pagu[eé]|consign)\b/i.test(
+          lastLeadContentForGuards
+        );
+      const hasMultiProductOrObjectionSignal =
+        /\b(caro|costos[oa]|descuento|rebaja|garant[ií]a|devoluci[oó]n|env[ií]o|contraentrega|pero|aunque|mejor|diferencia|comparar|y tambi[eé]n)\b/i.test(
+          lastLeadContentForGuards
+        ) || (previouslySentGalleryUrls.size >= 2 && lastLeadContentForGuards.length > 45);
+      const hasImagesInCurrentTurn =
+        Array.isArray(lastLeadMsg?.content) ||
+        /\b(comprobante|imagen|foto adjunta|captura)\b/i.test(lastLeadContentForGuards) ||
+        dbMessages.slice(-2).some((m: any) => typeof m?.content === 'string' && m.content.includes('[IMAGE_URL:'));
+
+      const mappedHybridTrack =
+        turnCopilot.intentTrack === 'integrated' ||
+        turnCopilot.intentTrack === 'clarify'
+          ? turnCopilot.intentTrack
+          : null;
+
+      const turnRouting = selectTurnChain({
+        aiProviderPreference: aiProvider,
+        businessModel: orgData?.business_model || null,
+        hybridTrack: mappedHybridTrack,
+        calendarToolsActive,
+        hasAppointmentIntent:
+          turnCopilot.intentTrack === 'appointment' ||
+          /\b(agendar|cita|reservar|cupo|espacio|turno|reprogramar|cancelar|horario|disponibilidad)\b/i.test(
+            lastLeadContentForGuards
+          ),
+        hasPaymentOrReceiptSignal,
+        hasMultiProductOrObjectionSignal,
+        hasImagesInCurrentTurn,
+      });
+      guardFlags.routing_tier = turnRouting.tier;
+      guardFlags.routing_reason = turnRouting.reason;
+
+      let activeRoundChain: AiChainEntry[] | undefined = turnRouting.chain;
+      let lockedRoundProvider = false;
+
+      const checkHumanTakeoverNow = async (): Promise<boolean> => {
+        try {
+          const { data: liveC } = await (supabaseAdmin.from('contacts') as any)
+            .select('is_ai_active')
+            .eq('id', contactId)
+            .maybeSingle();
+          return Boolean(liveC && liveC.is_ai_active === false);
+        } catch {
+          return false;
+        }
+      };
 
       for (let round = 0; round < maxRounds; round++) {
         const allowToolsThisRound = round < maxRounds - 1;
@@ -1529,6 +1598,9 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           provider,
           isFallback: roundFallback,
           failedAttempts,
+          promptTokens: roundPromptTokens,
+          completionTokens: roundCompletionTokens,
+          cachedTokens: roundCachedTokens,
         } = await createChatCompletionWithFallback({
           messages: conversationHistory,
           tools: activeTools,
@@ -1542,10 +1614,11 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         });
 
         // Fijar el proveedor ganador de la ronda 1 en rondas siguientes para conservar thought_signatures / tool_calls compatibles
-        if (!activeRoundChain) {
+        if (!lockedRoundProvider) {
+          lockedRoundProvider = true;
           activeRoundChain = [
             { provider, model: modelUsed },
-            ...getAiChatChain(aiProvider).filter(
+            ...turnRouting.chain.filter(
               (e) => !(e.provider === provider && e.model === modelUsed) && (provider !== 'openai' || e.provider === 'openai')
             ),
           ];
@@ -1557,12 +1630,15 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         if (failedAttempts.length > 0) allFailedAttempts.push(...failedAttempts);
 
         if (response.usage) {
-          totalPromptTokens += response.usage.prompt_tokens || 0;
-          totalCompletionTokens += response.usage.completion_tokens || 0;
-          totalCachedTokens +=
-            (response.usage as any)?.prompt_tokens_details?.cached_tokens ||
-            (response.usage as any)?.cached_tokens ||
-            0;
+          totalPromptTokens += roundPromptTokens;
+          totalCompletionTokens += roundCompletionTokens;
+          totalCachedTokens += roundCachedTokens;
+          totalCostUsd += calculateTurnCostUsd({
+            model: modelUsed,
+            promptTokens: roundPromptTokens,
+            cachedTokens: roundCachedTokens,
+            completionTokens: roundCompletionTokens,
+          });
         }
 
         const message = response.choices[0].message;
@@ -1607,6 +1683,24 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                   product: matched.name,
                   message: `La foto de "${matched.name}" ya fue enviada en este turno. No la reenvíes.`,
                 });
+              } else if (previouslySentGalleryUrls.has(matched.url) && !wantsExplicitPhotoResend) {
+                toolResult = JSON.stringify({
+                  status: 'already_sent_in_chat',
+                  product: matched.name,
+                  message: `La foto de "${matched.name}" YA está en el chat del cliente. PROHIBIDO reenviarla; responde directo a su pregunta.`,
+                });
+              } else if (dispatchedUrlsThisTurn.size >= 2) {
+                toolResult = JSON.stringify({
+                  status: 'turn_card_limit_reached',
+                  message: 'Límite de 2 fotos por turno alcanzado. No envíes más fotos en este mensaje.',
+                });
+              } else if (await checkHumanTakeoverNow()) {
+                abortedByHumanTakeover = true;
+                toolResult = JSON.stringify({
+                  status: 'aborted_human_takeover',
+                  message: 'Un asesor humano tomó el chat; abortando envío.',
+                });
+                break;
               } else {
                 const detailPrices = validated.details
                   ? findHallucinatedPrices(validated.details, knownPrices)
@@ -1694,6 +1788,17 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
               } else if (dispatchedUrlsThisTurn.has(validated.image_url.trim())) {
                 toolResult = JSON.stringify({ status: 'already_sent' });
+              } else if (previouslySentGalleryUrls.has(validated.image_url.trim()) && !wantsExplicitPhotoResend) {
+                toolResult = JSON.stringify({
+                  status: 'already_sent_in_chat',
+                  message: 'Esta foto ya fue enviada anteriormente en el chat; no la reenvíes.',
+                });
+              } else if (dispatchedUrlsThisTurn.size >= 2) {
+                toolResult = JSON.stringify({ status: 'turn_card_limit_reached' });
+              } else if (await checkHumanTakeoverNow()) {
+                abortedByHumanTakeover = true;
+                toolResult = JSON.stringify({ status: 'aborted_human_takeover' });
+                break;
               } else {
                 const effectiveChannel = channel || 'whatsapp';
                 const targetWaRecipient =
@@ -2251,23 +2356,34 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 }
               }
 
-              const appt = await AppointmentService.createAppointment({
-                organizationId,
-                contactId,
-                specialistId,
-                serviceId: serviceCatalogId,
-                serviceName: validated.service_name,
-                durationMinutes: duration,
-                startTime: validated.start_time,
-                bookedVia: 'ai_whatsapp',
-                notes: validated.notes || null,
-                clientName: leadName,
-                referenceInfo: validated.reference_info || null,
-                meetingLink: null,
-              });
+              // Idempotencia: evitar citas duplicadas para el mismo contacto y hora si el cliente reenvía o hay doble turno
+              const { data: existingAppt } = await (supabaseAdmin.from('appointments') as any)
+                .select('id, start_time, service_name, meeting_link')
+                .eq('organization_id', organizationId)
+                .eq('contact_id', contactId)
+                .eq('start_time', validated.start_time)
+                .in('status', ['pending', 'confirmed'])
+                .maybeSingle();
+
+              const appt = existingAppt
+                ? existingAppt
+                : await AppointmentService.createAppointment({
+                    organizationId,
+                    contactId,
+                    specialistId,
+                    serviceId: serviceCatalogId,
+                    serviceName: validated.service_name,
+                    durationMinutes: duration,
+                    startTime: validated.start_time,
+                    bookedVia: 'ai_whatsapp',
+                    notes: validated.notes || null,
+                    clientName: leadName,
+                    referenceInfo: validated.reference_info || null,
+                    meetingLink: null,
+                  });
 
               toolResult = JSON.stringify({
-                status: 'confirmed',
+                status: existingAppt ? 'already_confirmed' : 'confirmed',
                 appointment_id: appt.id,
                 start_time: appt.start_time,
                 service_name: appt.service_name,
@@ -2794,9 +2910,13 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
         // 2. Si se despacharon fotos en este turno o en turnos recientes, podar listas, atributos y frases ya incluidas en el caption
         if (dispatchedUrlsThisTurn.size > 0 || sentInformationSummary.length > 0) {
+          const activeProd = resolveProductInterest(contactData?.custom_fields, contactData?.deal_value);
           finalResponseText = stripRedundantCatalogListAfterCards(finalResponseText, {
             stripCardSpecs: dispatchedUrlsThisTurn.size > 0,
             sentCaptions: dispatchedCaptionsThisTurn,
+            customFallbackQuestion: activeProd
+              ? `¿Te gustaría confirmar tu pedido de ${activeProd} o tienes alguna duda adicional?`
+              : undefined,
           });
 
           // Si el texto resultante empieza repitiendo líneas de descripción de producto o medidas
@@ -2821,6 +2941,22 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         }
       }
 
+      if (abortedByHumanTakeover || (await checkHumanTakeoverNow())) {
+        console.log(`[AI GUARD] Relevo humano detectado durante el turno para ${contactId}. Respuesta silenciada.`);
+        guardFlags.human_takeover_abort = true;
+        finalResponseText = '';
+      } else if (finalResponseText) {
+        const beforeRepeatGuard = finalResponseText;
+        finalResponseText = stripOrBlockRepeatedReply(finalResponseText, {
+          lastAiText: lastAssistantText,
+          lastAiCreatedAt: lastAssistantMsg?.created_at || null,
+          lastLeadText: lastLeadContentForGuards,
+        });
+        if (finalResponseText !== beforeRepeatGuard) {
+          guardFlags.repeated_reply_blocked = true;
+        }
+      }
+
       return {
         text: finalResponseText,
         modelUsed: metaModel,
@@ -2830,6 +2966,8 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         completionTokens: totalCompletionTokens,
         totalTokens: totalPromptTokens + totalCompletionTokens,
         cachedTokens: totalCachedTokens,
+        costUsd: totalCostUsd,
+        guardFlags,
         pauseAfterSend,
         handoffReason: detectedHandoffReason,
         failedAttempts: allFailedAttempts,

@@ -37,6 +37,19 @@ export interface OpenAiLiquidityForecast {
 
 // Costo real promedio ponderado observado en gpt-4o-mini (98.4% input @ $0.15/1M, 1.6% output @ $0.60/1M)
 export const DEFAULT_BLENDED_COST_PER_1M_USD = 0.1572;
+// Costo mezclado conservador con enrutamiento híbrido (70% gpt-4o-mini + 30% gpt-4.1-mini con ~50% caché)
+export const HYBRID_BLENDED_COST_PER_1M_USD = 0.215;
+
+export function computeHybridBlendedCostPer1MUsd(
+  complexShare = 0.3,
+  cacheHitRate = 0.5
+): number {
+  const share = Math.min(1, Math.max(0, complexShare));
+  const hit = Math.min(1, Math.max(0, cacheHitRate));
+  const miniCost = 0.984 * (0.15 * (1 - hit) + 0.075 * hit) + 0.016 * 0.6;
+  const smartMiniCost = 0.984 * (0.4 * (1 - hit) + 0.1 * hit) + 0.016 * 1.6;
+  return Number(((1 - share) * miniCost + share * smartMiniCost).toFixed(4));
+}
 
 let cachedUsdCop: { rate: number; fetchedAt: number } | null = null;
 
@@ -80,7 +93,7 @@ export function calculateOpenAiLiquidityForecast(params: {
   const costPer1M =
     params.costPer1MTokensUsd && params.costPer1MTokensUsd > 0
       ? params.costPer1MTokensUsd
-      : DEFAULT_BLENDED_COST_PER_1M_USD;
+      : HYBRID_BLENDED_COST_PER_1M_USD;
 
   let activeOrgsCount = 0;
   let trialOrgsCount = 0;

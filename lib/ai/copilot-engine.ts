@@ -357,7 +357,7 @@ export function resolveHybridIntentTrack(params: {
   const orderPhraseRx =
     /\b(?:cu[aá]nto\s+(?:vale|cuesta|sale)|precio\s+de|cotizar\s+env[ií]o|pago\s+contraentrega|contra\s*entrega|plan\s+separe|hacer\s+pedido|comprar|quiero\s+pedir|a\s+qu[eé]\s+cuenta\s+(?:pago|transfiero)|transferencia|nequi|daviplata|bancolombia|anticipo|abono|talla|color|cat[aá]logo|env[ií]o\s+a\s+domicilio|despacho|flete)\b/gi;
   const apptPhraseRx =
-    /\b(?:agendar\s+(?:cita|visita)|sacar\s+cita|programar\s+(?:cita|visita)|venir\s+a\s+medir|ir\s+a\s+medir|toma\s+de\s+medidas|visita\s+(?:t[eé]cnica|de\s+estimaci[oó]n)|disponibilidad|horarios?\s+disponibles?|qu[eé]\s+d[ií]a\s+pueden|cu[aá]ndo\s+pueden\s+venir|valoraci[oó]n|consulta|sesi[oó]n|cita|sede\s+f[ií]sica|videollamada|zoom|meet)\b/gi;
+    /\b(?:agendar\s+(?:cita|visita)|sacar\s+cita|programar\s+(?:cita|visita)|venir\s+a\s+medir|ir\s+a\s+medir|toma\s+de\s+medidas|visita\s+(?:t[eé]cnica|de\s+estimaci[oó]n)|disponibilidad|tienen\s+(?:espacio|cupo)|espacio\s+(?:hoy|ma[ñn]ana|el)|horarios?\s+disponibles?|qu[eé]\s+d[ií]a\s+pueden|cu[aá]ndo\s+pueden\s+venir|valoraci[oó]n|consulta|sesi[oó]n|cita|turno|reservar|sede\s+f[ií]sica|videollamada|zoom|meet)\b/gi;
 
   let orderScore = 0;
   let apptScore = 0;
@@ -450,9 +450,24 @@ function buildBaseCopilotPrescription(
   const { history, contactData, organization, leadScore } = input;
   const cf = (contactData?.custom_fields as Record<string, any>) || {};
 
-  // Obtener último texto del lead
+  // Obtener último texto del lead y señales de fotos previas / cita de producto
   const lastLeadMsg = [...history].reverse().find((m) => m.sender_type === 'lead');
   const lastLeadText = lastLeadMsg?.content || '';
+  const alreadySentPhotosCount = history.filter(
+    (m) =>
+      (m.sender_type === 'ai' || m.sender_type === 'agent_manual') &&
+      /\[IMAGEN:/i.test(m.content || '')
+  ).length;
+  const quotedCardMatch = lastLeadText.match(/\[Cita:\s*[^\]]*?([^|\n·\]]+?)(?:\s*·\s*\$|\s*\||\])/i);
+  const activeProductFocus =
+    resolveProductInterest(cf, contactData?.deal_value) ||
+    (quotedCardMatch?.[1] ? quotedCardMatch[1].trim() : null);
+  const isOperationalOrAvailabilityQuestion =
+    /\b(entrega\s+inmediata|disponibilidad|tienen\s+list[oa]s?|list[oa]s?\s+para|cu[aá]nto\s+tarda|d[oó]nde\s+(?:est[aá]n|quedan)|ubicaci[oó]n|direcci[oó]n|garant[ií]a|horario)\b/i.test(
+      lastLeadText
+    );
+  const wantsExplicitResend =
+    /\b(repite|de nuevo|otra vez|no me carga|no puedo ver|reenv[ií]a)\b/i.test(lastLeadText);
 
   // Detectar si el prospecto formuló una consulta consultiva específica multi-nicho:
   // - Productos: estatura, medidas, dimensiones, espacio, edades, peso, resistencia, materiales, armado.
@@ -789,24 +804,39 @@ function buildBaseCopilotPrescription(
         };
       }
 
+      const suppressCardResend =
+        (alreadySentPhotosCount > 0 && isOperationalOrAvailabilityQuestion && !wantsExplicitResend) ||
+        (Boolean(quotedCardMatch) && !wantsExplicitResend);
+
       return {
         friction,
         frictionLabel,
         customerMindset,
         tacticKey: hasConsultativeDoubt ? 'consultative_advice_and_card' : 'visual_card_and_advance',
-        tacticName: hasConsultativeDoubt
+        tacticName: suppressCardResend
+          ? 'Respuesta Directa sin Reenviar Catálogo'
+          : hasConsultativeDoubt
           ? 'Asesoría Consultiva Prioritaria & Tarjeta Visual'
           : 'Atención Visual con Tarjeta y Micro-Avance',
-        copilotDirective: hasConsultativeDoubt
-          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Divide tu respuesta en máximo 2 mensajes cortos (separados por doble salto): Mensaje 1: responde primero su duda con empatía genuina en 1-2 oraciones breves (máx 25-30 palabras); Mensaje 2: recomienda el modelo ideal con su gancho comercial y pregunta de avance. Envía send_product_card.'
-          : 'Envía send_product_card con foto oficial y precio. En tu mensaje (máx 1-2 líneas), presenta el beneficio y haz una pregunta de micro-avance hacia el despacho.',
+        copilotDirective: suppressCardResend
+          ? `El cliente ya vio fotos en el chat${activeProductFocus ? ` (producto en foco: ${activeProductFocus})` : ''}. Responde directamente su consulta puntual en 1 solo mensaje claro (160–360 caracteres) sin reenviar fotos ni repetir el catálogo.`
+          : hasConsultativeDoubt
+          ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Responde primero su duda con empatía en 1 mensaje claro y, si aún no ha visto la foto del modelo ideal, envía send_product_card.'
+          : 'Envía send_product_card con foto oficial y precio (solo si aún no se ha enviado esa foto en este chat) y haz una pregunta corta de micro-avance.',
         prohibitedActions: [
           ...prohibitedBase,
-          'Prohibido preguntar "¿quieres que te envíe fotos?"; envía la tarjeta directo.',
+          ...(suppressCardResend
+            ? [
+                'Prohibido llamar a send_product_card o reenviar fotos que el cliente ya tiene en el chat.',
+                ...(activeProductFocus ? [`Prohibido preguntar qué modelo busca; el foco ya es "${activeProductFocus}".`] : []),
+              ]
+            : ['Prohibido preguntar "¿quieres que te envíe fotos?"; envía la tarjeta directo si aún no la tiene.']),
           ...(hasConsultativeDoubt ? ['Prohibido ignorar la pregunta del cliente para emitir únicamente un gancho de cierre'] : []),
         ],
-        suggestedClosingQuestion: hasConsultativeDoubt
-          ? '¿Te gustaría apartarla desde hoy con Plan Separe o prefieres conocer algún detalle adicional?'
+        suggestedClosingQuestion: activeProductFocus
+          ? `¿Te gustaría confirmar tu pedido de ${activeProductFocus} o resolver alguna duda adicional?`
+          : hasConsultativeDoubt
+          ? '¿Te gustaría apartarla desde hoy o prefieres conocer algún detalle adicional?'
           : '¿Para entrega en qué ciudad sería?',
         allowedCapabilities: capabilities,
         intentTrack,

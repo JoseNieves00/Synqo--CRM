@@ -71,21 +71,52 @@ export async function getErpCreditsAndWalletAction(): Promise<{
   const liveTrm = await fetchLiveUsdToCopRate(Number(w?.trm_cop_per_usd ?? 4200));
   const walletUpdatedAt: string | null = w?.updated_at || null;
 
-  // Descontar consumo real de OpenAI en ai_runs desde el último registro de saldo
+  // Descontar consumo real de OpenAI en ai_runs desde el último registro de saldo (vía RPC SQL sin límite de filas)
   let spentSinceUpdateUsd = 0;
+  let observedBlendedCostPer1M: number | undefined = undefined;
   if (walletUpdatedAt && Number(w?.balance_usd ?? 0) > 0) {
-    const { data: openAiRuns } = await (supabaseAdmin.from('ai_runs') as any)
-      .select('model, prompt_tokens, completion_tokens')
-      .eq('provider', 'openai')
-      .gte('created_at', walletUpdatedAt)
-      .limit(5000);
-    if (Array.isArray(openAiRuns)) {
-      for (const r of openAiRuns) {
-        spentSinceUpdateUsd += calculateTurnCostUsd({
-          model: r.model,
-          promptTokens: r.prompt_tokens,
-          completionTokens: r.completion_tokens,
-        });
+    let rpcHandled = false;
+    try {
+      const { data: rpcSpend, error: rpcErr } = await (supabaseAdmin as any).rpc(
+        'get_openai_spend_since',
+        { p_since: walletUpdatedAt }
+      );
+      if (!rpcErr && Array.isArray(rpcSpend) && rpcSpend[0]) {
+        spentSinceUpdateUsd = Number(rpcSpend[0].total_cost_usd || 0);
+        const totalToks = Number(rpcSpend[0].total_tokens || 0);
+        if (totalToks >= 50_000 && spentSinceUpdateUsd > 0) {
+          observedBlendedCostPer1M = Number(((spentSinceUpdateUsd / totalToks) * 1_000_000).toFixed(4));
+        }
+        rpcHandled = true;
+      }
+    } catch {
+      // Fallback si la RPC aún no está desplegada en BD
+    }
+
+    if (!rpcHandled) {
+      const { data: openAiRuns } = await (supabaseAdmin.from('ai_runs') as any)
+        .select('model, prompt_tokens, cached_tokens, completion_tokens, cost_usd')
+        .eq('provider', 'openai')
+        .gte('created_at', walletUpdatedAt)
+        .limit(10000);
+      if (Array.isArray(openAiRuns)) {
+        let totalToks = 0;
+        for (const r of openAiRuns) {
+          const explicitCost = Number(r.cost_usd || 0);
+          spentSinceUpdateUsd +=
+            explicitCost > 0
+              ? explicitCost
+              : calculateTurnCostUsd({
+                  model: r.model,
+                  promptTokens: r.prompt_tokens,
+                  cachedTokens: r.cached_tokens,
+                  completionTokens: r.completion_tokens,
+                });
+          totalToks += Number(r.prompt_tokens || 0) + Number(r.completion_tokens || 0);
+        }
+        if (totalToks >= 50_000 && spentSinceUpdateUsd > 0) {
+          observedBlendedCostPer1M = Number(((spentSinceUpdateUsd / totalToks) * 1_000_000).toFixed(4));
+        }
       }
     }
   }
@@ -104,6 +135,7 @@ export async function getErpCreditsAndWalletAction(): Promise<{
     organizations: orgs,
     wallet,
     spentSinceUpdateUsd,
+    costPer1MTokensUsd: observedBlendedCostPer1M,
   });
 
   const packages =

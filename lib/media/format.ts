@@ -673,55 +673,149 @@ export function extractSentInformationSummary(
  *    ('. ', '? ', '! ') cercana a la mitad para dividirlo limpiamente en 2 oraciones/mensajes coherentes.
  * 4. NUNCA devuelve más de `maxMessages` (por defecto 2).
  */
+/**
+ * Extrae las URLs de imágenes/tarjetas que ya fueron enviadas al cliente en el historial de mensajes.
+ */
+export function extractSentGalleryUrls(
+  dbMessages: Array<{ sender_type: string; content?: string | null }>
+): Set<string> {
+  const urls = new Set<string>();
+  for (const msg of dbMessages) {
+    if (msg.sender_type !== 'ai' && msg.sender_type !== 'agent_manual') continue;
+    const parsed = parseImageMessageContent(msg.content || '');
+    if (parsed.isImage && parsed.url) {
+      urls.add(parsed.url.trim());
+    }
+  }
+  return urls;
+}
+
+/**
+ * Guardia determinístico anti-eco entre turnos (< 5 min):
+ * Poda oraciones que repiten >= 78% del último mensaje de la IA, o bloquea si todo es eco,
+ * excepto cuando el cliente pide explícitamente que le repitan la información.
+ */
+export function stripOrBlockRepeatedReply(
+  reply: string,
+  params: {
+    lastAiText?: string | null;
+    lastAiCreatedAt?: string | null;
+    lastLeadText?: string | null;
+    nowMs?: number;
+  }
+): string {
+  const cleanReply = (reply || '').trim();
+  if (!cleanReply || !params.lastAiText) return cleanReply;
+
+  // Excepción legítima: si el cliente pide repetir o dice que no le llegó
+  const leadLower = (params.lastLeadText || '').toLowerCase();
+  if (/\b(repit(?:e|es|a|an)|repetir|otra vez|de nuevo|no me lleg[oó]|cu[aá]l era|no entend[ií])\b/i.test(leadLower)) {
+    return cleanReply;
+  }
+
+  // Solo aplica dentro de una ventana de 5 minutos (si lastAiCreatedAt existe)
+  if (params.lastAiCreatedAt) {
+    const prevMs = new Date(params.lastAiCreatedAt).getTime();
+    const nowMs = params.nowMs ?? Date.now();
+    if (Number.isFinite(prevMs) && nowMs - prevMs > 5 * 60 * 1000) {
+      return cleanReply;
+    }
+  }
+
+  const prevSentences = splitIntoComparableSentences(params.lastAiText)
+    .map((s) => normalizeComparisonText(s))
+    .filter((s) => s.length >= 16);
+
+  if (prevSentences.length === 0) return cleanReply;
+
+  // Chequeo global rápido de similitud completa
+  const normReply = normalizeComparisonText(cleanReply);
+  const normPrev = normalizeComparisonText(params.lastAiText);
+  if (normReply && normPrev && (normReply === normPrev || (normReply.length >= 24 && normPrev.includes(normReply)))) {
+    return '';
+  }
+
+  const paragraphs = cleanReply.split(/\n{2,}/);
+  const keptParagraphs = paragraphs
+    .map((para) => {
+      const sentences = para.split(/(?<=[.?!])\s+/);
+      const kept = sentences.filter((s) => {
+        const trimmed = s.trim();
+        if (!trimmed) return false;
+        const normS = normalizeComparisonText(trimmed);
+        if (normS.length < 16) return true;
+        const wordsA = new Set(normS.split(' ').filter((w) => w.length >= 3));
+        for (const ref of prevSentences) {
+          if (normS === ref || ref.includes(normS) || normS.includes(ref)) {
+            return false;
+          }
+          if (wordsA.size >= 4) {
+            const wordsB = new Set(ref.split(' ').filter((w) => w.length >= 3));
+            if (wordsB.size >= 4) {
+              let hits = 0;
+              for (const w of wordsA) if (wordsB.has(w)) hits++;
+              if (hits / Math.min(wordsA.size, wordsB.size) >= 0.78) return false;
+            }
+          }
+        }
+        return true;
+      });
+      return kept.join(' ').trim();
+    })
+    .filter(Boolean);
+
+  return keptParagraphs.join('\n\n').trim();
+}
+
 export function splitIntoConsecutiveMessages(text: string | null | undefined, maxMessages = 2): string[] {
   if (!text || typeof text !== 'string') return [];
   const clean = text.trim();
   if (!clean) return [];
 
-  // Si ya es un mensaje corto, no dividirlo
-  if (clean.length <= 160) {
-    return [clean];
-  }
-
-  // 1. Separación por delimitador explícito de párrafo doble '\n\n' o marcador
+  // 1. Separación explícita por marcador o doble párrafo largo (> 280 caracteres en total)
+  const hasExplicitMarker = /\[SIGUIENTE_MENSAJE\]|---/.test(clean);
   const paragraphParts = clean
     .split(/\n\s*\n+|(?:\r?\n){2,}|\[SIGUIENTE_MENSAJE\]|---/)
     .map((p) => p.trim())
     .filter(Boolean);
 
-  if (paragraphParts.length >= 2) {
-    if (paragraphParts.length === 2) {
-      return paragraphParts;
+  if (paragraphParts.length >= 2 && (hasExplicitMarker || clean.length > 280)) {
+    if (paragraphParts.length === 2 || maxMessages <= 2) {
+      return paragraphParts.length === 2
+        ? paragraphParts
+        : [paragraphParts[0], paragraphParts.slice(1).join('\n\n')];
     }
-    // Si hay 3 o más párrafos, tomamos el primero y agrupamos el resto en el segundo (máximo 2 mensajes)
-    return [paragraphParts[0], paragraphParts.slice(1).join('\n\n')];
+    return paragraphParts.slice(0, maxMessages);
   }
 
-  // 2. Si es un único párrafo largo (> 170 caracteres), buscar frontera de oración natural (. ! ?)
-  if (clean.length > 170) {
-    const sentenceEndRegex = /([.?!])\s+/g;
-    let match: RegExpExecArray | null;
-    let bestSplitIndex = -1;
-    const targetMid = Math.floor(clean.length / 2);
-    let minDistanceToMid = Infinity;
+  // Respuestas normales (<= 360 caracteres) salen en 1 sola burbuja limpia y coherente
+  if (clean.length <= 360) {
+    return [clean];
+  }
 
-    while ((match = sentenceEndRegex.exec(clean)) !== null) {
-      const splitPos = match.index + 1; // justo después del signo . ! ?
-      if (splitPos >= 35 && clean.length - splitPos >= 35) {
-        const distance = Math.abs(splitPos - targetMid);
-        if (distance < minDistanceToMid) {
-          minDistanceToMid = distance;
-          bestSplitIndex = splitPos;
-        }
+  // 2. Solo si supera 360 caracteres en un único bloque, dividir en frontera natural de oración
+  const sentenceEndRegex = /([.?!])\s+/g;
+  let match: RegExpExecArray | null;
+  let bestSplitIndex = -1;
+  const targetMid = Math.floor(clean.length / 2);
+  let minDistanceToMid = Infinity;
+
+  while ((match = sentenceEndRegex.exec(clean)) !== null) {
+    const splitPos = match.index + 1;
+    if (splitPos >= 60 && clean.length - splitPos >= 60) {
+      const distance = Math.abs(splitPos - targetMid);
+      if (distance < minDistanceToMid) {
+        minDistanceToMid = distance;
+        bestSplitIndex = splitPos;
       }
     }
+  }
 
-    if (bestSplitIndex !== -1) {
-      const part1 = clean.slice(0, bestSplitIndex).trim();
-      const part2 = clean.slice(bestSplitIndex).trim();
-      if (part1 && part2) {
-        return [part1, part2];
-      }
+  if (bestSplitIndex !== -1) {
+    const part1 = clean.slice(0, bestSplitIndex).trim();
+    const part2 = clean.slice(bestSplitIndex).trim();
+    if (part1 && part2) {
+      return [part1, part2];
     }
   }
 

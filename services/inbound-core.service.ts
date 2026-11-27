@@ -1111,6 +1111,9 @@ export class InboundCoreService {
       const isFallback = typeof aiResult === 'object' ? aiResult.isFallback : false;
       const promptTokens = typeof aiResult === 'object' ? aiResult.promptTokens : 0;
       const completionTokens = typeof aiResult === 'object' ? aiResult.completionTokens : 0;
+      const cachedTokens = typeof aiResult === 'object' ? (aiResult as any).cachedTokens || 0 : 0;
+      const costUsd = typeof aiResult === 'object' ? (aiResult as any).costUsd || 0 : 0;
+      const guardFlags = typeof aiResult === 'object' ? (aiResult as any).guardFlags || undefined : undefined;
       const latencyMs = Date.now() - startTime;
 
       // M1: Registrar intentos de modelos fallidos en ai_runs para trazabilidad exacta de failovers
@@ -1289,6 +1292,16 @@ export class InboundCoreService {
         retryOutboundText = cleanedAiText || null;
 
         if (cleanedAiText) {
+          // Guardia final anti-carrera: si un asesor intervino mientras OpenAI generaba, silenciar respuesta
+          const { data: liveContactCheck } = await (supabaseAdmin.from('contacts') as any)
+            .select('is_ai_active')
+            .eq('id', contactId)
+            .maybeSingle();
+          if (liveContactCheck && liveContactCheck.is_ai_active === false) {
+            console.log(`[INBOUND CORE AI ABORT] Asesor intervino durante inferencia para ${contactId}. Envío silenciado.`);
+            return;
+          }
+
           const messageParts = splitIntoConsecutiveMessages(cleanedAiText, 2);
 
           for (let pIdx = 0; pIdx < messageParts.length; pIdx++) {
@@ -1459,7 +1472,10 @@ export class InboundCoreService {
           provider: metaProvider,
           model: metaModel,
           promptTokens,
+          cachedTokens,
           completionTokens,
+          costUsd,
+          guardFlags,
           latencyMs,
           status: isFallback ? 'fallback' : 'success',
         });
@@ -1775,15 +1791,19 @@ export class InboundCoreService {
     provider: string;
     model: string;
     promptTokens?: number;
+    cachedTokens?: number;
     completionTokens?: number;
+    costUsd?: number;
+    guardFlags?: Record<string, any>;
     latencyMs: number;
     status: 'success' | 'failed' | 'fallback' | 'skipped';
     errorMessage?: string;
   }): Promise<void> {
     try {
       const promptTokens = data.promptTokens || 0;
+      const cachedTokens = data.cachedTokens || 0;
       const completionTokens = data.completionTokens || 0;
-      await (supabaseAdmin.from('ai_runs') as any).insert({
+      const baseRow = {
         organization_id: data.organizationId,
         contact_id: data.contactId || null,
         channel: data.channel,
@@ -1795,7 +1815,17 @@ export class InboundCoreService {
         latency_ms: data.latencyMs,
         status: data.status,
         error_message: data.errorMessage || null,
+      };
+      const { error } = await (supabaseAdmin.from('ai_runs') as any).insert({
+        ...baseRow,
+        cached_tokens: cachedTokens,
+        cost_usd: Number((data.costUsd || 0).toFixed(6)),
+        guard_flags: data.guardFlags || {},
       });
+      if (error) {
+        // Fallback seguro si la migración de columnas nuevas aún no fue aplicada en BD
+        await (supabaseAdmin.from('ai_runs') as any).insert(baseRow);
+      }
     } catch (err) {
       console.warn('[INBOUND CORE RECORD AI RUN WARN]', err);
     }

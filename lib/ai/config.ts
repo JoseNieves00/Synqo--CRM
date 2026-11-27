@@ -169,6 +169,71 @@ export function getAiChatChain(aiProviderPreference?: string | null): AiChainEnt
   return deduped;
 }
 
+export interface HybridTurnRoutingInput {
+  aiProviderPreference?: string | null;
+  businessModel?: string | null;
+  hybridTrack?: 'products' | 'services' | 'integrated' | 'clarify' | null;
+  calendarToolsActive?: boolean;
+  hasAppointmentIntent?: boolean;
+  hasPaymentOrReceiptSignal?: boolean;
+  hasMultiProductOrObjectionSignal?: boolean;
+  previousTurnHadGuardTrigger?: boolean;
+  hasImagesInCurrentTurn?: boolean;
+}
+
+export interface HybridTurnRoutingDecision {
+  tier: 'standard' | 'complex';
+  reason: string;
+  chain: AiChainEntry[];
+}
+
+/**
+ * Enrutador híbrido determinista (sin llamada LLM extra):
+ * - ~70% de turnos simples -> gpt-4o-mini (bajo costo).
+ * - ~30% de turnos complejos (agenda, híbrido integrado/clarify, objeciones/cierre multi-producto,
+ *   comprobantes/imágenes o recuperación tras guardia) -> gpt-4.1-mini con fallback a gpt-4o-mini y Gemini.
+ */
+export function selectTurnChain(input: HybridTurnRoutingInput): HybridTurnRoutingDecision {
+  const baseChain = getAiChatChain(input.aiProviderPreference);
+  const hybridEnabled = process.env.AI_HYBRID_ROUTING !== 'false';
+  if (!hybridEnabled || input.aiProviderPreference?.toLowerCase() === 'google') {
+    return { tier: 'standard', reason: 'base_chain', chain: baseChain };
+  }
+
+  let reason: string | null = null;
+  if (input.businessModel === 'hybrid' && (input.hybridTrack === 'integrated' || input.hybridTrack === 'clarify')) {
+    reason = `hybrid_${input.hybridTrack}`;
+  } else if (input.hasAppointmentIntent || input.calendarToolsActive) {
+    reason = 'appointment_or_calendar';
+  } else if (input.hasPaymentOrReceiptSignal) {
+    reason = 'payment_or_receipt';
+  } else if (input.hasImagesInCurrentTurn) {
+    reason = 'vision_image_turn';
+  } else if (input.hasMultiProductOrObjectionSignal) {
+    reason = 'multi_product_or_objection';
+  } else if (input.previousTurnHadGuardTrigger) {
+    reason = 'guard_recovery';
+  }
+
+  if (!reason) {
+    return { tier: 'standard', reason: 'simple_turn', chain: baseChain };
+  }
+
+  const smartModel = (process.env.OPENAI_SMART_CHAT_MODEL || 'gpt-4.1-mini').trim();
+  const smartEntry: AiChainEntry = { provider: 'openai', model: smartModel };
+  const merged = [smartEntry, ...baseChain];
+  const seen = new Set<string>();
+  const chain: AiChainEntry[] = [];
+  for (const item of merged) {
+    const key = `${item.provider}:${item.model}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      chain.push(item);
+    }
+  }
+  return { tier: 'complex', reason, chain };
+}
+
 /**
  * Devuelve la cadena para tareas utilitarias (resúmenes, catálogo, sugerencias de seguimiento).
  * Configurable vía AI_UTILITY_MODEL (ej: "gemini:gemini-3.5-flash-lite" o "openai:gpt-4o-mini").

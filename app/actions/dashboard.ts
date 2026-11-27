@@ -441,13 +441,19 @@ export async function getDashboardMetrics(
       bucket.failedRuns++;
     } else {
       const pt = Number(r.prompt_tokens || 0);
+      const cached = Number(r.cached_tokens || 0);
       const ct = Number(r.completion_tokens || 0);
       const tt = Number(r.total_tokens || pt + ct);
-      const cost = calculateTurnCostUsd({
-        model: r.model,
-        promptTokens: pt,
-        completionTokens: ct,
-      });
+      const explicitCost = Number(r.cost_usd || 0);
+      const cost =
+        explicitCost > 0
+          ? explicitCost
+          : calculateTurnCostUsd({
+              model: r.model,
+              promptTokens: pt,
+              cachedTokens: cached,
+              completionTokens: ct,
+            });
       bucket.promptTokens += pt;
       bucket.completionTokens += ct;
       bucket.totalTokens += tt;
