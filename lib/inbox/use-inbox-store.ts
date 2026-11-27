@@ -306,12 +306,19 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         return true;
       })();
 
+      let nextCounts = state.counts;
       const matchesCurrentView =
         matchesFilterAndSearch && contactMatchesInboxView(updated, currentView, state.currentUserId);
       if (isAlreadyInView && !matchesCurrentView) {
         nextViewIds[currentView] = currentIds.filter((id) => id !== contact.id);
+        if (currentView !== 'todos') {
+          nextCounts = { ...nextCounts, [currentView]: Math.max(0, (nextCounts[currentView] || 0) - 1) };
+        }
       } else if (!isAlreadyInView && matchesCurrentView) {
         nextViewIds[currentView] = sortInboxViewIds([contact.id, ...currentIds], nextContactsById, currentView, state.filters.sort);
+        if (currentView !== 'todos') {
+          nextCounts = { ...nextCounts, [currentView]: (nextCounts[currentView] || 0) + 1 };
+        }
       } else if (isAlreadyInView && matchesCurrentView && sortKeyChanged) {
         nextViewIds[currentView] = sortInboxViewIds(currentIds, nextContactsById, currentView, state.filters.sort);
       }
@@ -324,15 +331,23 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         if (ids.includes(contact.id)) {
           if (!contactMatchesInboxView(updated, v, state.currentUserId)) {
             nextViewIds[v] = ids.filter((id) => id !== contact.id);
+            if (v !== 'todos') {
+              nextCounts = { ...nextCounts, [v]: Math.max(0, (nextCounts[v] || 0) - 1) };
+            }
           } else if (sortKeyChanged) {
             nextViewIds[v] = sortInboxViewIds(ids, nextContactsById, v, state.filters.sort);
           }
         }
       });
 
+      if (typeof window !== 'undefined' && nextCounts.por_responder !== state.counts.por_responder) {
+        window.dispatchEvent(new CustomEvent('synqo-unattended-count', { detail: { count: nextCounts.por_responder } }));
+      }
+
       return {
         contactsById: nextContactsById,
         viewIds: nextViewIds,
+        counts: nextCounts,
       };
     });
   },
@@ -341,12 +356,22 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     set((state) => {
       const { [id]: _, ...restContacts } = state.contactsById;
       const newViewIds = { ...state.viewIds };
+      let nextCounts = state.counts;
       (Object.keys(newViewIds) as InboxViewType[]).forEach((view) => {
-        newViewIds[view] = newViewIds[view].filter((cId) => cId !== id);
+        if (newViewIds[view].includes(id)) {
+          newViewIds[view] = newViewIds[view].filter((cId) => cId !== id);
+          if (view !== 'todos') {
+            nextCounts = { ...nextCounts, [view]: Math.max(0, (nextCounts[view] || 0) - 1) };
+          }
+        }
       });
+      if (typeof window !== 'undefined' && nextCounts.por_responder !== state.counts.por_responder) {
+        window.dispatchEvent(new CustomEvent('synqo-unattended-count', { detail: { count: nextCounts.por_responder } }));
+      }
       return {
         contactsById: restContacts,
         viewIds: newViewIds,
+        counts: nextCounts,
         activeContactId: state.activeContactId === id ? null : state.activeContactId,
       };
     });

@@ -38,6 +38,7 @@ import {
   useInboxCounts,
   useViewContactIds,
 } from '@/lib/inbox/use-inbox-store';
+import { scheduleDebouncedCountsRefresh } from '@/lib/inbox/sync-engine';
 import { compareInboxContacts, type InboxSortMode } from '@/lib/inbox/buckets';
 
 interface MessageItem {
@@ -116,6 +117,7 @@ export function InboxView({
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const latestLoadReqRef = useRef(0);
+  const latestOpenChatReqRef = useRef(0);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Modo Enfoque / Vista Zen (Colapso del sidebar izquierdo en desktop)
@@ -274,14 +276,9 @@ export function InboxView({
     }));
   }, []);
 
-  // 7. Refrescar contadores desde servidor
-  const refreshCounts = useCallback(async () => {
-    try {
-      const serverCounts = await getInboxCounts();
-      useInboxStore.getState().setCounts(serverCounts);
-    } catch (err) {
-      console.warn('[InboxView] Error obteniendo contadores:', err);
-    }
+  // 7. Refrescar contadores desde servidor (coalescido con Realtime para evitar cascadas)
+  const refreshCounts = useCallback(() => {
+    scheduleDebouncedCountsRefresh();
   }, []);
 
   // 8. Cargar lista de contactos cuando cambia la vista, filtros o búsqueda
@@ -362,6 +359,7 @@ export function InboxView({
   const openChat = useCallback(
     async (contactId: string, options?: { skipPushState?: boolean }) => {
       if (!contactId) return;
+      const openReqId = ++latestOpenChatReqRef.current;
       setSelectedContactId(contactId);
       useInboxStore.getState().setActiveContactId(contactId);
 
@@ -377,14 +375,18 @@ export function InboxView({
         window.history.pushState(null, '', url.toString());
       }
 
-      // Cargar mensajes con patrón Stale-While-Revalidate:
-      // Si ya hay mensajes en caché o provistos por SSR, renderizarlos de inmediato (0ms, sin skeleton molesto)
-      // pero SIEMPRE revalidar en segundo plano con el servidor para traer mensajes nuevos
+      // Cargar mensajes con patrón Stale-While-Revalidate + TTL de 12s para evitar doble fetch tras prefetch
       const cached = useInboxStore.getState().messagesByContact[contactId];
       const hasCached = Boolean(
         (cached && cached.items && cached.items.length > 0) ||
         (contactId === ssrActiveContactIdRef.current && ssrMessagesRef.current && ssrMessagesRef.current.length > 0)
       );
+      const isCacheFresh = Boolean(cached && cached.items && cached.items.length > 0 && Date.now() - cached.syncedAt < 12_000);
+
+      if (isCacheFresh) {
+        setIsLoadingMessages(false);
+        return;
+      }
 
       if (!hasCached) {
         setIsLoadingMessages(true);
@@ -396,7 +398,9 @@ export function InboxView({
       } catch (err) {
         console.error('[InboxView] Error cargando mensajes:', err);
       } finally {
-        setIsLoadingMessages(false);
+        if (openReqId === latestOpenChatReqRef.current) {
+          setIsLoadingMessages(false);
+        }
       }
     },
     [activeView]
