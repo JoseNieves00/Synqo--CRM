@@ -376,6 +376,51 @@ export async function getOrganizationMediaGallery(): Promise<GalleryPhotoItem[]>
   }
 }
 
+export async function saveWorkflowPolicy(policy: import('@/lib/types/workflow').WorkflowPolicy) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden modificar el flujo.');
+  }
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada.');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('appointment_settings')
+    .eq('id', orgId)
+    .single();
+
+  const currentSettings =
+    org?.appointment_settings && typeof org.appointment_settings === 'object'
+      ? org.appointment_settings
+      : {};
+
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      appointment_settings: {
+        ...currentSettings,
+        workflow_policy: policy,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateError) {
+    throw new Error(`Error guardando flujo de trabajo: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  return { success: true };
+}
+
 /**
  * Agrega o actualiza una plantilla de WhatsApp en la organización.
  */

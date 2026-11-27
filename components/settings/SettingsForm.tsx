@@ -74,6 +74,14 @@ const CatalogCrudTab = dynamic(() => import('./CatalogCrudTab').then((m) => m.Ca
   ssr: false,
 });
 
+const WorkflowPolicySettings = dynamic(
+  () => import('./WorkflowPolicySettings').then((m) => m.WorkflowPolicySettings),
+  {
+    loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando flujo de trabajo...</div>,
+    ssr: false,
+  }
+);
+
 const KnowledgeGapsList = dynamic(() => import('./KnowledgeGapsList').then((m) => m.KnowledgeGapsList), {
   loading: () => <div className="p-8 text-center text-xs text-slate-400 font-medium">Cargando preguntas pendientes...</div>,
   ssr: false,
@@ -217,7 +225,7 @@ export function SettingsForm({
   isSuperAdmin = false,
 }: SettingsFormProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'integrations' | 'catalog' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
+  const [activeTab, setActiveTab] = useState<'integrations' | 'workflow' | 'catalog' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1158,6 +1166,19 @@ export function SettingsForm({
 
         <button
           type="button"
+          onClick={() => setActiveTab('workflow')}
+          className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
+            activeTab === 'workflow'
+              ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white border border-slate-200 dark:border-[#232A3B] shadow-2xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1A1F2C]/50'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-violet-500" />
+          <span>Flujo IA</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('catalog')}
           className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[40px] text-xs font-semibold rounded-xl transition cursor-pointer shrink-0 select-none ${
             activeTab === 'catalog'
@@ -1257,7 +1278,9 @@ export function SettingsForm({
         )}
       </div>
 
-      {activeTab === 'catalog' ? (
+      {activeTab === 'workflow' ? (
+        <WorkflowPolicySettings initialPolicy={(initialData as any).workflowPolicy} />
+      ) : activeTab === 'catalog' ? (
         <CatalogCrudTab
           onCatalogUpdated={(nextGallery) => {
             setStructuredPromptData((prev: any) => ({
