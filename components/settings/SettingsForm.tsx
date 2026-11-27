@@ -227,6 +227,9 @@ export function SettingsForm({
 }: SettingsFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'integrations' | 'workflow' | 'catalog' | 'gallery' | 'team' | 'payments' | 'shipping' | 'quick_replies' | 'follow_ups'>('integrations');
+  const [workflowPolicyState, setWorkflowPolicyState] = useState<Partial<import('@/lib/types/workflow').WorkflowPolicy> | null>(
+    () => (initialData as any).workflowPolicy || null
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1281,9 +1284,10 @@ export function SettingsForm({
 
       {activeTab === 'workflow' ? (
         <WorkflowPolicySettings
-          initialPolicy={(initialData as any).workflowPolicy}
+          initialPolicy={workflowPolicyState}
           supportsOrders={businessCompat.supportsShipping}
           supportsAppointments={businessCompat.supportsCalendar}
+          onPolicySaved={(saved) => setWorkflowPolicyState(saved)}
         />
       ) : activeTab === 'catalog' ? (
         <CatalogCrudTab

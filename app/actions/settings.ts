@@ -377,20 +377,16 @@ export async function getOrganizationMediaGallery(): Promise<GalleryPhotoItem[]>
 }
 
 export async function saveWorkflowPolicy(policy: import('@/lib/types/workflow').WorkflowPolicy) {
-  const supabase = createServerSupabaseClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) throw new Error('No autorizado');
+  const { getCurrentUserAndOrg } = await import('@/app/actions/auth');
+  const current = await getCurrentUserAndOrg();
+  if (!current) throw new Error('No autorizado');
 
-  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
-    .select('organization_id, role, is_super_admin')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+  const { profile, organization } = current;
+  if (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin) {
     throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden modificar el flujo.');
   }
 
-  const orgId = profile?.organization_id;
+  const orgId = organization?.id;
   if (!orgId) throw new Error('Organización no encontrada.');
 
   const { data: org } = await (supabaseAdmin.from('organizations') as any)

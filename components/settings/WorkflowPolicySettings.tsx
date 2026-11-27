@@ -16,6 +16,7 @@ interface WorkflowPolicySettingsProps {
   initialPolicy?: Partial<WorkflowPolicy> | null;
   supportsOrders?: boolean;
   supportsAppointments?: boolean;
+  onPolicySaved?: (saved: WorkflowPolicy) => void;
 }
 
 const REQUIRED_FIELD_OPTIONS: Array<{
@@ -33,6 +34,7 @@ export function WorkflowPolicySettings({
   initialPolicy,
   supportsOrders = true,
   supportsAppointments = true,
+  onPolicySaved,
 }: WorkflowPolicySettingsProps) {
   const [policy, setPolicy] = useState<WorkflowPolicy>(() => normalizeWorkflowPolicy(initialPolicy));
   const [isSaving, setIsSaving] = useState(false);
@@ -88,6 +90,7 @@ export function WorkflowPolicySettings({
     setFeedback(null);
     try {
       await saveWorkflowPolicy(policy);
+      onPolicySaved?.(policy);
       setFeedback({ type: 'success', text: 'Flujo de trabajo guardado. La IA aplicará estas reglas de inmediato.' });
     } catch (err: any) {
       setFeedback({ type: 'error', text: err?.message || 'Error guardando el flujo de trabajo.' });
