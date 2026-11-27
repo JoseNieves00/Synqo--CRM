@@ -952,6 +952,16 @@ ${copilotPrescription.prohibitedActions.map((a) => `- ${a}`).join('\n')}
 REGLA DE ORO DE FIJACIÓN AL PROMPT: Cada argumento, sede física, garantía, precio, descuento o método de despacho DEBE existir explícitamente en el prompt o catálogo de la empresa. Prohibido inventar datos o asumir sedes físicas/garantías no descritas.
 </copiloto_estrategico_de_ventas>`;
 
+  const shippingCfg = organization?.appointment_settings?.shipping_settings;
+  let shippingQuoteReminder = '';
+  if (shippingCfg?.enabled && !shippingCfg?.codFreeShipping) {
+    const baseRateStr =
+      Number(shippingCfg.baseRate || 0) > 0
+        ? `$${Number(shippingCfg.baseRate).toLocaleString('es-CO')} COP`
+        : 'tarifa de transportadora';
+    shippingQuoteReminder = `\nCOTIZACIÓN CON FLETE OBLIGATORIA: El precio de catálogo NO incluye envío. Fuera de la ciudad sede, desglosa Producto + Flete (aprox. ${baseRateStr} si la ciudad no tiene tarifa exacta) = Total. Contraentrega NO exime del flete.`;
+  }
+
   return `<contexto_actual>
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <estado_y_perfil>
@@ -961,7 +971,7 @@ Objetivo: ${recAction.label} — ${recAction.playbookTip}${summaryText ? `\nResu
 </estado_y_perfil>
 <catalogo_y_reglas>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${gallerySummary}${extendedCatalogBlock}
 </catalogo_y_reglas>
-<alertas_turno>${pendingDraftBlock}${sentInfoBlock}${zeroInsistenceRule}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}
+<alertas_turno>${pendingDraftBlock}${sentInfoBlock}${zeroInsistenceRule}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}${shippingQuoteReminder}
 </alertas_turno>
 </contexto_actual>`.trim();
 }

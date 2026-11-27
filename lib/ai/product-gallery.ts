@@ -145,6 +145,32 @@ export function resolveOrganizationGallery(organization?: any, systemPromptText?
     if (cPrice && cPrice >= 1000) knownPrices.add(cPrice);
   }
 
+  // Indexar tarifas de envío y totales válidos (Producto + Envío) para no marcarlos como alucinación
+  const shippingSettings = organization?.appointment_settings?.shipping_settings;
+  if (shippingSettings && shippingSettings.enabled !== false) {
+    const basePricesSnapshot = Array.from(knownPrices);
+    const shippingRates = new Set<number>();
+    const baseRate = Number(shippingSettings.baseRate || 0);
+    if (baseRate >= 1000) {
+      knownPrices.add(baseRate);
+      shippingRates.add(baseRate);
+    }
+    if (Array.isArray(shippingSettings.cityRates)) {
+      for (const cr of shippingSettings.cityRates) {
+        const crCost = Number(cr?.cost || 0);
+        if (crCost >= 1000) {
+          knownPrices.add(crCost);
+          shippingRates.add(crCost);
+        }
+      }
+    }
+    for (const prodPrice of basePricesSnapshot) {
+      for (const shipRate of Array.from(shippingRates)) {
+        knownPrices.add(prodPrice + shipRate);
+      }
+    }
+  }
+
   return { items, allowedUrls, knownPrices };
 }
 
