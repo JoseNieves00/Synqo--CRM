@@ -63,7 +63,10 @@ export function resolveOrganizationGallery(organization?: any, systemPromptText?
   knownPrices: Set<number>;
 } {
   const spData = organization?.structured_prompt_data || organization?.structured_prompt || {};
-  const rawGallery: GalleryPhotoItem[] = Array.isArray(spData.gallery) ? spData.gallery : [];
+  const rawGallery: GalleryPhotoItem[] = [
+    ...(Array.isArray(spData.gallery) ? spData.gallery : []),
+    ...(Array.isArray(spData.media_gallery) ? spData.media_gallery : []),
+  ];
   const rawCatalog: any[] = Array.isArray(spData.catalog) ? spData.catalog : [];
 
   const allowedUrls = new Set<string>();

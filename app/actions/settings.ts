@@ -298,6 +298,78 @@ export async function getOrganizationCatalogGallery(): Promise<GalleryPhotoItem[
       .single();
 
     return (org?.structured_prompt_data?.gallery as GalleryPhotoItem[]) || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Guarda la galería independiente de imágenes libres (por keywords) en structured_prompt_data.media_gallery.
+ */
+export async function saveAiMediaGallery(mediaGallery: GalleryPhotoItem[]) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('No autorizado');
+
+  const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+    .select('organization_id, role, is_super_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'supervisor' && !profile.is_super_admin)) {
+    throw new Error('Permisos insuficientes: Solo administradores o supervisores pueden modificar la galería.');
+  }
+
+  const orgId = profile?.organization_id;
+  if (!orgId) throw new Error('Organización no encontrada para el usuario.');
+
+  const { data: org } = await (supabaseAdmin.from('organizations') as any)
+    .select('structured_prompt_data')
+    .eq('id', orgId)
+    .single();
+
+  const currentStructured = org?.structured_prompt_data || {};
+  const { error: updateError } = await (supabaseAdmin.from('organizations') as any)
+    .update({
+      structured_prompt_data: {
+        ...currentStructured,
+        media_gallery: mediaGallery,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orgId);
+
+  if (updateError) {
+    throw new Error(`Error guardando galería de imágenes: ${updateError.message}`);
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
+  return { success: true };
+}
+
+/**
+ * Obtiene la galería independiente de imágenes libres (por keywords) de la organización.
+ */
+export async function getOrganizationMediaGallery(): Promise<GalleryPhotoItem[]> {
+  try {
+    const supabase = createServerSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data: profile } = await (supabaseAdmin.from('profiles') as any)
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.organization_id) return [];
+
+    const { data: org } = await (supabaseAdmin.from('organizations') as any)
+      .select('structured_prompt_data')
+      .eq('id', profile.organization_id)
+      .single();
+
+    return (org?.structured_prompt_data?.media_gallery as GalleryPhotoItem[]) || [];
   } catch (err) {
     console.warn('[GET CATALOG GALLERY ERROR]', err);
     return [];

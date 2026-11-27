@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Loader2, Plus, Trash2, Upload, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import type { GalleryPhotoItem } from '@/lib/media/format';
-import { getOrganizationCatalogGallery, saveAiImageGallery } from '@/app/actions/settings';
+import { getOrganizationMediaGallery, saveAiMediaGallery } from '@/app/actions/settings';
 import { uploadChatMedia } from '@/app/actions/chat';
 import { suggestProductCatalogAi } from '@/app/actions/ai-catalog';
 
@@ -25,7 +25,7 @@ export function AiGalleryTab() {
 
   useEffect(() => {
     let active = true;
-    getOrganizationCatalogGallery()
+    getOrganizationMediaGallery()
       .then((list) => {
         if (active) setItems(Array.isArray(list) ? list : []);
       })
@@ -42,7 +42,7 @@ export function AiGalleryTab() {
     setIsSaving(true);
     setFeedback(null);
     try {
-      await saveAiImageGallery(next);
+      await saveAiMediaGallery(next);
       setItems(next);
       setFeedback({ type: 'success', text: successMessage });
     } catch (err: any) {
