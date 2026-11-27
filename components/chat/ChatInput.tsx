@@ -1035,13 +1035,16 @@ export function ChatInput({
           )}
         </button>
 
-        {/* Snippets rápidos de 1 clic */}
-        {activeSnippets.slice(0, 10).map((snippet) => (
+        {/* Snippets rápidos de 1 clic (máx 2 visibles sin duplicar Datos de Pago; el resto en Atajos /) */}
+        {activeSnippets
+          .filter((s) => !/^\/(pago|cuenta)$/i.test(s.shortcut))
+          .slice(0, 2)
+          .map((snippet) => (
           <button
             key={snippet.shortcut}
             type="button"
             onClick={() => handleApplySnippet(snippet.text)}
-            className="h-7 shrink-0 whitespace-nowrap inline-flex items-center px-2.5 rounded-lg text-xs font-medium bg-slate-50 dark:bg-[#1A1F2C] hover:bg-slate-100 dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-[#232A3B] transition truncate max-w-[170px] cursor-pointer select-none active:scale-95"
+            className="h-7 shrink-0 whitespace-nowrap inline-flex items-center px-2.5 rounded-lg text-xs font-medium bg-slate-50 dark:bg-[#1A1F2C] hover:bg-slate-100 dark:hover:bg-[#232A3B] text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-[#232A3B] transition truncate max-w-[150px] cursor-pointer select-none active:scale-95"
             title={`${snippet.shortcut} - ${snippet.text}`}
           >
             {snippet.label}
@@ -1182,15 +1185,15 @@ export function ChatInput({
 
           {/* Banner de Borrador Sugerido por el Copiloto IA */}
           {aiDraft && (
-            <div className="mx-2.5 mb-1.5 p-2.5 rounded-xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-blue-50/90 dark:from-[#0052FF]/15 dark:via-[#1A1F2C] dark:to-[#0052FF]/15 border border-blue-200 dark:border-blue-500/30 text-xs shadow-xs animate-in fade-in slide-in-from-bottom-1">
-              <div className="flex items-start justify-between gap-2">
+            <div className="mx-2.5 mb-1.5 p-2 rounded-xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-blue-50/90 dark:from-[#0052FF]/15 dark:via-[#1A1F2C] dark:to-[#0052FF]/15 border border-blue-200 dark:border-blue-500/30 text-xs shadow-xs animate-in fade-in slide-in-from-bottom-1">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-start gap-2 min-w-0">
                   <Sparkles className="w-3.5 h-3.5 text-[#0052FF] dark:text-[#00D2FF] shrink-0 mt-0.5" />
                   <div className="min-w-0">
                     <span className="font-semibold text-slate-900 dark:text-white block text-[11px]">
                       Sugerencia del Copiloto IA:
                     </span>
-                    <p className="text-slate-700 dark:text-slate-300 text-xs italic mt-0.5 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-slate-700 dark:text-slate-300 text-xs italic mt-0.5 line-clamp-2 leading-snug" title={aiDraft}>
                       &ldquo;{aiDraft}&rdquo;
                     </p>
                   </div>
