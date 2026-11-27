@@ -44,7 +44,7 @@ import {
   selectTurnChain,
 } from '@/lib/ai/config';
 import { composePlaybookAndBusinessPrompt } from '@/lib/ai/sales-playbook';
-import { resolveEffectiveWorkflowState } from '@/lib/types/workflow';
+import { resolveEffectiveWorkflowState, type EffectiveWorkflowState } from '@/lib/types/workflow';
 import {
   EnrichedGalleryItem,
   buildProductCardCaption,
@@ -742,6 +742,7 @@ export function buildDynamicContextBlock(params: {
   history?: Array<{ sender_type: string; content: string }>;
   organization?: any;
   latestOrder?: any;
+  effectiveWorkflow?: EffectiveWorkflowState;
 }): string {
   const {
     orgTimezone,
@@ -759,6 +760,7 @@ export function buildDynamicContextBlock(params: {
     history = [],
     organization = null,
     latestOrder = null,
+    effectiveWorkflow,
   } = params;
   let currentLocalTime = '';
   try {
@@ -975,6 +977,32 @@ ${copilotPrescription.prohibitedActions.map((a) => `- ${a}`).join('\n')}
 REGLA DE ORO DE FIJACIÓN AL PROMPT: Cada argumento, sede física, garantía, precio, descuento o método de despacho DEBE existir explícitamente en el prompt o catálogo de la empresa. Prohibido inventar datos o asumir sedes físicas/garantías no descritas.
 </copiloto_estrategico_de_ventas>`;
 
+  const workflowRuntimeBlock = effectiveWorkflow
+    ? `\n<flujo_operativo_actual prioridad="MAXIMA">
+Franja horaria: ${effectiveWorkflow.isWithinBusinessHours ? 'DENTRO DE HORARIO LABORAL' : 'FUERA DE HORARIO LABORAL'}.
+Rol activo: ${
+        effectiveWorkflow.role === 'qualify_and_handoff'
+          ? 'RECEPCIÓN Y RELEVO A ASESOR (captura datos clave y llama request_human_handoff para pasar al asesor).'
+          : effectiveWorkflow.role === 'assist_only'
+          ? 'ASISTENCIA PUNTUAL SIN CIERRE (responde dudas puntuales, NO cierres venta ni crees pedidos; deja el cierre al asesor).'
+          : 'CIERRE AUTÓNOMO (puedes asesorar, cotizar y cerrar según reglas).'
+      }
+Política de precios en este turno: ${
+        effectiveWorkflow.canDisclosePrices
+          ? 'PERMITIDO dar precios oficiales del catálogo.'
+          : 'PROHIBIDO dar precios, cifras o cotizaciones en este horario; indica que un asesor le dará el valor exacto.'
+      }${
+        effectiveWorkflow.requiredFields.length > 0
+          ? `\nDatos obligatorios a capturar antes de relevar/cotizar: ${effectiveWorkflow.requiredFields.join(', ')}.`
+          : ''
+      }${
+        effectiveWorkflow.responseStyle === 'strict'
+          ? '\nPertinencia: ESTRICTA — responde únicamente lo que el cliente preguntó, sin información extra no solicitada.'
+          : ''
+      }
+</flujo_operativo_actual>`
+    : '';
+
   const shippingCfg = organization?.appointment_settings?.shipping_settings;
   let shippingQuoteReminder = '';
   if (shippingCfg?.enabled && !shippingCfg?.codFreeShipping) {
@@ -992,7 +1020,7 @@ Nombre: ${contactData?.name || leadName || 'No registrado'} | Etapa CRM: ${conta
 Interés: ${interest}${painPointDisplay}${purchasingPowerDisplay}
 Objetivo: ${recAction.label} — ${recAction.playbookTip}${summaryText ? `\nResumen previo: ${summaryText}` : ''}${orderNote ? `\n${orderNote}` : ''}
 </estado_y_perfil>
-<catalogo_y_reglas>${businessModelBlock}${copilotBlock}${pipelineRules}${leadProfilingRules}${gallerySummary}${extendedCatalogBlock}
+<catalogo_y_reglas>${businessModelBlock}${copilotBlock}${workflowRuntimeBlock}${pipelineRules}${leadProfilingRules}${gallerySummary}${extendedCatalogBlock}
 </catalogo_y_reglas>
 <alertas_turno>${pendingDraftBlock}${sentInfoBlock}${zeroInsistenceRule}${afterHoursInstruction}${delayInstruction}${antiDuplicateInstruction}${shippingQuoteReminder}
 </alertas_turno>
@@ -1580,6 +1608,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           history: dbMessages,
           organization: orgData,
           latestOrder: latestLiveOrder || null,
+          effectiveWorkflow,
         }),
       });
 

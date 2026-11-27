@@ -169,6 +169,7 @@ interface SettingsFormProps {
     attendanceModality?: 'in_person' | 'virtual' | 'both';
     physicalAddress?: string;
     virtualMeetingUrl?: string;
+    workflowPolicy?: Partial<import('@/lib/types/workflow').WorkflowPolicy> | null;
     instagramAccountId?: string;
     hasInstagramToken?: boolean;
     whatsappProvider?: 'meta' | 'evolution';
