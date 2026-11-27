@@ -808,6 +808,36 @@ function buildBaseCopilotPrescription(
         (alreadySentPhotosCount > 0 && isOperationalOrAvailabilityQuestion && !wantsExplicitResend) ||
         (Boolean(quotedCardMatch) && !wantsExplicitResend);
 
+      const spData = organization?.structured_prompt_data || organization?.structured_prompt || {};
+      const catalogItemsForMatch: any[] = [
+        ...(Array.isArray(spData.gallery) ? spData.gallery : []),
+        ...(Array.isArray(spData.catalog) ? spData.catalog : []),
+      ];
+      const normLeadForMatch = lastLeadText
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      const hasAdOrVisualRef =
+        /\[Publicaci[oó]n\/Anuncio compartido:|\[IMAGE_URL:|\[Consulta de cat[aá]logo:|\[Cita:/i.test(lastLeadText);
+      const mentionsCatalogItem = catalogItemsForMatch.some((item) => {
+        const words = String(item?.name || item?.productName || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length >= 4 && !/^(para|con|sin|los|las|una|unos|unas|mini|gran)$/.test(w));
+        return words.length > 0 && words.every((w) => normLeadForMatch.includes(w));
+      });
+      const isGenericBroadInquiry =
+        alreadySentPhotosCount === 0 &&
+        !activeProductFocus &&
+        !hasAdOrVisualRef &&
+        !mentionsCatalogItem &&
+        lastLeadText.trim().length <= 100 &&
+        /(hola|buen[oa]s|quiero\s+m[aá]s\s+info|m[aá]s\s+informaci[oó]n|\binfo(?:rmaci[oó]n)?\b|cat[aá]logo|precios?|cu[aá]nto\s+(?:cuesta|vale)n?)/i.test(
+          normLeadForMatch
+        );
+
       return {
         friction,
         frictionLabel,
@@ -815,11 +845,15 @@ function buildBaseCopilotPrescription(
         tacticKey: hasConsultativeDoubt ? 'consultative_advice_and_card' : 'visual_card_and_advance',
         tacticName: suppressCardResend
           ? 'Respuesta Directa sin Reenviar Catálogo'
+          : isGenericBroadInquiry
+          ? 'Presentación de Opciones y Clarificación'
           : hasConsultativeDoubt
           ? 'Asesoría Consultiva Prioritaria & Tarjeta Visual'
           : 'Atención Visual con Tarjeta y Micro-Avance',
         copilotDirective: suppressCardResend
           ? `El cliente ya vio fotos en el chat${activeProductFocus ? ` (producto en foco: ${activeProductFocus})` : ''}. Responde directamente su consulta puntual en 1 solo mensaje claro (160–360 caracteres) sin reenviar fotos ni repetir el catálogo.`
+          : isGenericBroadInquiry
+          ? 'El cliente hizo una consulta abierta ("quiero más información" / "precio") sin indicar modelo ni traer foto de anuncio. PROHIBIDO adivinar y enviar tarjeta de un solo producto. Lista brevemente las opciones/modelos disponibles con su precio y pregúntale cuál le interesa o cuál vio en el anuncio para enviarle su foto y medidas.'
           : hasConsultativeDoubt
           ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Responde primero su duda con empatía en 1 mensaje claro y, si aún no ha visto la foto del modelo ideal, envía send_product_card.'
           : 'Envía send_product_card con foto oficial y precio (solo si aún no se ha enviado esa foto en este chat) y haz una pregunta corta de micro-avance.',
@@ -830,11 +864,15 @@ function buildBaseCopilotPrescription(
                 'Prohibido llamar a send_product_card o reenviar fotos que el cliente ya tiene en el chat.',
                 ...(activeProductFocus ? [`Prohibido preguntar qué modelo busca; el foco ya es "${activeProductFocus}".`] : []),
               ]
+            : isGenericBroadInquiry
+            ? ['Prohibido llamar a send_product_card o send_whatsapp_image adivinando un solo producto cuando el cliente no especificó cuál busca.']
             : ['Prohibido preguntar "¿quieres que te envíe fotos?"; envía la tarjeta directo si aún no la tiene.']),
           ...(hasConsultativeDoubt ? ['Prohibido ignorar la pregunta del cliente para emitir únicamente un gancho de cierre'] : []),
         ],
         suggestedClosingQuestion: activeProductFocus
           ? `¿Te gustaría confirmar tu pedido de ${activeProductFocus} o resolver alguna duda adicional?`
+          : isGenericBroadInquiry
+          ? '¿Cuál de estos modelos te gustaría ver en foto o cuál viste en el anuncio?'
           : hasConsultativeDoubt
           ? '¿Te gustaría apartarla desde hoy o prefieres conocer algún detalle adicional?'
           : '¿Para entrega en qué ciudad sería?',

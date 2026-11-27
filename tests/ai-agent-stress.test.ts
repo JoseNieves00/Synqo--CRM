@@ -321,4 +321,16 @@ const memWithCod = extractSentInformationSummary([
 ]);
 assert.ok(memWithCod.some((s) => s.includes('Contraentrega') && s.includes('PROHIBIDO volver a preguntarle')));
 
-console.log('✅ ai-agent-stress.test.ts: 25/25 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');
+// 26. Consulta abierta ("¡Hola! Quiero más información") sin anuncio ni producto -> NO adivinar un solo modelo
+const openInfoDiagnosis = diagnoseCopilotTurn({
+  history: [{ sender_type: 'lead', content: '¡Hola! Quiero más información' }],
+  contactData: { pipeline_stage: 'nuevo', custom_fields: {} },
+  organization: filippoOrg,
+});
+assert.equal(openInfoDiagnosis.tacticName, 'Presentación de Opciones y Clarificación');
+assert.ok(
+  openInfoDiagnosis.prohibitedActions.some((a) => a.includes('adivinando un solo producto')),
+  'Debe prohibir enviar tarjeta de un solo producto al azar'
+);
+
+console.log('✅ ai-agent-stress.test.ts: 26/26 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');

@@ -1730,7 +1730,17 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               const validated = SendProductCardToolSchema.parse(functionArgs);
               const matched = findGalleryProductMatch(galleryItems, validated.product_name_or_id, validated.image_role);
 
-              if (!matched) {
+              const isBlockedAmbiguousCard =
+                turnCopilot.tacticName === 'Presentación de Opciones y Clarificación' &&
+                previouslySentGalleryUrls.size === 0;
+
+              if (isBlockedAmbiguousCard) {
+                toolResult = JSON.stringify({
+                  status: 'blocked_ambiguous_inquiry',
+                  instructions_for_assistant:
+                    'El cliente aún no especificó qué producto o modelo busca (ni hay imagen de anuncio). NO envíes tarjeta de un solo modelo al azar; lista brevemente los modelos disponibles con sus precios y pregúntale cuál le interesa o cuál vio en el anuncio.',
+                });
+              } else if (!matched) {
                 toolResult = JSON.stringify({
                   status: 'not_found',
                   message:
