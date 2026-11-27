@@ -294,6 +294,17 @@ export function ShippingSettings({ initialSettings }: ShippingSettingsProps) {
             <p className="text-[10px] text-slate-400 mt-1">
               Informa al cliente si puede pagar al recibir.
             </p>
+            {settings.allowCashOnDelivery && (
+              <label className="mt-2.5 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.codFreeShipping)}
+                  onChange={(e) => setSettings({ ...settings, codFreeShipping: e.target.checked })}
+                  className="rounded border-slate-300 text-[#0052FF] focus:ring-[#0052FF]"
+                />
+                <span>¿Contraentrega exime del flete? (si no, se suma al total)</span>
+              </label>
+            )}
           </div>
         </div>
 

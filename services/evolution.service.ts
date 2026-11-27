@@ -653,6 +653,15 @@ export class EvolutionService {
   }
 
   /**
+   * Extrae los dígitos telefónicos limpios de un JID de WhatsApp (@s.whatsapp.net, @c.us, @lid).
+   */
+  static extractPhoneFromJid(jid: string | null | undefined): string {
+    return String(jid || '')
+      .replace(/@c\.us|@s\.whatsapp\.net|@lid/g, '')
+      .replace(/[^\d]/g, '');
+  }
+
+  /**
    * Obtiene la lista de chats recientes de la instancia para importación controlada al CRM.
    * Endpoint oficial: POST /chat/findChats/{instance}
    */
@@ -660,7 +669,8 @@ export class EvolutionService {
     apiUrl,
     apiKey,
     instanceName,
-  }: EvolutionCredentials): Promise<any[]> {
+    limit = 50,
+  }: EvolutionCredentials & { limit?: number }): Promise<any[]> {
     const baseUrl = this.resolveBaseUrl(apiUrl);
     const cleanInstance = this.sanitizeInstanceName(instanceName);
     const url = `${baseUrl}/chat/findChats/${cleanInstance}`;
@@ -671,6 +681,7 @@ export class EvolutionService {
         headers: this.buildHeaders(apiKey),
         body: JSON.stringify({}),
         cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {
@@ -678,7 +689,8 @@ export class EvolutionService {
       }
 
       const data = await response.json();
-      return Array.isArray(data) ? data : data.chats || [];
+      const chats = Array.isArray(data) ? data : data.chats || [];
+      return limit > 0 ? chats.slice(0, limit) : chats;
     } catch (err: any) {
       console.warn('[EVOLUTION GET CHATS ERROR]', err.message);
       return [];

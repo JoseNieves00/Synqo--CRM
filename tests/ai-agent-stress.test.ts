@@ -15,6 +15,10 @@ import {
   computeHybridBlendedCostPer1MUsd,
   HYBRID_BLENDED_COST_PER_1M_USD,
 } from '../services/erp.service';
+import { matchesOrderSearchQuery } from '../lib/crm/order-search';
+import { EvolutionService } from '../services/evolution.service';
+import { formatShippingPolicyPrompt } from '../lib/types/shipping';
+import { ORDER_STATUSES } from '../lib/crm/constants';
 
 console.log('🧪 Iniciando Mega Simulación de Estrés del Agente IA (Productos / Servicios / Híbrido)...');
 
@@ -266,4 +270,48 @@ const erpForecast = calculateOpenAiLiquidityForecast({
 assert.equal(erpForecast.estimatedCostPer1MTokensUsd, HYBRID_BLENDED_COST_PER_1M_USD);
 assert.equal(erpForecast.isSufficient, false, 'Debe alertar déficit cuando el saldo no cubre el compromiso híbrido');
 
-console.log('✅ ai-agent-stress.test.ts: 20/20 escenarios multi-nicho, enrutador híbrido y ERP pasaron');
+// 21. Búsqueda normalizada de contactos en Pedidos (sin tildes, teléfono con espacios/+)
+const sampleOrder = {
+  customer_name: 'José María Pérez',
+  customer_phone: '+57 305 906 1271',
+  city: 'Valledupar',
+  items: [{ product_name: 'Cocina + nevera' }],
+};
+assert.equal(matchesOrderSearchQuery(sampleOrder, 'jose maria'), true);
+assert.equal(matchesOrderSearchQuery(sampleOrder, '3059061271'), true);
+assert.equal(matchesOrderSearchQuery(sampleOrder, '305 906'), true);
+assert.equal(matchesOrderSearchQuery(sampleOrder, 'nevera'), true);
+assert.equal(matchesOrderSearchQuery(sampleOrder, 'medellin'), false);
+
+// 22. Extracción limpia de JID en Evolution API (@s.whatsapp.net, @lid, @c.us)
+assert.equal(EvolutionService.extractPhoneFromJid('573059061271@s.whatsapp.net'), '573059061271');
+assert.equal(EvolutionService.extractPhoneFromJid('123456789012345@lid'), '123456789012345');
+assert.equal(EvolutionService.extractPhoneFromJid('+57 305 906 1271'), '573059061271');
+
+// 23. Política de envío exige desglose Producto + Envío = Total fuera de ciudad sede (y respeta codFreeShipping)
+const shippingBlock = formatShippingPolicyPrompt({
+  enabled: true,
+  baseRate: 35000,
+  allowCashOnDelivery: true,
+  codFreeShipping: false,
+  carrierNames: 'Interrapidísimo',
+  cityRates: [],
+});
+assert.ok(shippingBlock.includes('Interrapidísimo'));
+assert.ok(shippingBlock.includes('REGLA OBLIGATORIA DE COTIZACIÓN CON FLETE'));
+assert.ok(shippingBlock.includes('NO exime del flete'));
+
+const shippingBlockCodFree = formatShippingPolicyPrompt({
+  enabled: true,
+  baseRate: 35000,
+  allowCashOnDelivery: true,
+  codFreeShipping: true,
+  carrierNames: 'Interrapidísimo',
+  cityRates: [],
+});
+assert.ok(shippingBlockCodFree.includes('envío está incluido/gratis'));
+
+// 24. Flujo de estados de pedido incluye 'shipped' (En Camino) para seguimiento contraentrega
+assert.ok(ORDER_STATUSES.includes('shipped'));
+
+console.log('✅ ai-agent-stress.test.ts: 24/24 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');

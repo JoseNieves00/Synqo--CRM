@@ -375,10 +375,27 @@ export class InboundCoreService {
     if (channel === 'instagram') {
       contactQuery = contactQuery.eq('instagram_id', senderId);
     } else {
-      contactQuery = contactQuery.eq('phone', senderId);
+      const cleanDigits = senderId.replace(/[^\d]/g, '');
+      const jidDigits = payload.remoteJid ? payload.remoteJid.replace(/@c\.us|@s\.whatsapp\.net|@lid/g, '').replace(/[^\d]/g, '') : '';
+      const phoneCandidates = Array.from(
+        new Set(
+          [
+            senderId,
+            cleanDigits,
+            cleanDigits ? `+${cleanDigits}` : '',
+            jidDigits,
+            jidDigits ? `+${jidDigits}` : '',
+          ].filter(Boolean)
+        )
+      );
+      if (phoneCandidates.length > 1) {
+        contactQuery = contactQuery.in('phone', phoneCandidates);
+      } else {
+        contactQuery = contactQuery.eq('phone', senderId);
+      }
     }
 
-    const { data: existingContact } = await contactQuery.maybeSingle();
+    const { data: existingContact } = await contactQuery.limit(1).maybeSingle();
 
     let isTagAiExempt = false;
     let tagExemptReason: string | undefined = undefined;

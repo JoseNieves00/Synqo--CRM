@@ -88,7 +88,7 @@ export default async function InboxPage({ searchParams }: InboxPageProps) {
   ]);
 
   const contactList = inboxRes.contacts || [];
-  const targetContactId = searchParams?.c;
+  const targetContactId = searchParams?.c || (searchParams as any)?.contactId;
   let activeContact = targetContactId
     ? contactList.find((c: any) => c.id === targetContactId) || null
     : contactList.length > 0 ? contactList[0] : null;

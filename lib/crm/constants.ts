@@ -11,12 +11,13 @@ export const TAG_COLORS = [
 
 export type TagColor = (typeof TAG_COLORS)[number];
 
-export type OrderStatus = 'pending' | 'confirmed' | 'paid' | 'delivered' | 'cancelled';
+export type OrderStatus = 'pending' | 'confirmed' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
 
 export const ORDER_STATUSES: OrderStatus[] = [
   'pending',
   'confirmed',
   'paid',
+  'shipped',
   'delivered',
   'cancelled',
 ];

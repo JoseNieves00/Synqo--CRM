@@ -118,7 +118,7 @@ async function runTests() {
   assert.strictEqual(isAiExemptTag('Cliente frecuente'), false, 'Cliente frecuente no debe ser exento');
   assert.strictEqual(isAiExemptTag('Mayorista Bogotá'), false, 'Mayorista no debe ser exento');
 
-  assert.deepStrictEqual(ORDER_STATUSES, ['pending', 'confirmed', 'paid', 'delivered', 'cancelled']);
+  assert.deepStrictEqual(ORDER_STATUSES, ['pending', 'confirmed', 'paid', 'shipped', 'delivered', 'cancelled']);
   assert.strictEqual(typeof OrderService.recordOrder, 'function');
 
   assert.strictEqual(MAX_CAMPAIGN_RECIPIENTS, 500);

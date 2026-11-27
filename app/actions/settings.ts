@@ -974,6 +974,7 @@ export async function saveOrganizationShippingSettings(
     enabled: settings.enabled ?? true,
     baseRate: Math.max(0, Number(settings.baseRate) || 0),
     allowCashOnDelivery: Boolean(settings.allowCashOnDelivery),
+    codFreeShipping: Boolean(settings.codFreeShipping),
     freeShippingMinAmount: settings.freeShippingMinAmount ? Math.max(0, Number(settings.freeShippingMinAmount)) : null,
     carrierNames: settings.carrierNames?.trim().slice(0, 160) || 'Coordinadora, Envía, Interrapidísimo',
     generalPolicy: settings.generalPolicy?.trim().slice(0, 500) || undefined,

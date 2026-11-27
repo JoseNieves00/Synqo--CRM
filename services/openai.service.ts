@@ -718,6 +718,7 @@ export function buildDynamicContextBlock(params: {
   stageCriteria?: Record<string, string>;
   history?: Array<{ sender_type: string; content: string }>;
   organization?: any;
+  latestOrder?: any;
 }): string {
   const {
     orgTimezone,
@@ -734,6 +735,7 @@ export function buildDynamicContextBlock(params: {
     stageCriteria = {},
     history = [],
     organization = null,
+    latestOrder = null,
   } = params;
   let currentLocalTime = '';
   try {
@@ -773,7 +775,10 @@ export function buildDynamicContextBlock(params: {
   const summaryText = cf.ai_summary?.summary_text
     ? String(cf.ai_summary.summary_text).replace(/\n/g, ' | ')
     : '';
-  const orderNote = cf.order
+  const liveOrder = latestOrder;
+  const orderNote = liveOrder
+    ? `Pedido activo (${liveOrder.status}): $${Number(liveOrder.total || 0).toLocaleString('es-CO')} COP${liveOrder.city ? ` · ${liveOrder.city}` : ''}${liveOrder.carrier ? ` · Transportadora: ${liveOrder.carrier}` : ''}${liveOrder.tracking_number ? ` · Guía: #${liveOrder.tracking_number}` : ''}`
+    : cf.order
     ? `Pedido previo registrado por $${Number(cf.order.total || contactData?.deal_value || 0).toLocaleString('es-CO')} (${cf.order.ciudad || ''})`
     : '';
 
@@ -1317,8 +1322,15 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         { role: 'system', content: staticSystemPrompt },
       ];
 
-      // Historial conversacional (fotos antiguas reemplazadas por texto para no re-enviar visión)
+      // Historial conversacional (fotos antiguas ya respondidas se reemplazan por texto; las del bloque actual sin responder se envían con Visión)
       const totalCount = dbMessages.length;
+      let lastAgentMsgIdx = -1;
+      for (let j = totalCount - 1; j >= 0; j--) {
+        if (dbMessages[j].sender_type === 'ai' || dbMessages[j].sender_type === 'agent_manual') {
+          lastAgentMsgIdx = j;
+          break;
+        }
+      }
       for (let i = 0; i < totalCount; i++) {
         const msg = dbMessages[i];
         let contentText = msg.content || '';
@@ -1386,13 +1398,16 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
             }
           }
 
-          const isLatestTurn = i === totalCount - 1;
-          if (imageMatch && isLatestTurn) {
+          const isUnansweredBurstTurn = i > lastAgentMsgIdx;
+          if (imageMatch && isUnansweredBurstTurn) {
             conversationHistory.push({
               role: 'user',
               content: [
-                { type: 'text', text: contentText },
-                { type: 'image_url', image_url: { url: imageMatch[0], detail: 'low' } },
+                {
+                  type: 'text',
+                  text: `${contentText}\n[INSTRUCCIÓN VISUAL: Observa con precisión esta imagen enviada por el cliente y compárala contra el catálogo disponible (productos, piezas, tamaño, accesorios) antes de responder.]`,
+                },
+                { type: 'image_url', image_url: { url: imageMatch[0], detail: 'auto' } },
               ],
             });
           } else if (imageMatch) {
@@ -1494,6 +1509,16 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         : [];
       const overflowCatalog = rawStoredCatalog.length > 15 ? rawStoredCatalog.slice(15, 100) : [];
       const sentInformationSummary = extractSentInformationSummary(dbMessages);
+      const { data: latestLiveOrder } = await (supabaseAdmin.from('orders') as any)
+        .select('status, total, subtotal, shipping_cost, city, carrier, tracking_number')
+        .eq('organization_id', organizationId)
+        .eq('contact_id', contactId)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .catch(() => ({ data: null }));
+
       conversationHistory.push({
         role: 'system',
         content: buildDynamicContextBlock({
@@ -1511,6 +1536,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
           stageCriteria: (orgData?.appointment_settings as any)?.stage_criteria,
           history: dbMessages,
           organization: orgData,
+          latestOrder: latestLiveOrder || null,
         }),
       });
 
@@ -1540,7 +1566,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       });
       const hasPaymentOrReceiptSignal =
         Boolean((contactData?.custom_fields as any)?.has_pending_receipt) ||
-        /\b(comprobante|transferencia|nequi|daviplata|bancolombia|pse|abono|separe|pagu[eé]|consign)\b/i.test(
+        /\b(comprobante|transferencia|nequi|daviplata|bancolombia|pse|abono|separe|pagu[eé]|consign|contraentrega|direcci[oó]n|carrera|calle|barrio|ciudad|despacho|confirmar pedido)\b/i.test(
           lastLeadContentForGuards
         );
       const hasMultiProductOrObjectionSignal =
@@ -2101,6 +2127,48 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 continue;
               }
 
+              // Guard determinista anti-confusión de ciudad: si la IA puso la ciudad de la tienda
+              // (ej: Valledupar) pero el cliente nunca la mencionó y sí respondió otra ciudad tras la pregunta de entrega, usar la ciudad real del cliente.
+              let resolvedOrderCity = validated.ciudad || null;
+              if (resolvedOrderCity) {
+                const normCity = (s: string) =>
+                  s
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase()
+                    .trim();
+                const leadCombined = dbMessages
+                  .filter((m: any) => m.sender_type === 'lead')
+                  .map((m: any) => String(m.content || ''))
+                  .join(' ');
+                const normLeadCombined = normCity(leadCombined);
+                const normChosen = normCity(resolvedOrderCity);
+                const chosenMentionedByLead = normChosen.length >= 3 && normLeadCombined.includes(normChosen);
+
+                if (!chosenMentionedByLead) {
+                  for (let idx = 0; idx < dbMessages.length - 1; idx++) {
+                    const cur = dbMessages[idx];
+                    if (
+                      (cur.sender_type === 'ai' || cur.sender_type === 'agent_manual') &&
+                      /\b(qu[eé]\s+ciudad|para\s+entrega\s+en|ciudad\s+de\s+destino|en\s+qu[eé]\s+ciudad)\b/i.test(String(cur.content || ''))
+                    ) {
+                      for (let k = idx + 1; k < Math.min(dbMessages.length, idx + 4); k++) {
+                        if (dbMessages[k].sender_type !== 'lead') continue;
+                        const candidateCity = String(dbMessages[k].content || '').trim();
+                        if (
+                          candidateCity.length >= 3 &&
+                          candidateCity.length <= 60 &&
+                          !/\b(donde|ubica|precio|cuanto|vale|hola|foto|imagen)\b/i.test(normCity(candidateCity))
+                        ) {
+                          resolvedOrderCity = candidateCity;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
               orderOrBookingCompletedThisTurn = true;
               leadProfileUpdatedThisTurn = true;
               const cf = { ...(latestC?.custom_fields || {}) };
@@ -2110,6 +2178,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
               cf.deal_value = validated.total;
               cf.order = {
                 ...validated,
+                ciudad: resolvedOrderCity || validated.ciudad,
                 created_at: nowIso,
                 created_by: 'ai',
               };
@@ -2145,7 +2214,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 customerName: validated.nombre,
                 customerPhone: validated.telefono,
                 address: validated.direccion || null,
-                city: validated.ciudad || null,
+                city: resolvedOrderCity,
                 notes: validated.notas || null,
                 source: 'ai',
                 isSepare: validated.is_separe,
@@ -2155,7 +2224,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
               const itemsStr = validated.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');
               if (!orderResult?.deduplicated) {
-                const deliveryLabel = [validated.ciudad, validated.direccion].filter(Boolean).join(' - ');
+                const deliveryLabel = [resolvedOrderCity, validated.direccion].filter(Boolean).join(' - ');
                 const separeSuffix = validated.is_separe
                   ? ` · [Plan Separe] Abono: $${Number(validated.deposit_paid || 0).toLocaleString('es-CO')} | Saldo: $${Number(validated.balance_due || 0).toLocaleString('es-CO')}`
                   : '';
@@ -2167,13 +2236,34 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 });
               }
 
-              // Notificar al equipo para despacho sin pausar la IA
+              // Notificar al equipo para despacho sin pausar la IA (permitiendo alerta aunque el pedido cierre la etapa a ganado)
               HandoffService.notifyHandoff({
                 organizationId,
                 contactId,
-                reason: `Pedido confirmado por IA: ${itemsStr} ($${validated.total.toLocaleString('es-CO')})${validated.ciudad ? ` - ${validated.ciudad}` : ''}`,
+                reason: `Pedido confirmado por IA: ${itemsStr} ($${validated.total.toLocaleString('es-CO')})${resolvedOrderCity ? ` - ${resolvedOrderCity}` : ''}`,
                 channel: (channel as any) || 'whatsapp',
+                allowClosedOrderAlert: true,
               }).catch(() => {});
+
+              // Notificar directamente al admin con WhatsApp configurado sobre el nuevo pedido
+              if (!orderResult?.deduplicated) {
+                HandoffService.notifyOrderCreated({
+                  organizationId,
+                  contactId,
+                  customerName: validated.nombre,
+                  customerPhone: validated.telefono,
+                  itemsSummary: itemsStr,
+                  total: validated.total,
+                  paymentMethod: validated.metodo_pago || (validated.is_separe ? 'Plan Separe' : null),
+                  city: resolvedOrderCity,
+                  address: validated.direccion || null,
+                  isSepare: validated.is_separe,
+                  depositPaid: validated.deposit_paid,
+                  balanceDue: validated.balance_due,
+                  notes: validated.notas || null,
+                  source: 'ai',
+                }).catch(() => {});
+              }
 
               toolResult = JSON.stringify({
                 status: 'order_created',

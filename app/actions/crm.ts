@@ -8,6 +8,8 @@ import { LeadScoreService } from '@/services/lead-score.service';
 import { TagService, TAG_COLORS, type TagColor, normalizeTagName, isAiExemptTag } from '@/services/tag.service';
 import { OrderService, ORDER_STATUSES, type OrderStatus, type OrderItemInput } from '@/services/order.service';
 import { CampaignService, buildCampaignAudienceQuery } from '@/services/campaign.service';
+import { MessagingService } from '@/services/messaging.service';
+import { formatImageMessageContent } from '@/lib/media/format';
 import { isLeadWindowOpen } from '@/services/contact.service';
 import {
   applyCustomerFilters,
@@ -20,6 +22,7 @@ import {
   resolveCampaignTemplates,
   type CampaignTemplatePreset,
 } from '@/lib/crm/campaign-templates';
+import { matchesOrderSearchQuery } from '@/lib/crm/order-search';
 
 async function requireOrgMember() {
   const supabase = createServerSupabaseClient();
@@ -564,42 +567,336 @@ export async function createManualOrderAction(input: {
   return { success: true, orderId: recorded.id };
 }
 
-export async function updateOrderStatusAction(input: { orderId: string; status: OrderStatus }) {
+async function recalculateContactOrderSync(orgId: string, contactId: string) {
+  const { data: activeOrders } = await (supabaseAdmin.from('orders') as any)
+    .select('id, items, total, city, is_separe, deposit_paid, balance_due, status, created_at')
+    .eq('organization_id', orgId)
+    .eq('contact_id', contactId)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false });
+
+  const list = activeOrders || [];
+  const ltv = list.reduce((acc: number, o: any) => acc + Number(o.total || 0), 0);
+  const { data: contact } = await (supabaseAdmin.from('contacts') as any)
+    .select('custom_fields')
+    .eq('id', contactId)
+    .eq('organization_id', orgId)
+    .maybeSingle();
+
+  const cf = { ...(contact?.custom_fields || {}) };
+  if (list.length > 0) {
+    const latest = list[0];
+    cf.deal_value = ltv;
+    cf.order = {
+      ...(cf.order || {}),
+      items: latest.items,
+      total: latest.total,
+      ciudad: latest.city,
+      status: latest.status,
+      updated_at: new Date().toISOString(),
+    };
+  } else {
+    delete cf.order;
+    cf.deal_value = 0;
+  }
+
+  await (supabaseAdmin.from('contacts') as any)
+    .update({ deal_value: ltv, custom_fields: cf, updated_at: new Date().toISOString() })
+    .eq('id', contactId)
+    .eq('organization_id', orgId);
+
+  return ltv;
+}
+
+async function notifyCustomerOrderUpdate(params: {
+  orgId: string;
+  contactId: string;
+  messageBody: string;
+  guideUrl?: string | null;
+}) {
+  try {
+    const [{ data: org }, { data: contact }] = await Promise.all([
+      (supabaseAdmin.from('organizations') as any)
+        .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode')
+        .eq('id', params.orgId)
+        .single(),
+      (supabaseAdmin.from('contacts') as any)
+        .select('id, phone, channel, custom_fields, last_lead_message_at, last_interaction_at')
+        .eq('id', params.contactId)
+        .eq('organization_id', params.orgId)
+        .single(),
+    ]);
+    if (!org || !contact?.phone) return { sent: false, reason: 'Sin teléfono o empresa' };
+
+    if (org.whatsapp_provider !== 'evolution' && !isLeadWindowOpen(contact)) {
+      return { sent: false, reason: 'Ventana de 24h de Meta cerrada' };
+    }
+
+    const recipient = contact.custom_fields?.remote_jid || contact.phone;
+    const isImageGuide = Boolean(params.guideUrl && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(params.guideUrl));
+    if (isImageGuide && params.guideUrl) {
+      await MessagingService.sendMediaMessage({
+        organization: org,
+        to: recipient,
+        mediaUrl: params.guideUrl,
+        caption: params.messageBody,
+      });
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contact.id,
+        sender_type: 'agent_manual',
+        content: formatImageMessageContent(params.guideUrl, params.messageBody),
+        channel: contact.channel || 'whatsapp',
+      });
+    } else {
+      const fullText = params.guideUrl ? `${params.messageBody}\n📎 Guía: ${params.guideUrl}` : params.messageBody;
+      await MessagingService.sendTextMessage({
+        organization: org,
+        to: recipient,
+        body: fullText,
+        simulateTyping: false,
+      });
+      await (supabaseAdmin.from('messages') as any).insert({
+        contact_id: contact.id,
+        sender_type: 'agent_manual',
+        content: fullText,
+        channel: contact.channel || 'whatsapp',
+      });
+    }
+    return { sent: true };
+  } catch (err: any) {
+    console.warn('[ORDER CUSTOMER NOTIFY WARN]', err?.message || err);
+    return { sent: false, reason: err?.message || 'Error de envío' };
+  }
+}
+
+export async function updateOrderStatusAction(input: {
+  orderId: string;
+  status: OrderStatus;
+  notifyCustomer?: boolean;
+  cancelReason?: string;
+}) {
   const { profile } = await requireOrgMember();
   const orgId = profile.organization_id;
   if (!ORDER_STATUSES.includes(input.status)) throw new Error('Estado de pedido inválido.');
 
   const { data: order, error: fetchErr } = await (supabaseAdmin.from('orders') as any)
-    .select('id, contact_id, total, status')
+    .select('id, contact_id, total, status, customer_name, payment_method, carrier, tracking_number, shipping_guide_url, notes')
     .eq('id', input.orderId)
     .eq('organization_id', orgId)
     .single();
   if (fetchErr || !order) throw new Error('Pedido no encontrado.');
 
+  const nowIso = new Date().toISOString();
+  const updatePayload: Record<string, any> = {
+    status: input.status,
+    updated_at: nowIso,
+  };
+  if (input.status === 'shipped') {
+    updatePayload.shipped_at = nowIso;
+  }
+  if (input.status === 'cancelled' && input.cancelReason?.trim()) {
+    const cleanReason = input.cancelReason.trim().slice(0, 300);
+    updatePayload.notes = order.notes ? `${order.notes}\n[Cancelado]: ${cleanReason}` : `[Cancelado]: ${cleanReason}`;
+  }
+
   const { error } = await (supabaseAdmin.from('orders') as any)
-    .update({ status: input.status, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', order.id)
     .eq('organization_id', orgId);
   if (error) throw new Error(`Error actualizando pedido: ${error.message}`);
 
-  // Recalcular LTV de pedidos no cancelados
-  const { data: activeOrders } = await (supabaseAdmin.from('orders') as any)
-    .select('total')
-    .eq('organization_id', orgId)
-    .eq('contact_id', order.contact_id)
-    .neq('status', 'cancelled');
-  const ltv = (activeOrders || []).reduce((acc: number, o: any) => acc + Number(o.total || 0), 0);
+  const ltv = await recalculateContactOrderSync(orgId, order.contact_id);
 
-  await (supabaseAdmin.from('contacts') as any)
-    .update({ deal_value: ltv, updated_at: new Date().toISOString() })
-    .eq('id', order.contact_id)
-    .eq('organization_id', orgId);
+  let customerNotified = false;
+  let notifyWarning: string | undefined;
+  if (input.notifyCustomer) {
+    const firstName = (order.customer_name || 'Cliente').split(' ')[0];
+    const statusTextMap: Record<OrderStatus, string> = {
+      pending: `Hola ${firstName}, tu pedido está pendiente de validación de pago.`,
+      confirmed: `Hola ${firstName}, ¡tu pedido está confirmado y en alistamiento para despacho! 📦`,
+      paid: `Hola ${firstName}, ¡confirmamos tu pago! Tu pedido avanza a despacho. 💳`,
+      shipped: `Hola ${firstName}, ¡tu pedido ya fue despachado! 🚚${order.carrier ? ` Transportadora: *${order.carrier}*.` : ''}${order.tracking_number ? ` Guía: *${order.tracking_number}*.` : ''}`,
+      delivered: `Hola ${firstName}, ¡tu pedido figura como entregado! Esperamos que lo disfrutes mucho. 🙌`,
+      cancelled: `Hola ${firstName}, tu pedido ha sido cancelado.${input.cancelReason ? ` Motivo: ${input.cancelReason.trim()}` : ''}`,
+    };
+    const res = await notifyCustomerOrderUpdate({
+      orgId,
+      contactId: order.contact_id,
+      messageBody: statusTextMap[input.status],
+      guideUrl: input.status === 'shipped' ? order.shipping_guide_url : null,
+    });
+    customerNotified = res.sent;
+    if (!res.sent) notifyWarning = res.reason;
+  }
 
   revalidatePath('/clientes');
   revalidatePath('/dashboard');
   revalidatePath('/inbox');
   revalidatePath('/pedidos');
-  return { success: true, ltv };
+  return { success: true, ltv, customerNotified, notifyWarning };
+}
+
+export async function updateOrderDetailsAction(input: {
+  orderId: string;
+  customer_name?: string;
+  customer_phone?: string;
+  city?: string;
+  address?: string;
+  payment_method?: string;
+  notes?: string;
+  subtotal?: number;
+  shipping_cost?: number;
+  total?: number;
+  deposit_paid?: number;
+  balance_due?: number;
+}) {
+  const { profile } = await requireOrgMember();
+  const orgId = profile.organization_id;
+
+  const { data: order } = await (supabaseAdmin.from('orders') as any)
+    .select('id, contact_id, total, subtotal, shipping_cost, is_separe')
+    .eq('id', input.orderId)
+    .eq('organization_id', orgId)
+    .single();
+  if (!order) throw new Error('Pedido no encontrado.');
+
+  const nextSubtotal = input.subtotal !== undefined ? Math.max(0, Number(input.subtotal) || 0) : Number(order.subtotal || 0);
+  const nextShipping = input.shipping_cost !== undefined ? Math.max(0, Number(input.shipping_cost) || 0) : Number(order.shipping_cost || 0);
+  const nextTotal =
+    input.total !== undefined
+      ? Math.max(0, Number(input.total) || 0)
+      : nextSubtotal > 0 || nextShipping > 0
+      ? nextSubtotal + nextShipping
+      : Number(order.total || 0);
+
+  const { error } = await (supabaseAdmin.from('orders') as any)
+    .update({
+      ...(input.customer_name !== undefined ? { customer_name: input.customer_name.trim() || null } : {}),
+      ...(input.customer_phone !== undefined ? { customer_phone: input.customer_phone.trim() || null } : {}),
+      ...(input.city !== undefined ? { city: input.city.trim() || null } : {}),
+      ...(input.address !== undefined ? { address: input.address.trim() || null } : {}),
+      ...(input.payment_method !== undefined ? { payment_method: input.payment_method.trim() || null } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes.trim() || null } : {}),
+      subtotal: nextSubtotal,
+      shipping_cost: nextShipping,
+      total: nextTotal,
+      ...(input.deposit_paid !== undefined ? { deposit_paid: Math.max(0, Number(input.deposit_paid) || 0) } : {}),
+      ...(input.balance_due !== undefined ? { balance_due: Math.max(0, Number(input.balance_due) || 0) } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', order.id)
+    .eq('organization_id', orgId);
+
+  if (error) throw new Error(`Error actualizando detalles del pedido: ${error.message}`);
+
+  await recalculateContactOrderSync(orgId, order.contact_id);
+  revalidatePath('/pedidos');
+  revalidatePath('/inbox');
+  revalidatePath('/clientes');
+  return { success: true };
+}
+
+export async function updateOrderTrackingAction(input: {
+  orderId: string;
+  carrier: string;
+  trackingNumber?: string;
+  guideFileBase64?: string;
+  guideFileName?: string;
+  guideMimeType?: string;
+  markAsShipped?: boolean;
+  notifyCustomer?: boolean;
+}) {
+  const { profile } = await requireOrgMember();
+  const orgId = profile.organization_id;
+
+  const { data: order } = await (supabaseAdmin.from('orders') as any)
+    .select('id, contact_id, customer_name, status, shipping_guide_url')
+    .eq('id', input.orderId)
+    .eq('organization_id', orgId)
+    .single();
+  if (!order) throw new Error('Pedido no encontrado.');
+
+  let guideUrl: string | null = order.shipping_guide_url || null;
+  if (input.guideFileBase64) {
+    const cleanB64 = input.guideFileBase64.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(cleanB64, 'base64');
+    const ext = (input.guideFileName?.split('.').pop() || 'jpg').replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'jpg';
+    const path = `${orgId}/guides/${order.id}_${Date.now()}.${ext}`;
+    const { error: upErr } = await supabaseAdmin.storage
+      .from('chat-media')
+      .upload(path, buffer, { contentType: input.guideMimeType || 'image/jpeg', upsert: true });
+    if (upErr) throw new Error(`Error subiendo guía: ${upErr.message}`);
+    const { data: pub } = supabaseAdmin.storage.from('chat-media').getPublicUrl(path);
+    guideUrl = pub?.publicUrl || guideUrl;
+  }
+
+  const nowIso = new Date().toISOString();
+  const nextStatus: OrderStatus = input.markAsShipped ? 'shipped' : order.status;
+  const { error } = await (supabaseAdmin.from('orders') as any)
+    .update({
+      carrier: input.carrier.trim() || null,
+      tracking_number: input.trackingNumber?.trim() || null,
+      shipping_guide_url: guideUrl,
+      status: nextStatus,
+      ...(input.markAsShipped ? { shipped_at: nowIso } : {}),
+      updated_at: nowIso,
+    })
+    .eq('id', order.id)
+    .eq('organization_id', orgId);
+  if (error) throw new Error(`Error guardando guía: ${error.message}`);
+
+  await recalculateContactOrderSync(orgId, order.contact_id);
+
+  let customerNotified = false;
+  let notifyWarning: string | undefined;
+  if (input.notifyCustomer) {
+    const firstName = (order.customer_name || 'Cliente').split(' ')[0];
+    const body = `Hola ${firstName}, ¡tu pedido ya fue despachado! 🚚\n• Transportadora: *${input.carrier.trim() || 'Transportadora'}*${input.trackingNumber?.trim() ? `\n• Número de guía: *${input.trackingNumber.trim()}*` : ''}\n\nCualquier novedad con tu entrega nos escribes por aquí.`;
+    const res = await notifyCustomerOrderUpdate({
+      orgId,
+      contactId: order.contact_id,
+      messageBody: body,
+      guideUrl,
+    });
+    customerNotified = res.sent;
+    if (!res.sent) notifyWarning = res.reason;
+  }
+
+  revalidatePath('/pedidos');
+  revalidatePath('/inbox');
+  return { success: true, guideUrl, status: nextStatus, customerNotified, notifyWarning };
+}
+
+export async function deleteOrderAction(input: { orderId: string }) {
+  const { profile } = await requireOrgMember();
+  const orgId = profile.organization_id;
+
+  const { data: order } = await (supabaseAdmin.from('orders') as any)
+    .select('id, contact_id, customer_name, total')
+    .eq('id', input.orderId)
+    .eq('organization_id', orgId)
+    .single();
+  if (!order) throw new Error('Pedido no encontrado.');
+
+  const { error } = await (supabaseAdmin.from('orders') as any)
+    .delete()
+    .eq('id', order.id)
+    .eq('organization_id', orgId);
+  if (error) throw new Error(`Error eliminando pedido: ${error.message}`);
+
+  await recalculateContactOrderSync(orgId, order.contact_id);
+  await (supabaseAdmin.from('messages') as any).insert({
+    contact_id: order.contact_id,
+    organization_id: orgId,
+    sender_type: 'system',
+    content: `[🗑️ Pedido eliminado por ${profile.full_name || 'Asesor'}: $${Number(order.total || 0).toLocaleString('es-CO')} · ${order.customer_name || 'Cliente'}]`,
+  });
+
+  revalidatePath('/pedidos');
+  revalidatePath('/inbox');
+  revalidatePath('/clientes');
+  revalidatePath('/dashboard');
+  return { success: true };
 }
 
 export interface OrderListItem {
@@ -608,6 +905,8 @@ export interface OrderListItem {
   customer_name: string | null;
   customer_phone: string | null;
   items: OrderItemInput[];
+  subtotal?: number;
+  shipping_cost?: number;
   total: number;
   status: OrderStatus;
   payment_method: string | null;
@@ -618,6 +917,10 @@ export interface OrderListItem {
   is_separe?: boolean;
   deposit_paid?: number;
   balance_due?: number;
+  carrier?: string | null;
+  tracking_number?: string | null;
+  shipping_guide_url?: string | null;
+  shipped_at?: string | null;
   created_at: string;
   updated_at: string;
   contact?: {
@@ -644,6 +947,8 @@ export async function listOrdersAction(params?: {
       customer_name,
       customer_phone,
       items,
+      subtotal,
+      shipping_cost,
       total,
       status,
       payment_method,
@@ -651,6 +956,13 @@ export async function listOrdersAction(params?: {
       city,
       notes,
       source,
+      is_separe,
+      deposit_paid,
+      balance_due,
+      carrier,
+      tracking_number,
+      shipping_guide_url,
+      shipped_at,
       created_at,
       updated_at,
       contacts:contact_id (
@@ -667,7 +979,8 @@ export async function listOrdersAction(params?: {
     query = query.eq('status', params.status);
   }
 
-  const limit = params?.limit || 100;
+  const hasSearch = Boolean(params?.search && params.search.trim());
+  const limit = params?.limit || (hasSearch ? 500 : 100);
   const offset = params?.offset || 0;
   query = query.range(offset, offset + limit - 1);
 
@@ -690,6 +1003,7 @@ export async function listOrdersAction(params?: {
     pendingValidation: (allStats || []).filter((o: any) => o.status === 'pending').length,
     confirmedToShip: (allStats || []).filter((o: any) => o.status === 'confirmed').length,
     paid: (allStats || []).filter((o: any) => o.status === 'paid').length,
+    shipped: (allStats || []).filter((o: any) => o.status === 'shipped').length,
     delivered: (allStats || []).filter((o: any) => o.status === 'delivered').length,
     cancelled: (allStats || []).filter((o: any) => o.status === 'cancelled').length,
   };
@@ -712,6 +1026,8 @@ export async function listOrdersAction(params?: {
       customer_name: o.customer_name || o.contacts?.name || 'Cliente sin nombre',
       customer_phone: o.customer_phone || o.contacts?.phone || '',
       items: Array.isArray(o.items) ? o.items : [],
+      subtotal: Number(o.subtotal || 0),
+      shipping_cost: Number(o.shipping_cost || 0),
       total: Number(o.total || 0),
       status: o.status as OrderStatus,
       payment_method: o.payment_method,
@@ -722,6 +1038,10 @@ export async function listOrdersAction(params?: {
       is_separe: isSepare,
       deposit_paid: depositPaid,
       balance_due: balanceDue,
+      carrier: o.carrier || null,
+      tracking_number: o.tracking_number || null,
+      shipping_guide_url: o.shipping_guide_url || null,
+      shipped_at: o.shipped_at || null,
       created_at: o.created_at,
       updated_at: o.updated_at,
       contact: o.contacts || null,
@@ -730,15 +1050,7 @@ export async function listOrdersAction(params?: {
 
   let filtered = orders;
   if (params?.search && params.search.trim()) {
-    const q = params.search.toLowerCase().trim();
-    filtered = orders.filter(
-      (o) =>
-        o.customer_name?.toLowerCase().includes(q) ||
-        o.customer_phone?.toLowerCase().includes(q) ||
-        o.city?.toLowerCase().includes(q) ||
-        o.notes?.toLowerCase().includes(q) ||
-        o.items.some((it) => it.product_name?.toLowerCase().includes(q))
-    );
+    filtered = orders.filter((o) => matchesOrderSearchQuery(o, params.search!));
   }
 
   return {

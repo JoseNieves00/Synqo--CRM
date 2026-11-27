@@ -478,8 +478,18 @@ export async function importRecentEvolutionChats() {
   let importedCount = 0;
   let existingCount = 0;
 
+  // 1. Pre-normalizar y deduplicar chats en memoria (sin N+1 queries a Supabase)
+  type NormalizedChatCandidate = {
+    cleanPhone: string;
+    remoteJid: string;
+    contactName: string;
+    timestamp: string;
+    lastMsgContent: string;
+    fromMe: boolean;
+  };
+  const candidatesByPhone = new Map<string, NormalizedChatCandidate>();
+
   for (const chat of rawChats) {
-    // 1. Filtrar grupos (@g.us o isGroup)
     const remoteJid = chat.remoteJid || chat.id || chat.chatId || '';
     const isGroup =
       chat.isGroup === true ||
@@ -488,15 +498,9 @@ export async function importRecentEvolutionChats() {
 
     if (isGroup) continue;
 
-    // 2. Normalizar número de teléfono (excluyendo sufijos y no dígitos)
-    const rawPhone = chat.phone || remoteJid;
-    const cleanPhone = String(rawPhone)
-      .replace(/@c\.us|@s\.whatsapp\.net|@lid/g, '')
-      .replace(/[^\d]/g, '');
+    const cleanPhone = EvolutionService.extractPhoneFromJid(chat.phone || remoteJid);
+    if (!cleanPhone || cleanPhone.length < 7 || candidatesByPhone.has(cleanPhone)) continue;
 
-    if (!cleanPhone || cleanPhone.length < 7) continue;
-
-    // 3. Extraer nombre
     const contactName = String(
       chat.pushName ||
       chat.name ||
@@ -505,49 +509,10 @@ export async function importRecentEvolutionChats() {
       'Contacto WhatsApp'
     ).trim();
 
-    // 4. Verificar si ya existe en la base de datos
-    const { data: existingContact } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, deleted_at')
-      .eq('organization_id', orgId)
-      .or(`phone.eq.${cleanPhone},phone.eq.+${cleanPhone}`)
-      .maybeSingle();
-
-    if (existingContact?.deleted_at) {
-      // Si el contacto fue eliminado previamente por el administrador, no re-importarlo
-      continue;
-    }
-
-    let contactId: string | undefined = existingContact?.id;
-
     const timestamp = chat.lastMessage?.messageTimestamp
       ? new Date(Number(chat.lastMessage.messageTimestamp) * 1000).toISOString()
       : new Date().toISOString();
 
-    if (!existingContact) {
-      // 5. Crear contacto nuevo con IA apagada (is_ai_active: false)
-      const { data: newContact, error: insErr } = await (supabaseAdmin.from('contacts') as any)
-        .insert({
-          organization_id: orgId,
-          phone: cleanPhone,
-          name: contactName,
-          pipeline_stage: 'nuevo',
-          is_ai_active: false, // 🛡️ REGLA FUNDAMENTAL DE SEGURIDAD: IA NUNCA ESCRIBE SOLA A CHATS IMPORTADOS
-          channel: 'whatsapp',
-          last_interaction_at: timestamp,
-          updated_at: timestamp,
-        })
-        .select('id')
-        .single();
-
-      if (!insErr && newContact) {
-        contactId = newContact.id;
-        importedCount++;
-      }
-    } else {
-      existingCount++;
-    }
-
-    // 6. Si hay último mensaje y el chat no tenía mensajes previos, guardar preview histórico
     const lastMsgContent =
       typeof chat.lastMessage?.message?.conversation === 'string'
         ? chat.lastMessage.message.conversation
@@ -559,22 +524,103 @@ export async function importRecentEvolutionChats() {
         ? chat.lastMessage.message
         : '';
 
-    if (contactId && lastMsgContent && lastMsgContent.trim() !== '') {
-      const { data: hasMessages } = await supabaseAdmin
-        .from('messages')
-        .select('id')
-        .eq('contact_id', contactId)
-        .limit(1)
-        .maybeSingle();
+    candidatesByPhone.set(cleanPhone, {
+      cleanPhone,
+      remoteJid: String(remoteJid || ''),
+      contactName,
+      timestamp,
+      lastMsgContent: lastMsgContent.trim().slice(0, 2000),
+      fromMe: Boolean(chat.lastMessage?.key?.fromMe),
+    });
+  }
 
-      if (!hasMessages) {
-        await (supabaseAdmin.from('messages') as any).insert({
-          contact_id: contactId,
-          sender_type: chat.lastMessage?.key?.fromMe ? 'agent_manual' : 'lead',
-          content: lastMsgContent.trim().slice(0, 2000),
+  const candidates = Array.from(candidatesByPhone.values());
+  if (candidates.length > 0) {
+    const phoneVariants = candidates.flatMap((c) => [c.cleanPhone, `+${c.cleanPhone}`]);
+
+    // 2. Una sola consulta batch para verificar contactos existentes (incluyendo soft-deleted)
+    const { data: existingRows } = await (supabaseAdmin.from('contacts') as any)
+      .select('id, phone, deleted_at')
+      .eq('organization_id', orgId)
+      .in('phone', phoneVariants);
+
+    const existingByDigits = new Map<string, { id: string; deleted_at: string | null }>();
+    for (const row of existingRows || []) {
+      const digits = EvolutionService.extractPhoneFromJid(row.phone);
+      if (digits) existingByDigits.set(digits, { id: row.id, deleted_at: row.deleted_at || null });
+    }
+
+    const toInsert: any[] = [];
+    const candidateByPhoneForMsg = new Map<string, NormalizedChatCandidate>();
+
+    for (const c of candidates) {
+      const existing = existingByDigits.get(c.cleanPhone);
+      if (existing?.deleted_at) continue;
+
+      if (!existing) {
+        toInsert.push({
+          organization_id: orgId,
+          phone: c.cleanPhone,
+          name: c.contactName,
+          pipeline_stage: 'nuevo',
+          is_ai_active: false, // 🛡️ REGLA FUNDAMENTAL DE SEGURIDAD: IA NUNCA ESCRIBE SOLA A CHATS IMPORTADOS
           channel: 'whatsapp',
-          created_at: timestamp,
+          last_interaction_at: c.timestamp,
+          updated_at: c.timestamp,
+          ...(c.remoteJid ? { custom_fields: { remote_jid: c.remoteJid, whatsapp_jid: c.remoteJid } } : {}),
         });
+      } else {
+        existingCount++;
+      }
+      candidateByPhoneForMsg.set(c.cleanPhone, c);
+    }
+
+    // 3. Un solo batch insert para todos los contactos nuevos
+    const contactIdByPhone = new Map<string, string>();
+    for (const [digits, row] of Array.from(existingByDigits.entries())) {
+      if (!row.deleted_at) contactIdByPhone.set(digits, row.id);
+    }
+
+    if (toInsert.length > 0) {
+      const { data: insertedRows, error: insErr } = await (supabaseAdmin.from('contacts') as any)
+        .insert(toInsert)
+        .select('id, phone');
+
+      if (!insErr && Array.isArray(insertedRows)) {
+        importedCount = insertedRows.length;
+        for (const row of insertedRows) {
+          const digits = EvolutionService.extractPhoneFromJid(row.phone);
+          if (digits) contactIdByPhone.set(digits, row.id);
+        }
+      }
+    }
+
+    // 4. Una sola consulta batch a messages para saber cuáles aún no tienen historial
+    const allContactIds = Array.from(contactIdByPhone.values());
+    if (allContactIds.length > 0) {
+      const { data: msgRows } = await (supabaseAdmin.from('messages') as any)
+        .select('contact_id')
+        .in('contact_id', allContactIds);
+
+      const contactsWithMessages = new Set<string>((msgRows || []).map((m: any) => m.contact_id));
+      const messagesToInsert: any[] = [];
+
+      for (const [digits, cId] of Array.from(contactIdByPhone.entries())) {
+        if (contactsWithMessages.has(cId)) continue;
+        const cand = candidateByPhoneForMsg.get(digits);
+        if (!cand || !cand.lastMsgContent) continue;
+
+        messagesToInsert.push({
+          contact_id: cId,
+          sender_type: cand.fromMe ? 'agent_manual' : 'lead',
+          content: cand.lastMsgContent,
+          channel: 'whatsapp',
+          created_at: cand.timestamp,
+        });
+      }
+
+      if (messagesToInsert.length > 0) {
+        await (supabaseAdmin.from('messages') as any).insert(messagesToInsert);
       }
     }
   }

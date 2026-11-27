@@ -382,28 +382,59 @@ export async function POST(request: NextRequest) {
 
   // 7. Extracción Rápida de Contenido (Instant-Insert; media/thumbnails pesados se hidratan en waitUntil)
   const msgObj = messageData.message || {};
+  const sharedContextInfo =
+    msgObj.extendedTextMessage?.contextInfo ||
+    msgObj.imageMessage?.contextInfo ||
+    msgObj.videoMessage?.contextInfo ||
+    msgObj.documentMessage?.contextInfo ||
+    (msgObj as any).contextInfo ||
+    messageData.contextInfo ||
+    null;
+  const sharedAdReply =
+    sharedContextInfo?.externalAdReply ||
+    (messageData as any).referral ||
+    (msgObj as any).referral ||
+    null;
+
   let rawContent = '';
   let pendingInboundMediaJob: (() => Promise<string | null>) | null = null;
   const finalApiKey = decryptedApiKey || process.env.EVOLUTION_API_KEY?.trim() || '';
 
   if (typeof msgObj.conversation === 'string' && msgObj.conversation.trim()) {
     const convText = msgObj.conversation.trim();
+    const adTitle = (sharedAdReply?.title || sharedAdReply?.headline || '').trim();
+    const adBody = (sharedAdReply?.body || '').trim();
+    const adThumbnail = (sharedAdReply?.thumbnailUrl || sharedAdReply?.mediaUrl || sharedAdReply?.image_url || '').trim();
+    const rawThumbB64 = sharedAdReply?.jpegThumbnail || '';
+    const adThumbnailB64 =
+      typeof rawThumbB64 === 'string'
+        ? rawThumbB64
+        : Buffer.isBuffer(rawThumbB64)
+        ? rawThumbB64.toString('base64')
+        : '';
+    const sourceUrl = (sharedAdReply?.sourceUrl || sharedAdReply?.source_url || '').trim();
+
     rawContent = convText;
-    if (/https?:\/\//i.test(convText)) {
+    if (adTitle || adBody || adThumbnail || adThumbnailB64 || sourceUrl || /https?:\/\//i.test(convText)) {
       pendingInboundMediaJob = async () =>
         resolveInboundThumbnailMessage({
           organizationId: orgId,
           contactKey: leadPhone || 'incoming',
           text: convText,
-          labelPrefix: 'Enlace compartido',
+          labelPrefix: adTitle || adBody ? 'Publicación/Anuncio compartido' : 'Enlace compartido',
+          title: adTitle,
+          body: adBody,
+          thumbnailUrl: adThumbnail,
+          thumbnailBase64: adThumbnailB64,
+          sourceUrl,
         }).catch(() => null);
     }
   } else if (msgObj.extendedTextMessage) {
     const text = (msgObj.extendedTextMessage.text || '').trim();
-    const adReply = msgObj.extendedTextMessage.contextInfo?.externalAdReply;
-    const adTitle = (adReply?.title || msgObj.extendedTextMessage.title || '').trim();
+    const adReply = sharedAdReply;
+    const adTitle = (adReply?.title || adReply?.headline || msgObj.extendedTextMessage.title || '').trim();
     const adBody = (adReply?.body || msgObj.extendedTextMessage.description || '').trim();
-    const adThumbnail = (adReply?.thumbnailUrl || adReply?.mediaUrl || '').trim();
+    const adThumbnail = (adReply?.thumbnailUrl || adReply?.mediaUrl || adReply?.image_url || '').trim();
     const rawThumbB64 =
       adReply?.jpegThumbnail ||
       msgObj.extendedTextMessage.jpegThumbnail ||
@@ -414,7 +445,7 @@ export async function POST(request: NextRequest) {
         : Buffer.isBuffer(rawThumbB64)
         ? rawThumbB64.toString('base64')
         : '';
-    const sourceUrl = (adReply?.sourceUrl || msgObj.extendedTextMessage.matchedText || '').trim();
+    const sourceUrl = (adReply?.sourceUrl || adReply?.source_url || msgObj.extendedTextMessage.matchedText || '').trim();
 
     rawContent = text || (adTitle ? `📌 ${adTitle}` : 'Enlace compartido');
     if (adTitle || adBody || adThumbnail || adThumbnailB64 || sourceUrl || /https?:\/\//i.test(text)) {
@@ -431,6 +462,32 @@ export async function POST(request: NextRequest) {
           sourceUrl,
         }).catch(() => null);
     }
+  } else if (msgObj.productMessage) {
+    const prod = msgObj.productMessage.product || {};
+    const prodTitle = String(prod.title || 'Producto de catálogo').trim();
+    const prodDesc = String(prod.description || '').trim();
+    const prodPrice = prod.priceAmount1000 ? `$${Math.round(Number(prod.priceAmount1000) / 1000).toLocaleString('es-CO')}` : '';
+    const rawThumbB64 = prod.productImage?.jpegThumbnail || '';
+    const prodThumbB64 = typeof rawThumbB64 === 'string' ? rawThumbB64 : '';
+    const summaryText = [prodTitle, prodPrice, prodDesc].filter(Boolean).join(' · ');
+    rawContent = `🛍️ [Consulta de catálogo]: ${summaryText}`;
+    if (prodThumbB64) {
+      pendingInboundMediaJob = async () =>
+        resolveInboundThumbnailMessage({
+          organizationId: orgId,
+          contactKey: leadPhone || 'incoming',
+          text: prodTitle,
+          labelPrefix: 'Producto de catálogo WhatsApp',
+          title: prodTitle,
+          body: [prodPrice, prodDesc].filter(Boolean).join(' — '),
+          thumbnailBase64: prodThumbB64,
+        }).catch(() => null);
+    }
+  } else if (msgObj.orderMessage) {
+    const ord = msgObj.orderMessage;
+    const itemCount = Number(ord.itemCount || 1);
+    const ordText = String(ord.message || '').trim();
+    rawContent = `🛒 [Carrito WhatsApp (${itemCount} ítem${itemCount === 1 ? '' : 's'})]${ordText ? `: ${ordText}` : ''}`;
   } else if (msgObj.buttonsResponseMessage?.selectedButtonId) {
     rawContent = msgObj.buttonsResponseMessage.selectedButtonId.trim();
   } else if (msgObj.listResponseMessage?.singleSelectReply?.selectedRowId) {
@@ -566,13 +623,21 @@ export async function POST(request: NextRequest) {
   const leadName = messageData.pushName || "Lead WhatsApp";
   const isPaymentReceipt = Boolean(msgObj.imageMessage && isPaymentReceiptHint(msgObj.imageMessage.caption || ""));
 
+  const quotedMsg = sharedContextInfo?.quotedMessage;
   const quotedSnippet =
-    msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.conversation ||
-    msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.text ||
-    (msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage ? "Foto" : "") ||
-    (msgObj.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage ? "Video" : "");
+    quotedMsg?.conversation ||
+    quotedMsg?.extendedTextMessage?.text ||
+    (quotedMsg?.productMessage?.product?.title
+      ? `Producto: ${quotedMsg.productMessage.product.title}`
+      : '') ||
+    (quotedMsg?.imageMessage
+      ? quotedMsg.imageMessage.caption
+        ? `Foto: ${quotedMsg.imageMessage.caption}`
+        : 'Foto'
+      : '') ||
+    (quotedMsg?.videoMessage ? 'Video' : '');
 
-  const replyToId = msgObj.extendedTextMessage?.contextInfo?.stanzaId || null;
+  const replyToId = sharedContextInfo?.stanzaId || null;
 
   const inboundPayload: InboundPayload = {
     organization,

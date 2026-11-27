@@ -12,6 +12,7 @@ export interface ShippingSettings {
   enabled: boolean;
   baseRate: number; // Tarifa plana nacional para ciudades no especificadas (ej: 35000)
   allowCashOnDelivery: boolean; // Si la empresa maneja pago contraentrega de manera general
+  codFreeShipping?: boolean; // Si el pago contraentrega incluye envío gratis o suma el flete al total
   freeShippingMinAmount?: number | null; // Monto mínimo para envío gratis (opcional, ej: 500000)
   carrierNames?: string; // Transportadoras aliadas (ej: Coordinadora, Envia, Interrapidisimo)
   generalPolicy?: string; // Política o salvedades generales de despacho
@@ -32,6 +33,7 @@ export function createDefaultShippingSettings(): ShippingSettings {
     enabled: true,
     baseRate: 35000,
     allowCashOnDelivery: true,
+    codFreeShipping: false,
     freeShippingMinAmount: null,
     carrierNames: 'Coordinadora, Envía, Interrapidísimo',
     generalPolicy: 'Despachos de lunes a viernes. El costo puede variar si el destino tiene trayecto especial de reexpedición.',
@@ -94,6 +96,12 @@ export function formatShippingPolicyPrompt(settings?: ShippingSettings | null): 
   if (settings.generalPolicy?.trim()) {
     lines.push(`- Instrucciones generales: ${settings.generalPolicy.trim()}`);
   }
+  const codFreightClause = settings.codFreeShipping
+    ? 'En modalidad contraentrega el envío está incluido/gratis según esta configuración (salvo salvedad explícita en el prompt).'
+    : 'El pago contraentrega NO exime del flete (salvo envío gratis por monto o excepción explícita en el prompt).';
+  lines.push(
+    `- REGLA OBLIGATORIA DE COTIZACIÓN CON FLETE: Si la entrega es fuera de la ciudad sede del negocio y NO cumple envío gratis, SIEMPRE debes desglosar explícitamente Producto + Envío = Total antes de cerrar el pedido. ${codFreightClause} Si la ciudad no figura en tarifas específicas, usa la tarifa base o aclara el valor aproximado del flete antes de confirmar el total definitivo.`
+  );
   lines.push('</politicas_y_tarifas_de_envio>');
 
   return lines.join('\n');

@@ -38,6 +38,8 @@ export class OrderService {
     depositPaid?: number;
     balanceDue?: number;
     separeDueDate?: string | null;
+    subtotal?: number;
+    shippingCost?: number;
   }): Promise<{ id: string; campaignId: string | null; deduplicated?: boolean } | null> {
     try {
       const normalizedTotal = Math.max(0, Number(params.total) || 0);
@@ -74,12 +76,24 @@ export class OrderService {
         .limit(1)
         .maybeSingle();
 
+      const itemsSubtotal = params.items.reduce(
+        (acc, it) => acc + Math.max(0, Number(it.unit_price || 0)) * Math.max(1, Number(it.quantity || 1)),
+        0
+      );
+      const subtotal = params.subtotal !== undefined ? Math.max(0, Number(params.subtotal) || 0) : itemsSubtotal;
+      const shippingCost =
+        params.shippingCost !== undefined
+          ? Math.max(0, Number(params.shippingCost) || 0)
+          : Math.max(0, normalizedTotal - subtotal);
+
       const { data: order, error } = await (supabaseAdmin.from('orders') as any)
         .insert({
           organization_id: params.organizationId,
           contact_id: params.contactId,
           items: params.items,
-          total: Math.max(0, Number(params.total) || 0),
+          total: normalizedTotal,
+          subtotal,
+          shipping_cost: shippingCost,
           status: params.status || 'confirmed',
           payment_method: params.paymentMethod || null,
           customer_name: params.customerName || null,

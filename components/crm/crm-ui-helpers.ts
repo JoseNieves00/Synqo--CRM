@@ -24,6 +24,10 @@ export const ORDER_STATUS_META: Record<OrderStatus, { label: string; badgeClass:
     label: 'Pagado',
     badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
   },
+  shipped: {
+    label: 'En Camino',
+    badgeClass: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300',
+  },
   delivered: {
     label: 'Entregado',
     badgeClass: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300',

@@ -8,6 +8,7 @@ export interface NotifyHandoffParams {
   contactId: string;
   reason?: string;
   channel?: 'whatsapp' | 'instagram';
+  allowClosedOrderAlert?: boolean;
 }
 
 export class HandoffService {
@@ -41,6 +42,7 @@ export class HandoffService {
     contactId,
     reason = 'Cliente solicitó atención de un asesor humano',
     channel = 'whatsapp',
+    allowClosedOrderAlert = false,
   }: NotifyHandoffParams): Promise<{ success: boolean; assignedAgentId?: string | null; alertSent: boolean }> {
     try {
       // 1. Obtener datos del contacto y de la organización
@@ -55,8 +57,8 @@ export class HandoffService {
       }
 
       // 🛡️ Anti-falsos-positivos: nunca alertar a un asesor por un cliente cuya
-      // conversación ya fue cerrada (ganado/perdido/dismissed/completed).
-      if (isConversationClosed(contact)) {
+      // conversación ya fue cerrada (ganado/perdido/dismissed/completed), SALVO confirmación de pedido nuevo.
+      if (!allowClosedOrderAlert && isConversationClosed(contact)) {
         console.log('[HANDOFF SERVICE] Conversación cerrada: alerta omitida para', contactId);
         return { success: true, assignedAgentId: contact.assigned_to || null, alertSent: false };
       }
@@ -197,6 +199,82 @@ export class HandoffService {
     } catch (err: any) {
       console.error('[HANDOFF SERVICE ERROR]', err);
       return { success: false, alertSent: false };
+    }
+  }
+
+  /**
+   * Notifica directamente al/los administrador(es) con WhatsApp configurado cuando se confirma un pedido,
+   * sin depender de `whatsapp_alerts_enabled` (que puede estar apagado para alertas de prospectos)
+   * y sin bloquearse por el cooldown anti-spam de 10 minutos de handoffs previos.
+   */
+  static async notifyOrderCreated(params: {
+    organizationId: string;
+    contactId: string;
+    customerName: string;
+    customerPhone?: string | null;
+    itemsSummary: string;
+    total: number;
+    paymentMethod?: string | null;
+    city?: string | null;
+    address?: string | null;
+    isSepare?: boolean;
+    depositPaid?: number;
+    balanceDue?: number;
+    notes?: string | null;
+    source?: 'ai' | 'manual';
+  }): Promise<{ sentCount: number }> {
+    try {
+      const [{ data: org }, { data: admins }] = await Promise.all([
+        (supabaseAdmin.from('organizations') as any)
+          .select('id, name, whatsapp_provider, whatsapp_phone_number_id, whatsapp_access_token, evolution_api_url, evolution_api_key, evolution_instance_name, evolution_anti_ban_mode')
+          .eq('id', params.organizationId)
+          .single(),
+        (supabaseAdmin.from('profiles') as any)
+          .select('id, full_name, role, whatsapp_phone')
+          .eq('organization_id', params.organizationId)
+          .eq('role', 'admin')
+          .not('whatsapp_phone', 'is', null),
+      ]);
+
+      if (!org || !Array.isArray(admins) || admins.length === 0) {
+        return { sentCount: 0 };
+      }
+
+      const dispatchLocation = [params.city, params.address].filter(Boolean).join(' - ') || 'Por confirmar';
+      const separeBlock = params.isSepare
+        ? `\n• *Plan Separe:* Abono $${Number(params.depositPaid || 0).toLocaleString('es-CO')} | Saldo $${Number(params.balanceDue || 0).toLocaleString('es-CO')}`
+        : '';
+      const notesLine = params.notes ? `\n• *Notas:* ${params.notes}` : '';
+      const sourceLabel = params.source === 'manual' ? 'Asesor' : 'IA WhatsApp';
+
+      let sentCount = 0;
+      const sentPhones = new Set<string>();
+
+      for (const admin of admins) {
+        const cleanAdminPhone = this.cleanE164Phone(admin.whatsapp_phone || '');
+        if (!cleanAdminPhone || cleanAdminPhone.length < 9 || sentPhones.has(cleanAdminPhone)) continue;
+        sentPhones.add(cleanAdminPhone);
+
+        const adminFirstName = (admin.full_name || 'Admin').split(' ')[0];
+        const body = `🛒 *Nuevo Pedido Confirmado (${sourceLabel})*\n\nHola *${adminFirstName}*, se registró un nuevo pedido en *${org.name || 'tu empresa'}*:\n\n• *Cliente:* ${params.customerName}${params.customerPhone ? ` (${params.customerPhone})` : ''}\n• *Producto(s):* ${params.itemsSummary}\n• *Total:* $${Number(params.total || 0).toLocaleString('es-CO')} COP\n• *Medio de pago:* ${params.paymentMethod || (params.isSepare ? 'Plan Separe' : 'Por definir')}${separeBlock}\n• *Despacho:* ${dispatchLocation}${notesLine}\n• *Estado:* 📦 Por Despachar\n\n👉 *Ver Pedido:* https://crm.synqo.dev/pedidos\n💬 *Abrir Chat:* https://crm.synqo.dev/inbox?c=${params.contactId}`;
+
+        try {
+          await MessagingService.sendTextMessage({
+            organization: org,
+            to: cleanAdminPhone,
+            body,
+            simulateTyping: false,
+          });
+          sentCount++;
+        } catch (sendErr: any) {
+          console.warn(`[ORDER ADMIN ALERT WARN] Fallo al enviar a ${cleanAdminPhone}:`, sendErr?.message);
+        }
+      }
+
+      return { sentCount };
+    } catch (err: any) {
+      console.warn('[NOTIFY ORDER CREATED WARN]', err?.message || err);
+      return { sentCount: 0 };
     }
   }
 }
