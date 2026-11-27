@@ -333,4 +333,20 @@ assert.ok(
   'Debe prohibir enviar tarjeta de un solo producto al azar'
 );
 
-console.log('✅ ai-agent-stress.test.ts: 26/26 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');
+// 27. Consulta "¡Hola! Quiero más información" CON anuncio -> extrae producto del anuncio, NO vuelve a preguntar qué busca
+const adInfoDiagnosis = diagnoseCopilotTurn({
+  history: [
+    {
+      sender_type: 'lead',
+      content: '[Publicación/Anuncio compartido: "Cocina grande con nevera"] ¡Hola! Quiero más información',
+    },
+  ],
+  contactData: { pipeline_stage: 'nuevo', custom_fields: {} },
+  organization: filippoOrg,
+});
+assert.ok(
+  adInfoDiagnosis.copilotDirective.includes('Extrae e identifica el producto exacto del anuncio'),
+  'Con anuncio adjunto debe extraer el producto del anuncio sin volver a preguntar qué busca'
+);
+
+console.log('✅ ai-agent-stress.test.ts: 27/27 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');

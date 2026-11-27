@@ -852,8 +852,10 @@ function buildBaseCopilotPrescription(
           : 'Atención Visual con Tarjeta y Micro-Avance',
         copilotDirective: suppressCardResend
           ? `El cliente ya vio fotos en el chat${activeProductFocus ? ` (producto en foco: ${activeProductFocus})` : ''}. Responde directamente su consulta puntual en 1 solo mensaje claro (160–360 caracteres) sin reenviar fotos ni repetir el catálogo.`
+          : hasAdOrVisualRef
+          ? 'El cliente viene de un anuncio/publicación o envió referencia visual. Extrae e identifica el producto exacto del anuncio o imagen comparándolo con el catálogo y responde directamente sobre ESE producto (con su tarjeta visual si aún no la tiene y su precio). PROHIBIDO preguntarle qué producto busca.'
           : isGenericBroadInquiry
-          ? 'El cliente hizo una consulta abierta ("quiero más información" / "precio") sin indicar modelo ni traer foto de anuncio. PROHIBIDO adivinar y enviar tarjeta de un solo producto. Lista brevemente las opciones/modelos disponibles con su precio y pregúntale cuál le interesa o cuál vio en el anuncio para enviarle su foto y medidas.'
+          ? 'El cliente hizo una consulta abierta ("quiero más información" / "precio") sin indicar modelo ni traer referencia de anuncio. PROHIBIDO adivinar un solo producto al azar; presenta brevemente las opciones del catálogo con sus precios y pregúntale cuál le interesa.'
           : hasConsultativeDoubt
           ? 'El cliente formuló una consulta o duda específica (estatura, medidas, idoneidad, gusto o edad). Responde primero su duda con empatía en 1 mensaje claro y, si aún no ha visto la foto del modelo ideal, envía send_product_card.'
           : 'Envía send_product_card con foto oficial y precio (solo si aún no se ha enviado esa foto en este chat) y haz una pregunta corta de micro-avance.',

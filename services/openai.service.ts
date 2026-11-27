@@ -1613,7 +1613,14 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
       const hasImagesInCurrentTurn =
         Array.isArray(lastLeadMsg?.content) ||
         /\b(comprobante|imagen|foto adjunta|captura)\b/i.test(lastLeadContentForGuards) ||
-        dbMessages.slice(-2).some((m: any) => typeof m?.content === 'string' && m.content.includes('[IMAGE_URL:'));
+        dbMessages
+          .slice(-2)
+          .some(
+            (m: any) =>
+              typeof m?.content === 'string' &&
+              (m.content.includes('[IMAGE_URL:') ||
+                /\[Publicaci[oó]n\/Anuncio compartido:|\[Consulta de cat[aá]logo:/i.test(m.content))
+          );
 
       const mappedHybridTrack =
         turnCopilot.intentTrack === 'integrated' ||

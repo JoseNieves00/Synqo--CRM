@@ -673,9 +673,17 @@ export async function POST(request: NextRequest) {
           const resolvedMediaContent = await pendingInboundMediaJob();
           if (resolvedMediaContent && resolvedMediaContent !== rawContent) {
             inboundPayload.rawContent = resolvedMediaContent;
-            await (supabaseAdmin.from('messages') as any)
-              .update({ content: resolvedMediaContent })
-              .eq('id', targetMsgId);
+            await Promise.all([
+              (supabaseAdmin.from('messages') as any)
+                .update({ content: resolvedMediaContent })
+                .eq('id', targetMsgId),
+              (supabaseAdmin.from('contacts') as any)
+                .update({
+                  last_message: resolvedMediaContent.slice(0, 240),
+                  last_message_preview: resolvedMediaContent.slice(0, 120),
+                })
+                .eq('id', targetContactId),
+            ]);
           }
         }
         await InboundCoreService.runAiWorker({
