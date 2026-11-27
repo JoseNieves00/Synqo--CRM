@@ -969,8 +969,8 @@ Regla Estricta de Modalidad: ${modalityStrictRule}
   const maxChars = effectiveWorkflow?.maxReplyChars;
   const lengthRuleText =
     maxChars === 0
-      ? 'Respeta la extensión natural definida en <instrucciones_del_negocio>.'
-      : `Mantén tus respuestas concisas (tope ${maxChars ?? 450} caracteres salvo al entregar cuentas de pago o resumen de pedido).`;
+      ? 'Sin límite fijo de caracteres.'
+      : `Mantén tus respuestas dentro de un tope aproximado de ${maxChars ?? 450} caracteres (salvo cuentas de pago o resumen de pedido).`;
 
   const copilotBlock = `\n<copiloto_estrategico_de_ventas>
 Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
@@ -981,6 +981,7 @@ Regla de Oro de Respuesta y Extensión: ${
       ? 'Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y haz una pregunta corta de avance. '
       : ''
   }${lengthRuleText}
+PRIORIDAD DE INSTRUCCIONES: Cumple siempre las instrucciones y tono definidos en <instrucciones_del_negocio> (siempre dentro de los guardrails de seguridad y del flujo operativo activo).
 Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
 Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
 Prohibiciones Estrictas de este Turno:

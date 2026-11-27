@@ -373,24 +373,25 @@ export function WorkflowPolicySettings({
 
           <div>
             <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">
-              Extensión máxima de cada respuesta
+              Extensión máxima de cada respuesta (caracteres, 0 = sin límite)
             </label>
-            <select
-              value={String(policy.maxReplyChars ?? 450)}
-              onChange={(e) =>
+            <input
+              type="number"
+              min={0}
+              max={4000}
+              step={50}
+              value={policy.maxReplyChars ?? 450}
+              onChange={(e) => {
+                const parsed = Math.max(0, Number(e.target.value) || 0);
                 setPolicy((p) => ({
                   ...p,
                   presetId: 'custom',
-                  maxReplyChars: Number(e.target.value),
-                }))
-              }
+                  maxReplyChars: parsed,
+                }));
+              }}
+              placeholder="Ej: 450 (0 = sin límite)"
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
-            >
-              <option value="250">Muy corta (hasta 250 caracteres)</option>
-              <option value="450">Estándar WhatsApp (hasta 450 caracteres)</option>
-              <option value="800">Amplia (hasta 800 caracteres)</option>
-              <option value="0">Sin límite fijo (según el prompt del negocio)</option>
-            </select>
+            />
           </div>
         </div>
 
