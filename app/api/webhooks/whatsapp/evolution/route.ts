@@ -387,7 +387,9 @@ export async function POST(request: NextRequest) {
     msgObj.imageMessage?.contextInfo ||
     msgObj.videoMessage?.contextInfo ||
     msgObj.documentMessage?.contextInfo ||
+    (msgObj as any).messageContextInfo ||
     (msgObj as any).contextInfo ||
+    (messageData as any).messageContextInfo ||
     messageData.contextInfo ||
     null;
   const sharedAdReply =
@@ -414,7 +416,8 @@ export async function POST(request: NextRequest) {
         : '';
     const sourceUrl = (sharedAdReply?.sourceUrl || sharedAdReply?.source_url || '').trim();
 
-    rawContent = convText;
+    const immediateAdMeta = [adTitle ? `"${adTitle}"` : '', adBody ? `"${adBody}"` : ''].filter(Boolean).join(' - ');
+    rawContent = immediateAdMeta ? `[Publicación/Anuncio compartido: ${immediateAdMeta}] ${convText}` : convText;
     if (adTitle || adBody || adThumbnail || adThumbnailB64 || sourceUrl || /https?:\/\//i.test(convText)) {
       pendingInboundMediaJob = async () =>
         resolveInboundThumbnailMessage({
@@ -447,7 +450,9 @@ export async function POST(request: NextRequest) {
         : '';
     const sourceUrl = (adReply?.sourceUrl || adReply?.source_url || msgObj.extendedTextMessage.matchedText || '').trim();
 
-    rawContent = text || (adTitle ? `📌 ${adTitle}` : 'Enlace compartido');
+    const immediateAdMeta = [adTitle ? `"${adTitle}"` : '', adBody ? `"${adBody}"` : ''].filter(Boolean).join(' - ');
+    const baseTxt = text || (adTitle ? `📌 ${adTitle}` : 'Enlace compartido');
+    rawContent = immediateAdMeta && text ? `[Publicación/Anuncio compartido: ${immediateAdMeta}] ${baseTxt}` : baseTxt;
     if (adTitle || adBody || adThumbnail || adThumbnailB64 || sourceUrl || /https?:\/\//i.test(text)) {
       pendingInboundMediaJob = async () =>
         resolveInboundThumbnailMessage({

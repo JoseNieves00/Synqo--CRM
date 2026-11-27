@@ -117,7 +117,7 @@ export class InboxQueryService {
     if (!cleanSearch) {
       if (view === 'por_responder') {
         query = query
-          .neq('conversation_status', 'closed')
+          .or('conversation_status.is.null,conversation_status.neq.closed')
           .or(buildPorResponderOrFilter(staleAiIso))
           .order('waiting_since', { ascending: true, nullsFirst: false })
           .order('last_interaction_at', { ascending: true, nullsFirst: false });
@@ -254,7 +254,7 @@ export class InboxQueryService {
           .select('id', { count: 'exact', head: true })
           .eq('organization_id', orgId)
           .is('deleted_at', null)
-          .neq('conversation_status', 'closed')
+          .or('conversation_status.is.null,conversation_status.neq.closed')
           .or(buildPorResponderOrFilter(staleAiIso)),
         (supabaseAdmin.from('contacts') as any)
           .select('id', { count: 'exact', head: true })

@@ -493,6 +493,20 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         }
       }
 
+      let nextCounts = state.counts;
+      if (existingContact && msg.sender_type !== 'system') {
+        const msgFromLead = msg.sender_type === 'lead';
+        const wasInPorResponder = (nextViewIds['por_responder'] || []).includes(contactId);
+        // Si estaba en por_responder y ahora responde IA/asesor, quitarlo y decrementar contador
+        if (!msgFromLead && wasInPorResponder && updatedContactsById[contactId]?.custom_fields?.unattended_handoff !== true) {
+          nextViewIds['por_responder'] = nextViewIds['por_responder'].filter((id) => id !== contactId);
+          nextCounts = { ...nextCounts, por_responder: Math.max(0, nextCounts.por_responder - 1) };
+        } else if (msgFromLead && !wasInPorResponder && contactNeedsHumanResponse(updatedContactsById[contactId])) {
+          nextViewIds['por_responder'] = sortInboxViewIds([contactId, ...(nextViewIds['por_responder'] || [])], updatedContactsById, 'por_responder', state.filters.sort);
+          nextCounts = { ...nextCounts, por_responder: nextCounts.por_responder + 1 };
+        }
+      }
+
       return {
         messagesByContact: {
           ...state.messagesByContact,
@@ -505,6 +519,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         },
         contactsById: updatedContactsById,
         viewIds: nextViewIds,
+        counts: nextCounts,
       };
     });
   },
