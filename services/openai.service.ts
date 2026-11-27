@@ -1541,15 +1541,20 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         : [];
       const overflowCatalog = rawStoredCatalog.length > 15 ? rawStoredCatalog.slice(15, 100) : [];
       const sentInformationSummary = extractSentInformationSummary(dbMessages);
-      const { data: latestLiveOrder } = await (supabaseAdmin.from('orders') as any)
-        .select('status, total, subtotal, shipping_cost, city, carrier, tracking_number')
-        .eq('organization_id', organizationId)
-        .eq('contact_id', contactId)
-        .neq('status', 'cancelled')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-        .catch(() => ({ data: null }));
+      let latestLiveOrder: any = null;
+      try {
+        const { data } = await (supabaseAdmin.from('orders') as any)
+          .select('status, total, subtotal, shipping_cost, city, carrier, tracking_number')
+          .eq('organization_id', organizationId)
+          .eq('contact_id', contactId)
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        latestLiveOrder = data || null;
+      } catch {
+        latestLiveOrder = null;
+      }
 
       conversationHistory.push({
         role: 'system',

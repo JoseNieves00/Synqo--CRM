@@ -659,6 +659,31 @@ export function extractSentInformationSummary(
     }
   }
 
+  // 7. Medio de pago ya elegido por el cliente (evitar volver a preguntarlo)
+  for (const m of [...dbMessages].reverse()) {
+    if (m.sender_type !== 'lead') continue;
+    const leadTxt = String(m.content || '').trim();
+    if (!leadTxt) continue;
+    if (/\b(contra\s*entrega|pago\s+al\s+recibir|cuando\s+llegue)\b/i.test(leadTxt)) {
+      sentSummaries.push(
+        'Medio de pago YA elegido por el cliente: Contraentrega (PROHIBIDO volver a preguntarle el método de pago; solicita solo los datos de envío faltantes o confirma el pedido)'
+      );
+      break;
+    }
+    if (/\b(plan\s+separe|abono|separar(?:la|lo)?)\b/i.test(leadTxt)) {
+      sentSummaries.push(
+        'Medio de pago YA elegido por el cliente: Plan Separe (NO volver a preguntar método de pago)'
+      );
+      break;
+    }
+    if (/\b(nequi|daviplata|bancolombia|transferencia|pse|link\s+de\s+pago)\b/i.test(leadTxt)) {
+      sentSummaries.push(
+        'Medio de pago YA elegido por el cliente: Transferencia/Pago anticipado (NO volver a preguntar método de pago)'
+      );
+      break;
+    }
+  }
+
   return sentSummaries;
 }
 

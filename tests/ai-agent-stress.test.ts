@@ -314,4 +314,11 @@ assert.ok(shippingBlockCodFree.includes('envío está incluido/gratis'));
 // 24. Flujo de estados de pedido incluye 'shipped' (En Camino) para seguimiento contraentrega
 assert.ok(ORDER_STATUSES.includes('shipped'));
 
-console.log('✅ ai-agent-stress.test.ts: 24/24 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');
+// 25. Memoria de medio de pago elegido por el cliente (no volver a preguntarlo)
+const memWithCod = extractSentInformationSummary([
+  { sender_type: 'ai', content: '¿Prefieres pago contraentrega o transferencia?' },
+  { sender_type: 'lead', content: 'Asen contra entrega' },
+]);
+assert.ok(memWithCod.some((s) => s.includes('Contraentrega') && s.includes('PROHIBIDO volver a preguntarle')));
+
+console.log('✅ ai-agent-stress.test.ts: 25/25 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y ERP pasaron');
