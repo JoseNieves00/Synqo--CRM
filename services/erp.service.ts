@@ -228,7 +228,7 @@ export function calculateSmartOverageAndRechargeQuote(params: {
   const usedTokens = Math.max(0, Number(params.usedTokens || 0));
   const overageTokens = Math.max(0, usedTokens - effectiveLimit);
 
-  const monthlyBaseCop = Math.max(0, Math.round(Number(params.monthlyBasePriceCop ?? 169000)));
+  const monthlyBaseCop = Math.max(0, Math.round(Number(params.monthlyBasePriceCop ?? 179999)));
   const pricePer1M = Math.max(1, Math.round(Number(params.overagePricePer1MCop ?? 20000)));
 
   let daysRemainingInCycle = 15;

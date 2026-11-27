@@ -962,7 +962,7 @@ export function ErpBillingQuoteTab({
                         onClick={() => {
                           setNewClientTokensLimit(amt);
                           const extraM = Math.max(0, (amt - 5_000_000) / 1_000_000);
-                          setMonthlyBaseCop(Math.round(169000 + extraM * pricePer1MCop));
+                          setMonthlyBaseCop(Math.round(179999 + extraM * pricePer1MCop));
                         }}
                         className={`h-8 rounded-lg border text-[11px] font-bold transition cursor-pointer ${
                           newClientTokensLimit === amt
@@ -983,7 +983,7 @@ export function ErpBillingQuoteTab({
                         const parsed = parseCopInput(e.target.value);
                         setNewClientTokensLimit(parsed);
                         const extraM = Math.max(0, (Math.max(5_000_000, parsed) - 5_000_000) / 1_000_000);
-                        setMonthlyBaseCop(Math.round(169000 + extraM * pricePer1MCop));
+                        setMonthlyBaseCop(Math.round(179999 + extraM * pricePer1MCop));
                       }}
                       placeholder="5.000.000"
                       className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-mono text-xs font-bold"

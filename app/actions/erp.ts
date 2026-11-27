@@ -398,7 +398,7 @@ export async function grantTokenPackAction(input: {
   const existingAppSettings = (org.appointment_settings || {}) as Record<string, any>;
   const existingPolicy = (existingAppSettings.token_policy || {}) as Record<string, any>;
   const pricePer1M = Math.max(1000, Number(existingPolicy.overagePricePer1MCop || 20000));
-  const currentMonthlyBaseCop = Math.max(0, Number(existingPolicy.monthlyBasePriceCop || 169000));
+  const currentMonthlyBaseCop = Math.max(0, Number(existingPolicy.monthlyBasePriceCop || 179999));
   const permanentAddonCop = mode === 'permanent' ? Math.round((tokens / 1_000_000) * pricePer1M) : 0;
 
   // Limpiar umbrales de alerta que ahora queden por encima del nuevo % de consumo tras la recarga
@@ -526,7 +526,7 @@ export async function adjustPermanentTokensAction(input: {
   const existingAppSettings = (org.appointment_settings || {}) as Record<string, any>;
   const existingPolicy = (existingAppSettings.token_policy || {}) as Record<string, any>;
   const pricePer1M = Math.max(1000, Number(existingPolicy.overagePricePer1MCop || 20000));
-  const baseCop = Math.max(0, Number(input.basePlanCop ?? 169000));
+  const baseCop = Math.max(0, Number(input.basePlanCop ?? 179999));
   const extraMillions = Math.max(0, (safeTarget - FLOOR_LIMIT) / 1_000_000);
   const nextMonthlyBaseCop = Math.round(baseCop + extraMillions * pricePer1M);
 
@@ -693,7 +693,7 @@ export async function getPendingQuotesAction(): Promise<{
           : 'products',
       maxUsers: Math.max(1, Number(row.max_users || 2)),
       aiTokensLimit: Math.max(5_000_000, Number(row.ai_tokens_limit || 5_000_000)),
-      monthlyBaseCop: Math.max(0, Number(row.monthly_base_cop || 169000)),
+      monthlyBaseCop: Math.max(0, Number(row.monthly_base_cop || 179999)),
       createdAt: String(row.created_at || new Date().toISOString()),
       expiresAt: row.expires_at ? String(row.expires_at) : undefined,
     }));

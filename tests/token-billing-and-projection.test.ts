@@ -17,7 +17,7 @@ assert.equal(utilityChain[0]?.provider, 'google', 'Utilidades de la página debe
 
 // 2. Política de cuota base, precios editables y gracia 20%
 const policy = normalizeTokenPolicy({});
-assert.equal(policy.monthlyBasePriceCop, 169000);
+assert.equal(policy.monthlyBasePriceCop, 179999);
 assert.equal(policy.overagePricePer1MCop, 20000);
 assert.equal(policy.gracePct, 20);
 assert.equal(policy.hardStopAfterGrace, true);
@@ -28,7 +28,7 @@ const midMonthQuote = calculateSmartOverageAndRechargeQuote({
   usedTokens: 5_450_000,
   baseLimit: 5_000_000,
   billingCycleEndsAt: '2026-11-30T12:00:00.000Z', // 11 días restantes
-  monthlyBasePriceCop: 169000,
+  monthlyBasePriceCop: 179999,
   overagePricePer1MCop: 20000,
   now,
 });
@@ -45,12 +45,12 @@ const endMonthQuote = calculateSmartOverageAndRechargeQuote({
   usedTokens: 5_200_000,
   baseLimit: 5_000_000,
   billingCycleEndsAt: '2026-11-22T12:00:00.000Z', // 3 días restantes
-  monthlyBasePriceCop: 169000,
+  monthlyBasePriceCop: 179999,
   overagePricePer1MCop: 20000,
   now,
 });
 assert.equal(endMonthQuote.mode, 'end_of_month');
-assert.equal(endMonthQuote.totalToCollectCop, 169000 + 4000);
+assert.equal(endMonthQuote.totalToCollectCop, 179999 + 4000);
 
 // 5. Enlace wa.me en lenguaje de conversaciones + tokens
 const waUrl = buildQuoteWhatsAppUrl({
@@ -61,7 +61,7 @@ const waUrl = buildQuoteWhatsAppUrl({
   overageCop: 9000,
   rechargeTokens: 3_000_000,
   rechargeCop: 60000,
-  monthlyBaseCop: 169000,
+  monthlyBaseCop: 179999,
   totalCop: 69000,
   daysRemaining: 11,
 });

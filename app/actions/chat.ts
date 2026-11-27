@@ -1000,12 +1000,23 @@ export async function getUnattendedHandoffs(): Promise<Array<{
     const orgId = profile?.organization_id;
     if (!orgId) return [];
 
-    // Obtener prospectos con IA apagada activos (no archivados ni ganados/perdidos)
+    // Obtener prospectos activos pendientes de respuesta humana (alineado con la bandeja 'por_responder')
+    const staleAiIso = new Date(Date.now() - 3 * 60 * 1000).toISOString();
     const { data: contacts } = await (supabaseAdmin.from('contacts') as any)
-      .select('id, name, phone, updated_at, last_interaction_at, assigned_to, custom_fields')
+      .select('id, name, phone, updated_at, last_interaction_at, assigned_to, custom_fields, conversation_status, is_ai_active, waiting_since, unread_count, last_message_sender')
       .eq('organization_id', orgId)
-      .eq('is_ai_active', false)
-      .not('pipeline_stage', 'in', '("ganado","perdido")')
+      .is('deleted_at', null)
+      .or('conversation_status.is.null,conversation_status.neq.closed')
+      .or(
+        [
+          'custom_fields->>unattended_handoff.eq.true',
+          'and(is_ai_active.eq.false,last_message_sender.eq.lead)',
+          'and(is_ai_active.eq.false,waiting_since.not.is.null)',
+          'and(is_ai_active.eq.false,unread_count.gt.0)',
+          'and(is_ai_active.eq.false,last_message_sender.is.null)',
+          `and(is_ai_active.eq.true,last_message_sender.eq.lead,waiting_since.lte.${staleAiIso})`,
+        ].join(',')
+      )
       .order('updated_at', { ascending: false })
       .limit(25);
 
@@ -1028,7 +1039,10 @@ export async function getUnattendedHandoffs(): Promise<Array<{
       for (const m of recentMsgs) {
         if (m.sender_type === 'lead' && !latestLeadMsgMap.has(m.contact_id)) {
           latestLeadMsgMap.set(m.contact_id, m);
-        } else if ((m.sender_type === 'agent' || m.sender_type === 'agent_manual') && !latestAgentMsgMap.has(m.contact_id)) {
+        } else if (
+          (m.sender_type === 'agent' || m.sender_type === 'agent_manual' || m.sender_type === 'ai') &&
+          !latestAgentMsgMap.has(m.contact_id)
+        ) {
           latestAgentMsgMap.set(m.contact_id, m);
         } else if (
           m.sender_type === 'system' &&
@@ -1051,13 +1065,13 @@ export async function getUnattendedHandoffs(): Promise<Array<{
 
     for (const c of contacts) {
       // Ignorar conversaciones finalizadas formalmente
-      if (c.custom_fields?.conversation_status === 'closed') continue;
+      if (c.conversation_status === 'closed' || c.custom_fields?.conversation_status === 'closed') continue;
       const leadMsg = latestLeadMsgMap.get(c.id);
       const agentMsg = latestAgentMsgMap.get(c.id);
       const handoffAlert = latestHandoffAlertMap.get(c.id);
 
-      // Si no hay mensaje de lead ni alerta de relevo, no requiere atención
-      if (!leadMsg && !handoffAlert) continue;
+      // Si tiene unattended_handoff explícito, siempre incluir; si no, verificar si hay mensaje/alerta sin respuesta
+      if (c.custom_fields?.unattended_handoff !== true && !leadMsg && !handoffAlert) continue;
 
       const leadTime = leadMsg ? new Date(leadMsg.created_at).getTime() : 0;
       const alertTime = handoffAlert ? new Date(handoffAlert.created_at).getTime() : 0;
@@ -1065,8 +1079,8 @@ export async function getUnattendedHandoffs(): Promise<Array<{
 
       const agentTime = agentMsg ? new Date(agentMsg.created_at).getTime() : 0;
 
-      // El contacto REQUIERE ATENCIÓN solo si el requerimiento es posterior a la última respuesta del asesor
-      if (latestPendingTime > agentTime) {
+      // El contacto REQUIERE ATENCIÓN si el requerimiento es posterior a la última respuesta o tiene unattended_handoff activo
+      if (c.custom_fields?.unattended_handoff === true || latestPendingTime > agentTime) {
         const waitingMsg = leadTime >= alertTime ? (leadMsg?.content || '') : (handoffAlert?.content || '');
         const waitingDate = leadTime >= alertTime ? leadMsg?.created_at : handoffAlert?.created_at;
 

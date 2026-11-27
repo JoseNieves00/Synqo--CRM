@@ -16,7 +16,7 @@ export interface TokenPolicyConfig {
   alertsSentInCycle: Record<string, string>;
   /** Tarifa de referencia por cada 500k tokens extra en COP (opcional para mostrar en aviso) */
   overagePricePer500kCop?: number | null;
-  /** Tarifa mensual base editable del software en COP (default 169000) */
+  /** Tarifa mensual base editable del software en COP (default 179999) */
   monthlyBasePriceCop?: number | null;
   /** Tarifa editable por cada 1M de tokens extra / excedente en COP (default 20000) */
   overagePricePer1MCop?: number | null;
@@ -111,7 +111,7 @@ export function normalizeTokenPolicy(raw?: any): TokenPolicyConfig {
     overagePricePer500kCop:
       Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum) : null,
     monthlyBasePriceCop:
-      Number.isFinite(monthlyBaseNum) && monthlyBaseNum > 0 ? Math.round(monthlyBaseNum) : 169000,
+      Number.isFinite(monthlyBaseNum) && monthlyBaseNum > 0 ? Math.round(monthlyBaseNum) : 179999,
     overagePricePer1MCop:
       Number.isFinite(overage1MNum) && overage1MNum > 0 ? Math.round(overage1MNum) : 20000,
     gracePct:
