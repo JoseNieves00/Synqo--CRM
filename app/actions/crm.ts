@@ -943,6 +943,62 @@ export interface OrderListItem {
   } | null;
 }
 
+const ORDER_EXTENDED_SELECT = `
+  id,
+  contact_id,
+  customer_name,
+  customer_phone,
+  items,
+  subtotal,
+  shipping_cost,
+  total,
+  status,
+  payment_method,
+  address,
+  city,
+  notes,
+  source,
+  is_separe,
+  deposit_paid,
+  balance_due,
+  carrier,
+  tracking_number,
+  shipping_guide_url,
+  shipped_at,
+  created_at,
+  updated_at,
+  contacts:contact_id (
+    id,
+    name,
+    phone
+  )
+`;
+
+const ORDER_BASE_SELECT = `
+  id,
+  contact_id,
+  customer_name,
+  customer_phone,
+  items,
+  total,
+  status,
+  payment_method,
+  address,
+  city,
+  notes,
+  source,
+  is_separe,
+  deposit_paid,
+  balance_due,
+  created_at,
+  updated_at,
+  contacts:contact_id (
+    id,
+    name,
+    phone
+  )
+`;
+
 export async function listOrdersAction(params?: {
   status?: OrderStatus | 'all';
   search?: string;
@@ -952,52 +1008,31 @@ export async function listOrdersAction(params?: {
   const { profile } = await requireOrgMember();
   const orgId = profile.organization_id;
 
-  let query = (supabaseAdmin.from('orders') as any)
-    .select(
-      `
-      id,
-      contact_id,
-      customer_name,
-      customer_phone,
-      items,
-      subtotal,
-      shipping_cost,
-      total,
-      status,
-      payment_method,
-      address,
-      city,
-      notes,
-      source,
-      is_separe,
-      deposit_paid,
-      balance_due,
-      carrier,
-      tracking_number,
-      shipping_guide_url,
-      shipped_at,
-      created_at,
-      updated_at,
-      contacts:contact_id (
-        id,
-        name,
-        phone
-      )
-    `
-    )
-    .eq('organization_id', orgId)
-    .order('created_at', { ascending: false });
-
-  if (params?.status && params.status !== 'all') {
-    query = query.eq('status', params.status);
-  }
-
   const hasSearch = Boolean(params?.search && params.search.trim());
   const limit = params?.limit || (hasSearch ? 500 : 100);
   const offset = params?.offset || 0;
-  query = query.range(offset, offset + limit - 1);
 
-  const { data: rawOrders, error } = await query;
+  const buildQuery = (selectCols: string) => {
+    let q = (supabaseAdmin.from('orders') as any)
+      .select(selectCols)
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false });
+
+    if (params?.status && params.status !== 'all') {
+      q = q.eq('status', params.status);
+    }
+
+    return q.range(offset, offset + limit - 1);
+  };
+
+  let { data: rawOrders, error } = await buildQuery(ORDER_EXTENDED_SELECT);
+  if (error && (error.code === '42703' || /column .* does not exist/i.test(error.message || ''))) {
+    console.warn('[listOrdersAction] Columnas de envío pendientes de migración, usando esquema base:', error.message);
+    const fallback = await buildQuery(ORDER_BASE_SELECT);
+    rawOrders = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) {
     console.warn('[listOrdersAction] Error:', error.message);
     throw new Error(`Error cargando pedidos: ${error.message}`);

@@ -19,10 +19,14 @@ import {
   Trash2,
   Pencil,
   Upload,
-  Eye,
   X,
   Send,
   FileText,
+  SlidersHorizontal,
+  Copy,
+  Check,
+  AlertTriangle,
+  StickyNote,
 } from 'lucide-react';
 import {
   listOrdersAction,
@@ -106,9 +110,12 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Modales: Detalles/Edición, Guía/Despacho, Eliminación doble verificación
-  const [detailOrder, setDetailOrder] = useState<OrderListItem | null>(null);
-  const [isEditingDetail, setIsEditingDetail] = useState(false);
+  // Modal unificado de Gestión de Pedido
+  type ModalTab = 'summary' | 'edit' | 'guide' | 'danger';
+  const [activeOrder, setActiveOrder] = useState<OrderListItem | null>(null);
+  const [modalTab, setModalTab] = useState<ModalTab>('summary');
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+
   const [editForm, setEditForm] = useState({
     customer_name: '',
     customer_phone: '',
@@ -119,16 +126,20 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
     subtotal: '0',
     shipping_cost: '0',
     total: '0',
+    deposit_paid: '0',
+    balance_due: '0',
   });
 
-  const [guideOrder, setGuideOrder] = useState<OrderListItem | null>(null);
   const [guideCarrier, setGuideCarrier] = useState('');
   const [guideTracking, setGuideTracking] = useState('');
   const [guideMarkShipped, setGuideMarkShipped] = useState(true);
   const [guideNotifyClient, setGuideNotifyClient] = useState(true);
   const [guideFile, setGuideFile] = useState<{ base64: string; name: string; mime: string } | null>(null);
 
-  const [deleteTarget, setDeleteTarget] = useState<OrderListItem | null>(null);
+  const [modalStatus, setModalStatus] = useState<OrderStatus>('pending');
+  const [modalCancelReason, setModalCancelReason] = useState('');
+  const [modalStatusNotify, setModalStatusNotify] = useState(true);
+
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isSavingModal, setIsSavingModal] = useState(false);
 
@@ -154,7 +165,7 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
     return () => clearTimeout(timer);
   }, [searchQuery, selectedStatus, initialOrders]);
 
-  const refreshFromServer = async () => {
+  const refreshFromServer = async (keepOrderId?: string) => {
     const res = await listOrdersAction({
       status: selectedStatus,
       search: searchQuery.trim() || undefined,
@@ -162,6 +173,10 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
     });
     setOrders(res.orders);
     setStats(res.stats);
+    if (keepOrderId) {
+      const updated = res.orders.find((o) => o.id === keepOrderId) || null;
+      setActiveOrder(updated);
+    }
   };
 
   const handleStatusChange = async (orderId: string, nextStatus: OrderStatus) => {
@@ -182,7 +197,7 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
             : `Estado actualizado (${res.notifyWarning || 'sin notificación WhatsApp'}).`
         );
       }
-      refreshFromServer().catch(() => {});
+      refreshFromServer(activeOrder?.id === orderId ? orderId : undefined).catch(() => {});
     } catch (err: any) {
       alert(`Error actualizando pedido: ${err.message || 'Error desconocido'}`);
     } finally {
@@ -190,9 +205,9 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
     }
   };
 
-  const openDetailsModal = (order: OrderListItem, editMode = false) => {
-    setDetailOrder(order);
-    setIsEditingDetail(editMode);
+  const openOrderModal = (order: OrderListItem, initialTab: ModalTab = 'summary') => {
+    setActiveOrder(order);
+    setModalTab(initialTab);
     setEditForm({
       customer_name: order.customer_name || '',
       customer_phone: order.customer_phone || '',
@@ -203,19 +218,63 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
       subtotal: String(order.subtotal || order.total || 0),
       shipping_cost: String(order.shipping_cost || 0),
       total: String(order.total || 0),
+      deposit_paid: String(order.deposit_paid || 0),
+      balance_due: String(order.balance_due || Math.max(0, order.total - (order.deposit_paid || 0))),
     });
+    setGuideCarrier(order.carrier || shippingCarriers[0] || '');
+    setGuideTracking(order.tracking_number || '');
+    setGuideMarkShipped(true);
+    setGuideNotifyClient(true);
+    setGuideFile(null);
+    setModalStatus(order.status);
+    setModalCancelReason('');
+    setModalStatusNotify(notifyOnStatusChange);
+    setDeleteConfirmText('');
+  };
+
+  const handleCopyShippingData = async (order: OrderListItem) => {
+    const itemsText = order.items.map((it) => `${it.quantity}x ${it.product_name}`).join(', ');
+    const isCod = isContraentregaOrder(order);
+    const amountToCollect = order.is_separe
+      ? order.balance_due || Math.max(0, order.total - (order.deposit_paid || 0))
+      : order.total;
+    const summary = [
+      `Cliente: ${order.customer_name}`,
+      `Teléfono: ${order.customer_phone || 'N/A'}`,
+      `Ciudad: ${order.city || 'N/A'}`,
+      `Dirección: ${order.address || 'N/A'}`,
+      `Productos: ${itemsText || 'N/A'}`,
+      `Pago: ${order.payment_method || 'Por definir'}`,
+      isCod || order.is_separe
+        ? `Valor a cobrar: $${Number(amountToCollect).toLocaleString('es-CO')} COP`
+        : `Total: $${Number(order.total).toLocaleString('es-CO')} COP`,
+      order.notes ? `Observaciones: ${order.notes}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      await navigator.clipboard.writeText(summary);
+      setCopiedOrderId(order.id);
+      showToast('Datos de despacho copiados al portapapeles.');
+      setTimeout(() => setCopiedOrderId((cur) => (cur === order.id ? null : cur)), 2000);
+    } catch {
+      showToast('No se pudo copiar al portapapeles.');
+    }
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!detailOrder) return;
+    if (!activeOrder) return;
     setIsSavingModal(true);
     try {
       const sub = Math.max(0, Number(editForm.subtotal) || 0);
       const ship = Math.max(0, Number(editForm.shipping_cost) || 0);
       const tot = Math.max(0, Number(editForm.total) || sub + ship);
+      const dep = Math.max(0, Number(editForm.deposit_paid) || 0);
+      const bal = activeOrder.is_separe ? Math.max(0, Number(editForm.balance_due) || Math.max(0, tot - dep)) : 0;
       await updateOrderDetailsAction({
-        orderId: detailOrder.id,
+        orderId: activeOrder.id,
         customer_name: editForm.customer_name,
         customer_phone: editForm.customer_phone,
         city: editForm.city,
@@ -225,24 +284,16 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
         subtotal: sub,
         shipping_cost: ship,
         total: tot,
+        ...(activeOrder.is_separe ? { deposit_paid: dep, balance_due: bal } : {}),
       });
-      await refreshFromServer();
-      setDetailOrder(null);
-      showToast('Datos del pedido actualizados.');
+      await refreshFromServer(activeOrder.id);
+      setModalTab('summary');
+      showToast('Pedido y observaciones actualizados.');
     } catch (err: any) {
       alert(err.message || 'Error guardando cambios');
     } finally {
       setIsSavingModal(false);
     }
-  };
-
-  const openGuideModal = (order: OrderListItem) => {
-    setGuideOrder(order);
-    setGuideCarrier(order.carrier || shippingCarriers[0] || '');
-    setGuideTracking(order.tracking_number || '');
-    setGuideMarkShipped(true);
-    setGuideNotifyClient(true);
-    setGuideFile(null);
   };
 
   const handleGuideFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -261,21 +312,22 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
 
   const handleSaveGuide = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!guideOrder) return;
+    if (!activeOrder) return;
     setIsSavingModal(true);
     try {
       const res = await updateOrderTrackingAction({
-        orderId: guideOrder.id,
+        orderId: activeOrder.id,
         carrier: guideCarrier,
-        trackingNumber: guideTracking,
+        trackingNumber: guideTracking.trim() || undefined,
         guideFileBase64: guideFile?.base64,
         guideFileName: guideFile?.name,
         guideMimeType: guideFile?.mime,
         markAsShipped: guideMarkShipped,
         notifyCustomer: guideNotifyClient,
       });
-      await refreshFromServer();
-      setGuideOrder(null);
+      await refreshFromServer(activeOrder.id);
+      setGuideFile(null);
+      setModalTab('summary');
       showToast(
         guideNotifyClient
           ? res.customerNotified
@@ -290,13 +342,42 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
     }
   };
 
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget || deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') return;
+  const handleSaveModalStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeOrder) return;
     setIsSavingModal(true);
     try {
-      await deleteOrderAction({ orderId: deleteTarget.id });
-      setOrders((prev) => prev.filter((o) => o.id !== deleteTarget.id));
-      setDeleteTarget(null);
+      const res = await updateOrderStatusAction({
+        orderId: activeOrder.id,
+        status: modalStatus,
+        notifyCustomer: modalStatusNotify,
+        cancelReason: modalCancelReason.trim() || undefined,
+      });
+      await refreshFromServer(activeOrder.id);
+      setModalCancelReason('');
+      setModalTab('summary');
+      showToast(
+        modalStatusNotify
+          ? res.customerNotified
+            ? 'Estado actualizado y cliente notificado por WhatsApp.'
+            : `Estado actualizado (${res.notifyWarning || 'sin notificación WhatsApp'}).`
+          : 'Estado del pedido actualizado.'
+      );
+    } catch (err: any) {
+      alert(err.message || 'Error actualizando estado');
+    } finally {
+      setIsSavingModal(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!activeOrder || deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') return;
+    setIsSavingModal(true);
+    try {
+      const deletedId = activeOrder.id;
+      await deleteOrderAction({ orderId: deletedId });
+      setOrders((prev) => prev.filter((o) => o.id !== deletedId));
+      setActiveOrder(null);
       setDeleteConfirmText('');
       await refreshFromServer();
       showToast('Pedido eliminado con auditoría en el historial.');
@@ -693,41 +774,25 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => openGuideModal(order)}
-                      className="px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                      onClick={() => openOrderModal(order, 'summary')}
+                      className="px-3.5 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
                     >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>{order.tracking_number ? 'Actualizar Guía' : 'Subir Guía / Despachar'}</span>
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>Gestionar Pedido</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => openDetailsModal(order, false)}
-                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                      onClick={() => handleCopyShippingData(order)}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] text-slate-600 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                      title="Copiar datos de despacho para transportadora"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Detalles</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => openDetailsModal(order, true)}
-                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] hover:bg-slate-100 dark:hover:bg-[#1A1F2C] text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      <span>Editar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDeleteTarget(order);
-                        setDeleteConfirmText('');
-                      }}
-                      className="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/40 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Eliminar</span>
+                      {copiedOrderId === order.id ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedOrderId === order.id ? 'Copiado' : 'Copiar Datos'}</span>
                     </button>
                   </div>
 
@@ -759,300 +824,628 @@ export function OrdersManagerClient({ initialOrders, initialStats, shippingCarri
         </div>
       )}
 
-      {/* Modal: Detalles / Edición puntual */}
-      {detailOrder && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <FileText className="w-4 h-4 text-[#0052FF]" />
-                {isEditingDetail ? 'Editar Pedido (Corrección Puntual)' : 'Detalle Completo del Pedido'}
-              </h3>
-              <button type="button" onClick={() => setDetailOrder(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* Modal Unificado: Gestionar Pedido (Resumen, Editar y Observaciones, Guía y Despacho, Estado y Eliminar) */}
+      {activeOrder && (() => {
+        const isCod = isContraentregaOrder(activeOrder);
+        const statusCfg = STATUS_CONFIG[activeOrder.status] || STATUS_CONFIG.pending;
+        const quickObservationChips = [
+          'Llamar antes de entregar',
+          'Entregar en portería',
+          'Entrega en horario de la tarde',
+          'Cliente confirma pago contraentrega en efectivo',
+          'Revisar dirección exacta con el cliente',
+        ];
 
-            {isEditingDetail ? (
-              <form onSubmit={handleSaveEdit} className="space-y-3 text-xs">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold block mb-1">Nombre Cliente</label>
-                    <input
-                      value={editForm.customer_name}
-                      onChange={(e) => setEditForm({ ...editForm, customer_name: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold block mb-1">Teléfono</label>
-                    <input
-                      value={editForm.customer_phone}
-                      onChange={(e) => setEditForm({ ...editForm, customer_phone: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold block mb-1">Ciudad / Municipio</label>
-                    <input
-                      value={editForm.city}
-                      onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold block mb-1">Medio de Pago</label>
-                    <input
-                      value={editForm.payment_method}
-                      onChange={(e) => setEditForm({ ...editForm, payment_method: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="font-semibold block mb-1">Dirección Completa</label>
-                  <input
-                    value={editForm.address}
-                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="font-semibold block mb-1">Subtotal Productos</label>
-                    <input
-                      type="number"
-                      value={editForm.subtotal}
-                      onChange={(e) => {
-                        const sub = Number(e.target.value) || 0;
-                        const ship = Number(editForm.shipping_cost) || 0;
-                        setEditForm({ ...editForm, subtotal: e.target.value, total: String(sub + ship) });
-                      }}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold block mb-1">Flete / Envío</label>
-                    <input
-                      type="number"
-                      value={editForm.shipping_cost}
-                      onChange={(e) => {
-                        const ship = Number(e.target.value) || 0;
-                        const sub = Number(editForm.subtotal) || 0;
-                        setEditForm({ ...editForm, shipping_cost: e.target.value, total: String(sub + ship) });
-                      }}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold block mb-1">Total</label>
-                    <input
-                      type="number"
-                      value={editForm.total}
-                      onChange={(e) => setEditForm({ ...editForm, total: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B] font-bold"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="font-semibold block mb-1">Notas</label>
-                  <textarea
-                    rows={2}
-                    value={editForm.notes}
-                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <button type="button" onClick={() => setIsEditingDetail(false)} className="px-3 py-2 rounded-xl text-slate-500 cursor-pointer">
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingModal}
-                    className="px-4 py-2 rounded-xl bg-[#0052FF] text-white font-bold cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingModal ? 'Guardando...' : 'Guardar Cambios'}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#0E121B] space-y-1">
-                  <div><strong>Cliente:</strong> {detailOrder.customer_name} ({detailOrder.customer_phone || 'Sin tel'})</div>
-                  <div><strong>Ciudad / Dirección:</strong> {detailOrder.city || '—'} · {detailOrder.address || '—'}</div>
-                  <div><strong>Pago:</strong> {detailOrder.payment_method || 'Por definir'}</div>
-                  <div><strong>Desglose:</strong> Subtotal ${(detailOrder.subtotal || detailOrder.total).toLocaleString('es-CO')} + Flete ${(detailOrder.shipping_cost || 0).toLocaleString('es-CO')} = <strong>${detailOrder.total.toLocaleString('es-CO')} COP</strong></div>
-                  {detailOrder.carrier && (
-                    <div><strong>Transportadora / Guía:</strong> {detailOrder.carrier} {detailOrder.tracking_number ? `(#${detailOrder.tracking_number})` : ''}</div>
-                  )}
-                  {detailOrder.shipping_guide_url && (
-                    <div>
-                      <a href={detailOrder.shipping_guide_url} target="_blank" rel="noopener noreferrer" className="text-[#0052FF] underline font-semibold">
-                        Abrir comprobante / guía adjunta
-                      </a>
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingDetail(true)}
-                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] font-semibold cursor-pointer"
-                  >
-                    Editar datos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDetailOrder(null)}
-                    className="px-4 py-2 rounded-xl bg-[#0052FF] text-white font-bold cursor-pointer"
-                  >
-                    Cerrar
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+        const modalStatusOptions: Array<{ value: OrderStatus; label: string }> = isCod
+          ? [
+              ...(activeOrder.status === 'pending' ? [{ value: 'pending' as const, label: '⏳ Por Validar' }] : []),
+              { value: 'confirmed', label: '📦 Por Despachar (Contraentrega)' },
+              { value: 'shipped', label: '🚚 En Camino (Con guía)' },
+              { value: 'delivered', label: '✅ Entregado y Cobrado' },
+              { value: 'cancelled', label: '❌ Cancelado' },
+            ]
+          : [
+              { value: 'pending', label: '⏳ Por Validar Pago' },
+              { value: 'confirmed', label: '📦 Por Despachar' },
+              { value: 'paid', label: '💳 Pagado' },
+              { value: 'shipped', label: '🚚 En Camino' },
+              { value: 'delivered', label: '✅ Entregado' },
+              { value: 'cancelled', label: '❌ Cancelado' },
+            ];
 
-      {/* Modal: Subir Guía y Notificar Cliente */}
-      {guideOrder && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={handleSaveGuide}
-            className="w-full max-w-md rounded-2xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] p-5 space-y-4 text-xs"
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isSavingModal) setActiveOrder(null);
+            }}
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Truck className="w-4 h-4 text-[#0052FF]" />
-                Subir Guía de Envío ({guideOrder.customer_name})
-              </h3>
-              <button type="button" onClick={() => setGuideOrder(null)} className="text-slate-400 cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+              {/* Header del Modal */}
+              <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-[#1E2433] flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">
+                      {activeOrder.customer_name}
+                    </h3>
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${statusCfg.badgeBg} ${statusCfg.color}`}>
+                      {statusCfg.label}
+                    </span>
+                    {isCod && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
+                        Contraentrega
+                      </span>
+                    )}
+                    {activeOrder.is_separe && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
+                        Plan Separe
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">
+                    {activeOrder.customer_phone || 'Sin teléfono'} · Total: ${activeOrder.total.toLocaleString('es-CO')} COP
+                  </p>
+                </div>
 
-            <div>
-              <label className="font-semibold block mb-1">Transportadora (desde Políticas de Envío)</label>
-              {shippingCarriers.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {shippingCarriers.map((c) => (
+                <button
+                  type="button"
+                  disabled={isSavingModal}
+                  onClick={() => setActiveOrder(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-[#1A1F2C] cursor-pointer transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Pestañas del Modal */}
+              <div className="px-4 sm:px-5 pt-2.5 border-b border-slate-100 dark:border-[#1E2433] flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] bg-slate-50/60 dark:bg-[#0E121B]/60">
+                {[
+                  { id: 'summary' as const, label: 'Resumen', icon: FileText },
+                  { id: 'edit' as const, label: 'Editar y Observaciones', icon: Pencil },
+                  { id: 'guide' as const, label: 'Guía y Despacho', icon: Truck },
+                  { id: 'danger' as const, label: 'Estado y Eliminar', icon: AlertTriangle },
+                ].map((tab) => {
+                  const Icon = tab.icon;
+                  const active = modalTab === tab.id;
+                  return (
                     <button
-                      key={c}
+                      key={tab.id}
                       type="button"
-                      onClick={() => setGuideCarrier(c)}
-                      className={`px-2.5 py-1 rounded-lg font-semibold cursor-pointer ${
-                        guideCarrier === c
-                          ? 'bg-[#0052FF] text-white'
-                          : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300'
+                      onClick={() => setModalTab(tab.id)}
+                      className={`px-3 py-2 rounded-t-xl text-xs font-bold flex items-center gap-1.5 border-b-2 transition shrink-0 cursor-pointer ${
+                        active
+                          ? tab.id === 'danger'
+                            ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-white dark:bg-[#131722]'
+                            : 'border-[#0052FF] text-[#0052FF] dark:text-[#00D2FF] bg-white dark:bg-[#131722]'
+                          : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                       }`}
                     >
-                      {c}
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{tab.label}</span>
                     </button>
-                  ))}
-                </div>
-              )}
-              <input
-                required
-                value={guideCarrier}
-                onChange={(e) => setGuideCarrier(e.target.value)}
-                placeholder="Ej: Interrapidísimo, Servientrega..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-              />
-            </div>
+                  );
+                })}
+              </div>
 
-            <div>
-              <label className="font-semibold block mb-1">Número de Guía</label>
-              <input
-                value={guideTracking}
-                onChange={(e) => setGuideTracking(e.target.value)}
-                placeholder="Ej: 700123456789"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-              />
-            </div>
+              {/* Contenido Scrollable del Modal */}
+              <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs flex-1">
+                {modalTab === 'summary' && (
+                  <div className="space-y-4">
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#0E121B] border border-slate-100 dark:border-[#1E2433] space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Datos de Entrega y Pago
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyShippingData(activeOrder)}
+                          className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 hover:bg-slate-100 cursor-pointer transition"
+                        >
+                          {copiedOrderId === activeOrder.id ? (
+                            <Check className="w-3 h-3 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                          <span>{copiedOrderId === activeOrder.id ? 'Copiado' : 'Copiar para transportadora'}</span>
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
+                        <div><strong>Cliente:</strong> {activeOrder.customer_name}</div>
+                        <div><strong>Teléfono:</strong> {activeOrder.customer_phone || 'Sin teléfono'}</div>
+                        <div><strong>Ciudad:</strong> {activeOrder.city || 'Sin ciudad'}</div>
+                        <div><strong>Medio de pago:</strong> {activeOrder.payment_method || 'Por definir'}</div>
+                        <div className="sm:col-span-2"><strong>Dirección:</strong> {activeOrder.address || 'Sin dirección'}</div>
+                      </div>
+                    </div>
 
-            <div>
-              <label className="font-semibold block mb-1">Foto o PDF de la Guía (Opcional)</label>
-              <input type="file" accept="image/*,application/pdf" onChange={handleGuideFileChange} className="w-full text-[11px]" />
-              {guideFile && <p className="text-emerald-600 mt-1">Archivo listo: {guideFile.name}</p>}
-            </div>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#0E121B] border border-slate-100 dark:border-[#1E2433] space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Productos ({activeOrder.items.length}) y Valores
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {activeOrder.items.map((it, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] font-semibold text-slate-800 dark:text-slate-200"
+                          >
+                            {it.quantity}x {it.product_name}
+                            {it.unit_price ? ` ($${Number(it.unit_price).toLocaleString('es-CO')})` : ''}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="pt-2 border-t border-slate-200/70 dark:border-[#232A3B] flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-300">
+                        <span>
+                          Subtotal: <strong>${(activeOrder.subtotal || activeOrder.total).toLocaleString('es-CO')}</strong> · Flete:{' '}
+                          <strong>${(activeOrder.shipping_cost || 0).toLocaleString('es-CO')}</strong>
+                        </span>
+                        <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                          Total: ${activeOrder.total.toLocaleString('es-CO')} COP
+                        </span>
+                      </div>
+                      {activeOrder.is_separe && (
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400">
+                          Abono recibido:{' '}
+                          <strong className="text-emerald-600 dark:text-emerald-400">
+                            ${(activeOrder.deposit_paid || 0).toLocaleString('es-CO')}
+                          </strong>{' '}
+                          · Saldo pendiente:{' '}
+                          <strong className="text-amber-600 dark:text-amber-400">
+                            ${(activeOrder.balance_due || Math.max(0, activeOrder.total - (activeOrder.deposit_paid || 0))).toLocaleString('es-CO')}
+                          </strong>
+                        </div>
+                      )}
+                    </div>
 
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={guideMarkShipped}
-                onChange={(e) => setGuideMarkShipped(e.target.checked)}
-                className="rounded border-slate-300 text-[#0052FF]"
-              />
-              <span>Marcar pedido como <strong>En Camino</strong></span>
-            </label>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#0E121B] border border-slate-100 dark:border-[#1E2433] space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Guía y Transportadora
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setModalTab('guide')}
+                          className="text-[11px] font-bold text-[#0052FF] hover:underline cursor-pointer"
+                        >
+                          {activeOrder.carrier || activeOrder.tracking_number || activeOrder.shipping_guide_url ? 'Actualizar guía' : 'Subir guía'}
+                        </button>
+                      </div>
+                      {activeOrder.carrier || activeOrder.tracking_number || activeOrder.shipping_guide_url ? (
+                        <div className="text-slate-700 dark:text-slate-300 space-y-1">
+                          <div>
+                            <strong>Transportadora:</strong> {activeOrder.carrier || 'Sin especificar'}
+                            {activeOrder.tracking_number ? ` · Guía #${activeOrder.tracking_number}` : ' · (Sin # de guía)'}
+                          </div>
+                          {activeOrder.shipping_guide_url && (
+                            <a
+                              href={activeOrder.shipping_guide_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[#0052FF] underline font-semibold"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Abrir comprobante / guía adjunta
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-slate-400">Sin guía cargada aún.</p>
+                      )}
+                    </div>
 
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={guideNotifyClient}
-                onChange={(e) => setGuideNotifyClient(e.target.checked)}
-                className="rounded border-slate-300 text-[#0052FF]"
-              />
-              <span>Enviar guía y estado al cliente por WhatsApp</span>
-            </label>
+                    <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                          <StickyNote className="w-3.5 h-3.5" />
+                          Observaciones del Pedido / Cliente
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setModalTab('edit')}
+                          className="text-[11px] font-bold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer"
+                        >
+                          {activeOrder.notes ? 'Editar observación' : 'Agregar observación'}
+                        </button>
+                      </div>
+                      <p className="text-amber-900 dark:text-amber-200 whitespace-pre-wrap">
+                        {activeOrder.notes || 'Sin observaciones registradas.'}
+                      </p>
+                    </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setGuideOrder(null)} className="px-3 py-2 text-slate-500 cursor-pointer">
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSavingModal}
-                className="px-4 py-2 rounded-xl bg-[#0052FF] text-white font-bold cursor-pointer disabled:opacity-50"
-              >
-                {isSavingModal ? 'Guardando...' : 'Guardar y Despachar'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        {activeOrder.customer_phone && (
+                          <a
+                            href={`https://wa.me/${activeOrder.customer_phone.replace(/[^0-9]/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+                        )}
+                        <Link
+                          href={`/inbox?c=${activeOrder.contact_id}`}
+                          className="px-3 py-2 rounded-xl bg-[#0052FF] text-white font-semibold flex items-center gap-1.5"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Abrir Chat</span>
+                        </Link>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveOrder(null)}
+                        className="px-4 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] font-semibold cursor-pointer"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-      {/* Modal: Eliminar Pedido con Doble Verificación */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#131722] border border-rose-200 dark:border-rose-900/50 p-5 space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-rose-600 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" />
-              Confirmar Eliminación de Pedido
-            </h3>
-            <p className="text-slate-600 dark:text-slate-300">
-              Vas a eliminar el pedido de <strong>{deleteTarget.customer_name}</strong> por{' '}
-              <strong>${deleteTarget.total.toLocaleString('es-CO')} COP</strong>. Esta acción recalculará el valor del cliente y no se puede deshacer.
-            </p>
-            <div>
-              <label className="font-semibold block mb-1">
-                Escribe <span className="font-mono text-rose-600">ELIMINAR</span> para confirmar:
-              </label>
-              <input
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="ELIMINAR"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => setDeleteTarget(null)} className="px-3 py-2 text-slate-500 cursor-pointer">
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={isSavingModal || deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR'}
-                onClick={handleConfirmDelete}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-40"
-              >
-                {isSavingModal ? 'Eliminando...' : 'Eliminar Definitivamente'}
-              </button>
+                {modalTab === 'edit' && (
+                  <form onSubmit={handleSaveEdit} className="space-y-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-semibold block mb-1">Nombre Cliente</label>
+                        <input
+                          value={editForm.customer_name}
+                          onChange={(e) => setEditForm({ ...editForm, customer_name: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Teléfono</label>
+                        <input
+                          value={editForm.customer_phone}
+                          onChange={(e) => setEditForm({ ...editForm, customer_phone: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Ciudad / Municipio</label>
+                        <input
+                          value={editForm.city}
+                          onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Medio de Pago</label>
+                        <input
+                          value={editForm.payment_method}
+                          onChange={(e) => setEditForm({ ...editForm, payment_method: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">Dirección Completa</label>
+                      <input
+                        value={editForm.address}
+                        onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="font-semibold block mb-1">Subtotal Productos</label>
+                        <input
+                          type="number"
+                          value={editForm.subtotal}
+                          onChange={(e) => {
+                            const sub = Number(e.target.value) || 0;
+                            const ship = Number(editForm.shipping_cost) || 0;
+                            setEditForm({ ...editForm, subtotal: e.target.value, total: String(sub + ship) });
+                          }}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Flete / Envío</label>
+                        <input
+                          type="number"
+                          value={editForm.shipping_cost}
+                          onChange={(e) => {
+                            const ship = Number(e.target.value) || 0;
+                            const sub = Number(editForm.subtotal) || 0;
+                            setEditForm({ ...editForm, shipping_cost: e.target.value, total: String(sub + ship) });
+                          }}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Total</label>
+                        <input
+                          type="number"
+                          value={editForm.total}
+                          onChange={(e) => setEditForm({ ...editForm, total: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B] font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {activeOrder.is_separe && (
+                      <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30">
+                        <div>
+                          <label className="font-semibold block mb-1">Abono Recibido (Plan Separe)</label>
+                          <input
+                            type="number"
+                            value={editForm.deposit_paid}
+                            onChange={(e) => {
+                              const dep = Number(e.target.value) || 0;
+                              const tot = Number(editForm.total) || 0;
+                              setEditForm({
+                                ...editForm,
+                                deposit_paid: e.target.value,
+                                balance_due: String(Math.max(0, tot - dep)),
+                              });
+                            }}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0E121B]"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-semibold block mb-1">Saldo Pendiente</label>
+                          <input
+                            type="number"
+                            value={editForm.balance_due}
+                            onChange={(e) => setEditForm({ ...editForm, balance_due: e.target.value })}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#0E121B] font-bold"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="font-semibold block mb-1">Observaciones / Notas del Cliente o Internas</label>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {quickObservationChips.map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() =>
+                              setEditForm((prev) => ({
+                                ...prev,
+                                notes: prev.notes.trim() ? `${prev.notes.trim()}\n• ${chip}` : `• ${chip}`,
+                              }))
+                            }
+                            className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#1A1F2C] hover:bg-slate-200 dark:hover:bg-[#232A3B] text-[11px] font-medium text-slate-700 dark:text-slate-300 cursor-pointer transition"
+                          >
+                            + {chip}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={editForm.notes}
+                        onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                        placeholder="Ej: Cliente pide llamar antes de entregar, especificaciones del producto, novedades..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setModalTab('summary')}
+                        className="px-3 py-2 rounded-xl text-slate-500 cursor-pointer"
+                      >
+                        Volver
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingModal}
+                        className="px-4 py-2 rounded-xl bg-[#0052FF] text-white font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingModal ? 'Guardando...' : 'Guardar Cambios'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {modalTab === 'guide' && (
+                  <form onSubmit={handleSaveGuide} className="space-y-3.5">
+                    <div>
+                      <label className="font-semibold block mb-1">Transportadora (desde Políticas de Envío)</label>
+                      {shippingCarriers.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {shippingCarriers.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setGuideCarrier(c)}
+                              className={`px-2.5 py-1 rounded-lg font-semibold cursor-pointer ${
+                                guideCarrier === c
+                                  ? 'bg-[#0052FF] text-white'
+                                  : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <input
+                        required
+                        value={guideCarrier}
+                        onChange={(e) => setGuideCarrier(e.target.value)}
+                        placeholder="Ej: Interrapidísimo, Servientrega, Coordinadora..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">
+                        Número de Guía <span className="text-slate-400 font-normal">(Opcional)</span>
+                      </label>
+                      <input
+                        value={guideTracking}
+                        onChange={(e) => setGuideTracking(e.target.value)}
+                        placeholder="Ej: 700123456789 (puedes dejarlo vacío si solo subes foto/PDF)"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#0E121B]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-semibold block mb-1">
+                        Foto o PDF de la Guía <span className="text-slate-400 font-normal">(Opcional)</span>
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={handleGuideFileChange}
+                        className="w-full text-[11px] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700 file:font-semibold hover:file:bg-indigo-100 cursor-pointer"
+                      />
+                      {guideFile && <p className="text-emerald-600 mt-1 font-semibold">Archivo listo: {guideFile.name}</p>}
+                      {!guideFile && activeOrder.shipping_guide_url && (
+                        <p className="mt-1.5 text-slate-500">
+                          Guía actual:{' '}
+                          <a
+                            href={activeOrder.shipping_guide_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#0052FF] underline font-semibold"
+                          >
+                            Ver archivo cargado
+                          </a>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={guideMarkShipped}
+                          onChange={(e) => setGuideMarkShipped(e.target.checked)}
+                          className="rounded border-slate-300 text-[#0052FF]"
+                        />
+                        <span>Marcar pedido como <strong>En Camino</strong></span>
+                      </label>
+
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={guideNotifyClient}
+                          onChange={(e) => setGuideNotifyClient(e.target.checked)}
+                          className="rounded border-slate-300 text-[#0052FF]"
+                        />
+                        <span>Enviar guía y estado al cliente por WhatsApp</span>
+                      </label>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setModalTab('summary')}
+                        className="px-3 py-2 text-slate-500 cursor-pointer"
+                      >
+                        Volver
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingModal}
+                        className="px-4 py-2 rounded-xl bg-[#0052FF] text-white font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingModal ? 'Guardando...' : 'Guardar Guía y Despachar'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {modalTab === 'danger' && (
+                  <div className="space-y-5">
+                    <form onSubmit={handleSaveModalStatus} className="p-4 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50/70 dark:bg-[#0E121B] space-y-3">
+                      <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <Send className="w-3.5 h-3.5 text-[#0052FF]" />
+                        Cambiar Estado con Observación
+                      </h4>
+                      <div>
+                        <label className="font-semibold block mb-1">Nuevo Estado</label>
+                        <select
+                          value={modalStatus}
+                          onChange={(e) => setModalStatus(e.target.value as OrderStatus)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722] font-semibold"
+                        >
+                          {modalStatusOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {modalStatus === 'cancelled' && (
+                        <div>
+                          <label className="font-semibold block mb-1">Motivo de Cancelación / Observación</label>
+                          <textarea
+                            rows={2}
+                            value={modalCancelReason}
+                            onChange={(e) => setModalCancelReason(e.target.value)}
+                            placeholder="Ej: Cliente desistió, dirección sin cobertura, no contestó..."
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#131722]"
+                          />
+                        </div>
+                      )}
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={modalStatusNotify}
+                          onChange={(e) => setModalStatusNotify(e.target.checked)}
+                          className="rounded border-slate-300 text-[#0052FF]"
+                        />
+                        <span>Notificar cambio de estado al cliente por WhatsApp</span>
+                      </label>
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={isSavingModal}
+                          className="px-4 py-2 rounded-xl bg-[#0052FF] text-white font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingModal ? 'Actualizando...' : 'Actualizar Estado'}
+                        </button>
+                      </div>
+                    </form>
+
+                    <div className="p-4 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 space-y-3">
+                      <h4 className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                        <Trash2 className="w-4 h-4" />
+                        Zona de Peligro: Eliminar Pedido
+                      </h4>
+                      <p className="text-slate-600 dark:text-slate-300">
+                        Vas a eliminar el pedido de <strong>{activeOrder.customer_name}</strong> por{' '}
+                        <strong>${activeOrder.total.toLocaleString('es-CO')} COP</strong>. Esta acción recalculará el valor del cliente y no se puede deshacer.
+                      </p>
+                      <div>
+                        <label className="font-semibold block mb-1">
+                          Escribe <span className="font-mono text-rose-600">ELIMINAR</span> para confirmar:
+                        </label>
+                        <input
+                          value={deleteConfirmText}
+                          onChange={(e) => setDeleteConfirmText(e.target.value)}
+                          placeholder="ELIMINAR"
+                          className="w-full px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-white dark:bg-[#0E121B]"
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          disabled={isSavingModal || deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR'}
+                          onClick={handleConfirmDelete}
+                          className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-40"
+                        >
+                          {isSavingModal ? 'Eliminando...' : 'Eliminar Definitivamente'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

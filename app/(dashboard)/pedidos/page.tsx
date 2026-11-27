@@ -15,7 +15,22 @@ export default async function PedidosPage() {
 
   // Carga inicial de pedidos, estadísticas y transportadoras configuradas en Políticas de Envío
   const [{ orders, stats }, shippingSettings] = await Promise.all([
-    listOrdersAction(),
+    listOrdersAction().catch((err) => {
+      console.error('[PedidosPage] Error cargando pedidos iniciales:', err);
+      return {
+        orders: [],
+        stats: {
+          totalRevenue: 0,
+          totalOrders: 0,
+          pendingValidation: 0,
+          confirmedToShip: 0,
+          paid: 0,
+          shipped: 0,
+          delivered: 0,
+          cancelled: 0,
+        },
+      };
+    }),
     getOrganizationShippingSettings().catch(() => null),
   ]);
   const shippingCarriers = String(shippingSettings?.carrierNames || '')
