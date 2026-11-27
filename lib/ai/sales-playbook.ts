@@ -9,14 +9,23 @@
 import { evaluatePromptReadiness } from './prompt-assistant/readiness';
 import { formatAllPaymentAccountsText, CustomPaymentAccount } from '@/lib/types/payments';
 import { formatShippingPolicyPrompt, ShippingSettings } from '@/lib/types/shipping';
+import { normalizeWorkflowPolicy, WorkflowPolicy } from '@/lib/types/workflow';
 
 export interface SalesPlaybookOptions {
   hasCalendar?: boolean;
+  workflowPolicy?: WorkflowPolicy | null;
 }
 
 const GALLERY_TAIL_REGEX = /\n*===\s*CAT[ÁA]LOGO VISUAL DE PRODUCTOS[\s\S]*$/i;
 
 export function buildSalesPlaybook(options: SalesPlaybookOptions = {}): string {
+  const policy = normalizeWorkflowPolicy(options.workflowPolicy);
+  const isStrictPertinence = policy.responseStyle === 'strict';
+  const allowsHumanHandoffFlow =
+    policy.businessHoursRole !== 'autonomous_close' ||
+    policy.afterHoursRole !== 'autonomous_close' ||
+    policy.handoffOnQualified;
+
   const calendarSection = options.hasCalendar
     ? `
 Agenda (módulo activo):
@@ -24,6 +33,18 @@ Agenda (módulo activo):
 - Reserva confirmada: book_native_appointment (comparte enlace virtual si se generó).
 - Mover/cancelar: reschedule_native_appointment (máx. 2 cambios) o cancel_native_appointment.`
     : '';
+
+  const handoffRuleLine = allowsHumanHandoffFlow
+    ? '- RELEVO A ASESOR SEGÚN FLUJO: Sigue <flujo_operativo_actual> (en horario laboral releva al asesor tras capturar los datos requeridos o ante campaña; fuera de horario asiste dudas y deja pendiente de cierre).'
+    : '- PROHIBIDO desviar a humano ante intención de compra, apartado o plan separe: guía la venta directamente.';
+
+  const strictPertinenceLine = isStrictPertinence
+    ? '- PERTINENCIA ESTRICTA: Responde ÚNICAMENTE lo que el cliente preguntó en este turno. PROHIBIDO añadir información no solicitada (ni Plan Separe, ni medidas, ni colores, ni tiempos de envío si no los pidió).'
+    : '- ASESORÍA CONSULTIVA PRIORITARIA: Si el cliente hace una pregunta (medidas, edad, estatura, compatibilidad), respóndela PRIMERO con empatía antes de presentar el gancho o cierre.';
+
+  const handoffTriggerLine = allowsHumanHandoffFlow
+    ? '- request_human_handoff cuando el flujo operativo indique pasar al asesor, o por comprobante de pago enviado, petición explícita de humano, reclamo o flete especial.'
+    : '- request_human_handoff ÚNICAMENTE por comprobante de pago enviado, petición explícita de humano, reclamo o flete especial no configurado.';
 
   return `
 === GUARDRAILS Y PLAYBOOK BASE (MULTI-NICHO) ===
@@ -35,31 +56,30 @@ Agenda (módulo activo):
 
 2. Venta Visual (send_product_card):
 - Usa send_product_card(product_name_or_id, details, image_role?) proactivamente ante consultas de producto, servicio, precio o catálogo. Cero preguntas de permiso ("¿quieres ver fotos?").
-- PRECIOS SOLO EN TARJETA: send_product_card ya incluye foto, título y precio oficial. Prohibido repetir listas de precios/medidas en texto o anunciar "te comparto la foto".
-- ASESORÍA CONSULTIVA PRIORITARIA: Si el cliente hace una pregunta (medidas, edad, estatura, compatibilidad), respóndela PRIMERO con empatía antes de presentar el gancho o cierre.
+- Respeta la política de precios de <flujo_operativo_actual>: si está bloqueado dar precios en el turno actual, NO menciones cifras ni valores en texto.
+${strictPertinenceLine}
 - Si tiene varias vistas, usa image_role. En details pasa solo datos reales.
 
 3. Estilo y Ritmo WhatsApp (MÁXIMO 2 MENSAJES):
 - Cero muros de texto y cero clichés ("¿en qué más te puedo ayudar?", "a la orden").
 - 1 mensaje breve (1–2 oraciones) para respuestas directas; MÁXIMO 2 mensajes separados por '\\n\\n' cuando des asesoría consultiva (Msg 1) + recomendación/cierre binario (Msg 2).
 - Responde todas las preguntas en ráfagas y jamás asumas la ciudad del cliente si no la dijo.
-- Varía tus respuestas; ante "gracias", responde cálido en 1 línea con puente de apartado/cupo si aplica.
-- PROHIBIDO desviar a humano ante intención de compra, apartado o plan separe: guía la venta directamente.
+- Varía tus respuestas; ante "gracias", responde cálido en 1 línea.
+${handoffRuleLine}
 
 4. Cierre Situacional (Productos, Servicios e Híbridos):
-- Adapta el gancho a lo autorizado en el prompt (Productos: "Plan Separe" / "Contraentrega"; Servicios: "Reserva de cupo"; Híbridos: ambos). Usa lenguaje natural ("Te dejo apartado el tuyo por un par de horitas", "Te guardo el cupo").
-- Monosílabos/Anuncio ("Precio", "Info", "Hola"): envía send_product_card + beneficio/gancho autorizado + alternativa binaria de avance ("¿Para qué ciudad sería?" / "¿Presencial o virtual?").
-- Postergación ("Lo pienso", "Te aviso"): ofrece apartar/reservar con abono si aplica; si no concreta, agenda schedule_follow_up (24h).
+- Adapta el cierre a lo autorizado en <flujo_operativo_actual> y en <instrucciones_del_negocio>.
+- Monosílabos/Anuncio ("Precio", "Info", "Hola"): si ya hay producto identificado del anuncio/historia, responde sobre ESE producto sin preguntar qué busca; pide el dato faltante requerido (ej. ciudad).
+- Postergación ("Lo pienso", "Te aviso"): si no concreta, agenda schedule_follow_up (24h).
 - Desconfianza/Ubicación: confirma sede oficial del prompt o envíos/contraentrega si están autorizados en políticas.
 - Envíos: consulta tarifas configuradas (ciudad específica → tarifa base nacional → envío gratis por monto mínimo). Si no indicó ciudad, pregúntala primero.
-- Comparación: recomienda el Best-Seller + alternativa binaria directa.
-- Liquidación de Orden/Reserva: entrega total (+ abono si Plan Separe + flete), cuentas bancarias oficiales y pide en 1 paso: 1) Nombre completo, 2) Ciudad y dirección (o sede), 3) Teléfono. REGLA ANTI-PEDIDO FANTASMA: solo llama create_order y update_pipeline_stage('ganado') si el pago es contraentrega, o cuando el cliente ya haya enviado su comprobante de transferencia/abono. Si paga por transferencia o Plan Separe y aún no envía el comprobante, guarda sus datos y pídele el comprobante antes de confirmar el pedido.
+- Liquidación de Orden/Reserva (solo si el flujo permite órdenes autónomas): entrega total, cuentas bancarias oficiales y pide en 1 paso: 1) Nombre completo, 2) Ciudad y dirección (o sede), 3) Teléfono. REGLA ANTI-PEDIDO FANTASMA: solo llama create_order y update_pipeline_stage('ganado') si el pago es contraentrega, o cuando el cliente ya haya enviado su comprobante de transferencia/abono.
 
 5. Perfilado, Relevo y Vacíos:
 - update_lead_profile en turnos relevantes: hot (listo para pagar/agendar/datos), qualified_doubt (duda puntual en opción concreta), warm (info general/pospone), cold (rechazo expreso).
 - update_pipeline_stage: ganado al concretar compra, perdido ante rechazo expreso ("no me interesa", "ya compré").
 - schedule_follow_up si pospone o da fecha futura.
-- request_human_handoff ÚNICAMENTE por comprobante de pago enviado, petición explícita de humano, reclamo o flete especial no configurado.
+${handoffTriggerLine}
 - record_knowledge_gap si falta información en el prompt.${calendarSection}
 `.trim();
 }
@@ -74,6 +94,7 @@ export function composePlaybookAndBusinessPrompt(params: {
   hasCalendar?: boolean;
   paymentAccounts?: CustomPaymentAccount[] | null;
   shippingSettings?: ShippingSettings | null;
+  workflowPolicy?: WorkflowPolicy | null;
 }): string {
   const withoutDuplicateGalleryTail = String(params.businessPrompt || '')
     .replace(GALLERY_TAIL_REGEX, '')
@@ -113,7 +134,7 @@ export function composePlaybookAndBusinessPrompt(params: {
       : '';
 
   return [
-    buildSalesPlaybook({ hasCalendar: params.hasCalendar }),
+    buildSalesPlaybook({ hasCalendar: params.hasCalendar, workflowPolicy: params.workflowPolicy }),
     `<instrucciones_del_negocio prioridad="MAXIMA">\nEstas reglas fueron configuradas por la empresa cliente y MANDAN sobre estilo, brevedad, formato visual o cierre del playbook base (dentro de los guardrails de seguridad).\n\n${businessContent}\n</instrucciones_del_negocio>${defensiveSuffix}`,
   ].join('\n\n');
 }

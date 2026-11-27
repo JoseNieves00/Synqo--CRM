@@ -44,6 +44,7 @@ import {
   selectTurnChain,
 } from '@/lib/ai/config';
 import { composePlaybookAndBusinessPrompt } from '@/lib/ai/sales-playbook';
+import { resolveEffectiveWorkflowState } from '@/lib/types/workflow';
 import {
   EnrichedGalleryItem,
   buildProductCardCaption,
@@ -1343,11 +1344,16 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
 
       // 2. Prefijo estable para Prompt Caching: [Guardrails + Playbook Base] -> [Instrucciones del negocio (prioridad máxima)]
       const hasCalendar = enabledModules ? Boolean(enabledModules.native_calendar) : true;
+      const effectiveWorkflow = resolveEffectiveWorkflowState(
+        orgData?.appointment_settings?.workflow_policy,
+        !isAfterHours
+      );
       const staticSystemPrompt = composePlaybookAndBusinessPrompt({
         businessPrompt: resolvedPromptConfig,
         hasCalendar,
         paymentAccounts: orgData?.appointment_settings?.payment_accounts,
         shippingSettings: orgData?.appointment_settings?.shipping_settings,
+        workflowPolicy: orgData?.appointment_settings?.workflow_policy,
       });
 
       const conversationHistory: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -1794,7 +1800,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 } else {
                   const caption = buildProductCardCaption({
                     name: matched.name,
-                    price: matched.price,
+                    price: effectiveWorkflow.canDisclosePrices ? matched.price : undefined,
                     details: validated.details,
                   });
 
@@ -2669,7 +2675,11 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 /(apartar|separe|abono|abonar|comprar|reserva(r|ndo)?|ordenar|interes.*compra)/i.test(handoffReason) &&
                 !/(comprobante|recibo|voucher|transferido|consignaci[oó]n|captura|humano|asesor|hablar con|persona|queja|reclamo)/i.test(handoffReason);
 
-              if (isPurchaseOrSepareIntent) {
+              if (
+                isPurchaseOrSepareIntent &&
+                effectiveWorkflow.role === 'autonomous_close' &&
+                !effectiveWorkflow.shouldHandoffOnQualified
+              ) {
                 // Rechazar el relevo, mantener a la IA activa y ordenar avance comercial según contexto
                 pauseAfterSend = false;
                 toolResult = JSON.stringify({
