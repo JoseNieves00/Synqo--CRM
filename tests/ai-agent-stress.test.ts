@@ -186,6 +186,16 @@ assert.equal(
   '¿Te gustaría saber más sobre algún modelo en particular o prefieres apartar uno?'
 );
 
+// 11c. Preservar saludo inicial del negocio junto con la pregunta de avance tras enviar tarjeta
+const preservedGreetingWithCard = stripRedundantCatalogListAfterCards(
+  '¡Hola! Bienvenidos a Filippo Kids, es un gusto saludarte. ¿Para entrega en qué ciudad sería?',
+  { stripCardSpecs: true }
+);
+assert.equal(
+  preservedGreetingWithCard,
+  '¡Hola! Bienvenidos a Filippo Kids, es un gusto saludarte. ¿Para entrega en qué ciudad sería?'
+);
+
 // 12. Memoria de Plan Separe (sin $) y solicitud de datos
 const mem = extractSentInformationSummary([
   { sender_type: 'ai', content: 'Puedes apartarla con plan separe dando un abono inicial.' },

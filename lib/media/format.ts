@@ -536,15 +536,26 @@ export function stripRedundantCatalogListAfterCards(
     .replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF\s]+(?=[A-ZÁÉÍÓÚÑ¿¡])/u, '')
     .trim();
 
-  // Cuando se acaba de despachar una tarjeta visual en este mismo turno, dejar únicamente la pregunta de avance
-  // (el cliente ya está viendo la foto y ficha completa; el contexto de envío es 100% interno).
+  // Cuando se acaba de despachar una tarjeta visual en este mismo turno, eliminar únicamente
+  // frases sueltas que repitan especificaciones técnicas (precio/medidas/material) ya visibles en la tarjeta,
+  // preservando el saludo inicial del negocio y las preguntas de avance.
   if (options?.stripCardSpecs && result) {
     const sentences = result
       .split(/(?<=[.?!])\s+/)
       .map((s) => s.trim())
       .filter(Boolean);
-    const questions = sentences.filter((s) => s.includes('?'));
-    result = questions.length > 0 ? questions.join(' ').trim() : '';
+    const kept = sentences.filter((s) => {
+      if (s.includes('?')) return true;
+      const isGreetingOrWelcome =
+        /(hola|bienvenid|gusto\s+saludarte|buen(?:os|as)\s+(?:d[ií]as|tardes|noches)|asesor|equipo|ayudar)/i.test(s);
+      if (isGreetingOrWelcome) return true;
+      const repeatsSpecsOrMaterial =
+        /\$\s*\d+[\d.,]*/.test(s) ||
+        /\b\d+(?:[.,]\d+)?\s*(?:cm|mm|m)\b/i.test(s) ||
+        /\b(fabricad[oa]\s+en|mdf|medidas?|alto|ancho|profundidad|incluye|no\s+incluye)\b/i.test(s);
+      return !repeatsSpecsOrMaterial;
+    });
+    result = kept.join(' ').trim();
   }
 
   const fallbackQuestion = options?.customFallbackQuestion || '¿Cuál de estas opciones se adapta mejor a lo que buscas?';
