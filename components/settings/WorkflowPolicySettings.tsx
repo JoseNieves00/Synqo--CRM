@@ -197,20 +197,13 @@ export function WorkflowPolicySettings({
     });
   };
 
-  const toggleDay = (dayId: number) => {
-    setHours((prev) => ({
-      ...prev,
-      days: prev.days.includes(dayId) ? prev.days.filter((d) => d !== dayId) : [...prev.days, dayId],
-    }));
-  };
-
   const handleSave = async () => {
     setIsSaving(true);
     setFeedback(null);
     try {
-      await saveWorkflowPolicy(policy, hours);
-      onPolicySaved?.(policy, hours);
-      setFeedback({ type: 'success', text: 'Flujo de trabajo y horario guardados. La IA aplicará estas reglas de inmediato.' });
+      await saveWorkflowPolicy(policy);
+      onPolicySaved?.(policy);
+      setFeedback({ type: 'success', text: 'Flujo de trabajo guardado. La IA aplicará estas reglas de inmediato.' });
     } catch (err: any) {
       setFeedback({ type: 'error', text: err?.message || 'Error guardando el flujo de trabajo.' });
     } finally {
@@ -349,62 +342,18 @@ export function WorkflowPolicySettings({
             </select>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B] space-y-2.5">
-            <label className="flex items-center justify-between cursor-pointer">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
-                Activar horario laboral automático
-              </span>
-              <input
-                type="checkbox"
-                checked={hours.enabled}
-                onChange={(e) => setHours((h) => ({ ...h, enabled: e.target.checked }))}
-                className="rounded border-slate-300 text-[#0052FF]"
-              />
-            </label>
-
-            {hours.enabled && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] text-slate-500 mb-0.5">Hora inicio</label>
-                    <input
-                      type="time"
-                      value={hours.start}
-                      onChange={(e) => setHours((h) => ({ ...h, start: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-500 mb-0.5">Hora fin</label>
-                    <input
-                      type="time"
-                      value={hours.end}
-                      onChange={(e) => setHours((h) => ({ ...h, end: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {WEEK_DAYS.map((d) => {
-                    const active = hours.days.includes(d.id);
-                    return (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => toggleDay(d.id)}
-                        className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                          active
-                            ? 'bg-[#0052FF] text-white'
-                            : 'bg-slate-100 dark:bg-[#1A1F2C] text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B]">
+            <div className="rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] px-3 py-2.5 text-[11px] text-slate-600 dark:text-slate-300">
+              {hours.enabled ? (
+                <span>
+                  Usa el horario de tu empresa en <strong>Canales & IA</strong> ({hours.start} – {hours.end}).
+                </span>
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">
+                  El horario laboral de tu empresa está desactivado en <strong>Canales & IA</strong>; actívalo allí para que el modo nocturno cambie automáticamente.
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

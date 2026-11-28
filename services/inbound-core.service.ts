@@ -4,6 +4,7 @@ import { CampaignService } from '@/services/campaign.service';
 import { sanitizeLeadMessage } from '@/lib/security/sanitize';
 import { formatQuoteMessageContent, formatImageMessageContent, splitIntoConsecutiveMessages } from '@/lib/media/format';
 import { AssignmentService } from './assignment.service';
+import { resolveEffectiveWorkflowState } from '@/lib/types/workflow';
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { OpenAIService } from './openai.service';
@@ -1095,6 +1096,39 @@ export class InboundCoreService {
           }
         } catch (e) {
           console.warn('[INBOUND CORE BUSINESS HOURS WARN]', e);
+        }
+      }
+
+      const effectiveWf = resolveEffectiveWorkflowState(
+        organization.appointment_settings?.workflow_policy,
+        !isAfterHours
+      );
+
+      // Si el negocio configuró relevar a asesor al responder una campaña/seguimiento en horario laboral:
+      if (effectiveWf.shouldHandoffOnCampaignReply) {
+        const { data: lastOutbound } = await (supabaseAdmin.from('messages') as any)
+          .select('sender_type, content')
+          .eq('contact_id', contactId)
+          .neq('sender_type', 'lead')
+          .order('created_at', { ascending: false })
+          .limit(2);
+        const repliedToCampaignOrFollowUp = (lastOutbound || []).some(
+          (m: any) =>
+            m?.sender_type === 'campaign' ||
+            m?.sender_type === 'ai_followup' ||
+            /\[(?:Seguimiento|Campaña)/i.test(String(m?.content || ''))
+        );
+        if (repliedToCampaignOrFollowUp) {
+          const advisorId = await AssignmentService.findBestAvailableAgent(organization.id);
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              is_ai_active: false,
+              needs_human_attention: true,
+              ai_handoff_reason: 'campaign_reply',
+              ...(advisorId ? { assigned_to: advisorId } : {}),
+            })
+            .eq('id', contactId);
+          return;
         }
       }
 

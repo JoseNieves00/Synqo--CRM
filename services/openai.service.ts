@@ -1058,7 +1058,9 @@ Política de precios en este turno: ${
       Number(shippingCfg.baseRate || 0) > 0
         ? `$${Number(shippingCfg.baseRate).toLocaleString('es-CO')} COP`
         : 'tarifa de transportadora';
-    shippingQuoteReminder = `\nCOTIZACIÓN CON FLETE OBLIGATORIA: El precio de catálogo NO incluye envío. Fuera de la ciudad sede, desglosa Producto + Flete (aprox. ${baseRateStr} si la ciudad no tiene tarifa exacta) = Total. Contraentrega NO exime del flete.`;
+    shippingQuoteReminder = shippingCfg?.includeShippingInProductPrice
+      ? `\nCOTIZACIÓN CON ENVÍO INCLUIDO: Primero extrae el producto de interés y la ciudad del cliente; luego suma Producto + Flete (aprox. ${baseRateStr} si la ciudad no tiene tarifa exacta) para dar el valor total con envío incluido (solo si <flujo_operativo_actual> permite dar precios en este turno).`
+      : `\nCOTIZACIÓN CON FLETE OBLIGATORIA: El precio de catálogo NO incluye envío. Fuera de la ciudad sede, desglosa Producto + Flete (aprox. ${baseRateStr} si la ciudad no tiene tarifa exacta) = Total. Contraentrega NO exime del flete.`;
   }
 
   return `<contexto_actual>
@@ -3269,6 +3271,18 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
         }
       }
 
+      // Si es fuera de horario en modo recepción/asistencia, dejar el chat marcado para cierre por asesor en Inbox
+      if (isAfterHours && effectiveWorkflow.role !== 'autonomous_close' && !pauseAfterSend) {
+        try {
+          await (supabaseAdmin.from('contacts') as any)
+            .update({
+              needs_human_attention: true,
+              ai_handoff_reason: 'after_hours_pending_close',
+            })
+            .eq('id', contactId);
+        } catch {}
+      }
+
       return {
         text: finalResponseText,
         modelUsed: metaModel,
@@ -3402,15 +3416,20 @@ Reglas obligatorias:
       leadScore,
     } = params;
 
-    // Estrategia de cierre según propensión de compra (score 0-100)
-    const closingStrategy =
-      typeof leadScore === 'number'
-        ? leadScore >= 70
-          ? 'ALTA probabilidad de compra: invita a concretar HOY con una acción concreta (confirmar pedido, separar, agendar). Directo pero amable.'
-          : leadScore >= 45
-          ? 'Probabilidad MEDIA: resuelve la duda u objeción previa en una frase y propone el siguiente paso concreto.'
-          : 'Probabilidad BAJA: reabre la conversación con suavidad y una pregunta abierta, sin presionar.'
-        : '';
+    const reminderWorkflow = normalizeWorkflowPolicy(organization?.appointment_settings?.workflow_policy);
+    const isAdvisorDrivenReminder =
+      reminderWorkflow.businessHoursRole !== 'autonomous_close' || !reminderWorkflow.allowAiOrders;
+
+    // Estrategia según flujo del negocio: si releva a asesor, el seguimiento NO cotiza ni cierra ventas
+    const closingStrategy = isAdvisorDrivenReminder
+      ? 'Modo recepción/relevo: reabre la conversación con calidez sobre el producto de interés y ofrece conectarlo con un asesor para cotizar o resolver dudas. PROHIBIDO dar precios, cotizar envíos o pedir pagos.'
+      : typeof leadScore === 'number'
+      ? leadScore >= 70
+        ? 'ALTA probabilidad de compra: invita a concretar HOY con una acción concreta (confirmar pedido, separar, agendar). Directo pero amable.'
+        : leadScore >= 45
+        ? 'Probabilidad MEDIA: resuelve la duda u objeción previa en una frase y propone el siguiente paso concreto.'
+        : 'Probabilidad BAJA: reabre la conversación con suavidad y una pregunta abierta, sin presionar.'
+      : '';
 
     const cleanName = (leadName || '').trim();
     const isPhoneOnly =
@@ -3421,12 +3440,13 @@ Reglas obligatorias:
     const rawBusinessPrompt = resolveOrganizationSystemPrompt(organization, 'Empresa comercial.');
     const promptDigest = extractRecontactPromptDigest(rawBusinessPrompt, 2200);
     // La galería visual ya no vive dentro del prompt editable (es structured_prompt_data.gallery),
-    // así que se añade un resumen compacto de catálogo para que el recontacto cite precios/modelos reales.
+    // así que se añade un resumen compacto de catálogo (sin precios si el flujo restringe precios/cierre).
     const galleryForDigest = resolveOrganizationGallery(organization, null);
+    const allowReminderPrices = !isAdvisorDrivenReminder && reminderWorkflow.pricePolicy === 'always';
     const galleryDigestLines = (galleryForDigest.items || [])
       .slice(0, 10)
       .map((item) => {
-        const price = formatGalleryPrice((item as any).price);
+        const price = allowReminderPrices ? formatGalleryPrice((item as any).price) : '';
         return `- ${item.name}${price ? ` (${price})` : ''}`;
       })
       .join('\n');

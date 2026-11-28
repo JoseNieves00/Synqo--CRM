@@ -13,6 +13,7 @@ export interface ShippingSettings {
   baseRate: number; // Tarifa plana nacional para ciudades no especificadas (ej: 35000)
   allowCashOnDelivery: boolean; // Si la empresa maneja pago contraentrega de manera general
   codFreeShipping?: boolean; // Si el pago contraentrega incluye envío gratis o suma el flete al total
+  includeShippingInProductPrice?: boolean; // Si la IA debe sumar producto + envío y entregar un solo precio con envío incluido
   freeShippingMinAmount?: number | null; // Monto mínimo para envío gratis (opcional, ej: 500000)
   carrierNames?: string; // Transportadoras aliadas (ej: Coordinadora, Envia, Interrapidisimo)
   generalPolicy?: string; // Política o salvedades generales de despacho
