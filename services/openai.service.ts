@@ -506,7 +506,7 @@ const requestHumanHandoffTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   function: {
     name: 'request_human_handoff',
     description:
-      'Solicita relevo silencioso hacia un asesor humano ante comprobantes de pago ya efectuados, audios inaudibles, reclamos o petición explícita de asesor. PROHIBIDO usar cuando el cliente acepte comprar, diga que sí a un seguimiento, pida apartar con plan separe o solicite datos de pago (en esos casos la IA debe cerrar la venta directamente).',
+      'Solicita relevo hacia un asesor humano según las reglas de <flujo_operativo_actual> o cuando el cliente envíe un comprobante de pago, audio inaudible, reclamo o pida hablar con una persona.',
     parameters: {
       type: 'object',
       properties: {
@@ -897,12 +897,11 @@ export function buildDynamicContextBlock(params: {
     sentInformationSummary.length > 0
       ? `\n<memoria_interna_informacion_ya_enviada>\nInformación clave que la empresa YA entregó al cliente en este chat:\n${sentInformationSummary
           .map((s) => `- ${s}`)
-          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla (incluyendo tarjetas con foto/precio/medidas, abonos, plan separe, solicitud de datos, personalización, cuentas y envíos). Queda terminantemente PROHIBIDO volver a listarla, repetirla en viñetas o reiterar datos ya enviados por iniciativa propia (especialmente Plan Separe, abonos o pedir datos de envío si ya se mencionaron), a menos que el cliente vuelva a pedirlos explícitamente. Tampoco uses frases meta-referenciales ("He enviado...", "Te envié...", "Aquí tienes la tarjeta...").\n</memoria_interna_informacion_ya_enviada>`
+          .join('\n')}\nREGLA INTERNA ABSOLUTA: Toda esta información ya fue entregada y es visible para el cliente en su pantalla. Queda prohibido repetirla en viñetas o volver a pedir datos que el cliente ya entregó. Tampoco uses frases meta-referenciales ("He enviado...", "Te envié...", "Aquí tienes la tarjeta...").\n</memoria_interna_informacion_ya_enviada>`
       : '';
 
   const zeroInsistenceRule = `\n<regla_cero_insistencia>
-- Menciona el Plan Separe / abono inicial MÁXIMO UNA VEZ en la conversación, únicamente cuando ayude a destrabar una objeción de precio o el cliente pregunte cómo separar. Nunca lo repitas en cada mensaje.
-- Si el cliente dice frases de espera o confirmación posterior ("yo le confirmo", "estoy atenta", "te aviso", "luego te escribo", "déjame revisar/consultar"), NO presiones ni pidas datos de envío ni repitas el Plan Separe. Responde en UN solo mensaje breve y cálido quedando atento (ej: "¡Con mucho gusto! Quedo muy atento por aquí cuando me confirmes. 😊").
+- Si el cliente dice frases de espera o confirmación posterior ("yo le confirmo", "estoy atenta", "te aviso", "luego te escribo", "déjame revisar/consultar"), NO presiones ni pidas datos adicionales. Responde breve y cálido quedando atento.
 </regla_cero_insistencia>`;
 
   const pipelineRules = `\n<etapas_pipeline_comercial>
@@ -953,18 +952,17 @@ En cada turno donde el cliente revele sus necesidades, intereses, presupuesto, u
 
   const modalityStrictRule =
     caps.businessModel === 'services'
-      ? 'Este es un negocio de SERVICIOS. NUNCA ofrezcas despachos de paquetes, envíos nacionales ni cobro de fletes a menos que el cliente compre expresamente un producto físico. Usa check_native_availability y book_native_appointment para agendamiento.'
+      ? 'Este es un negocio de SERVICIOS. Usa check_native_availability y book_native_appointment según las reglas del flujo.'
       : caps.businessModel === 'products'
-      ? 'Este es un negocio de PRODUCTOS. Ofrece productos con send_product_card, calcula envíos con get_shipping_quote_for_city y facilita el cierre con el gancho comercial activo.'
-      : 'Este es un negocio HÍBRIDO. Coordina tanto ventas de productos físicos como citas/valoraciones según lo que solicite el cliente.';
+      ? 'Este es un negocio de PRODUCTOS. Muestra productos con send_product_card y sigue las instrucciones de cierre de <instrucciones_del_negocio> y <flujo_operativo_actual>.'
+      : 'Este es un negocio HÍBRIDO. Coordina productos o citas según lo que solicite el cliente.';
 
-  const businessModelBlock = `\n<modelo_y_gancho_comercial>
+  const businessModelBlock = `\n<modelo_y_contexto>
 Modelo de Negocio: ${modelLabel}
 Modalidad de Atención: ${modalityLabel}
 ${locationLabel}
-Gancho Comercial Activo: ${caps.primaryHook}
-Regla Estricta de Modalidad: ${modalityStrictRule}
-</modelo_y_gancho_comercial>`;
+Regla de Modalidad: ${modalityStrictRule}
+</modelo_y_contexto>`;
 
   const maxChars = effectiveWorkflow?.maxReplyChars;
   const lengthRuleText =
@@ -972,22 +970,19 @@ Regla Estricta de Modalidad: ${modalityStrictRule}
       ? 'Sin límite fijo de caracteres.'
       : `Mantén tus respuestas dentro de un tope aproximado de ${maxChars ?? 450} caracteres (salvo cuentas de pago o resumen de pedido).`;
 
-  const copilotBlock = `\n<copiloto_estrategico_de_ventas>
-Diagnóstico de Fricción: ${copilotPrescription.frictionLabel} (${copilotPrescription.customerMindset})
-Carril de Intención Activo: ${copilotPrescription.intentTrack || 'general'}
-Táctica Prescrita por el Copiloto: ${copilotPrescription.tacticName}
-Regla de Oro de Respuesta y Extensión: ${
-    !effectiveWorkflow || effectiveWorkflow.canDisclosePrices
-      ? 'Si el cliente pide un precio, foto, rango o dato específico, ENTRÉGALO DE INMEDIATO (no lo bloquees) y haz una pregunta corta de avance. '
+  const hasAdOrVisualCtx = history.some((m) =>
+    /(\[Publicaci[oó]n\/Anuncio|\[Anuncio\/Publicaci[oó]n|\[Historia|\[Imagen enviada|referral)/i.test(m.content || '')
+  );
+
+  const copilotBlock = `\n<reglas_autonomas_del_turno>
+Extensión: ${lengthRuleText}
+PRIORIDAD ABSOLUTA: Sigue fielmente las instrucciones, tono, saludo y estrategia definidas en <instrucciones_del_negocio> (respetando siempre las políticas de seguridad y el <flujo_operativo_actual>).
+PROHIBIDO inventar precios, atributos, ganchos comerciales, promociones, formas de pago o sedes que no figuren en <instrucciones_del_negocio> o en el catálogo oficial.${
+    hasAdOrVisualCtx
+      ? '\nANUNCIO / REFERENCIA VISUAL DETECTADA: Identifica el producto exacto del anuncio o imagen comparándolo con el catálogo y responde directamente sobre ESE producto sin preguntarle qué busca.'
       : ''
-  }${lengthRuleText}
-PRIORIDAD DE INSTRUCCIONES: Cumple siempre las instrucciones y tono definidos en <instrucciones_del_negocio> (siempre dentro de los guardrails de seguridad y del flujo operativo activo).
-Directriz Táctica para este Turno: ${copilotPrescription.copilotDirective}
-Pregunta de Cierre Sugerida: "${copilotPrescription.suggestedClosingQuestion}"
-Prohibiciones Estrictas de este Turno:
-${copilotPrescription.prohibitedActions.map((a) => `- ${a}`).join('\n')}
-REGLA DE ORO DE FIJACIÓN AL PROMPT: Cada argumento, sede física, garantía, precio, descuento o método de despacho DEBE existir explícitamente en el prompt o catálogo de la empresa. Prohibido inventar datos o asumir sedes físicas/garantías no descritas.
-</copiloto_estrategico_de_ventas>`;
+  }
+</reglas_autonomas_del_turno>`;
 
   const isFirstAiTurn = !history.some((m) => m.sender_type === 'ai' || m.sender_type === 'agent');
   const workflowRuntimeBlock = effectiveWorkflow
@@ -1034,8 +1029,7 @@ Política de precios en este turno: ${
 Fecha/hora local empresa (${orgTimezone}): ${currentLocalTime}
 <estado_y_perfil>
 Nombre: ${contactData?.name || leadName || 'No registrado'} | Etapa CRM: ${contactData?.pipeline_stage || 'nuevo'} | Temperatura: ${temp}${leadScoreNum !== null ? ` | Score: ${leadScoreNum}/100 (${bandMeta?.label || ''})` : ''}
-Interés: ${interest}${painPointDisplay}${purchasingPowerDisplay}
-Objetivo: ${recAction.label} — ${recAction.playbookTip}${summaryText ? `\nResumen previo: ${summaryText}` : ''}${orderNote ? `\n${orderNote}` : ''}
+Interés: ${interest}${painPointDisplay}${purchasingPowerDisplay}${summaryText ? `\nResumen previo: ${summaryText}` : ''}${orderNote ? `\n${orderNote}` : ''}
 </estado_y_perfil>
 <catalogo_y_reglas>${businessModelBlock}${copilotBlock}${workflowRuntimeBlock}${pipelineRules}${leadProfilingRules}${gallerySummary}${extendedCatalogBlock}
 </catalogo_y_reglas>
@@ -2743,7 +2737,7 @@ Responde ÚNICAMENTE el JSON válido sin markdown.`;
                 toolResult = JSON.stringify({
                   status: 'handoff_rejected_closing_required',
                   instructions_for_assistant:
-                    'REGLA ESTRICTA: PROHIBIDO desviar al asesor o decir que un asesor contactará al cliente. Mantén coherencia con la conversación: 1) Si el producto aún no está definido, extrae cuál modelo desea antes de pedir pago usando el gancho de Plan Separe. 2) Si el producto ya está claro en el contexto, cotiza el valor total, recuerda la opción de apartar con abono inicial por Plan Separe, facilita las cuentas oficiales de transferencia y solicita los datos de orden (nombre, ciudad y personalización).',
+                    'Según el flujo operativo activo en este horario, guía la solicitud directamente aplicando únicamente las políticas y condiciones definidas en <instrucciones_del_negocio>.',
                 });
               } else {
                 pauseAfterSend = true;
