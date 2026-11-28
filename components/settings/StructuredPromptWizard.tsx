@@ -83,6 +83,13 @@ export function StructuredPromptWizard({
     return extractPhotoUrlsFromText(initialPrompt);
   });
 
+  // Mantener sincronizada la galería si cambia desde el padre (ej: desde CatalogCrudTab sin recargar)
+  useEffect(() => {
+    if (Array.isArray(initialStructuredData?.gallery)) {
+      setGallery(initialStructuredData.gallery);
+    }
+  }, [initialStructuredData?.gallery]);
+
   const [copied, setCopied] = useState(false);
   const [selectedTemplateModal, setSelectedTemplateModal] = useState(false);
   const [previewTemplateId, setPreviewTemplateId] = useState<string>('ecommerce');

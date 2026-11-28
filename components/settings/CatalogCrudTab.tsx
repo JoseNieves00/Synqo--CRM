@@ -212,8 +212,14 @@ export function CatalogCrudTab({ onCatalogUpdated }: CatalogCrudTabProps) {
       .filter(Boolean);
 
     const hasPrimary = formPhotos.some((p) => p.isHero);
-    const updatedGroupPhotos: GalleryPhotoItem[] = formPhotos.map((photo, idx) => {
+    const mappedPhotos: GalleryPhotoItem[] = formPhotos.map((photo, idx) => {
       const isHero = hasPrimary ? Boolean(photo.isHero) : idx === 0;
+      const prevRole = (photo.imageRole || '').trim();
+      const nextRole = isHero
+        ? 'principal'
+        : prevRole.toLowerCase() === 'principal' || !prevRole
+        ? `vista_${idx + 1}`
+        : prevRole;
       return {
         ...photo,
         name: formName.trim(),
@@ -224,9 +230,16 @@ export function CatalogCrudTab({ onCatalogUpdated }: CatalogCrudTabProps) {
         contextRule: formContextRule.trim() || undefined,
         isAvailable: formAvailable,
         isHero,
-        imageRole: isHero ? 'principal' : photo.imageRole || `vista_${idx + 1}`,
+        imageRole: nextRole,
       };
     });
+
+    // Garantizar que la foto principal quede SIEMPRE de primera en el arreglo del producto
+    const heroPhoto = mappedPhotos.find((p) => p.isHero) || mappedPhotos[0];
+    const updatedGroupPhotos: GalleryPhotoItem[] = [
+      heroPhoto,
+      ...mappedPhotos.filter((p) => p !== heroPhoto),
+    ];
 
     const withoutOld = editingGroupKey
       ? items.filter((it) => canonicalGroupKey(it.productName || it.name) !== editingGroupKey)
@@ -246,8 +259,8 @@ export function CatalogCrudTab({ onCatalogUpdated }: CatalogCrudTabProps) {
     await persistCatalog(nextGallery, `Producto "${product.productName}" eliminado del catálogo.`);
   };
 
-  const handleSetPrimaryOnCard = async (photoId: string) => {
-    const nextGallery = setPrimaryPhotoInGallery(items, photoId);
+  const handleSetPrimaryOnCard = async (photoIdOrUrl: string) => {
+    const nextGallery = setPrimaryPhotoInGallery(items, photoIdOrUrl);
     await persistCatalog(nextGallery, 'Imagen principal actualizada.');
   };
 
@@ -644,15 +657,37 @@ export function CatalogCrudTab({ onCatalogUpdated }: CatalogCrudTabProps) {
                         <div className="absolute inset-x-0 bottom-0 p-1 bg-slate-950/70 flex items-center justify-between">
                           <button
                             type="button"
+                            disabled={isSaving}
                             onClick={() => {
-                              setFormPhotos((prev) =>
-                                prev.map((p, i) => ({ ...p, isHero: i === idx }))
+                              // Reordenar formPhotos poniendo la elegida primero y limpiando imageRole
+                              setFormPhotos((prev) => {
+                                const chosen = prev[idx];
+                                if (!chosen) return prev;
+                                const promoted: GalleryPhotoItem = {
+                                  ...chosen,
+                                  isHero: true,
+                                  imageRole: chosen.imageRole?.toLowerCase() === 'alterna' || !chosen.imageRole ? 'principal' : chosen.imageRole,
+                                };
+                                const others = prev
+                                  .filter((_, i) => i !== idx)
+                                  .map((p) => ({
+                                    ...p,
+                                    isHero: false,
+                                    imageRole: p.imageRole?.toLowerCase() === 'principal' ? 'alterna' : (p.imageRole || 'alterna'),
+                                  }));
+                                return [promoted, ...others];
+                              });
+
+                              // Solo persistir de inmediato si la foto ya existe en `items` (guardada en BD)
+                              const photoKey = photo.id || photo.url;
+                              const existsInSavedItems = items.some(
+                                (it) => (photo.id && it.id === photo.id) || (photo.url && it.url === photo.url)
                               );
-                              if (editingGroupKey && photo.id) {
-                                handleSetPrimaryOnCard(photo.id);
+                              if (editingGroupKey && photoKey && existsInSavedItems) {
+                                handleSetPrimaryOnCard(photoKey);
                               }
                             }}
-                            className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded cursor-pointer ${
+                            className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded cursor-pointer disabled:opacity-60 ${
                               photo.isHero ? 'bg-[#0052FF] text-white' : 'text-slate-200 hover:text-white'
                             }`}
                           >
