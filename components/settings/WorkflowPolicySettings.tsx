@@ -420,9 +420,32 @@ export function WorkflowPolicySettings({
             </label>
             <select
               value={policy.pricePolicy}
-              onChange={(e) =>
-                setPolicy((p) => ({ ...p, presetId: 'custom', pricePolicy: e.target.value as PriceDisclosurePolicy }))
-              }
+              onChange={(e) => {
+                const nextPricePolicy = e.target.value as PriceDisclosurePolicy;
+                setPolicy((p) => {
+                  const syncBranch = (steps: WorkflowStep[] | undefined, isDay: boolean) =>
+                    steps?.map((s) =>
+                      s.type === 'identify_catalog'
+                        ? {
+                            ...s,
+                            config: {
+                              ...(s.config || {}),
+                              showPrice:
+                                nextPricePolicy === 'always' ||
+                                (nextPricePolicy === 'after_hours_only' && !isDay),
+                            },
+                          }
+                        : s
+                    );
+                  return {
+                    ...p,
+                    presetId: 'custom',
+                    pricePolicy: nextPricePolicy,
+                    daySteps: syncBranch(p.daySteps, true),
+                    nightSteps: syncBranch(p.nightSteps, false),
+                  };
+                });
+              }}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-slate-900 dark:text-white"
             >
               <option value="always">Siempre</option>
@@ -750,6 +773,56 @@ export function WorkflowPolicySettings({
                       />
                       <span>Mostrar precio en este paso</span>
                     </label>
+                  ) : step.type === 'collect_data' ? (
+                    <select
+                      value={step.config?.fieldKey || 'city'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const labelMap: Record<string, string> = {
+                          city: 'Ciudad de entrega',
+                          modality: 'Modalidad (presencial/virtual)',
+                          date_preference: 'Fecha u horario',
+                          custom: 'Dato personalizado',
+                        };
+                        const copy = [...currentBranchSteps];
+                        copy[idx] = {
+                          ...step,
+                          config: {
+                            ...(step.config || {}),
+                            fieldKey: val,
+                            fieldLabel: labelMap[val] || val,
+                          },
+                        };
+                        updateBranchSteps(copy);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-[11px] text-slate-700 dark:text-slate-200"
+                    >
+                      <option value="city">Dato: Ciudad de entrega</option>
+                      <option value="modality">Dato: Modalidad (presencial/virtual)</option>
+                      <option value="date_preference">Dato: Fecha u horario</option>
+                      <option value="custom">Dato: Campo personalizado</option>
+                    </select>
+                  ) : step.type === 'final_action' ? (
+                    <select
+                      value={step.config?.actionType || 'handoff_advisor'}
+                      onChange={(e) => {
+                        const copy = [...currentBranchSteps];
+                        copy[idx] = {
+                          ...step,
+                          config: {
+                            ...(step.config || {}),
+                            actionType: e.target.value as NonNullable<WorkflowStep['config']>['actionType'],
+                          },
+                        };
+                        updateBranchSteps(copy);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-[11px] text-slate-700 dark:text-slate-200"
+                    >
+                      <option value="handoff_advisor">Acción: Pasar a asesor humano</option>
+                      <option value="autonomous_close">Acción: Cerrar pedido / cita autónoma</option>
+                      <option value="queue_after_hours">Acción: Dejar pendiente en Inbox</option>
+                      <option value="schedule_follow_up">Acción: Agendar seguimiento</option>
+                    </select>
                   ) : (
                     <input
                       type="text"

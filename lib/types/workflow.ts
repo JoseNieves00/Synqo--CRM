@@ -262,6 +262,14 @@ export function buildDefaultWorkflowSteps(
   return steps;
 }
 
+function sanitizeStepText(value: unknown, maxLen: number): string {
+  return String(value || '')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
 export function compileWorkflowStepsDirective(
   steps: WorkflowStep[],
   ctx: {
@@ -269,16 +277,22 @@ export function compileWorkflowStepsDirective(
     hasProduct: boolean;
     hasCity: boolean;
     hasAdContext: boolean;
+    capturedFields?: Record<string, boolean>;
   }
 ): string {
   const active = (steps || []).filter((s) => s.enabled);
   if (active.length === 0) return '';
 
   const lines = active.map((step, idx) => {
+    const fieldKey = step.config?.fieldKey || '';
+    const isFieldCaptured =
+      (fieldKey === 'city' && ctx.hasCity) ||
+      (fieldKey && Boolean(ctx.capturedFields?.[fieldKey]));
+
     let statusTag = '[PENDIENTE]';
     if (step.type === 'greeting' && !ctx.isFirstAiTurn) statusTag = '[YA CUMPLIDO]';
     if (step.type === 'identify_catalog' && ctx.hasProduct) statusTag = '[PRODUCTO IDENTIFICADO - avanzar si aplica]';
-    if (step.type === 'collect_data' && step.config?.fieldKey === 'city' && ctx.hasCity) {
+    if (step.type === 'collect_data' && isFieldCaptured) {
       statusTag = '[YA CAPTURADO - NO volver a pedir]';
     }
 
@@ -295,15 +309,20 @@ export function compileWorkflowStepsDirective(
         ? ' (si aún falta el dato)'
         : '';
 
-    const detail = step.config?.instruction
-      ? `: ${step.config.instruction}`
+    const cleanTitle = sanitizeStepText(step.title, 100) || 'Paso';
+    const cleanInstruction = sanitizeStepText(step.config?.instruction, 280);
+
+    const detail = cleanInstruction
+      ? `: ${cleanInstruction}`
       : step.type === 'identify_catalog'
       ? `: ${step.config?.showPhoto ? 'enviar foto, ' : ''}${step.config?.showDetails ? 'dar detalles/medidas, ' : ''}${
           step.config?.showPrice ? 'precio permitido' : 'NO mencionar precios'
         }`
+      : step.type === 'collect_data' && fieldKey
+      ? `: capturar "${sanitizeStepText(step.config?.fieldLabel || fieldKey, 60)}"`
       : '';
 
-    return `${idx + 1}. ${statusTag} ${step.title}${condLabel}${detail}`;
+    return `${idx + 1}. ${statusTag} ${cleanTitle}${condLabel}${detail}`;
   });
 
   return `Pasos flexibles del flujo (sigue el orden; si el cliente ya entregó un dato o saltó adelante, avanza al siguiente paso sin repetir):\n${lines.join('\n')}`;
@@ -316,9 +335,18 @@ export function resolveEffectiveWorkflowState(
   const policy = normalizeWorkflowPolicy(rawPolicy);
   const role = isWithinBusinessHours ? policy.businessHoursRole : policy.afterHoursRole;
 
-  const canDisclosePrices =
+  let canDisclosePrices =
     policy.pricePolicy === 'always' ||
     (policy.pricePolicy === 'after_hours_only' && !isWithinBusinessHours);
+
+  // Respetar el toggle específico del nodo identify_catalog en la rama activa (sin permitir precios si pricePolicy === 'never')
+  const branchSteps = isWithinBusinessHours ? policy.daySteps : policy.nightSteps;
+  if (Array.isArray(branchSteps) && branchSteps.length > 0 && policy.pricePolicy !== 'never') {
+    const catalogStep = branchSteps.find((s) => s.enabled && s.type === 'identify_catalog');
+    if (catalogStep && typeof catalogStep.config?.showPrice === 'boolean') {
+      canDisclosePrices = catalogStep.config.showPrice;
+    }
+  }
 
   const canCreateOrders = policy.allowAiOrders && role === 'autonomous_close';
   const canBookAppointments = policy.allowAiAppointments && role === 'autonomous_close';

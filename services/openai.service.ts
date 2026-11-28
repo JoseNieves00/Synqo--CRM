@@ -1005,9 +1005,19 @@ PROHIBIDO inventar precios, atributos, ganchos comerciales, promociones, formas 
     activeBranchSteps.length > 0
       ? `\n${compileWorkflowStepsDirective(activeBranchSteps, {
           isFirstAiTurn,
-          hasProduct: Boolean(contactData?.custom_fields?.product_of_interest || contactData?.custom_fields?.product_interest),
+          hasProduct: Boolean(
+            contactData?.custom_fields?.product_of_interest ||
+              contactData?.custom_fields?.product_interest ||
+              contactData?.custom_fields?.last_quoted_product ||
+              contactData?.custom_fields?.ad_matched_product
+          ),
           hasCity: Boolean(contactData?.custom_fields?.city),
           hasAdContext: hasAdOrVisualCtx,
+          capturedFields: {
+            city: Boolean(contactData?.custom_fields?.city),
+            modality: Boolean(contactData?.custom_fields?.modality),
+            date_preference: Boolean(contactData?.custom_fields?.date_preference),
+          },
         })}`
       : '';
 
