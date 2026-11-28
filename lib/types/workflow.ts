@@ -52,6 +52,9 @@ export interface WorkflowStep {
     shippingMode?: 'separate' | 'included_in_total' | 'calendar';
     instruction?: string;
     actionType?: 'handoff_advisor' | 'autonomous_close' | 'queue_after_hours' | 'schedule_follow_up';
+    branchCondition?: 'is_business_hours' | 'has_product' | 'has_city' | 'asks_price_or_payment' | 'says_will_think';
+    ifTrueAction?: string;
+    ifFalseAction?: string;
   };
 }
 
@@ -332,15 +335,28 @@ export function compileWorkflowStepsDirective(
     const cleanTitle = sanitizeStepText(step.title, 100) || 'Paso';
     const cleanInstruction = sanitizeStepText(step.config?.instruction, 280);
 
-    const detail = cleanInstruction
-      ? `: ${cleanInstruction}`
-      : step.type === 'identify_catalog'
-      ? `: ${step.config?.showPhoto ? 'enviar foto, ' : ''}${step.config?.showDetails ? 'dar detalles/medidas, ' : ''}${
-          step.config?.showPrice ? 'precio permitido' : 'NO mencionar precios'
-        }`
-      : step.type === 'collect_data' && fieldKey
-      ? `: capturar "${sanitizeStepText(step.config?.fieldLabel || fieldKey, 60)}"`
-      : '';
+    let detail = '';
+    if (step.type === 'condition_branch' && step.config?.branchCondition) {
+      const condNameMap: Record<string, string> = {
+        is_business_hours: '¿Está en horario laboral?',
+        has_product: '¿Ya sabemos qué producto/servicio busca?',
+        has_city: '¿Ya entregó su ciudad?',
+        asks_price_or_payment: '¿Pregunta por precio o forma de pago?',
+        says_will_think: '¿Dice "lo pienso" / "luego confirmo"?',
+      };
+      const q = condNameMap[step.config.branchCondition] || step.config.branchCondition;
+      const t = sanitizeStepText(step.config.ifTrueAction || 'Continuar', 120);
+      const f = sanitizeStepText(step.config.ifFalseAction || 'Pedir dato faltante', 120);
+      detail = `: IF (${q}) → SÍ: [${t}] | NO: [${f}]`;
+    } else if (cleanInstruction) {
+      detail = `: ${cleanInstruction}`;
+    } else if (step.type === 'identify_catalog') {
+      detail = `: ${step.config?.showPhoto ? 'enviar foto, ' : ''}${step.config?.showDetails ? 'dar detalles/medidas, ' : ''}${
+        step.config?.showPrice ? 'precio permitido' : 'NO mencionar precios'
+      }`;
+    } else if (step.type === 'collect_data' && fieldKey) {
+      detail = `: capturar "${sanitizeStepText(step.config?.fieldLabel || fieldKey, 60)}"`;
+    }
 
     return `${idx + 1}. ${statusTag} ${cleanTitle}${condLabel}${detail}`;
   });

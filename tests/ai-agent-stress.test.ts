@@ -474,4 +474,25 @@ const wfGen = selectWorkflowForEvent(WORKFLOW_PRESETS.qualifier_handoff.policy, 
 });
 assert.equal(wfGen.trigger, 'general_message', 'Debe seleccionar el flujo General en horario laboral');
 
-console.log('✅ ai-agent-stress.test.ts: 32/32 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y multi-flujo pasaron');
+// 33. Entrega 2: Nodo IF/ELSE (condition_branch) compilado y sanitizado
+const ifCompiled = compileWorkflowStepsDirective(
+  [
+    {
+      id: 'if1',
+      type: 'condition_branch',
+      title: 'Validar ciudad',
+      enabled: true,
+      condition: 'always',
+      config: {
+        branchCondition: 'has_city',
+        ifTrueAction: 'Pasar a asesor',
+        ifFalseAction: 'Preguntar ciudad de entrega',
+      },
+    },
+  ],
+  { isFirstAiTurn: false, hasProduct: true, hasCity: false, hasAdContext: false }
+);
+assert.ok(ifCompiled.includes('IF (¿Ya entregó su ciudad?)'), 'Debe incluir condición IF');
+assert.ok(ifCompiled.includes('SÍ: [Pasar a asesor] | NO: [Preguntar ciudad de entrega]'), 'Debe incluir ramas SÍ y NO');
+
+console.log('✅ ai-agent-stress.test.ts: 33/33 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y multi-flujo pasaron');

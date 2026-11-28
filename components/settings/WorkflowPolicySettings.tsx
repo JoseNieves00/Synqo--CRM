@@ -22,6 +22,9 @@ import {
   normalizeWorkflowPolicy,
   buildDefaultWorkflowSteps,
   buildDefaultAutomationWorkflows,
+  selectWorkflowForEvent,
+  resolveEffectiveWorkflowState,
+  compileWorkflowStepsDirective,
   type WorkflowPolicy,
   type WorkflowRole,
   type PriceDisclosurePolicy,
@@ -87,6 +90,9 @@ export function WorkflowPolicySettings({
   const [policy, setPolicy] = useState<WorkflowPolicy>(() => normalizeWorkflowPolicy(initialPolicy));
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('wf_general');
   const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
+  const [simScenario, setSimScenario] = useState<
+    'ad_day' | 'price_day' | 'price_night' | 'campaign_day' | 'sticker'
+  >('ad_day');
   const [hours, setHours] = useState<BusinessHoursConfig>(() => ({
     enabled: Boolean(initialBusinessHours?.enabled),
     start: initialBusinessHours?.start || DEFAULT_HOURS.start,
@@ -839,6 +845,60 @@ export function WorkflowPolicySettings({
                       <option value="queue_after_hours">Acción: Dejar pendiente en Inbox</option>
                       <option value="schedule_follow_up">Acción: Agendar seguimiento</option>
                     </select>
+                  ) : step.type === 'condition_branch' ? (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <select
+                        value={step.config?.branchCondition || 'has_city'}
+                        onChange={(e) => {
+                          const copy = [...currentBranchSteps];
+                          copy[idx] = {
+                            ...step,
+                            config: {
+                              ...(step.config || {}),
+                              branchCondition: e.target.value as NonNullable<WorkflowStep['config']>['branchCondition'],
+                            },
+                          };
+                          updateBranchSteps(copy);
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-[11px] text-slate-700 dark:text-slate-200"
+                      >
+                        <option value="is_business_hours">IF: ¿Está en horario laboral?</option>
+                        <option value="has_product">IF: ¿Ya sabemos qué producto/servicio busca?</option>
+                        <option value="has_city">IF: ¿Ya entregó su ciudad?</option>
+                        <option value="asks_price_or_payment">IF: ¿Pregunta por precio o forma de pago?</option>
+                        <option value="says_will_think">IF: ¿Dice &quot;lo pienso&quot; / &quot;luego confirmo&quot;?</option>
+                      </select>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <input
+                          type="text"
+                          value={step.config?.ifTrueAction || ''}
+                          onChange={(e) => {
+                            const copy = [...currentBranchSteps];
+                            copy[idx] = {
+                              ...step,
+                              config: { ...(step.config || {}), ifTrueAction: e.target.value },
+                            };
+                            updateBranchSteps(copy);
+                          }}
+                          placeholder="Si SÍ: ej. Pasar a asesor..."
+                          className="px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 text-[11px]"
+                        />
+                        <input
+                          type="text"
+                          value={step.config?.ifFalseAction || ''}
+                          onChange={(e) => {
+                            const copy = [...currentBranchSteps];
+                            copy[idx] = {
+                              ...step,
+                              config: { ...(step.config || {}), ifFalseAction: e.target.value },
+                            };
+                            updateBranchSteps(copy);
+                          }}
+                          placeholder="Si NO: ej. Preguntar ciudad..."
+                          className="px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 text-[11px]"
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <input
                       type="text"
@@ -874,6 +934,85 @@ export function WorkflowPolicySettings({
           </div>
         </div>
       </div>
+
+      {/* Simulador Interactivo en Vivo (usa exactamente el mismo router de producción) */}
+      {(() => {
+        const simMap = {
+          ad_day: { isWithinBusinessHours: true, hasAdContext: true, isCampaignReply: false, isMultimediaOrSticker: false, isFirstAiTurn: true, hasProduct: true, hasCity: false },
+          price_day: { isWithinBusinessHours: true, hasAdContext: false, isCampaignReply: false, isMultimediaOrSticker: false, isFirstAiTurn: false, hasProduct: true, hasCity: false },
+          price_night: { isWithinBusinessHours: false, hasAdContext: false, isCampaignReply: false, isMultimediaOrSticker: false, isFirstAiTurn: false, hasProduct: true, hasCity: false },
+          campaign_day: { isWithinBusinessHours: true, hasAdContext: false, isCampaignReply: true, isMultimediaOrSticker: false, isFirstAiTurn: false, hasProduct: true, hasCity: false },
+          sticker: { isWithinBusinessHours: true, hasAdContext: false, isCampaignReply: false, isMultimediaOrSticker: true, isFirstAiTurn: false, hasProduct: false, hasCity: false },
+        }[simScenario];
+        const simWf = selectWorkflowForEvent(policy, simMap, supportsOrders, supportsAppointments);
+        const simEff = resolveEffectiveWorkflowState(policy, simMap.isWithinBusinessHours);
+        const simCompiled = compileWorkflowStepsDirective(simWf.steps, {
+          isFirstAiTurn: simMap.isFirstAiTurn,
+          hasProduct: simMap.hasProduct,
+          hasCity: simMap.hasCity,
+          hasAdContext: simMap.hasAdContext,
+        });
+        return (
+          <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-5 shadow-2xs space-y-3 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Simulador de Flujo en Vivo</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Prueba qué flujo, reglas y pasos ejecutará la IA en cada situación real antes de guardar.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ['ad_day', 'Viene de Anuncio (Día)'],
+                    ['price_day', 'Pregunta Precio (Día)'],
+                    ['price_night', 'Pregunta Precio (Noche)'],
+                    ['campaign_day', 'Responde Campaña'],
+                    ['sticker', 'Envía Sticker'],
+                  ] as const
+                ).map(([k, lbl]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setSimScenario(k)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border cursor-pointer transition ${
+                      simScenario === k
+                        ? 'border-[#0052FF] bg-blue-50 dark:bg-blue-950/30 text-[#0052FF] dark:text-[#00D2FF]'
+                        : 'border-slate-200 dark:border-[#232A3B] text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B]">
+                <span className="text-[10px] text-slate-400 uppercase font-bold">Flujo Activado</span>
+                <p className="font-bold text-slate-900 dark:text-white mt-0.5">{simWf.name}</p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B]">
+                <span className="text-[10px] text-slate-400 uppercase font-bold">Precios y Órdenes</span>
+                <p className="font-bold text-slate-900 dark:text-white mt-0.5">
+                  {simEff.canDisclosePrices ? 'Da precios' : 'Oculta precios'} ·{' '}
+                  {simEff.canCreateOrders ? 'Crea pedidos' : 'Solo releva / asiste'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B]">
+                <span className="text-[10px] text-slate-400 uppercase font-bold">Relevo Automático</span>
+                <p className="font-bold text-slate-900 dark:text-white mt-0.5">
+                  {simEff.shouldHandoffOnQualified ? 'Sí (al completar datos)' : 'No (asiste en esta franja)'}
+                </p>
+              </div>
+            </div>
+
+            <pre className="whitespace-pre-wrap text-[11px] bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] rounded-xl p-3 text-slate-700 dark:text-slate-300 font-mono">
+              {simCompiled}
+            </pre>
+          </div>
+        );
+      })()}
     </div>
   );
 }

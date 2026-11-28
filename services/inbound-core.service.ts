@@ -5,6 +5,7 @@ import { sanitizeLeadMessage } from '@/lib/security/sanitize';
 import { formatQuoteMessageContent, formatImageMessageContent, splitIntoConsecutiveMessages } from '@/lib/media/format';
 import { AssignmentService } from './assignment.service';
 import { resolveEffectiveWorkflowState } from '@/lib/types/workflow';
+import { findGalleryProductMatch, resolveOrganizationGallery } from '@/lib/ai/product-gallery';
 import { MessagingService } from './messaging.service';
 import { InstagramService } from './instagram.service';
 import { OpenAIService } from './openai.service';
@@ -1103,6 +1104,35 @@ export class InboundCoreService {
         organization.appointment_settings?.workflow_policy,
         !isAfterHours
       );
+
+      // Pre-match automático de Anuncios/Historias contra el catálogo al recibir el webhook
+      if (/\[(?:Anuncio\/Publicaci[oó]n|Publicaci[oó]n\/Anuncio|Historia)[^\]]*\]/i.test(payload.rawContent || '')) {
+        try {
+          const { items: orgGallery } = resolveOrganizationGallery(organization, organization.system_prompt);
+          const matchedAdProd = findGalleryProductMatch(orgGallery, payload.rawContent || '');
+          if (matchedAdProd) {
+            const { data: adContact } = await (supabaseAdmin.from('contacts') as any)
+              .select('custom_fields')
+              .eq('id', contactId)
+              .single();
+            const adCf = (adContact?.custom_fields as Record<string, any>) || {};
+            const canonicalAdName = matchedAdProd.productName || matchedAdProd.name;
+            if (adCf.ad_matched_product !== canonicalAdName) {
+              await (supabaseAdmin.from('contacts') as any)
+                .update({
+                  custom_fields: {
+                    ...adCf,
+                    ad_matched_product: canonicalAdName,
+                    product_of_interest: adCf.product_of_interest || canonicalAdName,
+                  },
+                })
+                .eq('id', contactId);
+            }
+          }
+        } catch (adMatchErr) {
+          console.warn('[INBOUND AD MATCH WARN]', adMatchErr);
+        }
+      }
 
       // Si el negocio configuró relevar a asesor al responder una campaña/seguimiento en horario laboral:
       if (effectiveWf.shouldHandoffOnCampaignReply) {
