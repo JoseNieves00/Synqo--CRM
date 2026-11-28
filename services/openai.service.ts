@@ -49,6 +49,7 @@ import {
   buildDefaultWorkflowSteps,
   compileWorkflowStepsDirective,
   normalizeWorkflowPolicy,
+  selectWorkflowForEvent,
   type EffectiveWorkflowState,
 } from '@/lib/types/workflow';
 import {
@@ -991,16 +992,27 @@ PROHIBIDO inventar precios, atributos, ganchos comerciales, promociones, formas 
 </reglas_autonomas_del_turno>`;
 
   const isFirstAiTurn = !history.some((m) => m.sender_type === 'ai' || m.sender_type === 'agent');
-  const normPolicy = normalizeWorkflowPolicy(organization?.appointment_settings?.workflow_policy);
-  const activeBranchSteps = effectiveWorkflow
-    ? effectiveWorkflow.isWithinBusinessHours
-      ? normPolicy.daySteps && normPolicy.daySteps.length > 0
-        ? normPolicy.daySteps
-        : buildDefaultWorkflowSteps(normPolicy, true, caps.businessModel !== 'services', caps.businessModel !== 'products')
-      : normPolicy.nightSteps && normPolicy.nightSteps.length > 0
-      ? normPolicy.nightSteps
-      : buildDefaultWorkflowSteps(normPolicy, false, caps.businessModel !== 'services', caps.businessModel !== 'products')
-    : [];
+  const lastLeadMsgText = [...history].reverse().find((m) => m.sender_type === 'lead')?.content || '';
+  const isMultimediaOrSticker =
+    /\[(?:Sticker|Video|Audio|Imagen)[^\]]*\]/i.test(lastLeadMsgText) &&
+    lastLeadMsgText.replace(/\[[^\]]+\]/g, '').trim().length < 5;
+  const isCampaignReply = history.some((m) => m.sender_type === 'campaign' || m.sender_type === 'ai_followup');
+
+  const selectedWorkflow = effectiveWorkflow
+    ? selectWorkflowForEvent(
+        organization?.appointment_settings?.workflow_policy,
+        {
+          isWithinBusinessHours: effectiveWorkflow.isWithinBusinessHours,
+          hasAdContext: hasAdOrVisualCtx,
+          isCampaignReply,
+          isMultimediaOrSticker,
+        },
+        caps.businessModel !== 'services',
+        caps.businessModel !== 'products'
+      )
+    : null;
+
+  const activeBranchSteps = selectedWorkflow ? selectedWorkflow.steps : [];
   const compiledStepsBlock =
     activeBranchSteps.length > 0
       ? `\n${compileWorkflowStepsDirective(activeBranchSteps, {
@@ -1023,6 +1035,7 @@ PROHIBIDO inventar precios, atributos, ganchos comerciales, promociones, formas 
 
   const workflowRuntimeBlock = effectiveWorkflow
     ? `\n<flujo_operativo_actual prioridad="MAXIMA">
+Flujo seleccionado: ${selectedWorkflow?.name || 'Atención General'} (${selectedWorkflow?.trigger || 'general_message'}).
 Franja horaria: ${effectiveWorkflow.isWithinBusinessHours ? 'DENTRO DE HORARIO LABORAL' : 'FUERA DE HORARIO LABORAL'}.${
         isFirstAiTurn
           ? '\nPRIMER CONTACTO: Usa obligatoriamente el saludo inicial configurado en <instrucciones_del_negocio> (respetando su tono, marca y estructura) antes de pedir el dato faltante.'

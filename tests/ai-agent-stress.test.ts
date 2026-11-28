@@ -432,4 +432,46 @@ const stepPriceOverride = resolveEffectiveWorkflowState(
 );
 assert.equal(stepPriceOverride.canDisclosePrices, false, 'El toggle showPrice del nodo debe controlar canDisclosePrices');
 
-console.log('✅ ai-agent-stress.test.ts: 31/31 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y Filippo Kids pasaron');
+// 32. Entrega 1: Router Multi-Flujo por Disparador (Anuncio > Campaña > Multimedia > Nocturno > General)
+const { selectWorkflowForEvent } = require('../lib/types/workflow');
+const wfAd = selectWorkflowForEvent(WORKFLOW_PRESETS.qualifier_handoff.policy, {
+  isWithinBusinessHours: true,
+  hasAdContext: true,
+  isCampaignReply: false,
+  isMultimediaOrSticker: false,
+});
+assert.equal(wfAd.trigger, 'ad_or_story', 'Debe seleccionar el flujo de Anuncio');
+
+const wfCamp = selectWorkflowForEvent(WORKFLOW_PRESETS.qualifier_handoff.policy, {
+  isWithinBusinessHours: true,
+  hasAdContext: false,
+  isCampaignReply: true,
+  isMultimediaOrSticker: false,
+});
+assert.equal(wfCamp.trigger, 'campaign_reply', 'Debe seleccionar el flujo de Campaña');
+
+const wfSticker = selectWorkflowForEvent(WORKFLOW_PRESETS.qualifier_handoff.policy, {
+  isWithinBusinessHours: true,
+  hasAdContext: false,
+  isCampaignReply: false,
+  isMultimediaOrSticker: true,
+});
+assert.equal(wfSticker.trigger, 'multimedia_or_sticker', 'Debe seleccionar el flujo de Sticker/Multimedia');
+
+const wfNight = selectWorkflowForEvent(WORKFLOW_PRESETS.qualifier_handoff.policy, {
+  isWithinBusinessHours: false,
+  hasAdContext: false,
+  isCampaignReply: false,
+  isMultimediaOrSticker: false,
+});
+assert.equal(wfNight.trigger, 'after_hours', 'Debe seleccionar el flujo Nocturno fuera de horario');
+
+const wfGen = selectWorkflowForEvent(WORKFLOW_PRESETS.qualifier_handoff.policy, {
+  isWithinBusinessHours: true,
+  hasAdContext: false,
+  isCampaignReply: false,
+  isMultimediaOrSticker: false,
+});
+assert.equal(wfGen.trigger, 'general_message', 'Debe seleccionar el flujo General en horario laboral');
+
+console.log('✅ ai-agent-stress.test.ts: 32/32 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y multi-flujo pasaron');

@@ -21,6 +21,7 @@ import {
   WORKFLOW_PRESETS,
   normalizeWorkflowPolicy,
   buildDefaultWorkflowSteps,
+  buildDefaultAutomationWorkflows,
   type WorkflowPolicy,
   type WorkflowRole,
   type PriceDisclosurePolicy,
@@ -28,6 +29,8 @@ import {
   type WorkflowStep,
   type WorkflowStepType,
   type WorkflowStepCondition,
+  type AutomationWorkflow,
+  type WorkflowTriggerType,
 } from '@/lib/types/workflow';
 import { saveWorkflowPolicy } from '@/app/actions/settings';
 
@@ -82,7 +85,7 @@ export function WorkflowPolicySettings({
   onPolicySaved,
 }: WorkflowPolicySettingsProps) {
   const [policy, setPolicy] = useState<WorkflowPolicy>(() => normalizeWorkflowPolicy(initialPolicy));
-  const [activeBranch, setActiveBranch] = useState<'day' | 'night'>('day');
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('wf_general');
   const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
   const [hours, setHours] = useState<BusinessHoursConfig>(() => ({
     enabled: Boolean(initialBusinessHours?.enabled),
@@ -99,21 +102,51 @@ export function WorkflowPolicySettings({
     return true;
   });
 
-  const currentBranchSteps: WorkflowStep[] =
-    activeBranch === 'day'
-      ? policy.daySteps && policy.daySteps.length > 0
-        ? policy.daySteps
-        : buildDefaultWorkflowSteps(policy, true, supportsOrders, supportsAppointments)
-      : policy.nightSteps && policy.nightSteps.length > 0
-      ? policy.nightSteps
-      : buildDefaultWorkflowSteps(policy, false, supportsOrders, supportsAppointments);
+  const workflowsList: AutomationWorkflow[] =
+    policy.workflows && policy.workflows.length > 0
+      ? policy.workflows
+      : buildDefaultAutomationWorkflows(policy, supportsOrders, supportsAppointments);
+
+  const activeWorkflow =
+    workflowsList.find((w) => w.id === selectedWorkflowId) || workflowsList[0];
+
+  const currentBranchSteps: WorkflowStep[] = activeWorkflow?.steps || [];
 
   const updateBranchSteps = (nextSteps: WorkflowStep[]) => {
+    const nextWorkflows = workflowsList.map((w) =>
+      w.id === activeWorkflow.id ? { ...w, steps: nextSteps } : w
+    );
     setPolicy((prev) => ({
       ...prev,
       presetId: 'custom',
-      ...(activeBranch === 'day' ? { daySteps: nextSteps } : { nightSteps: nextSteps }),
+      workflows: nextWorkflows,
+      ...(activeWorkflow.trigger === 'general_message' ? { daySteps: nextSteps } : {}),
+      ...(activeWorkflow.trigger === 'after_hours' ? { nightSteps: nextSteps } : {}),
     }));
+  };
+
+  const toggleWorkflowEnabled = (wfId: string, enabled: boolean) => {
+    const nextWorkflows = workflowsList.map((w) => (w.id === wfId ? { ...w, enabled } : w));
+    setPolicy((prev) => ({ ...prev, presetId: 'custom', workflows: nextWorkflows }));
+  };
+
+  const addCustomWorkflow = () => {
+    const newWf: AutomationWorkflow = {
+      id: `wf_custom_${Date.now().toString(36)}`,
+      name: 'Nuevo Flujo Personalizado',
+      description: 'Flujo adicional configurable por disparador.',
+      trigger: 'ad_or_story',
+      enabled: true,
+      priority: 60,
+      steps: buildDefaultWorkflowSteps(policy, true, supportsOrders, supportsAppointments),
+    };
+    setPolicy((prev) => ({
+      ...prev,
+      presetId: 'custom',
+      workflows: [...workflowsList, newWf],
+    }));
+    setSelectedWorkflowId(newWf.id);
+    setInsertAtIndex(null);
   };
 
   const addStepAt = (index: number, type: WorkflowStepType) => {
@@ -539,52 +572,86 @@ export function WorkflowPolicySettings({
             </div>
           </div>
 
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                setActiveBranch('day');
-                setInsertAtIndex(null);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeBranch === 'day'
-                  ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white shadow-2xs'
-                  : 'text-slate-500 dark:text-slate-400'
-              }`}
+              onClick={addCustomWorkflow}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
             >
-              Horario Laboral
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveBranch('night');
-                setInsertAtIndex(null);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeBranch === 'night'
-                  ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white shadow-2xs'
-                  : 'text-slate-500 dark:text-slate-400'
-              }`}
-            >
-              Fuera de Horario
+              <Plus className="w-3.5 h-3.5 text-[#0052FF]" />
+              <span>Nuevo Flujo</span>
             </button>
           </div>
         </div>
 
-        {/* Disparador Inicial */}
+        {/* Lista de Flujos Independientes (estilo n8n) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {workflowsList.map((wf) => {
+            const isSelected = wf.id === activeWorkflow?.id;
+            return (
+              <div
+                key={wf.id}
+                onClick={() => {
+                  setSelectedWorkflowId(wf.id);
+                  setInsertAtIndex(null);
+                }}
+                className={`p-3 rounded-xl border cursor-pointer transition space-y-1.5 ${
+                  isSelected
+                    ? 'border-[#0052FF] bg-blue-50/50 dark:bg-blue-950/20'
+                    : 'border-slate-200 dark:border-[#232A3B] hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{wf.name}</span>
+                  <input
+                    type="checkbox"
+                    checked={wf.enabled}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => toggleWorkflowEnabled(wf.id, e.target.checked)}
+                    className="rounded border-slate-300 text-[#0052FF]"
+                  />
+                </div>
+                {wf.description && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">{wf.description}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Disparador Inicial del Flujo Seleccionado */}
         <div className="max-w-xl mx-auto">
-          <div className="rounded-xl border-2 border-[#0052FF]/40 bg-blue-50/40 dark:bg-blue-950/20 px-4 py-3 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-[#0052FF] text-white shrink-0">
-              <Zap className="w-4 h-4" />
+          <div className="rounded-xl border-2 border-[#0052FF]/40 bg-blue-50/40 dark:bg-blue-950/20 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-[#0052FF] text-white shrink-0">
+                <Zap className="w-4 h-4" />
+              </div>
+              <div className="text-xs">
+                <p className="font-bold text-slate-900 dark:text-white">
+                  Disparador: {activeWorkflow?.name}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {activeWorkflow?.steps.length || 0} paso(s) configurados
+                </p>
+              </div>
             </div>
-            <div className="text-xs">
-              <p className="font-bold text-slate-900 dark:text-white">
-                Disparador: Mensaje entrante ({activeBranch === 'day' ? 'Horario Laboral' : 'Fuera de Horario'})
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                WhatsApp / Instagram · Evalúa automáticamente contexto de anuncio, campaña y datos ya capturados.
-              </p>
-            </div>
+            <select
+              value={activeWorkflow?.trigger || 'general_message'}
+              onChange={(e) => {
+                const nextTrig = e.target.value as WorkflowTriggerType;
+                const nextWorkflows = workflowsList.map((w) =>
+                  w.id === activeWorkflow.id ? { ...w, trigger: nextTrig } : w
+                );
+                setPolicy((prev) => ({ ...prev, presetId: 'custom', workflows: nextWorkflows }));
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#090A0F] text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+            >
+              <option value="general_message">Evento: Consulta general</option>
+              <option value="ad_or_story">Evento: Anuncio Meta / Historia</option>
+              <option value="campaign_reply">Evento: Respuesta a Campaña</option>
+              <option value="multimedia_or_sticker">Evento: Sticker / Multimedia</option>
+              <option value="after_hours">Evento: Fuera de Horario</option>
+            </select>
           </div>
 
           {currentBranchSteps.map((step, idx) => (

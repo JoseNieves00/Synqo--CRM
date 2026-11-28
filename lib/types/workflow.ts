@@ -3,6 +3,23 @@ export type PriceDisclosurePolicy = 'always' | 'after_hours_only' | 'never';
 export type ResponsePertinenceStyle = 'strict' | 'consultive';
 export type RequiredLeadField = 'product_or_service' | 'city' | 'modality' | 'date_preference';
 
+export type WorkflowTriggerType =
+  | 'general_message'
+  | 'ad_or_story'
+  | 'campaign_reply'
+  | 'multimedia_or_sticker'
+  | 'after_hours';
+
+export interface AutomationWorkflow {
+  id: string;
+  name: string;
+  description?: string;
+  trigger: WorkflowTriggerType;
+  enabled: boolean;
+  priority: number;
+  steps: WorkflowStep[];
+}
+
 export type WorkflowStepType =
   | 'greeting'
   | 'identify_catalog'
@@ -55,6 +72,8 @@ export interface WorkflowPolicy {
   daySteps?: WorkflowStep[];
   /** Pasos modulares configurables para fuera de horario. */
   nightSteps?: WorkflowStep[];
+  /** Múltiples flujos independientes por disparador (estilo n8n). */
+  workflows?: AutomationWorkflow[];
 }
 
 export const DEFAULT_WORKFLOW_POLICY: WorkflowPolicy = {
@@ -152,6 +171,7 @@ export function normalizeWorkflowPolicy(raw?: Partial<WorkflowPolicy> | null): W
       typeof raw.maxReplyChars === 'number' ? raw.maxReplyChars : DEFAULT_WORKFLOW_POLICY.maxReplyChars,
     daySteps: Array.isArray(raw.daySteps) ? raw.daySteps : undefined,
     nightSteps: Array.isArray(raw.nightSteps) ? raw.nightSteps : undefined,
+    workflows: Array.isArray(raw.workflows) ? raw.workflows : undefined,
   };
 }
 
@@ -364,4 +384,173 @@ export function resolveEffectiveWorkflowState(
     responseStyle: policy.responseStyle,
     maxReplyChars: typeof policy.maxReplyChars === 'number' ? policy.maxReplyChars : 450,
   };
+}
+
+export function buildDefaultAutomationWorkflows(
+  policy: WorkflowPolicy,
+  supportsOrders = true,
+  supportsAppointments = true
+): AutomationWorkflow[] {
+  const daySteps =
+    policy.daySteps && policy.daySteps.length > 0
+      ? policy.daySteps
+      : buildDefaultWorkflowSteps(policy, true, supportsOrders, supportsAppointments);
+  const nightSteps =
+    policy.nightSteps && policy.nightSteps.length > 0
+      ? policy.nightSteps
+      : buildDefaultWorkflowSteps(policy, false, supportsOrders, supportsAppointments);
+
+  const isAdvisorFlow = policy.businessHoursRole !== 'autonomous_close';
+
+  return [
+    {
+      id: 'wf_ad_or_story',
+      name: 'Leads de Anuncios e Historias',
+      description: 'Cruza el anuncio/historia con el catálogo y responde directo sobre ese producto.',
+      trigger: 'ad_or_story',
+      enabled: true,
+      priority: 100,
+      steps: [
+        {
+          id: 'ad_greet',
+          type: 'greeting',
+          title: 'Saludar con la identidad del negocio',
+          enabled: true,
+          condition: 'first_message',
+          config: { instruction: 'Usa el saludo inicial de <instrucciones_del_negocio>.' },
+        },
+        {
+          id: 'ad_cat',
+          type: 'identify_catalog',
+          title: 'Mostrar producto detectado del anuncio',
+          enabled: true,
+          condition: 'from_ad_or_story',
+          config: {
+            showPhoto: supportsOrders,
+            showDetails: true,
+            showPrice: policy.pricePolicy === 'always',
+          },
+        },
+        ...(supportsOrders
+          ? [
+              {
+                id: 'ad_city',
+                type: 'collect_data' as const,
+                title: 'Preguntar ciudad de entrega',
+                enabled: true,
+                condition: 'when_missing_data' as const,
+                config: { fieldKey: 'city', fieldLabel: 'Ciudad de entrega' },
+              },
+            ]
+          : []),
+        {
+          id: 'ad_final',
+          type: 'final_action',
+          title: isAdvisorFlow ? 'Pasar a asesor con ficha lista' : 'Cotizar y cerrar autónomamente',
+          enabled: true,
+          condition: 'always',
+          config: { actionType: isAdvisorFlow ? 'handoff_advisor' : 'autonomous_close' },
+        },
+      ],
+    },
+    {
+      id: 'wf_campaign_reply',
+      name: 'Respuestas a Campañas y Seguimientos',
+      description: 'Gestiona respuestas a campañas masivas o reactivaciones.',
+      trigger: 'campaign_reply',
+      enabled: true,
+      priority: 90,
+      steps: [
+        {
+          id: 'camp_action',
+          type: 'final_action',
+          title: policy.handoffOnCampaignReply
+            ? 'Pasar directo a asesor disponible (en horario laboral)'
+            : 'Continuar asesoría con IA',
+          enabled: true,
+          condition: 'campaign_reply',
+          config: { actionType: policy.handoffOnCampaignReply ? 'handoff_advisor' : 'autonomous_close' },
+        },
+      ],
+    },
+    {
+      id: 'wf_multimedia',
+      name: 'Stickers y Multimedia',
+      description: 'Evita respuestas largas ante stickers sueltos y procesa imágenes/videos con seguridad.',
+      trigger: 'multimedia_or_sticker',
+      enabled: true,
+      priority: 80,
+      steps: [
+        {
+          id: 'mm_rule',
+          type: 'custom_instruction',
+          title: 'Manejo limpio de sticker/video/imagen',
+          enabled: true,
+          condition: 'always',
+          config: {
+            instruction:
+              'Si es un sticker o emoji suelto de cortesía, responde en 1 línea amable sin reiniciar venta. Si es comprobante, pasa a asesor.',
+          },
+        },
+      ],
+    },
+    {
+      id: 'wf_after_hours',
+      name: 'Atención Fuera de Horario (Nocturno)',
+      description: 'Atiende dudas/precios fuera del horario laboral y deja el cierre pendiente en Inbox.',
+      trigger: 'after_hours',
+      enabled: true,
+      priority: 70,
+      steps: nightSteps,
+    },
+    {
+      id: 'wf_general',
+      name: 'Atención General (Horario Laboral)',
+      description: 'Flujo principal para mensajes directos sin disparador especial.',
+      trigger: 'general_message',
+      enabled: true,
+      priority: 10,
+      steps: daySteps,
+    },
+  ];
+}
+
+export interface WorkflowRouterEventContext {
+  isWithinBusinessHours: boolean;
+  hasAdContext: boolean;
+  isCampaignReply: boolean;
+  isMultimediaOrSticker: boolean;
+}
+
+export function selectWorkflowForEvent(
+  rawPolicy: Partial<WorkflowPolicy> | null | undefined,
+  ctx: WorkflowRouterEventContext,
+  supportsOrders = true,
+  supportsAppointments = true
+): AutomationWorkflow {
+  const policy = normalizeWorkflowPolicy(rawPolicy);
+  const workflows =
+    Array.isArray(policy.workflows) && policy.workflows.length > 0
+      ? policy.workflows
+      : buildDefaultAutomationWorkflows(policy, supportsOrders, supportsAppointments);
+
+  const enabled = workflows
+    .filter((w) => w && w.enabled)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+  const matchesTrigger = (trigger: WorkflowTriggerType): boolean => {
+    if (trigger === 'ad_or_story') return ctx.hasAdContext;
+    if (trigger === 'campaign_reply') return ctx.isCampaignReply;
+    if (trigger === 'multimedia_or_sticker') return ctx.isMultimediaOrSticker;
+    if (trigger === 'after_hours') return !ctx.isWithinBusinessHours;
+    return true; // general_message
+  };
+
+  const matched = enabled.find((w) => matchesTrigger(w.trigger));
+  if (matched) return matched;
+
+  return (
+    workflows.find((w) => w.trigger === 'general_message') ||
+    buildDefaultAutomationWorkflows(policy, supportsOrders, supportsAppointments)[4]
+  );
 }
