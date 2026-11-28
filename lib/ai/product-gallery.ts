@@ -418,6 +418,8 @@ export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedPr
       id: g.id,
       productName: g.productName,
       price: g.price || primaryPhoto?.price,
+      description: g.description || primaryPhoto?.description,
+      isAvailable: g.isAvailable !== false,
       keywords: g.keywords,
       primaryPhoto,
       alternatePhotos,
@@ -427,32 +429,46 @@ export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedPr
 }
 
 /**
- * Establece una foto específica como la portada/principal de su producto y la ubica de primera.
+ * Establece una foto específica como la portada/principal de su producto y la ubica de primera
+ * tanto en la vista agrupada como en el arreglo plano `gallery` (para que la IA la priorice por defecto).
  */
 export function setPrimaryPhotoInGallery(gallery: GalleryPhotoItem[], targetPhotoId: string): GalleryPhotoItem[] {
-  const target = gallery.find((p) => p.id === targetPhotoId);
-  if (!target) return gallery;
+  const targetIndex = gallery.findIndex((p) => p.id === targetPhotoId || p.url === targetPhotoId);
+  if (targetIndex === -1) return gallery;
 
+  const target = gallery[targetIndex];
   const targetKey = canonicalGroupKey(target.productName || target.name || '');
 
-  return gallery.map((p) => {
+  // Actualizar flags isHero e imageRole en todo el grupo del producto
+  const updated = gallery.map((p, idx) => {
     const pKey = canonicalGroupKey(p.productName || p.name || '');
     if (pKey === targetKey) {
-      if (p.id === targetPhotoId) {
+      if (idx === targetIndex) {
         return {
           ...p,
           isHero: true,
-          imageRole: p.imageRole === 'alterna' ? 'principal' : (p.imageRole || 'principal'),
+          imageRole: !p.imageRole || p.imageRole.toLowerCase() === 'alterna' ? 'principal' : p.imageRole,
         };
       } else {
         return {
           ...p,
           isHero: false,
-          imageRole: p.imageRole === 'principal' ? 'alterna' : (p.imageRole || 'alterna'),
+          imageRole: p.imageRole?.toLowerCase() === 'principal' ? 'alterna' : (p.imageRole || 'alterna'),
         };
       }
     }
     return p;
   });
+
+  // Reubicar la foto elegida como la PRIMERA de su grupo dentro del arreglo plano `gallery`
+  const firstGroupIndex = updated.findIndex(
+    (p) => canonicalGroupKey(p.productName || p.name || '') === targetKey
+  );
+  if (firstGroupIndex !== -1 && firstGroupIndex !== targetIndex) {
+    const [promoted] = updated.splice(targetIndex, 1);
+    updated.splice(firstGroupIndex, 0, promoted);
+  }
+
+  return updated;
 }
 

@@ -135,6 +135,7 @@ export function StructuredPromptWizard({
   const [editKeywordInput, setEditKeywordInput] = useState('');
   const [isGeneratingEditAiTags, setIsGeneratingEditAiTags] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isSettingPrimary, setIsSettingPrimary] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
   // Estados para vista y modal "Ver todo" con paginación
@@ -252,6 +253,8 @@ export function StructuredPromptWizard({
   };
 
   const handleSetPrimaryPhoto = async (targetPhotoId: string, productName: string) => {
+    setIsSettingPrimary(true);
+    setEditError(null);
     try {
       const updatedGallery = setPrimaryPhotoInGallery(gallery, targetPhotoId);
       setGallery(updatedGallery);
@@ -266,7 +269,7 @@ export function StructuredPromptWizard({
         );
         if (updatedTarget) {
           setEditingProduct(updatedTarget);
-          setEditingPreviewPhotoId(targetPhotoId);
+          setEditingPreviewPhotoId(updatedTarget.primaryPhoto.id);
         }
       }
 
@@ -277,6 +280,9 @@ export function StructuredPromptWizard({
       setTimeout(() => setFeedbackBanner(null), 4000);
     } catch (err: any) {
       console.error('[SET PRIMARY PHOTO ERROR]', err);
+      setEditError(err?.message || 'Error al guardar la foto principal.');
+    } finally {
+      setIsSettingPrimary(false);
     }
   };
 
@@ -1224,12 +1230,17 @@ Especialidad: Comida artesanal, platos a la carta y menú del día.
                       {!isPrimary && (
                         <button
                           type="button"
-                          onClick={() => handleSetPrimaryPhoto(activePhoto.id, editingProduct.productName)}
-                          className="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-bold transition shadow-md cursor-pointer animate-in fade-in duration-150"
+                          disabled={isSettingPrimary || isSavingEdit}
+                          onClick={() => handleSetPrimaryPhoto(activePhoto.id || activePhoto.url, editingProduct.productName)}
+                          className="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-bold transition shadow-md cursor-pointer disabled:opacity-60 disabled:cursor-wait animate-in fade-in duration-150"
                           title="Fijar esta foto como la Portada Principal de este producto"
                         >
-                          <Star className="w-3 h-3 fill-slate-950" />
-                          <span>Fijar como Portada</span>
+                          {isSettingPrimary ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Star className="w-3 h-3 fill-slate-950" />
+                          )}
+                          <span>{isSettingPrimary ? 'Fijando...' : 'Fijar como Portada'}</span>
                         </button>
                       )}
                     </div>

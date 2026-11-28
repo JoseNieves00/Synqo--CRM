@@ -228,6 +228,8 @@ export async function saveProductGallery(
     throw new Error(`Error guardando catálogo de fotos: ${updateError.message}`);
   }
 
+  revalidatePath('/settings');
+  revalidatePath('/inbox');
   return { success: true };
 }
 
