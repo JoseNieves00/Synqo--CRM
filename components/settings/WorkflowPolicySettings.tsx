@@ -139,12 +139,12 @@ export function WorkflowPolicySettings({
   const addCustomWorkflow = () => {
     const newWf: AutomationWorkflow = {
       id: `wf_custom_${Date.now().toString(36)}`,
-      name: 'Nuevo Flujo Personalizado',
-      description: 'Flujo adicional configurable por disparador.',
-      trigger: 'ad_or_story',
+      name: 'Nuevo Flujo',
+      description: 'Flujo en blanco configurable.',
+      trigger: 'general_message',
       enabled: true,
       priority: 60,
-      steps: buildDefaultWorkflowSteps(policy, true, supportsOrders, supportsAppointments),
+      steps: [],
     };
     setPolicy((prev) => ({
       ...prev,
@@ -153,6 +153,15 @@ export function WorkflowPolicySettings({
     }));
     setSelectedWorkflowId(newWf.id);
     setInsertAtIndex(null);
+  };
+
+  const deleteWorkflow = (wfId: string) => {
+    if (workflowsList.length <= 1) return;
+    const remaining = workflowsList.filter((w) => w.id !== wfId);
+    setPolicy((prev) => ({ ...prev, presetId: 'custom', workflows: remaining }));
+    if (selectedWorkflowId === wfId && remaining[0]) {
+      setSelectedWorkflowId(remaining[0].id);
+    }
   };
 
   const addStepAt = (index: number, type: WorkflowStepType) => {
@@ -381,19 +390,13 @@ export function WorkflowPolicySettings({
             </select>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B]">
-            <div className="rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] px-3 py-2.5 text-[11px] text-slate-600 dark:text-slate-300">
-              {hours.enabled ? (
-                <span>
-                  Usa el horario de tu empresa en <strong>Canales & IA</strong> ({hours.start} – {hours.end}).
-                </span>
-              ) : (
-                <span className="text-amber-600 dark:text-amber-400 font-medium">
-                  El horario laboral de tu empresa está desactivado en <strong>Canales & IA</strong>; actívalo allí para que el modo nocturno cambie automáticamente.
-                </span>
-              )}
+          {hours.enabled && (
+            <div className="pt-2 border-t border-slate-100 dark:border-[#232A3B]">
+              <div className="rounded-xl bg-slate-50 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] px-3 py-2 text-[11px] text-slate-600 dark:text-slate-300">
+                Horario laboral activo en <strong>Canales & IA</strong> ({hours.start} – {hours.end}).
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-4 space-y-3">
@@ -609,13 +612,28 @@ export function WorkflowPolicySettings({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{wf.name}</span>
-                  <input
-                    type="checkbox"
-                    checked={wf.enabled}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => toggleWorkflowEnabled(wf.id, e.target.checked)}
-                    className="rounded border-slate-300 text-[#0052FF]"
-                  />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {workflowsList.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteWorkflow(wf.id);
+                        }}
+                        title="Eliminar flujo"
+                        className="p-1 text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <input
+                      type="checkbox"
+                      checked={wf.enabled}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => toggleWorkflowEnabled(wf.id, e.target.checked)}
+                      className="rounded border-slate-300 text-[#0052FF]"
+                    />
+                  </div>
                 </div>
                 {wf.description && (
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">{wf.description}</p>
