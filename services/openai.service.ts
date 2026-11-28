@@ -44,7 +44,13 @@ import {
   selectTurnChain,
 } from '@/lib/ai/config';
 import { composePlaybookAndBusinessPrompt } from '@/lib/ai/sales-playbook';
-import { resolveEffectiveWorkflowState, type EffectiveWorkflowState } from '@/lib/types/workflow';
+import {
+  resolveEffectiveWorkflowState,
+  buildDefaultWorkflowSteps,
+  compileWorkflowStepsDirective,
+  normalizeWorkflowPolicy,
+  type EffectiveWorkflowState,
+} from '@/lib/types/workflow';
 import {
   EnrichedGalleryItem,
   buildProductCardCaption,
@@ -985,6 +991,26 @@ PROHIBIDO inventar precios, atributos, ganchos comerciales, promociones, formas 
 </reglas_autonomas_del_turno>`;
 
   const isFirstAiTurn = !history.some((m) => m.sender_type === 'ai' || m.sender_type === 'agent');
+  const normPolicy = normalizeWorkflowPolicy(organization?.appointment_settings?.workflow_policy);
+  const activeBranchSteps = effectiveWorkflow
+    ? effectiveWorkflow.isWithinBusinessHours
+      ? normPolicy.daySteps && normPolicy.daySteps.length > 0
+        ? normPolicy.daySteps
+        : buildDefaultWorkflowSteps(normPolicy, true, caps.businessModel !== 'services', caps.businessModel !== 'products')
+      : normPolicy.nightSteps && normPolicy.nightSteps.length > 0
+      ? normPolicy.nightSteps
+      : buildDefaultWorkflowSteps(normPolicy, false, caps.businessModel !== 'services', caps.businessModel !== 'products')
+    : [];
+  const compiledStepsBlock =
+    activeBranchSteps.length > 0
+      ? `\n${compileWorkflowStepsDirective(activeBranchSteps, {
+          isFirstAiTurn,
+          hasProduct: Boolean(contactData?.custom_fields?.product_of_interest || contactData?.custom_fields?.product_interest),
+          hasCity: Boolean(contactData?.custom_fields?.city),
+          hasAdContext: hasAdOrVisualCtx,
+        })}`
+      : '';
+
   const workflowRuntimeBlock = effectiveWorkflow
     ? `\n<flujo_operativo_actual prioridad="MAXIMA">
 Franja horaria: ${effectiveWorkflow.isWithinBusinessHours ? 'DENTRO DE HORARIO LABORAL' : 'FUERA DE HORARIO LABORAL'}.${
@@ -1011,7 +1037,7 @@ Política de precios en este turno: ${
         effectiveWorkflow.responseStyle === 'strict'
           ? '\nPertinencia: ESTRICTA — responde únicamente lo que el cliente preguntó, sin información extra no solicitada.'
           : ''
-      }
+      }${compiledStepsBlock}
 </flujo_operativo_actual>`
     : '';
 

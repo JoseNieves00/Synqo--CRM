@@ -385,4 +385,26 @@ assert.equal(filippoNight.canDisclosePrices, true);
 assert.equal(filippoNight.canCreateOrders, false);
 assert.equal(filippoNight.shouldHandoffOnQualified, false);
 
-console.log('✅ ai-agent-stress.test.ts: 29/29 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y Filippo Kids pasaron');
+// 30. Constructor de Pasos Modular (Filippo Kids Día + Autónomo 24/7)
+const { buildDefaultWorkflowSteps, compileWorkflowStepsDirective } = require('../lib/types/workflow');
+const filippoDaySteps = buildDefaultWorkflowSteps(WORKFLOW_PRESETS.qualifier_handoff.policy, true, true, false);
+const compiledDay = compileWorkflowStepsDirective(filippoDaySteps, {
+  isFirstAiTurn: false,
+  hasProduct: true,
+  hasCity: false,
+  hasAdContext: true,
+});
+assert.ok(compiledDay.includes('[YA CUMPLIDO] Saludar'), 'Debe marcar el saludo como cumplido tras 1er turno');
+assert.ok(compiledDay.includes('[PRODUCTO IDENTIFICADO'), 'Debe reconocer que ya hay producto');
+assert.ok(compiledDay.includes('NO mencionar precios'), 'De día en Filippo Kids no debe mencionar precios');
+
+const autoSteps = buildDefaultWorkflowSteps(WORKFLOW_PRESETS.autonomous_24_7.policy, true, true, false);
+const compiledAuto = compileWorkflowStepsDirective(autoSteps, {
+  isFirstAiTurn: true,
+  hasProduct: false,
+  hasCity: false,
+  hasAdContext: false,
+});
+assert.ok(compiledAuto.includes('Cerrar pedido o agendar cita de forma autónoma'), 'Autónomo debe incluir cierre');
+
+console.log('✅ ai-agent-stress.test.ts: 30/30 escenarios multi-nicho, enrutador híbrido, búsqueda, envío, pedidos y Filippo Kids pasaron');

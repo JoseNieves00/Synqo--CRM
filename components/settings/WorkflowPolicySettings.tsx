@@ -1,14 +1,33 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CheckCircle2, AlertCircle, Bot, Clock, DollarSign, ShieldCheck, Save, Loader2 } from 'lucide-react';
+import {
+  CheckCircle2,
+  AlertCircle,
+  Bot,
+  Clock,
+  DollarSign,
+  ShieldCheck,
+  Save,
+  Loader2,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  GitBranch,
+  Zap,
+} from 'lucide-react';
 import {
   WORKFLOW_PRESETS,
   normalizeWorkflowPolicy,
+  buildDefaultWorkflowSteps,
   type WorkflowPolicy,
   type WorkflowRole,
   type PriceDisclosurePolicy,
   type RequiredLeadField,
+  type WorkflowStep,
+  type WorkflowStepType,
+  type WorkflowStepCondition,
 } from '@/lib/types/workflow';
 import { saveWorkflowPolicy } from '@/app/actions/settings';
 
@@ -63,6 +82,8 @@ export function WorkflowPolicySettings({
   onPolicySaved,
 }: WorkflowPolicySettingsProps) {
   const [policy, setPolicy] = useState<WorkflowPolicy>(() => normalizeWorkflowPolicy(initialPolicy));
+  const [activeBranch, setActiveBranch] = useState<'day' | 'night'>('day');
+  const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
   const [hours, setHours] = useState<BusinessHoursConfig>(() => ({
     enabled: Boolean(initialBusinessHours?.enabled),
     start: initialBusinessHours?.start || DEFAULT_HOURS.start,
@@ -78,28 +99,87 @@ export function WorkflowPolicySettings({
     return true;
   });
 
+  const currentBranchSteps: WorkflowStep[] =
+    activeBranch === 'day'
+      ? policy.daySteps && policy.daySteps.length > 0
+        ? policy.daySteps
+        : buildDefaultWorkflowSteps(policy, true, supportsOrders, supportsAppointments)
+      : policy.nightSteps && policy.nightSteps.length > 0
+      ? policy.nightSteps
+      : buildDefaultWorkflowSteps(policy, false, supportsOrders, supportsAppointments);
+
+  const updateBranchSteps = (nextSteps: WorkflowStep[]) => {
+    setPolicy((prev) => ({
+      ...prev,
+      presetId: 'custom',
+      ...(activeBranch === 'day' ? { daySteps: nextSteps } : { nightSteps: nextSteps }),
+    }));
+  };
+
+  const addStepAt = (index: number, type: WorkflowStepType) => {
+    const labelMap: Record<WorkflowStepType, string> = {
+      greeting: 'Saludar al cliente',
+      identify_catalog: 'Mostrar producto o servicio',
+      collect_data: 'Capturar dato del cliente',
+      condition_branch: 'Condición / Regla especial',
+      quote_or_schedule: supportsOrders ? 'Cotizar envío' : 'Consultar agenda',
+      custom_instruction: 'Paso personalizado',
+      final_action: 'Acción final (Relevo o Cierre)',
+    };
+    const newStep: WorkflowStep = {
+      id: `step_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type,
+      title: labelMap[type],
+      enabled: true,
+      condition: type === 'greeting' ? 'first_message' : 'always',
+      config:
+        type === 'identify_catalog'
+          ? { showPhoto: supportsOrders, showDetails: true, showPrice: policy.pricePolicy === 'always' }
+          : type === 'collect_data'
+          ? { fieldKey: supportsOrders ? 'city' : 'modality', fieldLabel: supportsOrders ? 'Ciudad' : 'Modalidad' }
+          : { instruction: '' },
+    };
+    const copy = [...currentBranchSteps];
+    copy.splice(index, 0, newStep);
+    updateBranchSteps(copy);
+    setInsertAtIndex(null);
+  };
+
+  const moveStep = (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= currentBranchSteps.length) return;
+    const copy = [...currentBranchSteps];
+    const [removed] = copy.splice(index, 1);
+    copy.splice(target, 0, removed);
+    updateBranchSteps(copy);
+  };
+
   const applyModePreset = (mode: 'autonomous' | 'handoff') => {
     if (mode === 'autonomous') {
       const base =
         !supportsOrders && supportsAppointments
           ? WORKFLOW_PRESETS.appointments.policy
           : WORKFLOW_PRESETS.autonomous_24_7.policy;
-      setPolicy({
+      const nextPolicy: WorkflowPolicy = {
         ...base,
         allowAiOrders: supportsOrders,
         allowAiAppointments: supportsAppointments,
         requiredFields: supportsOrders && !supportsAppointments ? ['product_or_service'] : base.requiredFields,
-      });
+      };
+      nextPolicy.daySteps = buildDefaultWorkflowSteps(nextPolicy, true, supportsOrders, supportsAppointments);
+      nextPolicy.nightSteps = buildDefaultWorkflowSteps(nextPolicy, false, supportsOrders, supportsAppointments);
+      setPolicy(nextPolicy);
     } else {
       const base = WORKFLOW_PRESETS.qualifier_handoff.policy;
-      setPolicy({
+      const nextPolicy: WorkflowPolicy = {
         ...base,
         allowAiOrders: false,
         allowAiAppointments: false,
-        requiredFields: supportsOrders
-          ? ['product_or_service', 'city']
-          : ['product_or_service', 'modality'],
-      });
+        requiredFields: supportsOrders ? ['product_or_service', 'city'] : ['product_or_service', 'modality'],
+      };
+      nextPolicy.daySteps = buildDefaultWorkflowSteps(nextPolicy, true, supportsOrders, supportsAppointments);
+      nextPolicy.nightSteps = buildDefaultWorkflowSteps(nextPolicy, false, supportsOrders, supportsAppointments);
+      setPolicy(nextPolicy);
     }
     setFeedback(null);
   };
@@ -467,6 +547,242 @@ export function WorkflowPolicySettings({
               <span>Permitir que la IA agende citas</span>
             </label>
           )}
+        </div>
+      </div>
+
+      {/* Constructor Visual de Pasos (estilo Automatización / n8n simplificado) */}
+      <div className="bg-white dark:bg-[#131722] border border-slate-200 dark:border-[#232A3B] rounded-2xl p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400">
+              <GitBranch className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                Constructor de Pasos del Flujo (Automatización Flexible)
+              </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Define paso a paso qué hace la IA en cada franja horaria. Si el cliente ya dio un dato, la IA salta al paso siguiente sin repetir.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-[#090A0F] border border-slate-200 dark:border-[#232A3B] shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveBranch('day');
+                setInsertAtIndex(null);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                activeBranch === 'day'
+                  ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white shadow-2xs'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              Horario Laboral
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveBranch('night');
+                setInsertAtIndex(null);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                activeBranch === 'night'
+                  ? 'bg-white dark:bg-[#1A1F2C] text-slate-900 dark:text-white shadow-2xs'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              Fuera de Horario
+            </button>
+          </div>
+        </div>
+
+        {/* Disparador Inicial */}
+        <div className="max-w-xl mx-auto">
+          <div className="rounded-xl border-2 border-[#0052FF]/40 bg-blue-50/40 dark:bg-blue-950/20 px-4 py-3 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-[#0052FF] text-white shrink-0">
+              <Zap className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <p className="font-bold text-slate-900 dark:text-white">
+                Disparador: Mensaje entrante ({activeBranch === 'day' ? 'Horario Laboral' : 'Fuera de Horario'})
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                WhatsApp / Instagram · Evalúa automáticamente contexto de anuncio, campaña y datos ya capturados.
+              </p>
+            </div>
+          </div>
+
+          {currentBranchSteps.map((step, idx) => (
+            <React.Fragment key={step.id}>
+              {/* Conector + botón insertar */}
+              <div className="flex flex-col items-center py-1.5">
+                <div className="w-px h-3 bg-slate-300 dark:bg-slate-700" />
+                <button
+                  type="button"
+                  onClick={() => setInsertAtIndex(insertAtIndex === idx ? null : idx)}
+                  title="Insertar paso aquí"
+                  className="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#1A1F2C] hover:border-[#0052FF] hover:text-[#0052FF] flex items-center justify-center text-slate-400 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-3 bg-slate-300 dark:bg-slate-700" />
+              </div>
+
+              {insertAtIndex === idx && (
+                <div className="mb-2 p-3 rounded-xl border border-[#0052FF]/40 bg-slate-50 dark:bg-[#090A0F] flex flex-wrap gap-1.5 justify-center">
+                  {(
+                    [
+                      ['greeting', 'Saludo'],
+                      ['identify_catalog', 'Producto / Servicio'],
+                      ['collect_data', 'Capturar Dato'],
+                      ['condition_branch', 'Condición (Si/Entonces)'],
+                      ['quote_or_schedule', 'Cotizar / Agenda'],
+                      ['custom_instruction', 'Paso Personalizado'],
+                      ['final_action', 'Acción Final'],
+                    ] as Array<[WorkflowStepType, string]>
+                  ).map(([type, label]) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => addStepAt(idx, type)}
+                      className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#1A1F2C] border border-slate-200 dark:border-[#232A3B] hover:border-[#0052FF] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      + {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Tarjeta del Paso */}
+              <div
+                className={`rounded-xl border p-3.5 transition text-xs space-y-2 ${
+                  step.enabled
+                    ? 'border-slate-200 dark:border-[#232A3B] bg-white dark:bg-[#1A1F2C]/60'
+                    : 'border-dashed border-slate-200 dark:border-[#232A3B] opacity-60'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={step.enabled}
+                      onChange={(e) => {
+                        const copy = [...currentBranchSteps];
+                        copy[idx] = { ...step, enabled: e.target.checked };
+                        updateBranchSteps(copy);
+                      }}
+                      className="rounded border-slate-300 text-[#0052FF]"
+                    />
+                    <input
+                      type="text"
+                      value={step.title}
+                      onChange={(e) => {
+                        const copy = [...currentBranchSteps];
+                        copy[idx] = { ...step, title: e.target.value };
+                        updateBranchSteps(copy);
+                      }}
+                      className="font-bold text-slate-900 dark:text-white bg-transparent border-b border-transparent focus:border-[#0052FF] focus:outline-none w-full truncate"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => moveStep(idx, -1)}
+                      disabled={idx === 0}
+                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveStep(idx, 1)}
+                      disabled={idx === currentBranchSteps.length - 1}
+                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateBranchSteps(currentBranchSteps.filter((_, i) => i !== idx))}
+                      className="p-1 text-rose-400 hover:text-rose-600 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <select
+                    value={step.condition}
+                    onChange={(e) => {
+                      const copy = [...currentBranchSteps];
+                      copy[idx] = { ...step, condition: e.target.value as WorkflowStepCondition };
+                      updateBranchSteps(copy);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-[11px] text-slate-700 dark:text-slate-200"
+                  >
+                    <option value="always">Cuándo: Siempre en el flujo</option>
+                    <option value="first_message">Cuándo: Solo en 1er mensaje</option>
+                    <option value="from_ad_or_story">Cuándo: Si viene de anuncio/historia</option>
+                    <option value="campaign_reply">Cuándo: Si responde campaña/seguimiento</option>
+                    <option value="price_or_payment_question">Cuándo: Solo si pregunta precio/pago</option>
+                    <option value="when_missing_data">Cuándo: Solo si aún falta este dato</option>
+                  </select>
+
+                  {step.type === 'identify_catalog' ? (
+                    <label className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-[11px] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(step.config?.showPrice)}
+                        onChange={(e) => {
+                          const copy = [...currentBranchSteps];
+                          copy[idx] = {
+                            ...step,
+                            config: { ...(step.config || {}), showPrice: e.target.checked },
+                          };
+                          updateBranchSteps(copy);
+                        }}
+                        className="rounded border-slate-300 text-[#0052FF]"
+                      />
+                      <span>Mostrar precio en este paso</span>
+                    </label>
+                  ) : (
+                    <input
+                      type="text"
+                      value={step.config?.instruction || ''}
+                      onChange={(e) => {
+                        const copy = [...currentBranchSteps];
+                        copy[idx] = {
+                          ...step,
+                          config: { ...(step.config || {}), instruction: e.target.value },
+                        };
+                        updateBranchSteps(copy);
+                      }}
+                      placeholder="Instrucción exacta para este paso (opcional)..."
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#232A3B] bg-slate-50 dark:bg-[#090A0F] text-[11px] text-slate-700 dark:text-slate-200"
+                    />
+                  )}
+                </div>
+              </div>
+            </React.Fragment>
+          ))}
+
+          {/* Botón agregar al final */}
+          <div className="flex flex-col items-center pt-2">
+            <div className="w-px h-3 bg-slate-300 dark:bg-slate-700" />
+            <button
+              type="button"
+              onClick={() => addStepAt(currentBranchSteps.length, 'custom_instruction')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-[#0052FF] text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-[#0052FF] transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Agregar Paso al Final</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
