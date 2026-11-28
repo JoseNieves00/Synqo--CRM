@@ -190,11 +190,12 @@ export function findGalleryProductMatch(
 
   // Filtrar o priorizar si se pide un rol de imagen específico
   const filterByRole = (candidates: EnrichedGalleryItem[]) => {
-    if (!normPreferredRole) return candidates[0];
+    const heroCandidate = candidates.find((c) => c.isHero === true) || candidates[0];
+    if (!normPreferredRole) return heroCandidate;
     const roleMatch = candidates.find(
       (c) => c.imageRole && normalizeSearchText(c.imageRole).includes(normPreferredRole)
     );
-    return roleMatch || candidates[0];
+    return roleMatch || heroCandidate;
   };
 
   // 1. Match exacto por ID o nombre/productName normalizado
@@ -396,8 +397,11 @@ export function groupGalleryIntoProducts(gallery: GalleryPhotoItem[]): GroupedPr
   }
 
   return Array.from(groups.values()).map((g) => {
-    // La foto principal es la marcada con isHero, o con imageRole === 'principal', o la primera de la lista
-    const heroIndex = g.photos.findIndex((p) => p.isHero || p.imageRole === 'principal');
+    // La foto principal es la marcada con isHero === true; solo si ninguna lo tiene, buscar imageRole === 'principal' o la primera
+    let heroIndex = g.photos.findIndex((p) => p.isHero === true);
+    if (heroIndex === -1) {
+      heroIndex = g.photos.findIndex((p) => p.imageRole?.toLowerCase() === 'principal');
+    }
     let primaryPhoto: GalleryPhotoItem;
     let alternatePhotos: GalleryPhotoItem[] = [];
 
